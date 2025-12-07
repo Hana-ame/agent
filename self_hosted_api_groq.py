@@ -1,6 +1,12 @@
 # 为什么会爆404的,我真的服了.
+# 因为超过cloudflare的100秒了。
+# ~2000 tokens + ~20 tokens/s 呗。
 
 from simple_ai import SimpleAI
+
+import os
+from dotenv import load_dotenv
+load_dotenv(override=True)
 
 if __name__ == "__main__":
     models = [
@@ -11,9 +17,9 @@ if __name__ == "__main__":
     ]
     for model in models:
         ai = SimpleAI(
-            "nanaka",
-            "https://chat.moonchan.xyz/groq",
-            default_model=model,
+            os.getenv("GROQ_API_KEY") or "",
+            os.getenv("GROQ_ENDPOINT") or "",
+            model=model,
             system_prompt= "",
             bug=True,
         )    
