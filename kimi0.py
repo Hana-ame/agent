@@ -6,8 +6,6 @@ Zero-default policy with graceful fallback - avoids crashes when encountering un
 
 import argparse
 import base64
-import importlib.util
-import inspect
 import io
 import json
 import logging
@@ -17,11 +15,10 @@ import re
 import signal
 import sys
 import time
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Any, Tuple, Union, Callable
+from typing import Optional, Dict, List, Any, Tuple, Union
 
 import requests
 from dotenv import load_dotenv
@@ -31,8 +28,8 @@ from dotenv import load_dotenv
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    stream=sys.stderr,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stderr
 )
 logger = logging.getLogger(__name__)
 
@@ -41,11 +38,10 @@ CODE_BLOCK = "`" * 3
 
 class Constants:
     """Application constants"""
-
     CHUNK_SIZE = 1024
     STREAM_DELAY_REASONING = 0.01
     STREAM_DELAY_CONTENT = 0.03
-    TIMEOUT = 60 * 60 * 6  # 保持 1 小时超时
+    TIMEOUT = 60*60*6  # 保持 1 小时超时
 
 
 class Colors:
@@ -78,60 +74,49 @@ class Colors:
 
 # ============ Exceptions ============
 
-
 class ChatError(Exception):
     """Base exception for chat errors"""
-
     pass
 
 
 class ConfigurationError(ChatError):
     """Missing required configuration"""
-
     pass
 
 
 class APIError(ChatError):
     """API communication error"""
-
     pass
 
 
 class FileProcessingError(ChatError):
     """File I/O error"""
-
-    pass
-
-
-class ToolError(ChatError):
-    """Tool execution error"""
-
     pass
 
 
 # ============ UTF-8 Setup ============
 
-
 def setup_utf8():
     """Force UTF-8 encoding for Windows and Unix"""
     if sys.platform == "win32":
         import ctypes
-
         try:
             kernel32 = ctypes.windll.kernel32
             kernel32.SetConsoleCP(65001)
             kernel32.SetConsoleOutputCP(65001)
         except Exception:
             pass
-
-    if hasattr(sys.stdout, "buffer"):
+    
+    if hasattr(sys.stdout, 'buffer'):
         sys.stdout = io.TextIOWrapper(
-            sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+            sys.stdout.buffer,
+            encoding="utf-8",
+            errors="replace",
+            line_buffering=True
         )
 
 
 # ============ Data Models ============
-
 
 @dataclass
 class APIConfig:
@@ -160,8 +145,6 @@ class RequestMetadata:
     finish_reason: Optional[str] = None
     model: Optional[str] = None
     duration: float = 0.0
-    tool_calls: List[Dict] = field(default_factory=list)
-    tool_results: List[Dict] = field(default_factory=list)
 
     def finalize(self) -> None:
         self.end_time = datetime.now()
@@ -174,141 +157,7 @@ class RequestMetadata:
         return None
 
 
-# ============ Tool System ============
-
-
-class ToolManager:
-    """Manages tool functions and execution"""
-
-    def __init__(self, tools_module_path: str = "tools.py"):
-        self.tools_module_path = tools_module_path
-        self.available_functions: Dict[str, Callable] = {}
-        self.tool_definitions: List[Dict] = []
-        self._load_tools()
-
-    def _load_tools(self):
-        """Load tool functions from tools.py module"""
-        try:
-            spec = importlib.util.spec_from_file_location(
-                "tools", self.tools_module_path
-            )
-            if spec and spec.loader:
-                tools_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(tools_module)
-
-                # Find all functions in the module
-                for name, obj in inspect.getmembers(tools_module):
-                    if inspect.isfunction(obj) and not name.startswith("_"):
-                        # Check if function has proper annotations for OpenAI tools
-                        sig = inspect.signature(obj)
-                        params = {}
-                        for param_name, param in sig.parameters.items():
-                            if param_name != "self":
-                                param_type = (
-                                    str(param.annotation)
-                                    if param.annotation != inspect.Parameter.empty
-                                    else "string"
-                                )
-                                params[param_name] = {
-                                    "type": param_type.replace("<class '", "")
-                                    .replace("'>", "")
-                                    .lower(),
-                                    "description": f"Parameter {param_name}",
-                                }
-
-                        # Create tool definition
-                        tool_def = {
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "description": obj.__doc__ or f"Function {name}",
-                                "parameters": {
-                                    "type": "object",
-                                    "properties": params,
-                                    "required": list(params.keys()),
-                                },
-                            },
-                        }
-
-                        self.tool_definitions.append(tool_def)
-                        self.available_functions[name] = obj
-
-                        print(
-                            f"{Colors.info('✓')} Loaded tool: {name}", file=sys.stderr
-                        )
-
-                if not self.tool_definitions:
-                    print(
-                        f"{Colors.warn('⚠')} No tools found in {self.tools_module_path}",
-                        file=sys.stderr,
-                    )
-            else:
-                print(
-                    f"{Colors.warn('⚠')} Tools module not found: {self.tools_module_path}",
-                    file=sys.stderr,
-                )
-        except Exception as e:
-            print(f"{Colors.warn('⚠')} Failed to load tools: {e}", file=sys.stderr)
-
-    def execute_tool(self, tool_call: Dict) -> Dict:
-        """Execute a tool call and return result"""
-        try:
-            function_name = tool_call["function"]["name"]
-            function_args = json.loads(tool_call["function"]["arguments"])
-
-            if function_name not in self.available_functions:
-                raise ToolError(f"Unknown function: {function_name}")
-
-            print(
-                f"\n{Colors.CYAN}🔧 Executing tool: {function_name}{Colors.END}",
-                file=sys.stderr,
-            )
-            print(f"   Arguments: {function_args}", file=sys.stderr)
-
-            # Execute the function
-            result = self.available_functions[function_name](**function_args)
-
-            print(f"   Result: {result}", file=sys.stderr)
-
-            # 修复：处理null或空的tool_call_id
-            tool_call_id = tool_call.get("id")
-            if not tool_call_id:
-                tool_call_id = str(uuid.uuid4())
-                print(
-                    f"{Colors.warn('⚠')} Generated tool call ID: {tool_call_id}",
-                    file=sys.stderr,
-                )
-
-            return {
-                "tool_call_id": tool_call_id,
-                "role": "tool",
-                "name": function_name,
-                "content": json.dumps(result, ensure_ascii=False),
-            }
-
-        except Exception as e:
-            error_msg = f"Tool execution failed: {str(e)}"
-            print(f"{Colors.error('❌')} {error_msg}", file=sys.stderr)
-
-            # 修复：错误响应也生成ID
-            tool_call_id = tool_call.get("id")
-            if not tool_call_id:
-                tool_call_id = str(uuid.uuid4())
-
-            return {
-                "tool_call_id": tool_call_id,
-                "role": "tool",
-                "name": tool_call["function"]["name"],
-                "content": json.dumps({"error": error_msg}, ensure_ascii=False),
-            }
-
-    def get_tool_definitions(self) -> List[Dict]:
-        """Get OpenAI-compatible tool definitions"""
-        return self.tool_definitions
-
-
 # ============ Configuration Management ============
-
 
 class ConfigManager:
     """Manages configuration loading with graceful fallback"""
@@ -445,32 +294,8 @@ class ConfigManager:
                 if not args.enable_thinking:
                     data.pop("reasoning_content", None)
 
-    @staticmethod
-    def save_context_path(config_path: str, context_path: str | Path) -> None:
-        """Save context file path to config.json (only modifies context field)"""
-        try:
-            path = Path(config_path).expanduser().resolve()
-            
-            if path.exists():
-                with open(path, "r", encoding="utf-8") as f:
-                    config_data = json.load(f)
-            else:
-                config_data = {}
-                
-            # 只修改context字段，不修改messages和system等其他字段
-            config_data["context"] = str(context_path)
-            
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(config_data, f, ensure_ascii=False, indent=2)
-                
-            print(f"{Colors.info('✓')} Saved context reference: {context_path}", file=sys.stderr)
-                
-        except Exception as e:
-            print(f"{Colors.warn('⚠')} Failed to save context path: {e}", file=sys.stderr)
-
 
 # ============ File & Message Building ============
-
 
 class MessageBuilder:
     """Builds messages with file context support"""
@@ -492,10 +317,7 @@ class MessageBuilder:
             mime_type = "application/octet-stream"
 
         # Image handling
-        if (
-            mime_type.startswith("image/")
-            or path.suffix.lower() in MessageBuilder.IMAGE_TYPES
-        ):
+        if mime_type.startswith("image/") or path.suffix.lower() in MessageBuilder.IMAGE_TYPES:
             with open(path, "rb") as f:
                 encoded = base64.b64encode(f.read()).decode("utf-8")
             return {
@@ -506,7 +328,7 @@ class MessageBuilder:
         # Text file handling with encoding detection
         encodings = ["utf-8", "utf-8-sig", "gbk", "latin-1"]
         content = None
-
+        
         for enc in encodings:
             try:
                 with open(path, "r", encoding=enc, errors="strict") as f:
@@ -514,7 +336,7 @@ class MessageBuilder:
                 break
             except UnicodeDecodeError:
                 continue
-
+        
         if content is None:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
@@ -527,72 +349,34 @@ class MessageBuilder:
             return f"{CODE_BLOCK}{suffix}\n{content}\n{CODE_BLOCK}\n[File: {path.name}]"
 
     @staticmethod
-    def build_messages(args, config_data: Dict | None = None) -> List[Dict[str, Any]]:
+    def build_messages(
+        args, config_messages: List[Dict] | None = None
+    ) -> List[Dict[str, Any]]:
         """Build final message list with priority: context > config > prompt"""
         messages = []
 
-        # Extract system prompt and messages from config if exists
-        system_prompt = None
-        config_messages = []
-        context_path = None
-        
-        if config_data:
-            # 使用get而不是pop，避免修改config_data，防止类型错误
-            system_prompt = config_data.get("system", None)
-            # 如果指定了--new，忽略config中的messages和context
-            if not args.new:
-                config_messages = config_data.get("messages", [])
-                # 优先使用args.context，如果没有则使用config_data中的context
-                context_path = args.context or config_data.get("context")
-            else:
-                print(f"{Colors.info('✓')} --new specified: ignoring config messages and context", file=sys.stderr)
-
-        # 1. Add system prompt if exists (always first)
-        if system_prompt:
-            # 修复类型错误：确保system_prompt是字符串（处理多模态情况）
-            if isinstance(system_prompt, list):
-                # 提取文本内容或转为json字符串
-                texts = []
-                for item in system_prompt:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        texts.append(item.get("text", ""))
-                if texts:
-                    system_prompt = "\n".join(texts)
-                else:
-                    system_prompt = json.dumps(system_prompt, ensure_ascii=False)
-            messages.append({"role": "system", "content": system_prompt})
-            print(f"{Colors.info('✓')} Added system prompt", file=sys.stderr)
-
-        # 2. Load context if provided (除非指定了--new)
-        if context_path and not args.new:
+        # 1. Load context if provided
+        if hasattr(args, "context") and args.context:
             try:
-                context_messages_loaded = MessageBuilder._load_context(context_path)
-                messages.extend(context_messages_loaded)
+                context_messages = MessageBuilder._load_context(args.context)
+                messages.extend(context_messages)
                 print(
-                    f"{Colors.info('✓')} Loaded conversation context: {context_path}",
+                    f"{Colors.info('✓')} Loaded conversation context: {args.context}",
                     file=sys.stderr,
                 )
             except Exception as e:
                 print(
                     f"{Colors.warn('⚠')} Failed to load context: {e}", file=sys.stderr
                 )
-        elif args.context and args.new:
-            print(f"{Colors.info('✓')} --new specified: ignoring context file", file=sys.stderr)
 
-        # 3. Add messages from config (如果指定了--new，这里已经是空列表)
+        # 2. Add messages from config
         if config_messages:
             messages.extend(config_messages)
 
-        # 4. Add current user input (如果为空，则跳过，支持直接传输历史)
+        # 3. Add current user input
         if hasattr(args, "prompt") and args.prompt:
             user_messages = MessageBuilder._build_user_messages(args.prompt)
             messages.extend(user_messages)
-
-        # 5. 处理 auto_continue 参数：如果最后一项是assistant且配置允许，添加空user消息
-        if config_data and config_data.get("auto_continue", False):
-            if messages and messages[-1].get("role") == "assistant":
-                messages.append({"role": "user", "content": ""})
-                print(f"{Colors.info('✓')} Auto-continue: added empty user message", file=sys.stderr)
 
         if not messages:
             raise ConfigurationError(
@@ -603,7 +387,7 @@ class MessageBuilder:
 
     @staticmethod
     def _load_context(context_path: str) -> List[Dict]:
-        """Load conversation history from JSON file and fix null IDs"""
+        """Load conversation history from JSON file"""
         path = Path(context_path).expanduser().resolve()
         if not path.exists():
             raise FileNotFoundError(f"Context file not found: {context_path}")
@@ -612,34 +396,13 @@ class MessageBuilder:
             data = json.load(f)
 
         if isinstance(data, list):
-            messages = data
+            return data
         elif isinstance(data, dict) and "messages" in data:
-            messages = data["messages"]
+            return data["messages"]
         else:
             raise ValueError(
                 "Invalid context format: expected list or {messages: [...]}"
             )
-
-        # 修复：自动修复null的tool_call_id和tool_calls.id
-        MessageBuilder._fix_null_tool_ids(messages)
-        
-        return messages
-
-    @staticmethod
-    def _fix_null_tool_ids(messages: List[Dict]) -> None:
-        """Fix null tool call IDs in messages"""
-        for msg in messages:
-            # 修复assistant消息中的tool_calls
-            if msg.get("role") == "assistant" and "tool_calls" in msg:
-                for tool_call in msg["tool_calls"]:
-                    if not tool_call.get("id"):
-                        tool_call["id"] = str(uuid.uuid4())
-                        print(f"{Colors.warn('⚠')} Fixed null tool call ID in assistant message", file=sys.stderr)
-            
-            # 修复tool消息中的tool_call_id
-            if msg.get("role") == "tool" and not msg.get("tool_call_id"):
-                msg["tool_call_id"] = str(uuid.uuid4())
-                print(f"{Colors.warn('⚠')} Fixed null tool_call_id in tool message", file=sys.stderr)
 
     @staticmethod
     def _build_user_messages(prompt_parts: List[str]) -> List[Dict[str, Any]]:
@@ -656,15 +419,9 @@ class MessageBuilder:
                     file_content = MessageBuilder.load_file(part)
                     if isinstance(file_content, dict):
                         has_image = True
-                        print(
-                            f"{Colors.info('✓')} Attached image: {part[1:]}",
-                            file=sys.stderr,
-                        )
+                        print(f"{Colors.info('✓')} Attached image: {part[1:]}", file=sys.stderr)
                     else:
-                        print(
-                            f"{Colors.info('✓')} Attached file: {part[1:]}",
-                            file=sys.stderr,
-                        )
+                        print(f"{Colors.info('✓')} Attached file: {part[1:]}", file=sys.stderr)
                     content_parts.append(file_content)
                 except Exception as e:
                     print(
@@ -703,7 +460,6 @@ class MessageBuilder:
 
 
 # ============ Typewriter Output ============
-
 
 class TypewriterPrinter:
     """Typewriter effect printer with file output"""
@@ -794,7 +550,7 @@ class TypewriterPrinter:
         for char in new_text:
             print(char, end="", flush=True)
             time.sleep(Constants.STREAM_DELAY_CONTENT)
-
+        
         self.write(new_text)
 
         self.content_printed = len(self.content_buffer)
@@ -811,7 +567,6 @@ class TypewriterPrinter:
 
 # ============ HTTP Client ============
 
-
 class APIClient:
     """HTTP client with retry and error handling using Session"""
 
@@ -819,13 +574,11 @@ class APIClient:
         self.config = config
         self.max_retries = max_retries
         self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "Authorization": f"Bearer {config.api_key}",
-                "Content-Type": "application/json",
-                "Accept": "text/event-stream",
-            }
-        )
+        self.session.headers.update({
+            "Authorization": f"Bearer {config.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        })
 
     def __enter__(self):
         return self
@@ -846,10 +599,7 @@ class APIClient:
             return 0, 0
 
     def request(
-        self,
-        payload: Dict[str, Any],
-        printer: TypewriterPrinter,
-        tool_manager: Optional[ToolManager] = None,
+        self, payload: Dict[str, Any], printer: TypewriterPrinter
     ) -> RequestMetadata:
         """Execute API request with retry logic"""
         metadata = RequestMetadata(model=payload.get("model"))
@@ -859,7 +609,7 @@ class APIClient:
         messages = payload.get("messages", [])
         char_count, estimated_tokens = self._estimate_tokens(messages)
         max_tokens = payload.get("max_tokens", "Not set")
-
+        
         # 显示请求信息，包括 Token 预估
         print(
             f"\n{Colors.CYAN}🚀 Requesting {metadata.model or 'unknown model'}...{Colors.END}"
@@ -867,9 +617,15 @@ class APIClient:
         print(f"   Endpoint: {self.config.endpoint}")
         print(f"   Stream: {'Yes' if is_stream else 'No'}")
         print(f"   Prompt Size: {char_count} chars (Est. ~{estimated_tokens} tokens)")
-
+        
         if max_tokens != "Not set":
             print(f"   Max Tokens: {max_tokens}")
+            if isinstance(max_tokens, int) and estimated_tokens > 0:
+                total_est = estimated_tokens + max_tokens
+                print(f"   Total Est.: ~{total_est} tokens")
+                # 警告：如果预估超过常见模型的 32k 或 128k 限制
+                # if total_est > 32000:
+                #     print(f"{Colors.warn('⚠️  Warning:')} High token usage! Risk of context overflow.")
         else:
             print(f"   Max Tokens: {Colors.warn('Not set')} (model default)")
 
@@ -887,13 +643,9 @@ class APIClient:
                 response.raise_for_status()
 
                 if is_stream:
-                    return self._handle_stream(
-                        response, printer, metadata, tool_manager
-                    )
+                    return self._handle_stream(response, printer, metadata)
                 else:
-                    return self._handle_non_stream(
-                        response, printer, metadata, tool_manager
-                    )
+                    return self._handle_non_stream(response, printer, metadata)
 
             except requests.exceptions.RequestException as e:
                 if attempt < self.max_retries:
@@ -927,15 +679,10 @@ class APIClient:
         return clean
 
     def _handle_stream(
-        self,
-        response,
-        printer: TypewriterPrinter,
-        metadata: RequestMetadata,
-        tool_manager: Optional[ToolManager],
+        self, response, printer: TypewriterPrinter, metadata: RequestMetadata
     ) -> RequestMetadata:
         """Handle streaming response"""
         buffer = ""
-        tool_calls_buffer = {}
 
         for chunk in response.iter_content(chunk_size=Constants.CHUNK_SIZE):
             if not chunk:
@@ -956,25 +703,15 @@ class APIClient:
 
                 try:
                     data = json.loads(data_str)
-                    self._process_stream_data(
-                        data, printer, metadata, tool_calls_buffer
-                    )
+                    self._process_stream_data(data, printer, metadata)
                 except json.JSONDecodeError:
                     continue
-
-        # Handle tool calls after stream ends
-        if tool_calls_buffer and tool_manager:
-            self._handle_tool_calls(tool_calls_buffer, metadata, tool_manager)
 
         metadata.finalize()
         return metadata
 
     def _process_stream_data(
-        self,
-        data: Dict,
-        printer: TypewriterPrinter,
-        metadata: RequestMetadata,
-        tool_calls_buffer: Dict,
+        self, data: Dict, printer: TypewriterPrinter, metadata: RequestMetadata
     ):
         """Process individual stream data chunk"""
         # Update usage
@@ -995,29 +732,6 @@ class APIClient:
         if finish_reason:
             metadata.finish_reason = finish_reason
 
-        # Process tool calls
-        tool_calls = delta.get("tool_calls", [])
-        for tool_call in tool_calls:
-            idx = tool_call.get("index", 0)
-            if idx not in tool_calls_buffer:
-                tool_calls_buffer[idx] = {
-                    "id": "",
-                    "type": "function",
-                    "function": {"name": "", "arguments": ""},
-                }
-
-            if "id" in tool_call:
-                tool_calls_buffer[idx]["id"] = tool_call["id"]
-            if "function" in tool_call:
-                if "name" in tool_call["function"]:
-                    tool_calls_buffer[idx]["function"]["name"] = tool_call["function"][
-                        "name"
-                    ]
-                if "arguments" in tool_call["function"]:
-                    tool_calls_buffer[idx]["function"]["arguments"] += tool_call[
-                        "function"
-                    ]["arguments"]
-
         # Process content
         reasoning_delta = delta.get("reasoning_content") or delta.get("reasoning") or ""
         content_delta = delta.get("content", "")
@@ -1029,11 +743,7 @@ class APIClient:
             printer.update_content(content_delta)
 
     def _handle_non_stream(
-        self,
-        response,
-        printer: TypewriterPrinter,
-        metadata: RequestMetadata,
-        tool_manager: Optional[ToolManager],
+        self, response, printer: TypewriterPrinter, metadata: RequestMetadata
     ) -> RequestMetadata:
         """Handle non-streaming response"""
         data = response.json()
@@ -1049,11 +759,6 @@ class APIClient:
         printer.switch_to_content()
         printer.update_content(content)
 
-        # Handle tool calls
-        tool_calls = message.get("tool_calls", [])
-        if tool_calls and tool_manager:
-            self._handle_tool_calls(tool_calls, metadata, tool_manager)
-
         # Update metadata
         if "usage" in data:
             metadata.prompt_tokens = data["usage"].get("prompt_tokens", 0)
@@ -1065,36 +770,8 @@ class APIClient:
 
         return metadata
 
-    def _handle_tool_calls(
-        self,
-        tool_calls: Union[List, Dict],
-        metadata: RequestMetadata,
-        tool_manager: ToolManager,
-    ):
-        """Handle tool calls and execute them"""
-        if isinstance(tool_calls, dict):
-            # Convert dict to list
-            tool_calls_list = []
-            for idx in sorted(tool_calls.keys()):
-                tool_calls_list.append(tool_calls[idx])
-            tool_calls = tool_calls_list
-
-        metadata.tool_calls = tool_calls
-
-        print(f"\n{Colors.CYAN}🛠️  Tool Calls Detected:{Colors.END}")
-        for i, tool_call in enumerate(tool_calls, 1):
-            print(
-                f"   {i}. {tool_call['function']['name']}({tool_call['function']['arguments']})"
-            )
-
-        # Execute tool calls
-        for tool_call in tool_calls:
-            result = tool_manager.execute_tool(tool_call)
-            metadata.tool_results.append(result)
-
 
 # ============ Result Saving ============
-
 
 class ResultSaver:
     """Saves conversation results to files"""
@@ -1153,7 +830,7 @@ class ResultSaver:
         for msg in messages:
             role = msg.get("role", "unknown").upper()
             content = msg.get("content", "")
-
+            
             # Handle multimodal content
             if isinstance(content, list):
                 texts = []
@@ -1164,7 +841,7 @@ class ResultSaver:
                         elif item.get("type") == "image_url":
                             texts.append("[Image]")
                 content = "\n".join(texts)
-
+            
             md_content += f"### {role}\n\n{content}\n\n"
 
         # Add reasoning if present
@@ -1188,32 +865,6 @@ class ResultSaver:
 ## ✨ Response
 {printer.content_buffer}
 
-"""
-
-        # Add tool calls if present
-        if metadata.tool_calls:
-            md_content += f"""
----
-
-## 🛠️ Tool Calls
-"""
-            for i, tool_call in enumerate(metadata.tool_calls, 1):
-                md_content += f"""
-### Tool Call {i}
-- **Function**: `{tool_call['function']['name']}`
-- **Arguments**: `{tool_call['function']['arguments']}`
-"""
-
-            if metadata.tool_results:
-                md_content += f"""
-### Tool Results
-"""
-                for result in metadata.tool_results:
-                    md_content += f"""
-- **{result['name']}**: {result['content']}
-"""
-
-        md_content += f"""
 ---
 ## 📊 Statistics
 
@@ -1251,27 +902,14 @@ class ResultSaver:
         }
 
         # Add assistant response
-        assistant_msg : Dict[str, Any] = {
+        assistant_msg = {
             "role": "assistant",
             "content": printer.content_buffer,
         }
         if printer.reasoning_buffer:
             assistant_msg["reasoning_content"] = printer.reasoning_buffer
-        if metadata.tool_calls:
-            # 修复：确保tool_calls中的ID不为null
-            for tool_call in metadata.tool_calls:
-                if not tool_call.get("id"):
-                    tool_call["id"] = str(uuid.uuid4())
-            assistant_msg["tool_calls"] = metadata.tool_calls
 
         continuation["messages"].append(assistant_msg)
-
-        # Add tool results as tool messages
-        for result in metadata.tool_results:
-            # 修复：确保tool_call_id不为null
-            if not result.get("tool_call_id"):
-                result["tool_call_id"] = str(uuid.uuid4())
-            continuation["messages"].append(result)
 
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(continuation, f, ensure_ascii=False, indent=2)
@@ -1280,7 +918,6 @@ class ResultSaver:
 
 
 # ============ Argument Parser ============
-
 
 def create_argument_parser() -> argparse.ArgumentParser:
     """Create enhanced argument parser"""
@@ -1301,10 +938,6 @@ Token Estimation:
   Before sending, the CLI will display estimated prompt tokens and max_tokens
   to help you avoid context overflow.
 
-Tool Support:
-  Define tools in tools.py with proper function signatures and docstrings
-  The CLI will automatically load and make them available to the model
-
 Examples:
   # Basic usage with default config
   python chat.py "Hello, how are you?"
@@ -1318,9 +951,6 @@ Examples:
   
   # Continue conversation
   python chat.py --context conversation.json "Continue from here"
-  
-  # Start new conversation (don't save context to config)
-  python chat.py --new "Start fresh conversation"
   
   # Disable streaming
   python chat.py --no-stream "Generate a long response"
@@ -1341,25 +971,14 @@ Examples:
     parser.add_argument(
         "--config", "-c", default="config.json", help="Request body configuration file"
     )
-    parser.add_argument(
-        "--new",
-        action="store_true",
-        help="Start new conversation (ignore context and config messages)",
-    )
 
     # Input
-    parser.add_argument(
-        "prompt", nargs="*", help="Prompt text (supports @filename for files/images)"
-    )
-    parser.add_argument(
-        "--context", help="Conversation context JSON file for continuation"
-    )
+    parser.add_argument("prompt", nargs="*", help="Prompt text (supports @filename for files/images)")
+    parser.add_argument("--context", help="Conversation context JSON file for continuation")
 
     # OpenAI Parameters (override config.json)
     parser.add_argument("--model", "-m", help="Model name (overrides config)")
-    parser.add_argument(
-        "--temperature", "-t", type=float, help="Sampling temperature (0-2)"
-    )
+    parser.add_argument("--temperature", "-t", type=float, help="Sampling temperature (0-2)")
     parser.add_argument("--max-tokens", type=int, help="Maximum tokens to generate")
     parser.add_argument("--top-p", type=float, help="Nucleus sampling parameter")
     parser.add_argument("--presence-penalty", type=float, help="Presence penalty")
@@ -1383,14 +1002,6 @@ Examples:
         help="Disable thinking process",
     )
 
-    # Tools
-    parser.add_argument(
-        "--tools", default="tools.py", help="Python module containing tool functions"
-    )
-    parser.add_argument(
-        "--no-tools", action="store_true", help="Disable tool functions"
-    )
-
     # Output
     parser.add_argument("--output", "-o", help="Output file base name")
 
@@ -1398,7 +1009,6 @@ Examples:
 
 
 # ============ Main Function ============
-
 
 def handle_interrupt(signum, frame):
     """Handle Ctrl+C gracefully"""
@@ -1421,26 +1031,17 @@ def main():
         api_config = ConfigManager.load_connection_config(args)
         api_config.validate()
 
-        # 2. Load request body from config.json (不再pop system和messages)
+        # 2. Load request body from config.json
         request_body = ConfigManager.load_request_body(args.config, args)
 
-        # 3. Initialize tool manager
-        tool_manager = None
-        if not args.no_tools and Path(args.tools).exists():
-            tool_manager = ToolManager(args.tools)
-            tool_definitions = tool_manager.get_tool_definitions()
-            if tool_definitions:
-                request_body["tools"] = tool_definitions
-                print(
-                    f"{Colors.info('✓')} Added {len(tool_definitions)} tools to request",
-                    file=sys.stderr,
-                )
-
-        # 4. Build messages (支持从config自动加载context，支持auto_continue)
-        messages = MessageBuilder.build_messages(args, request_body)
+        # 3. Build messages
+        config_messages = request_body.pop(
+            "messages", []
+        )  # Remove from body temporarily
+        messages = MessageBuilder.build_messages(args, config_messages)
         request_body["messages"] = messages
 
-        # 5. Determine output path
+        # 4. Determine output path
         if args.output:
             output_base = Path(args.output)
         else:
@@ -1453,19 +1054,16 @@ def main():
             safe_name = re.sub(r"[^\w\s-]", "", prompt_hint).strip().replace(" ", "_")
             output_base = Path(f"chat_{safe_name}_{timestamp}")
 
-        # 6. Execute request
+        # 5. Execute request
         with open(output_base.with_suffix(".md"), "w", encoding="utf-8") as out_file:
             printer = TypewriterPrinter(out_file)
-
+            
             with APIClient(api_config) as client:
-                metadata = client.request(request_body, printer, tool_manager)
-
+                metadata = client.request(request_body, printer)
+            
             printer.finalize()
 
-            # 7. Add separator before complete message
-            print(f"\n{Colors.bold('─' * 60)}")
-
-            # 8. Print statistics
+            # 6. Print statistics
             print(f"\n{Colors.info('✅ Complete')}")
             print(f"   Duration: {metadata.duration:.2f}s")
 
@@ -1484,10 +1082,7 @@ def main():
                     f"   First Token: {(printer.first_token_time - printer.start_time):.2f}s"
                 )
 
-            if metadata.tool_calls:
-                print(f"   Tool Calls: {len(metadata.tool_calls)} executed")
-
-            # 9. Save results
+            # 7. Save results
             md_path, json_path = ResultSaver.save(
                 output_base, request_body, metadata, printer
             )
@@ -1498,10 +1093,6 @@ def main():
             print(
                 f"\n{Colors.info('💡 Tip:')} Continue with: --context {json_path.name}"
             )
-
-            # 10. 总是将最新的context json文件名写到config.json的context项上
-            # 这样下次运行可以自动继续对话
-            ConfigManager.save_context_path(args.config, json_path)
 
     except KeyboardInterrupt:
         print(f"\n{Colors.warn('⚠️  Interrupted')}", file=sys.stderr)

@@ -1,0 +1,8 @@
+{
+  "max_tokens": 204800,
+  "temperature": 0.6,
+  "top_p": 0.95,
+  "enable_thinking": true,
+  "thinking_budget": 102400,
+  "model": "Pro/zai-org/GLM-4.7"
+}
