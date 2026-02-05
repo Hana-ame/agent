@@ -1,0 +1,7 @@
+{
+  "model": "z-ai/glm4.7",
+  "temperature": 0.7,
+  "max_tokens": 65536,
+  "stream": true,
+  "enable_thinking": true
+}
