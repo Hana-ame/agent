@@ -41,7 +41,7 @@ class Constants:
     CHUNK_SIZE = 1024
     STREAM_DELAY_REASONING = 0.01
     STREAM_DELAY_CONTENT = 0.03
-    TIMEOUT = 60*60  # 保持 1 小时超时
+    TIMEOUT = 60*60*6  # 保持 1 小时超时
 
 
 class Colors:

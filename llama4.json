@@ -1,0 +1,9 @@
+{
+  "messages": [],
+  "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
+  "temperature": 1,
+  "max_completion_tokens": 1024,
+  "top_p": 1,
+  "stream": true,
+  "stop": null
+}
