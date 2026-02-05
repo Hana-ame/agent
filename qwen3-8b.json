@@ -8,5 +8,5 @@
   "enable_thinking": true,
   "thinking_budget": 32768,
   "model": "Qwen/Qwen3-8B",
-  "messages": []
+  "context": "chat_你总是需要把你要说的内容发布到10001_20260206_061658.json"
 }

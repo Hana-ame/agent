@@ -4,3 +4,5 @@ __pycache__
 
 profiles.json
 *.txt
+
+chat_*
