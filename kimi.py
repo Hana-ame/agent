@@ -1,897 +1,1112 @@
 #!/usr/bin/env python3
 """
-打字机效果的HTTP客户端 - 支持OpenAI格式JSON配置、文件上下文、历史对话和Tee输出
+Advanced Typewriter Effect HTTP Client for OpenAI-compatible APIs (Enhanced Version).
+Zero-default policy with graceful fallback - avoids crashes when encountering unsupported parameters.
 """
 
-import json
-import time
-import sys
+import argparse
+import base64
 import io
+import json
+import logging
+import mimetypes
 import os
 import re
-import argparse
+import signal
+import sys
+import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, List, Any, Tuple, Union
+
 import requests
 from dotenv import load_dotenv
 
-THREE_DOTS = "`" * 3
+# ============ Setup & Constants ============
 
-# ============ UTF-8 编码设置 ============
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stderr
+)
+logger = logging.getLogger(__name__)
 
+CODE_BLOCK = "`" * 3
+
+
+class Constants:
+    """Application constants"""
+    CHUNK_SIZE = 1024
+    STREAM_DELAY_REASONING = 0.01
+    STREAM_DELAY_CONTENT = 0.03
+    TIMEOUT = 60*60  # 保持 1 小时超时
+
+
+class Colors:
+    """ANSI Color codes for terminal output."""
+
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+    BOLD = "\033[1m"
+    END = "\033[0m"
+
+    @classmethod
+    def info(cls, text: str) -> str:
+        return f"{cls.GREEN}{text}{cls.END}"
+
+    @classmethod
+    def warn(cls, text: str) -> str:
+        return f"{cls.YELLOW}{text}{cls.END}"
+
+    @classmethod
+    def error(cls, text: str) -> str:
+        return f"{cls.RED}{text}{cls.END}"
+
+    @classmethod
+    def bold(cls, text: str) -> str:
+        return f"{cls.BOLD}{text}{cls.END}"
+
+
+# ============ Exceptions ============
+
+class ChatError(Exception):
+    """Base exception for chat errors"""
+    pass
+
+
+class ConfigurationError(ChatError):
+    """Missing required configuration"""
+    pass
+
+
+class APIError(ChatError):
+    """API communication error"""
+    pass
+
+
+class FileProcessingError(ChatError):
+    """File I/O error"""
+    pass
+
+
+# ============ UTF-8 Setup ============
 
 def setup_utf8():
-    """设置UTF-8编码环境"""
+    """Force UTF-8 encoding for Windows and Unix"""
     if sys.platform == "win32":
         import ctypes
-
         try:
             kernel32 = ctypes.windll.kernel32
             kernel32.SetConsoleCP(65001)
             kernel32.SetConsoleOutputCP(65001)
-        except:
+        except Exception:
             pass
-
-    sys.stdout = io.TextIOWrapper(
-        sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
-    )
-
-
-setup_utf8()
-
-# ============ 配置加载 ============
-
-
-def load_config(args):
-    """从.env和profile加载配置"""
-    # 1. 加载基础 .env 配置
-    env_paths = [".env", "../.env", os.path.expanduser("~/.ai_chat.env")]
-    base_config = {
-        "endpoint": "",
-        "api_key": "",
-        "model": "Pro/moonshotai/Kimi-K2.5",
-    }
     
-    for env_path in env_paths:
-        if os.path.exists(env_path):
-            load_dotenv(env_path)
-            print(f"✓ 已加载环境配置: {env_path}", file=sys.stderr)
-            break
-    
-    base_config.update({
-        "endpoint": os.getenv("ENDPOINT", ""),
-        "api_key": os.getenv("API_KEY", ""),
-        "model": os.getenv("MODEL", base_config["model"]),
-    })
-
-    # 2. 加载 Profile 配置（从 ~/.ai_chat_profiles.json）
-    profile_config = load_profile(args.profile)
-    
-    # 3. 合并：Profile > .env > 默认
-    final_config = {**base_config, **profile_config}
-    
-    return final_config
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer,
+            encoding="utf-8",
+            errors="replace",
+            line_buffering=True
+        )
 
 
-def load_profile(profile_name: str) -> Dict:
-    """加载指定 profile 的配置"""
-    profile_paths = [
+# ============ Data Models ============
+
+@dataclass
+class APIConfig:
+    """API connection configuration - only endpoint and api_key"""
+
+    endpoint: str = ""
+    api_key: str = ""
+    timeout: int = Constants.TIMEOUT  # HTTP timeout, not API parameter
+
+    def validate(self) -> None:
+        if not self.endpoint:
+            raise ConfigurationError("API endpoint is required")
+        if not self.api_key:
+            raise ConfigurationError("API key is required")
+
+
+@dataclass
+class RequestMetadata:
+    """Metadata for request tracking and reporting"""
+
+    start_time: datetime = field(default_factory=datetime.now)
+    end_time: Optional[datetime] = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    finish_reason: Optional[str] = None
+    model: Optional[str] = None
+    duration: float = 0.0
+
+    def finalize(self) -> None:
+        self.end_time = datetime.now()
+        self.duration = (self.end_time - self.start_time).total_seconds()
+
+    def get_token_rate(self) -> Optional[float]:
+        """Calculate tokens per second"""
+        if self.duration > 0 and self.completion_tokens > 0:
+            return self.completion_tokens / self.duration
+        return None
+
+
+# ============ Configuration Management ============
+
+class ConfigManager:
+    """Manages configuration loading with graceful fallback"""
+
+    ENV_PATHS = [".env", "../.env", Path.home() / ".ai_chat.env"]
+    PROFILE_PATHS = [
         Path("profiles.json"),
         Path("../profiles.json"),
         Path.home() / ".ai_chat_profiles.json",
     ]
-    
-    for path in profile_paths:
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    profiles = json.load(f)
-                
-                if profile_name in profiles:
-                    print(f"✓ 已加载预设: {profile_name} ({path})", file=sys.stderr)
-                    return profiles[profile_name]
-                elif profile_name != "default":
-                    print(f"⚠️  未找到预设 '{profile_name}'，使用默认配置", file=sys.stderr)
-            except Exception as e:
-                print(f"⚠️  加载 profile 失败: {e}", file=sys.stderr)
-    
-    return {}
 
+    @staticmethod
+    def load_connection_config(args) -> APIConfig:
+        """Load endpoint and api_key with priority: CLI > Profile > Env > Default"""
+        config = APIConfig()
 
-# ============ OpenAI格式配置构建 ============
+        # 1. Load .env files first
+        for env_path in ConfigManager.ENV_PATHS:
+            if Path(env_path).exists():
+                load_dotenv(env_path)
+                logger.info(f"Loaded environment: {env_path}")
+                break
 
+        # 2. From environment variables
+        config.endpoint = os.getenv("ENDPOINT", "")
+        config.api_key = os.getenv("API_KEY", "")
 
-def build_request_body(args, config: Dict, messages: List[Dict]) -> Dict[str, Any]:
-    """
-    构建OpenAI格式的请求体
-    优先级: 命令行参数 > JSON配置文件 > .env > 默认值
-    """
-    # 1. 从JSON文件加载基础配置（如果提供）
-    request_body = {}
-    if args.config:
+        # 3. Try to load from profile
+        profile_config = ConfigManager._load_profile(args.profile)
+        if profile_config:
+            if "endpoint" in profile_config:
+                config.endpoint = profile_config["endpoint"]
+            if "api_key" in profile_config:
+                config.api_key = profile_config["api_key"]
+            if "apiKey" in profile_config:
+                config.api_key = profile_config["apiKey"]
+
+        # 4. CLI arguments override everything
+        if hasattr(args, "endpoint") and args.endpoint:
+            config.endpoint = args.endpoint
+        if hasattr(args, "api_key") and args.api_key:
+            config.api_key = args.api_key
+
+        return config
+
+    @staticmethod
+    def _load_profile(profile_name: str) -> Optional[Dict[str, Any]]:
+        """Load profile from various locations"""
+        for path in ConfigManager.PROFILE_PATHS:
+            if path.exists():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        profiles = json.load(f)
+
+                    if profile_name in profiles:
+                        print(
+                            f"{Colors.info('✓')} Loaded profile: {profile_name} from {path}",
+                            file=sys.stderr,
+                        )
+                        return profiles[profile_name]
+                except Exception as e:
+                    logger.error(f"Failed to load profile {path}: {e}")
+
+        if profile_name != "default":
+            print(
+                f"{Colors.warn('⚠')} Profile '{profile_name}' not found, using default",
+                file=sys.stderr,
+            )
+        return None
+
+    @staticmethod
+    def load_request_body(config_path: str, args) -> Dict[str, Any]:
+        """Load request body from config.json with safe parameter handling"""
+        path = Path(config_path).expanduser().resolve()
+
+        if not path.exists():
+            if (
+                config_path != "config.json"
+            ):  # User explicitly specified non-existent file
+                raise FileNotFoundError(f"Config file not found: {config_path}")
+            # Use empty config if default config.json doesn't exist
+            return {}
+
         try:
-            config_path = Path(args.config).expanduser().resolve()
-            with open(config_path, "r", encoding="utf-8") as f:
-                request_body = json.load(f)
-            print(f"✓ 已加载JSON配置: {config_path}", file=sys.stderr)
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            print(f"{Colors.info('✓')} Loaded request config: {path}", file=sys.stderr)
+
+            # Apply CLI overrides for safety-critical parameters
+            ConfigManager._apply_cli_overrides(data, args)
+
+            return data
         except Exception as e:
-            print(f"⚠️  加载JSON配置失败: {e}", file=sys.stderr)
-            raise
+            raise ValueError(f"Failed to load config file ({config_path}): {e}")
 
-    # 2. 处理messages（合并历史+用户输入）
-    final_messages = request_body.get("messages", []).copy()
+    @staticmethod
+    def _apply_cli_overrides(data: Dict[str, Any], args) -> None:
+        """Apply CLI arguments to request body, removing unsupported parameters"""
+        # Safety: Remove problematic parameters if CLI provides alternatives
+        if hasattr(args, "model") and args.model:
+            data["model"] = args.model
+            # Remove any model-specific parameters that might conflict
+            data.pop("temperature", None)  # Some models don't support temperature
+            data.pop("top_p", None)
+            data.pop("frequency_penalty", None)
+            data.pop("presence_penalty", None)
 
-    # 加载历史对话（--context参数，追加到messages）
-    if args.context:
-        try:
-            with open(args.context, "r", encoding="utf-8") as f:
-                history_data = json.load(f)
-                if isinstance(history_data, list):
-                    final_messages.extend(history_data)
-                elif isinstance(history_data, dict) and "messages" in history_data:
-                    final_messages.extend(history_data["messages"])
-            print(f"✓ 已加载历史对话: {args.context}", file=sys.stderr)
-        except Exception as e:
-            print(f"⚠️  加载历史对话失败: {e}", file=sys.stderr)
+        # OpenAI standard parameters override
+        if hasattr(args, "temperature") and args.temperature is not None:
+            data["temperature"] = args.temperature
+        if hasattr(args, "max_tokens") and args.max_tokens is not None:
+            data["max_tokens"] = args.max_tokens
+        if hasattr(args, "top_p") and args.top_p is not None:
+            data["top_p"] = args.top_p
+        if hasattr(args, "presence_penalty") and args.presence_penalty is not None:
+            data["presence_penalty"] = args.presence_penalty
+        if hasattr(args, "frequency_penalty") and args.frequency_penalty is not None:
+            data["frequency_penalty"] = args.frequency_penalty
+        if hasattr(args, "seed") and args.seed is not None:
+            data["seed"] = args.seed
 
-    # 添加当前用户输入
-    if messages:
-        final_messages.extend(messages)
+        # Stream handling
+        if hasattr(args, "no_stream") and args.no_stream:
+            data["stream"] = False
+        elif "stream" not in data:
+            data["stream"] = True  # Default to stream for better UX
 
-    if final_messages:
-        request_body["messages"] = final_messages
-
-    # 3. 命令行参数覆盖JSON配置（OpenAI标准参数）
-    if args.model:
-        request_body["model"] = args.model
-    elif "model" not in request_body:
-        request_body["model"] = config["model"]
-
-    if args.temperature is not None:
-        request_body["temperature"] = args.temperature
-    elif "temperature" not in request_body:
-        request_body["temperature"] = 0.7
-
-    if args.max_tokens is not None:
-        request_body["max_tokens"] = args.max_tokens
-    elif "max_tokens" not in request_body:
-        request_body["max_tokens"] = 8192
-
-    # 流式输出设置
-    if args.no_stream:
-        request_body["stream"] = False
-    elif "stream" not in request_body:
-        request_body["stream"] = True
-
-    # 特定API扩展参数（如enable_thinking）
-    if hasattr(args, "enable_thinking") and args.enable_thinking is not None:
-        request_body["enable_thinking"] = args.enable_thinking
-    elif "enable_thinking" not in request_body:
-        # request_body["enable_thinking"] = True
-        pass # deepseek does not support this flag?
-
-    # 其他OpenAI标准参数（如果JSON中有，保留）
-    # top_p, presence_penalty, frequency_penalty, stop, seed 等
-
-    return request_body
+        # Thinking enable/disable
+        if hasattr(args, "enable_thinking"):
+            if args.enable_thinking is not None:
+                data["enable_thinking"] = args.enable_thinking
+                # Some APIs don't support reasoning_content, remove if disabled
+                if not args.enable_thinking:
+                    data.pop("reasoning_content", None)
 
 
-# ============ 参数解析 ============
+# ============ File & Message Building ============
 
+class MessageBuilder:
+    """Builds messages with file context support"""
 
-def parse_arguments():
-    """解析参数，支持@文件名语法和OpenAI格式JSON配置"""
-    parser = argparse.ArgumentParser(
-        description="AI Chat CLI - 支持OpenAI格式JSON配置、文件上下文和Tee输出",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  # 使用JSON配置（OpenAI格式）
-  python chat.py --config request.json
-  
-  # JSON配置 + 命令行覆盖
-  python chat.py --config request.json --model "gpt-4" --temperature 0.5
-  
-  # 传统用法：直接输入提示
-  python chat.py "你好"
-  python chat.py @document.txt "总结这个文件"
-  
-  # 完整示例
-  python chat.py --config base.json --history chat.json @code.py "解释代码" -o result.md
-  
-OpenAI JSON格式示例:
-  {
-    "model": "gpt-4",
-    "temperature": 0.7,
-    "max_tokens": 2000,
-    "top_p": 1.0,
-    "frequency_penalty": 0,
-    "presence_penalty": 0,
-    "stream": true,
-    "enable_thinking": true,
-    "messages": [
-      {"role": "system", "content": "You are a helpful assistant"}
-    ]
-  }
-        """,
-    )
-    
-    parser.add_argument("--profile", "-p", default="default", 
-                   help="使用预设配置 (如: kimi, gpt4, local)")
-    
-    # OpenAI格式JSON配置
-    parser.add_argument(
-        "--config", "-f", default="config.json", help="OpenAI格式的JSON配置文件路径"
-    )
+    IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
-    # 输入提示（支持@文件名）
-    parser.add_argument("prompt", nargs="*", help="输入提示（支持@文件名加载文件内容）")
-
-    # 历史对话
-    parser.add_argument(
-        "--context", "-c", help="加载历史对话JSON文件（追加到messages）"
-    )
-
-    # 输出设置
-    parser.add_argument("--output", "-o", help="输出文件路径（默认自动生成）")
-
-    # API配置（覆盖JSON和.env）
-    parser.add_argument("--endpoint", "-e", help="API端点（覆盖.env配置）")
-    parser.add_argument("--api-key", "-k", help="API密钥（覆盖.env配置）")
-    parser.add_argument("--model", "-m", help="模型名称（覆盖JSON和.env配置）")
-
-    # OpenAI标准参数（覆盖JSON）
-    parser.add_argument("--temperature", "-t", type=float, help="温度参数(0-2)")
-    parser.add_argument("--max-tokens", type=int, help="最大token数")
-    parser.add_argument("--top-p", type=float, help="核采样概率")
-    parser.add_argument("--presence-penalty", type=float, help="存在惩罚")
-    parser.add_argument("--frequency-penalty", type=float, help="频率惩罚")
-    parser.add_argument("--seed", type=int, help="随机种子")
-
-    # 流式与思考选项
-    parser.add_argument("--no-stream", action="store_true", help="禁用流式输出")
-    parser.add_argument(
-        "--enable-thinking",
-        action="store_true",
-        default=None,
-        help="启用思考过程（特定API支持）",
-    )
-    parser.add_argument(
-        "--no-thinking",
-        dest="enable_thinking",
-        action="store_false",
-        help="禁用思考过程",
-    )
-
-    return parser.parse_args()
-
-
-# ============ 文件上下文处理 ============
-
-
-def load_file_content(filepath: str):
-    """加载文件内容，支持相对路径和绝对路径"""
-    try:
+    @staticmethod
+    def load_file(filepath: str) -> Union[str, Dict[str, Any]]:
+        """Load file content with MIME type detection"""
         if filepath.startswith("@"):
             filepath = filepath[1:]
 
         path = Path(filepath).expanduser().resolve()
         if not path.exists():
-            raise FileNotFoundError(f"文件不存在: {filepath}")
+            raise FileNotFoundError(f"File not found: {filepath}")
 
-        suffix = path.suffix.lower()
+        mime_type, _ = mimetypes.guess_type(path)
+        if not mime_type:
+            mime_type = "application/octet-stream"
 
-        # 图片文件处理
-        if suffix in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]:
-            import base64
-
+        # Image handling
+        if mime_type.startswith("image/") or path.suffix.lower() in MessageBuilder.IMAGE_TYPES:
             with open(path, "rb") as f:
                 encoded = base64.b64encode(f.read()).decode("utf-8")
-            mime_type = f"image/{suffix[1:]}" if suffix != ".jpg" else "image/jpeg"
-            # OpenAI多模态格式
             return {
                 "type": "image_url",
                 "image_url": {"url": f"data:{mime_type};base64,{encoded}"},
             }
 
-        # 文本文件
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        # Text file handling with encoding detection
+        encodings = ["utf-8", "utf-8-sig", "gbk", "latin-1"]
+        content = None
+        
+        for enc in encodings:
+            try:
+                with open(path, "r", encoding=enc, errors="strict") as f:
+                    content = f.read()
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if content is None:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
 
-        # 根据文件类型添加代码块标记
-        if suffix in [
-            ".py",
-            ".js",
-            ".ts",
-            ".java",
-            ".cpp",
-            ".c",
-            ".h",
-            ".go",
-            ".rs",
-            ".rb",
-            ".php",
-        ]:
-            return f"{THREE_DOTS}{suffix[1:]}\n{content}\n{THREE_DOTS}\n[文件: {path.name}]"
-        elif suffix in [".md", ".txt", ".rst"]:
-            return f"{content}\n\n[文件: {path.name}]"
-        elif suffix in [".json", ".yaml", ".yml", ".xml"]:
-            return f"{THREE_DOTS}yaml\n{content}\n{THREE_DOTS}\n[文件: {path.name}]"
+        # Format based on file type
+        suffix = path.suffix[1:] if path.suffix else "text"
+        if path.suffix in [".md", ".txt", ".rst"]:
+            return f"{content}\n\n[File: {path.name}]"
         else:
-            return f"{THREE_DOTS}\n{content}\n{THREE_DOTS}\n[文件: {path.name}]"
+            return f"{CODE_BLOCK}{suffix}\n{content}\n{CODE_BLOCK}\n[File: {path.name}]"
 
-    except Exception as e:
-        print(f"⚠️  加载文件失败 {filepath}: {e}", file=sys.stderr)
-        return f"[无法加载文件: {filepath}]"
+    @staticmethod
+    def build_messages(
+        args, config_messages: List[Dict] | None = None
+    ) -> List[Dict[str, Any]]:
+        """Build final message list with priority: context > config > prompt"""
+        messages = []
 
+        # 1. Load context if provided
+        if hasattr(args, "context") and args.context:
+            try:
+                context_messages = MessageBuilder._load_context(args.context)
+                messages.extend(context_messages)
+                print(
+                    f"{Colors.info('✓')} Loaded conversation context: {args.context}",
+                    file=sys.stderr,
+                )
+            except Exception as e:
+                print(
+                    f"{Colors.warn('⚠')} Failed to load context: {e}", file=sys.stderr
+                )
 
-def build_user_messages(args) -> Tuple[List[Dict], str]:
-    """构建用户输入的messages（支持@文件语法）"""
-    if not args.prompt:
-        return [], "chat"
+        # 2. Add messages from config
+        if config_messages:
+            messages.extend(config_messages)
 
-    content_parts = []
-    has_image = False
+        # 3. Add current user input
+        if hasattr(args, "prompt") and args.prompt:
+            user_messages = MessageBuilder._build_user_messages(args.prompt)
+            messages.extend(user_messages)
 
-    for part in args.prompt:
-        if part.startswith("@"):
-            file_content = load_file_content(part)
-            if isinstance(file_content, dict):  # 图片（OpenAI多模态格式）
-                content_parts.append(file_content)
-                has_image = True
-            else:
-                content_parts.append(file_content)
-        else:
-            content_parts.append(part)
-
-    # 如果有图片，使用OpenAI多模态content格式（数组）
-    if has_image:
-        # 将纯文本部分合并，保持顺序
-        multimodal_content = []
-        current_text = []
-
-        for part in content_parts:
-            if isinstance(part, dict):  # 图片
-                if current_text:
-                    multimodal_content.append(
-                        {"type": "text", "text": "\n".join(current_text)}
-                    )
-                    current_text = []
-                multimodal_content.append(part)
-            else:
-                current_text.append(part)
-
-        if current_text:
-            multimodal_content.append(
-                {"type": "text", "text": "\n\n".join(current_text)}
+        if not messages:
+            raise ConfigurationError(
+                "No messages to send. Please provide prompt or messages in config."
             )
 
-        return [{"role": "user", "content": multimodal_content}], args.prompt[0]
-    else:
-        # 纯文本，传统格式
-        user_content = "\n\n".join(content_parts)
-        return [{"role": "user", "content": user_content}], args.prompt[0]
+        return messages
+
+    @staticmethod
+    def _load_context(context_path: str) -> List[Dict]:
+        """Load conversation history from JSON file"""
+        path = Path(context_path).expanduser().resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"Context file not found: {context_path}")
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if isinstance(data, list):
+            return data
+        elif isinstance(data, dict) and "messages" in data:
+            return data["messages"]
+        else:
+            raise ValueError(
+                "Invalid context format: expected list or {messages: [...]}"
+            )
+
+    @staticmethod
+    def _build_user_messages(prompt_parts: List[str]) -> List[Dict[str, Any]]:
+        """Build user messages from prompt parts"""
+        if not prompt_parts:
+            return []
+
+        content_parts = []
+        has_image = False
+
+        for part in prompt_parts:
+            if part.startswith("@"):
+                try:
+                    file_content = MessageBuilder.load_file(part)
+                    if isinstance(file_content, dict):
+                        has_image = True
+                        print(f"{Colors.info('✓')} Attached image: {part[1:]}", file=sys.stderr)
+                    else:
+                        print(f"{Colors.info('✓')} Attached file: {part[1:]}", file=sys.stderr)
+                    content_parts.append(file_content)
+                except Exception as e:
+                    print(
+                        f"{Colors.warn('⚠')} Failed to load file {part}: {e}",
+                        file=sys.stderr,
+                    )
+                    content_parts.append(f"[Failed to load file: {part}]")
+            else:
+                content_parts.append(part)
+
+        # Build message content
+        if has_image:
+            multimodal_content = []
+            current_text = []
+
+            for part in content_parts:
+                if isinstance(part, dict):
+                    if current_text:
+                        multimodal_content.append(
+                            {"type": "text", "text": "\n".join(current_text)}
+                        )
+                        current_text = []
+                    multimodal_content.append(part)
+                else:
+                    current_text.append(part)
+
+            if current_text:
+                multimodal_content.append(
+                    {"type": "text", "text": "\n\n".join(current_text)}
+                )
+
+            return [{"role": "user", "content": multimodal_content}]
+        else:
+            user_content = "\n\n".join(content_parts)
+            return [{"role": "user", "content": user_content}]
 
 
-# ============ 核心：安全的打字机打印 ============
+# ============ Typewriter Output ============
 
+class TypewriterPrinter:
+    """Typewriter effect printer with file output"""
 
-class SafePrinter:
-    """安全的打字机打印器，正确处理中文，同时支持Tee输出"""
+    def __init__(self, output_file: Optional[io.TextIOWrapper] = None):
+        self.output_file = output_file
+        self.reasoning_buffer = ""
+        self.content_buffer = ""
+        self.reasoning_printed = 0
+        self.content_printed = 0
+        self.in_reasoning = True
+        self.start_time = time.time()
+        self.first_token_time = None
+        self.token_count = 0
 
-    def __init__(self, tee_file: Optional[io.TextIOWrapper] = None):
-        self.tee_file = tee_file
-        self.reasoning_printed_chars = 0
-        self.content_printed_chars = 0
-        self.in_reasoning_phase = True
-        self.full_reasoning = ""
-        self.full_content = ""
+        # Performance tracking
+        self.reasoning_start = None
+        self.content_start = None
 
-    def write_to_file(self, text: str, is_reasoning: bool = False):
-        """写入到文件（不打印）"""
-        if self.tee_file:
+    def write(self, text: str, is_reasoning: bool = False):
+        """Write text to file"""
+        if self.output_file:
             try:
-                self.tee_file.write(text)
-                self.tee_file.flush()
+                self.output_file.write(text)
+                if not is_reasoning:
+                    self.output_file.flush()
             except Exception as e:
-                print(f"\n[文件写入错误: {e}]", file=sys.stderr)
+                print(f"\n{Colors.error('[File write error]')} {e}", file=sys.stderr)
 
-    def print_reasoning(self, full_reasoning: str, delay: float = 0.01) -> None:
-        """打印thinking过程，只打印新增部分"""
-        if not full_reasoning:
+    def update_reasoning(self, delta: str):
+        """Update and print reasoning content"""
+        if not delta:
             return
 
-        if isinstance(full_reasoning, bytes):
-            full_reasoning = full_reasoning.decode("utf-8", errors="replace")
+        if self.first_token_time is None:
+            self.first_token_time = time.time()
 
-        self.full_reasoning = full_reasoning
-        new_part = full_reasoning[self.reasoning_printed_chars :]
+        if self.reasoning_start is None:
+            self.reasoning_start = time.time()
+            print(f"\n{Colors.BLUE}💭 Thinking:{Colors.END}")
+            if self.output_file:
+                self.write("\n💭 Thinking:\n", is_reasoning=True)
 
-        for char in new_part:
+        self.reasoning_buffer += delta
+        new_text = self.reasoning_buffer[self.reasoning_printed :]
+
+        # Print to console with typewriter effect
+        for char in new_text:
             print(char, end="", flush=True)
-            if self.tee_file:
-                self.write_to_file(char, is_reasoning=True)
-            time.sleep(delay)
+            time.sleep(Constants.STREAM_DELAY_REASONING)
 
-        self.reasoning_printed_chars = len(full_reasoning)
+        # Write to file
+        self.write(new_text, is_reasoning=True)
 
-    def print_content(self, full_content: str, delay: float = 0.03) -> None:
-        """打印正式回复，只打印新增部分"""
-        if not full_content:
+        self.reasoning_printed = len(self.reasoning_buffer)
+        self.token_count += len(delta.split())  # Rough estimate
+
+    def switch_to_content(self):
+        """Switch from reasoning to content output"""
+        if self.in_reasoning:
+            self.in_reasoning = False
+            self.content_start = time.time()
+
+            # Console output
+            print(f"\n{Colors.bold('='*50)}")
+            print(f"{Colors.CYAN}✨ Response:{Colors.END}")
+            print(f"{Colors.bold('='*50)}")
+
+            # File output
+            if self.output_file:
+                self.write(f"\n\n{'='*50}\n✨ Response:\n{'='*50}\n\n")
+
+    def update_content(self, delta: str):
+        """Update and print response content"""
+        if not delta:
             return
 
-        if isinstance(full_content, bytes):
-            full_content = full_content.decode("utf-8", errors="replace")
+        if self.in_reasoning:
+            self.switch_to_content()
 
-        self.full_content = full_content
-        new_part = full_content[self.content_printed_chars :]
+        if self.first_token_time is None:
+            self.first_token_time = time.time()
 
-        for char in new_part:
+        self.content_buffer += delta
+        new_text = self.content_buffer[self.content_printed :]
+
+        # Typewriter effect
+        for char in new_text:
             print(char, end="", flush=True)
-            if self.tee_file:
-                self.write_to_file(char, is_reasoning=False)
-            time.sleep(delay)
+            time.sleep(Constants.STREAM_DELAY_CONTENT)
+        
+        self.write(new_text)
 
-        self.content_printed_chars = len(full_content)
-
-    def switch_to_content(self) -> None:
-        """从thinking切换到content阶段"""
-        if self.in_reasoning_phase:
-            print()
-            print("\n" + "-" * 50)
-            print("✨ 正式回复：")
-            print("-" * 50)
-            if self.tee_file:
-                self.write_to_file("\n\n---\n✨ 正式回复：\n---\n\n")
-            self.in_reasoning_phase = False
+        self.content_printed = len(self.content_buffer)
+        self.token_count += len(delta.split())  # Rough estimate
 
     def finalize(self):
-        """完成输出，确保文件写入"""
-        if self.tee_file:
-            self.tee_file.flush()
+        """Finalize output"""
+        if self.output_file:
+            try:
+                self.output_file.flush()
+            except Exception as e:
+                print(f"{Colors.warn('⚠')} Failed to flush file: {e}", file=sys.stderr)
 
 
-# ============ HTTP客户端 ============
+# ============ HTTP Client ============
 
+class APIClient:
+    """HTTP client with retry and error handling using Session"""
 
-class TypewriterHTTPClient:
-    """打字机效果的HTTP客户端"""
-
-    def __init__(self, endpoint: str, api_key: str):
-        self.endpoint = endpoint
-        self.api_key = api_key
-        self.headers = {
-            "Authorization": f"Bearer {api_key}",
+    def __init__(self, config: APIConfig, max_retries: int = 3):
+        self.config = config
+        self.max_retries = max_retries
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
-        }
+        })
 
-    def stream_request(
-        self, request_body: Dict[str, Any], printer: SafePrinter
-    ) -> Tuple[str, str, Dict]:
-        """
-        流式请求，打字机效果显示thinking和content
-        request_body: OpenAI格式的完整请求体
-        返回: (reasoning, content, metadata)
-        """
-        print("=" * 70)
-        print("正在发送请求...")
-        print(f"Endpoint: {self.endpoint}")
-        print(f"Model: {request_body.get('model', 'unknown')}")
-        print(f"Stream: {request_body.get('stream', True)}")
-        print(f"Messages: {len(request_body.get('messages', []))} 轮对话")
+    def __enter__(self):
+        return self
 
-        # 显示其他OpenAI参数
-        params = {
-            k: v
-            for k, v in request_body.items()
-            if k not in ["messages", "model", "stream"] and v is not None
-        }
-        if params:
-            print(f"Parameters: {json.dumps(params, ensure_ascii=False)}")
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.session.close()
 
-        full_reasoning = ""
-        full_content = ""
-        metadata = {
-            "start_time": datetime.now().isoformat(),
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "finish_reason": None,
-            "request_body": request_body,  # 记录完整请求
-        }
-
+    def _estimate_tokens(self, messages: List[Dict]) -> Tuple[int, int]:
+        """估算 Prompt 的 Token 数（保守估计：每 3 个字符 1 个 Token）"""
         try:
-            response = requests.post(
-                self.endpoint,
-                headers=self.headers,
-                json=request_body,
-                stream=request_body.get("stream", True),
-                timeout=120000,
-            )
-            response.raise_for_status()
+            # 将 messages 转为字符串计算
+            text = json.dumps(messages, ensure_ascii=False)
+            char_count = len(text)
+            # 保守估计：英文约 4 字符/token，中文约 1-2 字符/token，混合按 3 计算
+            estimated_tokens = char_count // 3
+            return char_count, estimated_tokens
+        except:
+            return 0, 0
 
-            print(f"\n连接成功 (Status: {response.status_code})")
-            print("-" * 70)
+    def request(
+        self, payload: Dict[str, Any], printer: TypewriterPrinter
+    ) -> RequestMetadata:
+        """Execute API request with retry logic"""
+        metadata = RequestMetadata(model=payload.get("model"))
+        is_stream = payload.get("stream", True)
 
-            if not request_body.get("stream", True):
-                # 非流式处理
-                data = response.json()
-                choice = data.get("choices", [{}])[0]
-                message = choice.get("message", {})
-                full_content = message.get("content", "")
-                full_reasoning = message.get("reasoning_content", "")
+        # 计算 Prompt 信息
+        messages = payload.get("messages", [])
+        char_count, estimated_tokens = self._estimate_tokens(messages)
+        max_tokens = payload.get("max_tokens", "Not set")
+        
+        # 显示请求信息，包括 Token 预估
+        print(
+            f"\n{Colors.CYAN}🚀 Requesting {metadata.model or 'unknown model'}...{Colors.END}"
+        )
+        print(f"   Endpoint: {self.config.endpoint}")
+        print(f"   Stream: {'Yes' if is_stream else 'No'}")
+        print(f"   Prompt Size: {char_count} chars (Est. ~{estimated_tokens} tokens)")
+        
+        if max_tokens != "Not set":
+            print(f"   Max Tokens: {max_tokens}")
+            if isinstance(max_tokens, int) and estimated_tokens > 0:
+                total_est = estimated_tokens + max_tokens
+                print(f"   Total Est.: ~{total_est} tokens")
+                # 警告：如果预估超过常见模型的 32k 或 128k 限制
+                # if total_est > 32000:
+                #     print(f"{Colors.warn('⚠️  Warning:')} High token usage! Risk of context overflow.")
+        else:
+            print(f"   Max Tokens: {Colors.warn('Not set')} (model default)")
 
-                # 打印结果
-                if full_reasoning:
-                    print("\n💭 Thinking 过程：")
-                    print("-" * 50)
-                    print(full_reasoning)
-                    printer.write_to_file(full_reasoning)
+        # Safety: Remove any empty or None parameters that might cause API errors
+        clean_payload = self._clean_payload(payload)
 
-                print("\n✨ 正式回复：")
-                print("-" * 50)
-                print(full_content)
-                printer.write_to_file(full_content)
-
-                # 更新metadata
-                if "usage" in data:
-                    metadata.update(
-                        {
-                            "prompt_tokens": data["usage"].get("prompt_tokens", 0),
-                            "completion_tokens": data["usage"].get(
-                                "completion_tokens", 0
-                            ),
-                            "total_tokens": data["usage"].get("total_tokens", 0),
-                        }
-                    )
-                metadata["finish_reason"] = choice.get("finish_reason")
-
-            else:
-                # 流式处理
-                header_printed = False
-                buffer_bytes = b""
-
-                for chunk in response.iter_content(chunk_size=128):
-                    if not chunk:
-                        continue
-
-                    buffer_bytes += chunk
-
-                    while b"\n" in buffer_bytes:
-                        line_bytes, buffer_bytes = buffer_bytes.split(b"\n", 1)
-                        line = line_bytes.decode("utf-8", errors="replace").strip()
-
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-
-                            if data_str == "[DONE]":
-                                break
-
-                            try:
-                                data = json.loads(data_str)
-
-                                # 更新usage信息（通常在最后一条）
-                                if "usage" in data and data["usage"]:
-                                    metadata["prompt_tokens"] = data["usage"].get(
-                                        "prompt_tokens", 0
-                                    )
-                                    metadata["completion_tokens"] = data["usage"].get(
-                                        "completion_tokens", 0
-                                    )
-                                    metadata["total_tokens"] = data["usage"].get(
-                                        "total_tokens", 0
-                                    )
-
-                                choices = data.get("choices", [])
-                                if not choices:
-                                    continue
-
-                                delta = choices[0].get("delta", {})
-                                finish_reason = choices[0].get("finish_reason")
-                                if finish_reason:
-                                    metadata["finish_reason"] = finish_reason
-
-                                reasoning_delta = delta.get("reasoning_content") or delta.get("reasoning") or ""
-                                content_delta = delta.get("content")
-
-                                # 打印header（第一次收到数据）
-                                if not header_printed and (
-                                    reasoning_delta or content_delta
-                                ):
-                                    header_printed = True
-                                    if reasoning_delta or request_body.get(
-                                        "enable_thinking"
-                                    ):
-                                        print("\n💭 Thinking 过程：")
-                                        print("-" * 50)
-                                        if printer.tee_file:
-                                            printer.write_to_file(
-                                                "\n💭 Thinking 过程：\n"
-                                                + "-" * 50
-                                                + "\n"
-                                            )
-
-                                # 累积并打印reasoning
-                                if reasoning_delta and isinstance(reasoning_delta, str):
-                                    full_reasoning += reasoning_delta
-                                    printer.print_reasoning(full_reasoning)
-
-                                # 切换到content阶段
-                                if content_delta and printer.in_reasoning_phase:
-                                    printer.switch_to_content()
-
-                                # 累积并打印content
-                                if content_delta and isinstance(content_delta, str):
-                                    full_content += content_delta
-                                    printer.print_content(full_content)
-
-                            except json.JSONDecodeError:
-                                pass
-
-                # 处理剩余buffer
-                if buffer_bytes:
-                    try:
-                        line = buffer_bytes.decode("utf-8", errors="replace").strip()
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-                            if data_str and data_str != "[DONE]":
-                                data = json.loads(data_str)
-                                # 处理最后的数据...
-                    except:
-                        pass
-
-            print("\n" + "=" * 70)
-            print("✅ 请求完成")
-
-            if full_reasoning:
-                print(f"\n📊 Thinking: {len(full_reasoning)} 字符")
-            print(f"📊 Content: {len(full_content)} 字符")
-            if metadata["total_tokens"]:
-                print(
-                    f"📊 Tokens: {metadata['total_tokens']} (Prompt: {metadata['prompt_tokens']}, Completion: {metadata['completion_tokens']})"
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.session.post(
+                    self.config.endpoint,
+                    json=clean_payload,
+                    stream=is_stream,
+                    timeout=self.config.timeout,
                 )
-            if metadata["finish_reason"]:
-                print(f"📊 Finish reason: {metadata['finish_reason']}")
+                response.raise_for_status()
 
-            metadata["end_time"] = datetime.now().isoformat()
-            metadata["reasoning_chars"] = len(full_reasoning)
-            metadata["content_chars"] = len(full_content)
+                if is_stream:
+                    return self._handle_stream(response, printer, metadata)
+                else:
+                    return self._handle_non_stream(response, printer, metadata)
 
-            return full_reasoning, full_content, metadata
+            except requests.exceptions.RequestException as e:
+                if attempt < self.max_retries:
+                    wait_time = 2**attempt
+                    print(
+                        f"{Colors.warn(f'⚠️  Request failed ({e}), retrying in {wait_time}s...')}",
+                        file=sys.stderr,
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise APIError(
+                        f"Request failed after {self.max_retries} retries: {e}"
+                    )
 
-        except Exception as e:
-            print(f"\n❌ 错误: {e}")
-            import traceback
+        raise APIError("Max retries exceeded")
 
-            traceback.print_exc()
-            raise
+    def _clean_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove potentially problematic parameters"""
+        clean = payload.copy()
+
+        # Remove None values
+        for key in list(clean.keys()):
+            if clean[key] is None:
+                del clean[key]
+
+        # Remove empty strings
+        for key in list(clean.keys()):
+            if isinstance(clean[key], str) and not clean[key].strip():
+                del clean[key]
+
+        return clean
+
+    def _handle_stream(
+        self, response, printer: TypewriterPrinter, metadata: RequestMetadata
+    ) -> RequestMetadata:
+        """Handle streaming response"""
+        buffer = ""
+
+        for chunk in response.iter_content(chunk_size=Constants.CHUNK_SIZE):
+            if not chunk:
+                continue
+
+            buffer += chunk.decode("utf-8", errors="replace")
+
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                line = line.strip()
+
+                if not line.startswith("data: "):
+                    continue
+
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+
+                try:
+                    data = json.loads(data_str)
+                    self._process_stream_data(data, printer, metadata)
+                except json.JSONDecodeError:
+                    continue
+
+        metadata.finalize()
+        return metadata
+
+    def _process_stream_data(
+        self, data: Dict, printer: TypewriterPrinter, metadata: RequestMetadata
+    ):
+        """Process individual stream data chunk"""
+        # Update usage
+        if "usage" in data and data["usage"]:
+            metadata.prompt_tokens = data["usage"].get("prompt_tokens", 0)
+            metadata.completion_tokens = data["usage"].get("completion_tokens", 0)
+            metadata.total_tokens = data["usage"].get("total_tokens", 0)
+
+        choices = data.get("choices", [])
+        if not choices:
+            return
+
+        choice = choices[0]
+        delta = choice.get("delta", {})
+
+        # Update finish reason
+        finish_reason = choice.get("finish_reason")
+        if finish_reason:
+            metadata.finish_reason = finish_reason
+
+        # Process content
+        reasoning_delta = delta.get("reasoning_content") or delta.get("reasoning") or ""
+        content_delta = delta.get("content", "")
+
+        if reasoning_delta:
+            printer.update_reasoning(reasoning_delta)
+
+        if content_delta:
+            printer.update_content(content_delta)
+
+    def _handle_non_stream(
+        self, response, printer: TypewriterPrinter, metadata: RequestMetadata
+    ) -> RequestMetadata:
+        """Handle non-streaming response"""
+        data = response.json()
+        choice = data.get("choices", [{}])[0]
+        message = choice.get("message", {})
+
+        reasoning = message.get("reasoning_content", "")
+        content = message.get("content", "")
+
+        if reasoning:
+            printer.update_reasoning(reasoning)
+
+        printer.switch_to_content()
+        printer.update_content(content)
+
+        # Update metadata
+        if "usage" in data:
+            metadata.prompt_tokens = data["usage"].get("prompt_tokens", 0)
+            metadata.completion_tokens = data["usage"].get("completion_tokens", 0)
+            metadata.total_tokens = data["usage"].get("total_tokens", 0)
+
+        metadata.finish_reason = choice.get("finish_reason")
+        metadata.finalize()
+
+        return metadata
 
 
-# ============ 文件保存 ============
+# ============ Result Saving ============
 
+class ResultSaver:
+    """Saves conversation results to files"""
 
-def save_conversation(
-    output_path: Path,
-    reasoning: str,
-    content: str,
-    metadata: Dict,
-    messages: List[Dict],
-):
-    """保存对话到文件（Markdown格式）"""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    request_body = metadata.get("request_body", {})
+    @staticmethod
+    def save(
+        base_path: Path,
+        payload: Dict[str, Any],
+        metadata: RequestMetadata,
+        printer: TypewriterPrinter,
+    ) -> Tuple[Path, Path]:
+        """Save results as Markdown and JSON"""
+        # Create directory if needed
+        base_path.parent.mkdir(parents=True, exist_ok=True)
 
-    md_content = f"""# AI 对话记录
+        # 1. Save Markdown
+        md_path = ResultSaver._save_markdown(base_path, payload, metadata, printer)
 
-**时间**: {timestamp}  
-**模型**: {request_body.get('model', metadata.get('model', 'unknown'))}  
-**Token 消耗**: {metadata.get('total_tokens', 'N/A')} (Prompt: {metadata.get('prompt_tokens', 'N/A')}, Completion: {metadata.get('completion_tokens', 'N/A')})  
-**结束原因**: {metadata.get('finish_reason', 'N/A')}
+        # 2. Save JSON for continuation
+        json_path = ResultSaver._save_json(base_path, payload, metadata, printer)
 
-## 请求参数
+        return md_path, json_path
 
-{THREE_DOTS}json
-{json.dumps({k: v for k, v in request_body.items() if k != 'messages'}, indent=2, ensure_ascii=False)}
-{THREE_DOTS}
+    @staticmethod
+    def _save_markdown(
+        base_path: Path,
+        payload: Dict[str, Any],
+        metadata: RequestMetadata,
+        printer: TypewriterPrinter,
+    ) -> Path:
+        """Save conversation as Markdown with full history"""
+        md_path = base_path.with_suffix(".md")
 
+        # Prepare payload for display (hide messages to save space)
+        display_payload = payload.copy()
+        messages = display_payload.pop("messages", [])
+        if messages:
+            display_payload["messages"] = f"[{len(messages)} messages hidden]"
+
+        # Build Markdown content
+        md_content = f"""# AI Conversation Log
+**Time**: {metadata.start_time.strftime('%Y-%m-%d %H:%M:%S')}  
+**Model**: {metadata.model or 'Unknown'}  
+**Duration**: {metadata.duration:.2f}s  
+
+## Request Configuration
+{CODE_BLOCK}json
+{json.dumps(display_payload, indent=2, ensure_ascii=False)}
+{CODE_BLOCK}
+
+## Conversation History
+
+"""
+
+        # Add all messages
+        for msg in messages:
+            role = msg.get("role", "unknown").upper()
+            content = msg.get("content", "")
+            
+            # Handle multimodal content
+            if isinstance(content, list):
+                texts = []
+                for item in content:
+                    if isinstance(item, dict):
+                        if item.get("type") == "text":
+                            texts.append(item.get("text", ""))
+                        elif item.get("type") == "image_url":
+                            texts.append("[Image]")
+                content = "\n".join(texts)
+            
+            md_content += f"### {role}\n\n{content}\n\n"
+
+        # Add reasoning if present
+        if printer.reasoning_buffer:
+            md_content += f"""
 ---
 
-## 对话历史
+## 💭 Thinking Process
+<details>
+<summary>Click to expand ({len(printer.reasoning_buffer)} chars)</summary>
 
-"""
-
-    # 添加对话历史
-    for msg in messages:
-        role = msg.get("role", "unknown")
-        content_text = msg.get("content", "")
-
-        # 处理多模态content（数组格式）
-        if isinstance(content_text, list):
-            texts = []
-            for item in content_text:
-                if isinstance(item, dict) and item.get("type") == "text":
-                    texts.append(item.get("text", ""))
-                elif isinstance(item, dict) and item.get("type") == "image_url":
-                    texts.append("[图片]")
-            content_text = "\n".join(texts)
-
-        md_content += f"### {role.upper()}\n\n{content_text}\n\n"
-
-    # 添加当前回复
-    md_content += f"""---
-
-## 当前回复
-
-"""
-
-    if reasoning:
-        md_content += f"""<details>
-<summary>💭 Thinking 过程 ({metadata.get('reasoning_chars', len(reasoning))} 字符)</summary>
-
-{reasoning}
+{printer.reasoning_buffer}
 </details>
 
 """
 
-    md_content += f"""### ✨ 正式回复
-
-{content}
-
+        # Add response
+        md_content += f"""
 ---
 
-## 元数据
+## ✨ Response
+{printer.content_buffer}
 
-{THREE_DOTS}json
-{json.dumps(metadata, indent=2, ensure_ascii=False, default=str)}
-{THREE_DOTS}
+---
+## 📊 Statistics
+
+- **Finish Reason**: {metadata.finish_reason or 'N/A'}
+- **Tokens**: {metadata.total_tokens or 'N/A'} (Prompt: {metadata.prompt_tokens or 'N/A'}, Completion: {metadata.completion_tokens or 'N/A'})
+- **Token Rate**: {f'{metadata.get_token_rate():.1f} tokens/s' if metadata.get_token_rate() else 'N/A'}
+- **First Token Latency**: {f'{(printer.first_token_time - printer.start_time):.2f}s' if printer.first_token_time else 'N/A'}
+- **Estimated Total Tokens**: {printer.token_count}
 """
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(md_content)
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(md_content)
 
-    return output_path
+        return md_path
+
+    @staticmethod
+    def _save_json(
+        base_path: Path,
+        payload: Dict[str, Any],
+        metadata: RequestMetadata,
+        printer: TypewriterPrinter,
+    ) -> Path:
+        """Save conversation as JSON for continuation"""
+        json_path = base_path.with_suffix(".json")
+
+        # Build conversation for continuation
+        continuation = {
+            "metadata": {
+                "export_time": datetime.now().isoformat(),
+                "model": metadata.model,
+                "total_tokens": metadata.total_tokens,
+                "duration": metadata.duration,
+            },
+            "messages": payload.get("messages", []).copy(),
+        }
+
+        # Add assistant response
+        assistant_msg = {
+            "role": "assistant",
+            "content": printer.content_buffer,
+        }
+        if printer.reasoning_buffer:
+            assistant_msg["reasoning_content"] = printer.reasoning_buffer
+
+        continuation["messages"].append(assistant_msg)
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(continuation, f, ensure_ascii=False, indent=2)
+
+        return json_path
 
 
-def save_json_history(
-    output_path: Path,
-    messages: List[Dict],
-    reasoning: str,
-    content: str,
-    metadata: Dict,
-):
-    """保存为JSON格式（OpenAI兼容，便于后续加载继续对话）"""
-    # 添加助手回复到消息列表
-    assistant_message = {"role": "assistant", "content": content}
-    if reasoning:
-        assistant_message["reasoning_content"] = reasoning
+# ============ Argument Parser ============
 
-    full_messages = messages.copy()
-    full_messages.append(assistant_message)
+def create_argument_parser() -> argparse.ArgumentParser:
+    """Create enhanced argument parser"""
+    parser = argparse.ArgumentParser(
+        description="AI Chat CLI - Enhanced with graceful parameter handling",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog="""
+Configuration Strategy:
+  1. Unified settings via config.json to avoid model-specific parameter issues
+  2. CLI arguments safely override config.json (removes conflicting params)
+  3. profiles.json or .env provides endpoint and api_key
 
-    data = {
-        "metadata": {
-            "export_time": datetime.now().isoformat(),
-            "total_tokens": metadata.get("total_tokens"),
-            "model": metadata.get("request_body", {}).get("model"),
-        },
-        "messages": full_messages,
-    }
+Image Support:
+  Use @filename.png to attach images (png, jpg, jpeg, gif, webp, bmp supported)
+  Example: python chat.py @photo.jpg "Describe this image"
 
-    json_path = output_path.with_suffix(".json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+Token Estimation:
+  Before sending, the CLI will display estimated prompt tokens and max_tokens
+  to help you avoid context overflow.
 
-    return json_path
+Examples:
+  # Basic usage with default config
+  python chat.py "Hello, how are you?"
+  
+  # With file attachment (code or image)
+  python chat.py @code.py "Explain this code"
+  python chat.py @image.png "What's in this image?"
+  
+  # Custom profile and config
+  python chat.py -p deepseek -f deepseek_config.json "Explain quantum computing"
+  
+  # Continue conversation
+  python chat.py --context conversation.json "Continue from here"
+  
+  # Disable streaming
+  python chat.py --no-stream "Generate a long response"
+  
+  # Override parameters
+  python chat.py --temperature 0.5 --max-tokens 2000 "Creative writing"
+        """,
+    )
+
+    # Connection
+    parser.add_argument(
+        "--profile", "-p", default="default", help="Profile name in profiles.json"
+    )
+    parser.add_argument("--endpoint", "-e", help="Override API endpoint")
+    parser.add_argument("--api-key", "-k", help="Override API key")
+
+    # Configuration
+    parser.add_argument(
+        "--config", "-c", default="config.json", help="Request body configuration file"
+    )
+
+    # Input
+    parser.add_argument("prompt", nargs="*", help="Prompt text (supports @filename for files/images)")
+    parser.add_argument("--context", help="Conversation context JSON file for continuation")
+
+    # OpenAI Parameters (override config.json)
+    parser.add_argument("--model", "-m", help="Model name (overrides config)")
+    parser.add_argument("--temperature", "-t", type=float, help="Sampling temperature (0-2)")
+    parser.add_argument("--max-tokens", type=int, help="Maximum tokens to generate")
+    parser.add_argument("--top-p", type=float, help="Nucleus sampling parameter")
+    parser.add_argument("--presence-penalty", type=float, help="Presence penalty")
+    parser.add_argument("--frequency-penalty", type=float, help="Frequency penalty")
+    parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
+
+    # Behavior (safely override config)
+    parser.add_argument(
+        "--no-stream", action="store_true", help="Disable streaming output"
+    )
+    parser.add_argument(
+        "--enable-thinking",
+        action="store_true",
+        default=None,
+        help="Enable thinking process",
+    )
+    parser.add_argument(
+        "--no-thinking",
+        dest="enable_thinking",
+        action="store_false",
+        help="Disable thinking process",
+    )
+
+    # Output
+    parser.add_argument("--output", "-o", help="Output file base name")
+
+    return parser
 
 
-# ============ 主程序 ============
+# ============ Main Function ============
+
+def handle_interrupt(signum, frame):
+    """Handle Ctrl+C gracefully"""
+    print(f"\n{Colors.warn('⚠️  Interrupted by user')}")
+    sys.exit(130)
 
 
 def main():
-    # 加载环境配置
-    # 原来是：env_config = load_config()
-    # 改为：
-    args = parse_arguments()
-    env_config = load_config(args)
+    """Main entry point"""
+    # Setup
+    setup_utf8()
+    signal.signal(signal.SIGINT, handle_interrupt)
 
-    # 确定API端点和密钥
-    endpoint = args.endpoint or env_config["endpoint"]
-    api_key = args.api_key or env_config["api_key"]
-
-    if not endpoint:
-        print(
-            "❌ 错误: 未设置API端点。请使用--endpoint参数、-f JSON配置或设置.env文件",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    if not api_key:
-        print(
-            "❌ 错误: 未设置API密钥。请使用--api-key参数、-f JSON配置或设置.env文件",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    # 构建用户输入的messages（处理@文件）
-    user_messages, prompt_hint = build_user_messages(args)
-
-    # 构建完整的OpenAI格式请求体
-    try:
-        request_body = build_request_body(args, env_config, user_messages)
-    except Exception as e:
-        print(f"❌ 构建请求失败: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # 检查是否有messages
-    if not request_body.get("messages"):
-        print(
-            "❌ 错误: 没有输入内容。请提供提示文本、使用@文件加载，或在JSON配置中提供messages。",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    # 确定输出文件
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_hint = re.sub(r"[^\w\s-]", "", prompt_hint)[:20].strip() or "chat"
-        output_path = Path(f"chat_{safe_hint}_{timestamp}.md")
-
-    # 打开输出文件（Tee模式）
-    tee_file = open(output_path, "w", encoding="utf-8")
+    # Parse arguments
+    parser = create_argument_parser()
+    args = parser.parse_args()
 
     try:
-        # 初始化打印器（带Tee）
-        printer = SafePrinter(tee_file=tee_file)
+        # 1. Load connection configuration
+        api_config = ConfigManager.load_connection_config(args)
+        api_config.validate()
 
-        # 写入文件头
-        tee_file.write(
-            f"# AI对话记录 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        )
-        tee_file.write("## 请求配置\n\n")
-        tee_file.write(
-            f"{THREE_DOTS}json\n{json.dumps({k: v for k, v in request_body.items() if k != 'messages'}, indent=2, ensure_ascii=False)}\n{THREE_DOTS}\n\n"
-        )
-        tee_file.write("## 对话内容\n\n")
+        # 2. Load request body from config.json
+        request_body = ConfigManager.load_request_body(args.config, args)
 
-        # 创建客户端并发送请求
-        client = TypewriterHTTPClient(endpoint=endpoint, api_key=api_key)
+        # 3. Build messages
+        config_messages = request_body.pop(
+            "messages", []
+        )  # Remove from body temporarily
+        messages = MessageBuilder.build_messages(args, config_messages)
+        request_body["messages"] = messages
 
-        reasoning, content, metadata = client.stream_request(request_body, printer)
+        # 4. Determine output path
+        if args.output:
+            output_base = Path(args.output)
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            prompt_hint = (
+                args.prompt[0][:20]
+                if args.prompt
+                else request_body.get("model", "chat")
+            )
+            safe_name = re.sub(r"[^\w\s-]", "", prompt_hint).strip().replace(" ", "_")
+            output_base = Path(f"chat_{safe_name}_{timestamp}")
 
-        # 完成文件写入
-        printer.finalize()
+        # 5. Execute request
+        with open(output_base.with_suffix(".md"), "w", encoding="utf-8") as out_file:
+            printer = TypewriterPrinter(out_file)
+            
+            with APIClient(api_config) as client:
+                metadata = client.request(request_body, printer)
+            
+            printer.finalize()
 
-        # 保存完整对话记录（Markdown）
-        save_conversation(
-            output_path, reasoning, content, metadata, request_body["messages"]
-        )
+            # 6. Print statistics
+            print(f"\n{Colors.info('✅ Complete')}")
+            print(f"   Duration: {metadata.duration:.2f}s")
 
-        # 同时保存JSON历史（便于继续对话）
-        json_path = save_json_history(
-            output_path, request_body["messages"], reasoning, content, metadata
-        )
+            if metadata.total_tokens:
+                print(
+                    f"   Tokens: {metadata.total_tokens} (Prompt: {metadata.prompt_tokens}, Completion: {metadata.completion_tokens})"
+                )
+                if token_rate := metadata.get_token_rate():
+                    print(f"   Token Rate: {token_rate:.1f} tokens/s")
 
-        print(f"\n💾 对话已保存:")
-        print(f"   Markdown: {output_path.absolute()}")
-        print(f"   JSON历史: {json_path.absolute()}")
-        print(f"\n💡 提示: 使用 --context {json_path.name} 继续此对话")
+            if metadata.finish_reason:
+                print(f"   Finish Reason: {metadata.finish_reason}")
+
+            if printer.first_token_time:
+                print(
+                    f"   First Token: {(printer.first_token_time - printer.start_time):.2f}s"
+                )
+
+            # 7. Save results
+            md_path, json_path = ResultSaver.save(
+                output_base, request_body, metadata, printer
+            )
+
+            print(f"\n{Colors.info('💾 Saved:')}")
+            print(f"   {md_path}")
+            print(f"   {json_path}")
+            print(
+                f"\n{Colors.info('💡 Tip:')} Continue with: --context {json_path.name}"
+            )
 
     except KeyboardInterrupt:
-        print("\n\n⚠️ 用户中断", file=sys.stderr)
+        print(f"\n{Colors.warn('⚠️  Interrupted')}", file=sys.stderr)
         sys.exit(130)
-    except Exception as e:
-        print(f"\n❌ 程序错误: {e}", file=sys.stderr)
-        import traceback
-
-        traceback.print_exc()
+    except (ConfigurationError, FileNotFoundError) as e:
+        print(f"{Colors.error('❌ Configuration Error:')} {e}", file=sys.stderr)
         sys.exit(1)
-    finally:
-        if tee_file:
-            tee_file.close()
+    except APIError as e:
+        print(f"{Colors.error('❌ API Error:')} {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        logger.exception("Unexpected error")
+        print(f"{Colors.error('❌ Unexpected error:')} {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
