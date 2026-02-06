@@ -1,0 +1,12 @@
+{
+  "max_tokens": 131072,
+  "temperature": 0.6,
+  "top_p": 0.95,
+  "top_k": 50,
+  "frequency_penalty": 0,
+  "thinking_budget": 32768,
+  "chat_id": "WXAbvss",
+  "model": "THUDM/GLM-Z1-9B-0414",
+  "messages": [],
+  "context": "chat_prompt1txt_20260206_162737.json"
+}

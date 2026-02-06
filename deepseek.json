@@ -1,4 +1,16 @@
 {
-  "model": "deepseek-reasoner",
-  "stream": true
+  "max_tokens": 163840,
+  "temperature": 0.7,
+  "top_p": 0.7,
+  "top_k": 50,
+  "frequency_penalty": 0,
+  "enable_thinking": true,
+  "thinking_budget": 81920,
+  "model": "deepseek-ai/DeepSeek-V3.2",
+  "messages": [
+    {
+      "role": "system",
+      "content": ""
+    }
+  ]
 }
