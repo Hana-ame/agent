@@ -290,6 +290,8 @@ class ToolManager:
 
     def execute_tool(self, tool_call: Dict) -> Dict:
         """执行工具调用，增加了对错误参数的捕获和反馈"""
+        print("tool_call: ", tool_call)
+
         function_name = tool_call.get("function", {}).get("name")
         raw_args = tool_call.get("function", {}).get("arguments", "{}")
         tool_call_id = tool_call.get("id") or str(uuid.uuid4())
@@ -582,38 +584,43 @@ class MessageBuilder:
         messages = []
 
         # Extract system prompt and messages from config if exists
-        system_prompt = None
+        # system_prompt = None
         config_messages = []
         context_path = None
 
         if config_data:
             # 使用get而不是pop，避免修改config_data，防止类型错误
-            system_prompt = config_data.get("system", None)
+            # system_prompt = config_data.get("system", None)
             # 如果指定了--new，忽略config中的messages和context
             if not args.new:
-                config_messages = config_data.get("messages", [])
                 # 优先使用args.context，如果没有则使用config_data中的context
                 context_path = args.context or config_data.get("context")
             else:
-                print(
-                    f"{Colors.info('✓')} --new specified: ignoring config messages and context",
-                    file=sys.stderr,
-                )
+                config_messages = config_data.get("messages", [])
+                # print(
+                #     f"{Colors.info('✓')} --new specified: ignoring config messages and context",
+                #     file=sys.stderr,
+                # )
 
         # 1. Add system prompt if exists (always first)
-        if system_prompt:
+        # if system_prompt:
+        #     # 修复类型错误：确保system_prompt是字符串（处理多模态情况）
+        #     if isinstance(system_prompt, list):
+        #         # 提取文本内容或转为json字符串
+        #         texts = []
+        #         for item in system_prompt:
+        #             if isinstance(item, dict) and item.get("type") == "text":
+        #                 texts.append(item.get("text", ""))
+        #         if texts:
+        #             system_prompt = "\n".join(texts)
+        #         else:
+        #             system_prompt = json.dumps(system_prompt, ensure_ascii=False)
+        #     messages.append({"role": "system", "content": system_prompt})
+        #     print(f"{Colors.info('✓')} Added system prompt", file=sys.stderr)
+        if config_messages and args.new:
             # 修复类型错误：确保system_prompt是字符串（处理多模态情况）
-            if isinstance(system_prompt, list):
-                # 提取文本内容或转为json字符串
-                texts = []
-                for item in system_prompt:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        texts.append(item.get("text", ""))
-                if texts:
-                    system_prompt = "\n".join(texts)
-                else:
-                    system_prompt = json.dumps(system_prompt, ensure_ascii=False)
-            messages.append({"role": "system", "content": system_prompt})
+            if isinstance(config_messages, list):
+                messages.extend(config_messages)
             print(f"{Colors.info('✓')} Added system prompt", file=sys.stderr)
 
         # 2. Load context if provided (除非指定了--new)
@@ -636,8 +643,8 @@ class MessageBuilder:
             )
 
         # 3. Add messages from config (如果指定了--new，这里已经是空列表)
-        if config_messages:
-            messages.extend(config_messages)
+        # if config_messages and args.new:
+        #     messages.extend(config_messages)
 
         # 4. Add current user input (如果为空，则跳过，支持直接传输历史)
         if hasattr(args, "prompt") and args.prompt:
@@ -974,7 +981,7 @@ class APIClient:
                     if e.response is not None:
                         try:
                             # Try to get pretty JSON if possible, otherwise raw text
-                            error_body = f"\nResponse Body: {e.response.text}"
+                            error_body = f"\nRequest Body: {clean_payload}\nResponse Body: {e.response.text}"
                         except Exception:
                             error_body = "\n(Could not read response body)"
 

@@ -1,0 +1,12 @@
+{
+  "max_tokens": 4096,
+  "temperature": 0.7,
+  "top_p": 0.7,
+  "top_k": 50,
+  "frequency_penalty": 2,
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "messages": [
+    { "role": "system", "content": "随便来点" },
+    { "role": "user", "content": "喵" }
+  ]
+}
