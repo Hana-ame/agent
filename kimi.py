@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+###### #!/usr/bin/env python3
 """
 Advanced Typewriter Effect HTTP Client for OpenAI-compatible APIs (Enhanced Version).
 Zero-default policy with graceful fallback - avoids crashes when encountering unsupported parameters.
