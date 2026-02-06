@@ -3,10 +3,9 @@
   "temperature": 0.6,
   "top_p": 0.95,
   "top_k": 20,
-  "min_p": 0,
   "frequency_penalty": 2,
-  "enable_thinking": true,
   "thinking_budget": 32768,
-  "model": "Qwen/Qwen3-8B",
-  "context": "chat_子轮次_1520_20260206_191546.json"
+  "chat_id": "dyner02",
+  "model": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+  "messages": [{ "role": "system", "content": "" }]
 }
