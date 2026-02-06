@@ -1,0 +1,10 @@
+{
+  "max_tokens": 32767,
+  "temperature": 0.95,
+  "top_p": 0.7,
+  "top_k": 50,
+  "frequency_penalty": 2,
+  "model": "THUDM/GLM-4-9B-0414",
+  "messages": [],
+  "context": "chat_查看板块1内容工具就是fetchthr_20260206_205841.json"
+}
