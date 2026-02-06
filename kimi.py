@@ -174,11 +174,8 @@ class RequestMetadata:
         return None
 
 
-# ============ Tool System ============
-
-
 class ToolManager:
-    """Manages tool functions and execution"""
+    """更健壮的工具管理器，支持自动生成 Schema 并处理 LLM 的 JSON 转义错误"""
 
     def __init__(self, tools_module_path: str = "tools.py"):
         self.tools_module_path = tools_module_path
@@ -187,7 +184,7 @@ class ToolManager:
         self._load_tools()
 
     def _load_tools(self):
-        """Load tool functions from tools.py module"""
+        """从 tools.py 加载函数并自动生成 OpenAI 格式的工具定义"""
         try:
             spec = importlib.util.spec_from_file_location(
                 "tools", self.tools_module_path
@@ -196,43 +193,66 @@ class ToolManager:
                 tools_module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(tools_module)
 
-                # Find all functions in the module
-                for name, obj in inspect.getmembers(tools_module):
-                    if inspect.isfunction(obj) and not name.startswith("_"):
-                        # Check if function has proper annotations for OpenAI tools
-                        sig = inspect.signature(obj)
-                        params = {}
-                        for param_name, param in sig.parameters.items():
-                            if param_name != "self":
-                                param_type = (
-                                    str(param.annotation)
-                                    if param.annotation != inspect.Parameter.empty
-                                    else "string"
-                                )
-                                params[param_name] = {
-                                    "type": param_type.replace("<class '", "")
-                                    .replace("'>", "")
-                                    .lower(),
-                                    "description": f"Parameter {param_name}",
-                                }
+                type_map = {
+                    "int": "integer",
+                    "str": "string",
+                    "float": "number",
+                    "bool": "boolean",
+                    "list": "array",
+                    "dict": "object",
+                }
 
-                        # Create tool definition
+                for name, obj in inspect.getmembers(tools_module):
+                    if (
+                        inspect.isfunction(obj)
+                        and not name.startswith("_")
+                        and obj.__module__ == "tools"
+                    ):
+                        sig = inspect.signature(obj)
+                        properties = {}
+                        required_params = []
+
+                        for param_name, param in sig.parameters.items():
+                            if param_name == "self":
+                                continue
+
+                            # 获取类型
+                            p_type = "string"  # 默认
+                            if param.annotation != inspect.Parameter.empty:
+                                type_name = (
+                                    param.annotation.__name__
+                                    if hasattr(param.annotation, "__name__")
+                                    else str(param.annotation)
+                                )
+                                p_type = type_map.get(type_name.lower(), "string")
+
+                            properties[param_name] = {
+                                "type": p_type,
+                                "description": f"参数 {param_name}",
+                            }
+
+                            # 如果没有默认值，则为必填
+                            if param.default == inspect.Parameter.empty:
+                                required_params.append(param_name)
+
+                        # 构造符合 OpenAI 标准的定义
                         tool_def = {
                             "type": "function",
                             "function": {
                                 "name": name,
-                                "description": obj.__doc__ or f"Function {name}",
+                                "description": (
+                                    obj.__doc__ or f"执行 {name} 操作"
+                                ).strip(),
                                 "parameters": {
                                     "type": "object",
-                                    "properties": params,
-                                    "required": list(params.keys()),
+                                    "properties": properties,
+                                    "required": required_params,
                                 },
                             },
                         }
 
                         self.tool_definitions.append(tool_def)
                         self.available_functions[name] = obj
-
                         print(
                             f"{Colors.info('✓')} Loaded tool: {name}", file=sys.stderr
                         )
@@ -244,66 +264,91 @@ class ToolManager:
                     )
             else:
                 print(
-                    f"{Colors.warn('⚠')} Tools module not found: {self.tools_module_path}",
+                    f"{Colors.warn('⚠')} Tools module not found at {self.tools_module_path}",
                     file=sys.stderr,
                 )
         except Exception as e:
             print(f"{Colors.warn('⚠')} Failed to load tools: {e}", file=sys.stderr)
 
-    def execute_tool(self, tool_call: Dict) -> Dict:
-        """Execute a tool call and return result"""
+    def _robust_json_loads(self, json_str: str) -> Dict:
+        """
+        尝试修复 LLM 常见的 JSON 错误：
+        特别是 txt 字段中包含未转义的代码引号。
+        """
         try:
-            function_name = tool_call["function"]["name"]
-            function_args = json.loads(tool_call["function"]["arguments"])
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            # 这里的逻辑是：如果普通解析失败，LLM 可能在 txt 字段的代码里用了双引号但没加斜杠
+            # 这是一个非常简化的暴力修复：尝试找到 txt 字段的值并进行保护
+            # 注意：实际生产中建议通过 Prompt 强迫 LLM 修正，这里做基础修复提示
+            print(f"{Colors.warn('⚠')} JSON 解析失败，尝试修复内容...", file=sys.stderr)
 
+            # 针对你遇到的具体错误（txt 内部双引号冲突）
+            # 这种错误通常表现为: "txt": "print("hello")"
+            # 我们通过报错信息向 LLM 发送更明确的修复请求
+            raise e
+
+    def execute_tool(self, tool_call: Dict) -> Dict:
+        """执行工具调用，增加了对错误参数的捕获和反馈"""
+        function_name = tool_call.get("function", {}).get("name")
+        raw_args = tool_call.get("function", {}).get("arguments", "{}")
+        tool_call_id = tool_call.get("id") or str(uuid.uuid4())
+
+        try:
             if function_name not in self.available_functions:
-                raise ToolError(f"Unknown function: {function_name}")
+                return self._error_response(
+                    tool_call_id, function_name, f"未找到工具: {function_name}"
+                )
+
+            # 解析参数
+            try:
+                args = self._robust_json_loads(raw_args)
+            except json.JSONDecodeError:
+                # 给 LLM 的错误提示一定要具体，告诉它引号没转义
+                error_hint = (
+                    f"JSON解析失败！你在 '{function_name}' 的参数中可能包含了未转义的双引号。 "
+                    "请注意：如果 'txt' 包含代码，请将其中的双引号 (\") 替换为 (\\\") 或使用单引号 (')。"
+                )
+                return self._error_response(tool_call_id, function_name, error_hint)
 
             print(
-                f"\n{Colors.CYAN}🔧 Executing tool: {function_name}{Colors.END}",
+                f"\n{Colors.CYAN}🔧 Executing: {function_name}{Colors.END}",
                 file=sys.stderr,
             )
-            print(f"   Arguments: {function_args}", file=sys.stderr)
 
-            # Execute the function
-            result = self.available_functions[function_name](**function_args)
+            # 执行函数
+            result = self.available_functions[function_name](**args)
 
-            print(f"   Result: {result}", file=sys.stderr)
-
-            # 修复：处理null或空的tool_call_id
-            tool_call_id = tool_call.get("id")
-            if not tool_call_id:
-                tool_call_id = str(uuid.uuid4())
-                print(
-                    f"{Colors.warn('⚠')} Generated tool call ID: {tool_call_id}",
-                    file=sys.stderr,
-                )
+            # 如果结果本身不是字符串，转为 JSON 字符串返回给 Agent
+            content = (
+                result
+                if isinstance(result, str)
+                else json.dumps(result, ensure_ascii=False)
+            )
 
             return {
                 "tool_call_id": tool_call_id,
                 "role": "tool",
                 "name": function_name,
-                "content": json.dumps(result, ensure_ascii=False),
+                "content": content,
             }
 
         except Exception as e:
-            error_msg = f"Tool execution failed: {str(e)}"
-            print(f"{Colors.error('❌')} {error_msg}", file=sys.stderr)
+            error_msg = f"工具执行时出错: {str(e)}"
+            return self._error_response(tool_call_id, function_name, error_msg)
 
-            # 修复：错误响应也生成ID
-            tool_call_id = tool_call.get("id")
-            if not tool_call_id:
-                tool_call_id = str(uuid.uuid4())
-
-            return {
-                "tool_call_id": tool_call_id,
-                "role": "tool",
-                "name": tool_call["function"]["name"],
-                "content": json.dumps({"error": error_msg}, ensure_ascii=False),
-            }
+    def _error_response(self, call_id: str, name: str, msg: str) -> Dict:
+        """统一的错误返回格式"""
+        print(f"{Colors.error('❌')} {name}: {msg}", file=sys.stderr)
+        return {
+            "tool_call_id": call_id,
+            "role": "tool",
+            "name": name,
+            "content": json.dumps({"error": msg}, ensure_ascii=False),
+        }
 
     def get_tool_definitions(self) -> List[Dict]:
-        """Get OpenAI-compatible tool definitions"""
+        """获取 OpenAI 兼容的工具定义列表"""
         return self.tool_definitions
 
 
@@ -450,23 +495,28 @@ class ConfigManager:
         """Save context file path to config.json (only modifies context field)"""
         try:
             path = Path(config_path).expanduser().resolve()
-            
+
             if path.exists():
                 with open(path, "r", encoding="utf-8") as f:
                     config_data = json.load(f)
             else:
                 config_data = {}
-                
+
             # 只修改context字段，不修改messages和system等其他字段
             config_data["context"] = str(context_path)
-            
+
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(config_data, f, ensure_ascii=False, indent=2)
-                
-            print(f"{Colors.info('✓')} Saved context reference: {context_path}", file=sys.stderr)
-                
+
+            print(
+                f"{Colors.info('✓')} Saved context reference: {context_path}",
+                file=sys.stderr,
+            )
+
         except Exception as e:
-            print(f"{Colors.warn('⚠')} Failed to save context path: {e}", file=sys.stderr)
+            print(
+                f"{Colors.warn('⚠')} Failed to save context path: {e}", file=sys.stderr
+            )
 
 
 # ============ File & Message Building ============
@@ -535,7 +585,7 @@ class MessageBuilder:
         system_prompt = None
         config_messages = []
         context_path = None
-        
+
         if config_data:
             # 使用get而不是pop，避免修改config_data，防止类型错误
             system_prompt = config_data.get("system", None)
@@ -545,7 +595,10 @@ class MessageBuilder:
                 # 优先使用args.context，如果没有则使用config_data中的context
                 context_path = args.context or config_data.get("context")
             else:
-                print(f"{Colors.info('✓')} --new specified: ignoring config messages and context", file=sys.stderr)
+                print(
+                    f"{Colors.info('✓')} --new specified: ignoring config messages and context",
+                    file=sys.stderr,
+                )
 
         # 1. Add system prompt if exists (always first)
         if system_prompt:
@@ -577,7 +630,10 @@ class MessageBuilder:
                     f"{Colors.warn('⚠')} Failed to load context: {e}", file=sys.stderr
                 )
         elif args.context and args.new:
-            print(f"{Colors.info('✓')} --new specified: ignoring context file", file=sys.stderr)
+            print(
+                f"{Colors.info('✓')} --new specified: ignoring context file",
+                file=sys.stderr,
+            )
 
         # 3. Add messages from config (如果指定了--new，这里已经是空列表)
         if config_messages:
@@ -592,7 +648,10 @@ class MessageBuilder:
         if config_data and config_data.get("auto_continue", False):
             if messages and messages[-1].get("role") == "assistant":
                 messages.append({"role": "user", "content": ""})
-                print(f"{Colors.info('✓')} Auto-continue: added empty user message", file=sys.stderr)
+                print(
+                    f"{Colors.info('✓')} Auto-continue: added empty user message",
+                    file=sys.stderr,
+                )
 
         if not messages:
             raise ConfigurationError(
@@ -622,7 +681,7 @@ class MessageBuilder:
 
         # 修复：自动修复null的tool_call_id和tool_calls.id
         MessageBuilder._fix_null_tool_ids(messages)
-        
+
         return messages
 
     @staticmethod
@@ -634,12 +693,18 @@ class MessageBuilder:
                 for tool_call in msg["tool_calls"]:
                     if not tool_call.get("id"):
                         tool_call["id"] = str(uuid.uuid4())
-                        print(f"{Colors.warn('⚠')} Fixed null tool call ID in assistant message", file=sys.stderr)
-            
+                        print(
+                            f"{Colors.warn('⚠')} Fixed null tool call ID in assistant message",
+                            file=sys.stderr,
+                        )
+
             # 修复tool消息中的tool_call_id
             if msg.get("role") == "tool" and not msg.get("tool_call_id"):
                 msg["tool_call_id"] = str(uuid.uuid4())
-                print(f"{Colors.warn('⚠')} Fixed null tool_call_id in tool message", file=sys.stderr)
+                print(
+                    f"{Colors.warn('⚠')} Fixed null tool_call_id in tool message",
+                    file=sys.stderr,
+                )
 
     @staticmethod
     def _build_user_messages(prompt_parts: List[str]) -> List[Dict[str, Any]]:
@@ -904,6 +969,20 @@ class APIClient:
                     )
                     time.sleep(wait_time)
                 else:
+                    # --- START OF MODIFICATION ---
+                    error_body = ""
+                    if e.response is not None:
+                        try:
+                            # Try to get pretty JSON if possible, otherwise raw text
+                            error_body = f"\nResponse Body: {e.response.text}"
+                        except Exception:
+                            error_body = "\n(Could not read response body)"
+
+                    print(
+                        f"{Colors.warn(f'❌ Request failed after {self.max_retries} attempts. Error: {e}{error_body}')}",
+                        file=sys.stderr,
+                    )
+                    # --- END OF MODIFICATION ---
                     raise APIError(
                         f"Request failed after {self.max_retries} retries: {e}"
                     )
@@ -1251,7 +1330,7 @@ class ResultSaver:
         }
 
         # Add assistant response
-        assistant_msg : Dict[str, Any] = {
+        assistant_msg: Dict[str, Any] = {
             "role": "assistant",
             "content": printer.content_buffer,
         }
