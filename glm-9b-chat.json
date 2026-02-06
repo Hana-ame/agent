@@ -1,0 +1,11 @@
+{
+  "max_tokens": 4096,
+  "temperature": 0.7,
+  "top_p": 0.7,
+  "top_k": 50,
+  "frequency_penalty": 2,
+  "model": "THUDM/glm-4-9b-chat",
+  "messages": [
+    { "role": "system", "content": "这东西用不了，会说：\"messages\" in request are illegal" }
+  ]
+}
