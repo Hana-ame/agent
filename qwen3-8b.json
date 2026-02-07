@@ -8,5 +8,5 @@
   "enable_thinking": true,
   "thinking_budget": 32768,
   "model": "Qwen/Qwen3-8B",
-  "_context": "chat_STATE_FILE_20260207_222943.json"
+  "messages": []
 }
