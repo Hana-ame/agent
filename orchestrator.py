@@ -25,6 +25,7 @@ def main():
     )
     parser.add_argument("-i", "--id", default="agent_01", help="当前 Agent 的 ID")
     parser.add_argument("-l", "--loop", type=int, default=10, help="小循环次数")
+    parser.add_argument("-t", "--time", type=int, default=300, help="结束后的delay")
 
     args = parser.parse_args()
 
@@ -81,11 +82,11 @@ def main():
             run_command(loop_cmd)
 
             # 留出冷却时间
-            time.sleep(20)
+            time.sleep(60)
 
         iteration += 1
         print(f"\n本轮 Session 结束。下一轮将重新加载由 Tool 更新后的 {STATE_FILE}")
-        time.sleep(300)
+        time.sleep(args.time)
         os.system("rm chat_*")
 
 
