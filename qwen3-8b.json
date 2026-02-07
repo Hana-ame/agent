@@ -8,5 +8,5 @@
   "enable_thinking": true,
   "thinking_budget": 32768,
   "model": "Qwen/Qwen3-8B",
-  "context": "chat_子轮次_1520_20260206_191546.json"
+  "context": "chat_Continue_Iteration_20260207_141753.json"
 }

@@ -3,5 +3,6 @@
   "temperature": 0.7,
   "max_tokens": 65536,
   "stream": true,
-  "enable_thinking": true
+  "enable_thinking": true,
+  "context": "chat_base_goaltxt_20260207_051630.json"
 }
