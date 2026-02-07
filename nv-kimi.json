@@ -1,7 +1,12 @@
 {
   "model": "moonshotai/kimi-k2.5",
-  "temperature": 0.7,
-  "max_tokens": 65536,
+  "messages": [],
+  "max_tokens": 16384,
+  "temperature": 1.0,
+  "top_p": 1.0,
   "stream": true,
-  "enable_thinking": true
+  "chat_template_kwargs": {
+    "thinking": true
+  },
+  "_context": "chat_Continue_Iteration_20260207_161356.json"
 }

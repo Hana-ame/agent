@@ -1048,9 +1048,13 @@ class APIClient:
                 except json.JSONDecodeError:
                     continue
 
-        # Handle tool calls after stream ends
+        # Handle standard tool calls after stream ends
         if tool_calls_buffer and tool_manager:
             self._handle_tool_calls(tool_calls_buffer, metadata, tool_manager)
+
+        # NEW: After stream ends, check if content_buffer is actually a tool call JSON
+        elif tool_manager and printer.content_buffer.strip():
+            self._check_content_for_tool_calls(printer, metadata, tool_manager)
 
         metadata.finalize()
         return metadata
@@ -1083,26 +1087,28 @@ class APIClient:
 
         # Process tool calls
         tool_calls = delta.get("tool_calls", [])
-        for tool_call in tool_calls:
-            idx = tool_call.get("index", 0)
-            if idx not in tool_calls_buffer:
-                tool_calls_buffer[idx] = {
-                    "id": "",
-                    "type": "function",
-                    "function": {"name": "", "arguments": ""},
-                }
 
-            if "id" in tool_call:
-                tool_calls_buffer[idx]["id"] = tool_call["id"]
-            if "function" in tool_call:
-                if "name" in tool_call["function"]:
-                    tool_calls_buffer[idx]["function"]["name"] = tool_call["function"][
-                        "name"
-                    ]
-                if "arguments" in tool_call["function"]:
-                    tool_calls_buffer[idx]["function"]["arguments"] += tool_call[
-                        "function"
-                    ]["arguments"]
+        if tool_calls:
+            for tool_call in tool_calls:
+                idx = tool_call.get("index", 0)
+                if idx not in tool_calls_buffer:
+                    tool_calls_buffer[idx] = {
+                        "id": "",
+                        "type": "function",
+                        "function": {"name": "", "arguments": ""},
+                    }
+
+                if "id" in tool_call:
+                    tool_calls_buffer[idx]["id"] = tool_call["id"]
+                if "function" in tool_call:
+                    if "name" in tool_call["function"]:
+                        tool_calls_buffer[idx]["function"]["name"] = tool_call[
+                            "function"
+                        ]["name"]
+                    if "arguments" in tool_call["function"]:
+                        tool_calls_buffer[idx]["function"]["arguments"] += tool_call[
+                            "function"
+                        ]["arguments"]
 
         # Process content
         reasoning_delta = delta.get("reasoning_content") or delta.get("reasoning") or ""
@@ -1129,16 +1135,78 @@ class APIClient:
         reasoning = message.get("reasoning_content", "")
         content = message.get("content", "")
 
+        # 检查 content 是否是一个 JSON 字符串，并且包含 tool call 信息
+        tool_calls = message.get("tool_calls", [])
+
+        # 新增：尝试解析 content 中的 JSON 作为 tool calls
+        if not tool_calls and isinstance(content, str) and content.strip():
+            try:
+                # 尝试解析 content 为 JSON
+                parsed_content = json.loads(content.strip())
+
+                # 检查是否为 tool call 格式
+                # 可能格式1: 单个 tool call 对象
+                if isinstance(parsed_content, dict) and "function" in parsed_content:
+                    tool_calls = [parsed_content]
+                    content = ""  # 清空 content，因为它是 tool call
+                    print(
+                        f"{Colors.CYAN}🛠️  Detected tool call in content JSON{Colors.END}",
+                        file=sys.stderr,
+                    )
+
+                # 可能格式2: tool calls 数组
+                elif isinstance(parsed_content, list) and len(parsed_content) > 0:
+                    # 检查数组中的每个元素是否都是 tool call
+                    all_are_tool_calls = True
+                    for item in parsed_content:
+                        if not isinstance(item, dict) or "function" not in item:
+                            all_are_tool_calls = False
+                            break
+
+                    if all_are_tool_calls:
+                        tool_calls = parsed_content
+                        content = ""  # 清空 content
+                        print(
+                            f"{Colors.CYAN}🛠️  Detected {len(tool_calls)} tool calls in content JSON{Colors.END}",
+                            file=sys.stderr,
+                        )
+
+            except json.JSONDecodeError:
+                # content 不是有效的 JSON，保持原样
+                pass
+
         if reasoning:
             printer.update_reasoning(reasoning)
 
         printer.switch_to_content()
-        printer.update_content(content)
 
-        # Handle tool calls
-        tool_calls = message.get("tool_calls", [])
+        # 如果有 tool_calls，先处理它们
         if tool_calls and tool_manager:
+            # 确保每个 tool call 都有 id
+            for i, tool_call in enumerate(tool_calls):
+                if not tool_call.get("id"):
+                    tool_call["id"] = f"call_{i}_{uuid.uuid4().hex[:8]}"
+
+            # 更新 metadata
+            metadata.tool_calls = tool_calls
+
+            # 打印 tool calls 信息
+            print(f"\n{Colors.CYAN}🛠️  Tool Calls Detected:{Colors.END}")
+            for i, tool_call in enumerate(tool_calls, 1):
+                func = tool_call.get("function", {})
+                print(
+                    f"   {i}. {func.get('name', 'unknown')}({func.get('arguments', '{}')})"
+                )
+
+            # 执行 tool calls
             self._handle_tool_calls(tool_calls, metadata, tool_manager)
+
+            # 清空 content，因为它是 tool call 信息
+            content = ""
+
+        # 打印剩余的 content（如果有）
+        if content:
+            printer.update_content(content)
 
         # Update metadata
         if "usage" in data:
@@ -1167,16 +1235,84 @@ class APIClient:
 
         metadata.tool_calls = tool_calls
 
-        print(f"\n{Colors.CYAN}🛠️  Tool Calls Detected:{Colors.END}")
-        for i, tool_call in enumerate(tool_calls, 1):
-            print(
-                f"   {i}. {tool_call['function']['name']}({tool_call['function']['arguments']})"
-            )
-
         # Execute tool calls
-        for tool_call in tool_calls:
-            result = tool_manager.execute_tool(tool_call)
-            metadata.tool_results.append(result)
+        if tool_calls:
+            for tool_call in tool_calls:
+                result = tool_manager.execute_tool(tool_call)
+                metadata.tool_results.append(result)
+
+    def _check_content_for_tool_calls(
+        self,
+        printer: TypewriterPrinter,
+        metadata: RequestMetadata,
+        tool_manager: ToolManager,
+    ):
+        """Check if content buffer contains tool call JSON and execute if so"""
+        content = printer.content_buffer.strip()
+
+        if not content:
+            return
+
+        # Try to parse the entire content as JSON
+        try:
+            parsed_content = json.loads(content)
+
+            # Check for tool call format
+            tool_calls = []
+
+            # Format 1: Single tool call object
+            if isinstance(parsed_content, dict) and "function" in parsed_content:
+                tool_calls = [parsed_content]
+
+            # Format 2: Array of tool calls
+            elif isinstance(parsed_content, list) and len(parsed_content) > 0:
+                # Check if all items are tool calls
+                all_are_tool_calls = all(
+                    isinstance(item, dict) and "function" in item
+                    for item in parsed_content
+                )
+                if all_are_tool_calls:
+                    tool_calls = parsed_content
+
+            if tool_calls:
+                # Clear the content buffer since it's actually a tool call
+                printer.content_buffer = ""
+                printer.content_printed = 0
+
+                print(
+                    f"\n{Colors.CYAN}🛠️  Detected tool calls in response content:{Colors.END}",
+                    file=sys.stderr,
+                )
+
+                # Ensure each tool call has an ID
+                for i, tool_call in enumerate(tool_calls):
+                    if not tool_call.get("id"):
+                        tool_call["id"] = f"content_call_{i}_{uuid.uuid4().hex[:8]}"
+                    if not tool_call.get("type"):
+                        tool_call["type"] = "function"
+
+                metadata.tool_calls = tool_calls
+
+                # Print tool calls info
+                for i, tool_call in enumerate(tool_calls, 1):
+                    func = tool_call.get("function", {})
+                    print(
+                        f"   {i}. {func.get('name', 'unknown')}({func.get('arguments', '{}')})"
+                    )
+
+                # Execute tool calls
+                for tool_call in tool_calls:
+                    result = tool_manager.execute_tool(tool_call)
+                    metadata.tool_results.append(result)
+
+        except json.JSONDecodeError:
+            # Not a JSON, keep as regular content
+            pass
+        except Exception as e:
+            print(
+                f"{Colors.warn('⚠')} Failed to check content for tool calls: {e}",
+                file=sys.stderr,
+            )
 
 
 # ============ Result Saving ============
@@ -1332,6 +1468,7 @@ class ResultSaver:
                 "model": metadata.model,
                 "total_tokens": metadata.total_tokens,
                 "duration": metadata.duration,
+                "tool_calls_detected_in_content": len(metadata.tool_calls) > 0,
             },
             "messages": payload.get("messages", []).copy(),
         }
@@ -1341,8 +1478,10 @@ class ResultSaver:
             "role": "assistant",
             "content": printer.content_buffer,
         }
+
         if printer.reasoning_buffer:
             assistant_msg["reasoning_content"] = printer.reasoning_buffer
+
         if metadata.tool_calls:
             # 修复：确保tool_calls中的ID不为null
             for tool_call in metadata.tool_calls:
@@ -1352,12 +1491,17 @@ class ResultSaver:
 
         continuation["messages"].append(assistant_msg)
 
-        # Add tool results as tool messages
+        # Add tool results as tool messages (这是关键 - 工具执行结果应该作为 tool 角色消息)
         for result in metadata.tool_results:
-            # 修复：确保tool_call_id不为null
-            if not result.get("tool_call_id"):
-                result["tool_call_id"] = str(uuid.uuid4())
-            continuation["messages"].append(result)
+            # 确保格式正确
+            tool_message = {
+                "role": "tool",
+                "content": result.get("content", ""),
+                "tool_call_id": result.get("tool_call_id"),
+            }
+            if "name" in result:
+                tool_message["name"] = result["name"]
+            continuation["messages"].append(tool_message)
 
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(continuation, f, ensure_ascii=False, indent=2)
@@ -1547,7 +1691,9 @@ def main():
         # 删除request_body中以_开头的属性（只处理顶层）
         if isinstance(request_body, dict):
             # 创建一个新字典，只保留不以_开头的键
-            request_body = {k: v for k, v in request_body.items() if not k.startswith('_')}
+            request_body = {
+                k: v for k, v in request_body.items() if not k.startswith("_")
+            }
 
         # 6. Execute request
         with open(output_base.with_suffix(".md"), "w", encoding="utf-8") as out_file:
