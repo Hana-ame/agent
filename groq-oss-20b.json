@@ -1,6 +1,6 @@
 {
   "messages": [],
-  "model": "openai/gpt-oss-120b",
+  "model": "openai/gpt-oss-20b",
   "temperature": 1,
   "max_completion_tokens": 65536,
   "max_tokens": 65536,
@@ -8,5 +8,5 @@
   "stream": true,
   "reasoning_effort": "medium",
   "stop": null,
-  "_context": "chat_Continue_Iteration_20260207_144638.json"
+  "_context": "chat_Continue_Iteration_20260207_145147.json"
 }

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 {
   "max_tokens": 4096,
   "temperature": 0.7,
@@ -12,4 +13,21 @@
     }
   ],
   "context": "chat_Continue_Iteration_20260207_144923.json"
+=======
+{
+  "max_tokens": 4096,
+  "temperature": 0.7,
+  "top_p": 0.7,
+  "top_k": 50,
+  "frequency_penalty": 2,
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "messages": [
+    {
+      "role": "system",
+      "content": ""
+    }
+  ],
+  "context": "chat_Continue_Iteration_20260207_143750.json",
+  "_context": "chat_Continue_Iteration_20260207_144907.json"
+>>>>>>> 3f10e0b903606be8dea95fce8fb3e7a10d582033
 }

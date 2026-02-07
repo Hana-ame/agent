@@ -505,7 +505,7 @@ class ConfigManager:
                 config_data = {}
 
             # 只修改context字段，不修改messages和system等其他字段
-            config_data["context"] = str(context_path)
+            config_data["_context"] = str(context_path)
 
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(config_data, f, ensure_ascii=False, indent=2)
@@ -594,7 +594,7 @@ class MessageBuilder:
             # 如果指定了--new，忽略config中的messages和context
             if not args.new:
                 # 优先使用args.context，如果没有则使用config_data中的context
-                context_path = args.context or config_data.get("context")
+                context_path = args.context or config_data.get("_context")
             else:
                 config_messages = config_data.get("messages", [])
                 # print(
@@ -1524,6 +1524,11 @@ def main():
 
         # 4. Build messages (支持从config自动加载context，支持auto_continue)
         messages = MessageBuilder.build_messages(args, request_body)
+        if isinstance(messages, list):
+            for message in messages:
+                if isinstance(message, dict) and "reasoning_content" in message:
+                    del message["reasoning_content"]
+
         request_body["messages"] = messages
 
         # 5. Determine output path
@@ -1538,6 +1543,11 @@ def main():
             )
             safe_name = re.sub(r"[^\w\s-]", "", prompt_hint).strip().replace(" ", "_")
             output_base = Path(f"chat_{safe_name}_{timestamp}")
+
+        # 删除request_body中以_开头的属性（只处理顶层）
+        if isinstance(request_body, dict):
+            # 创建一个新字典，只保留不以_开头的键
+            request_body = {k: v for k, v in request_body.items() if not k.startswith('_')}
 
         # 6. Execute request
         with open(output_base.with_suffix(".md"), "w", encoding="utf-8") as out_file:
