@@ -50,7 +50,7 @@ def post_to_board(
     
     Args:
         bid: 板块ID
-        tid: 回复的主串ID，发新串传0
+        tid: 回复的主串ID，发新串传0，必须是数字，从response的no中获得，而且不可以使用每一项list中出现的no，而只能使用fetch_threads出现的最外层的列表中出现的no参数。
         txt: 正文内容 (注意三引号转换)
         title: 标题
         name: 署名
