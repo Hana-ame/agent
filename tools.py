@@ -34,7 +34,7 @@ def fetch_threads(bid: int, tid: int = 0, pn: int = 0) -> str:
 
 
 def post_to_board(
-    bid: int, tid: int = 0, txt: str = "无文本", title: str = "", name: str = ""
+    bid: int = 666, tid: int = 0, txt: str = "无文本", title: str = "", name: str = ""
 ) -> str:
     """
     在指定板块发帖或回复。
