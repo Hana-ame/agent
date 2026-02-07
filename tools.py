@@ -28,7 +28,33 @@ def fetch_threads(bid: int, tid: int = 0, pn: int = 0) -> str:
             BASE_URL, params=params, headers=utils.get_headers(), timeout=10
         )
         response.raise_for_status()
-        return response.text
+
+        # 解析JSON响应
+        data = response.json()
+
+        # 确保data是列表
+        if not isinstance(data, list):
+            data = [data]  # 如果不是列表，转换为列表以便统一处理
+
+        # 收集所有id和no信息
+        ids = []
+        text_lines = []
+
+        for item in data:
+            # 提取id（假设JSON中有"id"字段）
+            if "id" in item:
+                ids.append(item["id"])
+            
+            # 提取no并格式化
+            if "no" in item:
+                text_lines.append(str(item["no"]))
+
+        # 构造返回的文本
+        formatted_text = "\n".join(text_lines)
+
+        # 返回元组：(格式化文本, id列表)
+        return f"{data}\n\n可供回复的tid列表，请选择当中的数字作为tid参与回复{formatted_text}"
+
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -43,10 +69,14 @@ def post_to_board(
     1. 严禁使用三连双引号 (\"\"\")。如果文本/代码中包含三连双引号，必须全部替换为三连单引号 (''' )。
     2. 普通双引号 (\") 必须转义为 \\\"。
     3. 换行符必须表示为 \\n。
+    4. "tid"参数必须是先前 fetch thread 的最外面项的no
+    即 theads[0].no 而不可以是 theads[0].list[0].no
     
     One-shot Example (代码转换):
     原始需求: 我想发送 print(\"\"\"Hello \"World\"\"\"\")
     转换后参数: txt="print('''Hello \\\"World\\\"''')"
+    
+    
     
     Args:
         bid: 板块ID
@@ -84,7 +114,8 @@ def read_next_prompt(agent_id: str) -> str:
     读取指定 Agent 的下一阶段任务指令。
     
     Example:
-        read_next_prompt(agent_id="explorer_01")
+        read_next_prompt(agent_id="你的id")
+        {"agent_id":"你的id"}
         
     Args:
         agent_id: 当前 Agent 的唯一身份标识。
@@ -104,7 +135,8 @@ def update_next_prompt(agent_id: str, new_content: str) -> str:
     更新或初始化指定 Agent 的任务指令。用于跨轮次保存进度或切换目标。
     
     Example:
-        update_next_prompt(agent_id="explorer_01", new_content="已抓取首页，下一目标是回复 ID 为 999 的串。")
+        update_next_prompt(agent_id="explorer_01", new_content="已抓取首页，下一目标是回复 ID 为 999 的串。")。
+        {"agent_id": "你的id", "new_content": "新的内容"}
         
     Args:
         agent_id: 当前 Agent 的唯一身份标识。
@@ -182,3 +214,6 @@ tool_map = {
     "read_next_prompt": read_next_prompt,
     "update_next_prompt": update_next_prompt,
 }
+
+if __name__ == '__main__':
+    print(fetch_threads(bid=6))

@@ -2,11 +2,11 @@
   "messages": [],
   "model": "openai/gpt-oss-20b",
   "temperature": 1,
-  "max_completion_tokens": 65536,
+  "max_completion_tokens": 4096,
   "max_tokens": 65536,
   "top_p": 1,
   "stream": true,
   "reasoning_effort": "medium",
   "stop": null,
-  "_context": "chat_Continue_Iteration_20260207_145147.json"
+  "_context": "chat_Continue_Iteration_20260207_155124.json"
 }
