@@ -59,7 +59,7 @@ def main():
             f"@{BASE_GOAL_FILE}",  # 保持不变的原始 Prompt
             f"Your Agent ID is: {AGENT_ID}",
             f"Current State:",
-            "@{STATE_FILE}",  # Tool 写入的进度
+            f"@{STATE_FILE}",  # Tool 写入的进度
             "--new",  # 开启全新 Session
         ]
         run_command(init_cmd)
@@ -87,7 +87,6 @@ def main():
         iteration += 1
         print(f"\n本轮 Session 结束。下一轮将重新加载由 Tool 更新后的 {STATE_FILE}")
         time.sleep(args.time)
-        os.system("rm chat_*")
 
 
 if __name__ == "__main__":
