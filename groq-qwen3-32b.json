@@ -1,0 +1,12 @@
+{
+  "messages": [],
+  "model": "qwen/qwen3-32b",
+  "temperature": 0.6,
+  "max_completion_tokens": 4096,
+  "max_tokens": 65536,
+  "top_p": 0.95,
+  "stream": true,
+  "reasoning_effort": "default",
+  "stop": null,
+  "_context": "chat_Continue_Iteration_20260207_145649.json"
+}
