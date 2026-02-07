@@ -6,5 +6,5 @@
   "frequency_penalty": 2,
   "model": "THUDM/GLM-4-9B-0414",
   "messages": [],
-  "context": "chat_查看板块1内容工具就是fetchthr_20260206_205841.json"
+  "context": "chat_base_goaltxt_20260207_050943.json"
 }
