@@ -8,5 +8,6 @@
   "enable_thinking": true,
   "thinking_budget": 32768,
   "model": "Qwen/Qwen3-8B",
-  "messages": []
+  "messages": [],
+  "_context": "chat_Continue_Iteration_20260208_210441.json"
 }
