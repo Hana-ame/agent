@@ -2,7 +2,7 @@
   {
     "id": "deepseek-tools",
     "name": "DeepSeek 增强工具",
-    "url": "https://upload.moonchan.xyz/api/01LLWEUU44C5R7NVZATNDJOB7YKCZI4VOO/deepseek-script.js",
+    "url": "https://upload.moonchan.xyz/api/01LLWEUU3I254YPVOVVBG273BSN4EKQJYH/deepseek-script.js",
     "type": "js",
     "patterns": [
       "*://chat.deepseek.com/*"
