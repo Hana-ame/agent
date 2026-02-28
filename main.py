@@ -39,7 +39,7 @@ def read_and_clear_message() -> str:
 
 async def main():
     # 1. 初始化封装类
-    client = LLMClient()
+    client = LLMClient("wss://d.810114.xyz/ws/client")
 
     # 2. 连接并尝试配对 DeepSeek 浏览器
     print("⏳ 正在请求配对 DeepSeek 浏览器...")
