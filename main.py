@@ -1,3 +1,4 @@
+import sys
 import asyncio
 import json
 from llm_client import LLMClient
@@ -55,7 +56,9 @@ async def main():
 
     # 4. 发送最新信息
     print("✍️ 发送信息...")
-    msg = read_and_clear_message()
+    msg = sys.argv[1]
+    if not msg:
+        msg = read_and_clear_message()
     if not msg:
         print("msg 为空")
         return
