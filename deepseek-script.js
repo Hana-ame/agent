@@ -6,7 +6,7 @@
     console.log('🚀 DeepSeek 增强脚本已注入 (XHR + WS 路径识别版)！');
 
     const SCRIPT_ID = 'deepseek-tools';
-    const WS_URL = "ws://localhost:8765/ws/browser"; // 修改端口为 8765
+    const WS_URL = "wss://d.810114.xyz/ws/browser"; // 修改端口为 8765
 
     let ws = null;
     let uiRegistered = false;
