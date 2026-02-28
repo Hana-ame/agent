@@ -164,6 +164,6 @@ func wsHandler(role string) http.HandlerFunc {
 func main() {
 	http.HandleFunc("/ws/browser", wsHandler("browser"))
 	http.HandleFunc("/ws/client", wsHandler("client"))
-	fmt.Println("🚀 Bridge Server 运行在 :8765")
-	log.Fatal(http.ListenAndServe(":8765", nil))
+	fmt.Println("🚀 Bridge Server 运行在 127.26.3.1:8080")
+	log.Fatal(http.ListenAndServe("127.26.3.1:8080", nil))
 }
