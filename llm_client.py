@@ -81,7 +81,8 @@ class LLMClient:
         if model_name == "deepseek":
             self.parser = DeepSeekBridge()
         elif model_name == "qwen":
-            pass  # 未来实现 self.parser = QwenBridge()
+            # 未来实现 self.parser = QwenBridge()
+            raise ValueError(f"Unsupported model: {model_name}")
         else:
             raise ValueError(f"Unsupported model: {model_name}")
 
@@ -113,6 +114,9 @@ class LLMClient:
                 }
             )
         )
+
+    async def send_command(self, command: str):
+        await self.ws.send(json.dumps({"type": "command", "command": command}))
 
     def completion(self, msg: dict) -> tuple:
         """
