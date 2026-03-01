@@ -2,22 +2,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-utils.py - 工具调用入口
-
-用法：
-    py utils.py <工具名称> [参数...]
-
-工具列表（位于 utils/ 目录下）：
-    read <相对路径>
-    write <相对路径> <内容>
-    append <相对路径> <内容>
-    replace <相对路径> <旧文本> <新文本>
-    list <相对路径>
-    delete <相对路径>
-    ... 可扩展
-"""
-
 import sys
 import importlib
 import os
