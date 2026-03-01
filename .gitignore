@@ -3,5 +3,7 @@ __pycache__
 *.db
 
 LAST_RESPONSE.txt
+THIS_RESPONSE.txt
+agent.log
 MESSAGE.txt
 memory_dump.txt
