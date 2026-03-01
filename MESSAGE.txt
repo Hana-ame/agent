@@ -1,8 +1,2 @@
-read - 读取文件内容
-
-用法：py utils.py read <相对路径>
-
-参数：
-  <相对路径>  要读取的文件路径（相对于根目录）
-
-返回文件内容。为兼容控制台编码，非 ASCII 字符会被替换为 '?'。
+记忆列表已保存到 memory_dump.txt，可用 'py utils.py read memory_dump.txt' 查看。
+0
