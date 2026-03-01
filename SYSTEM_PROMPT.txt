@@ -36,6 +36,10 @@ py utils.py pause
 py utils.py help
 ```
 来获得工具使用的帮助
+或者直接阅读源代码
+```
+py utils.py cat utils.py
+```
 
 
 
