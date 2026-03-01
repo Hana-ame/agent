@@ -3,6 +3,8 @@ import asyncio
 import os
 import shlex
 import subprocess
+import argparse
+from pathlib import Path
 from llm_client import LLMClient
 
 def get_root_path():
@@ -35,6 +37,8 @@ DEFAULT_MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE_DEFAULT.txt")
 PAUSE_FLAG_FILE = os.path.join(ROOT_PATH, ".pause")
 LOG_FILE = os.path.join(ROOT_PATH, "agent.log")
 FINISH_MARKER = "=== FINISH ==="
+PROFILES_PATH = os.path.join(ROOT_PATH, "agent", "profiles.json")
+PAYLOADS_DIR = os.path.join(ROOT_PATH, "payloads")
 
 def save_response(text: str, file=LAST_RESPONSE_FILE) -> None:
     """保存响应内容到文件，移除首尾的```标记"""
@@ -88,10 +92,12 @@ def find_command_line(text: str) -> str | None:
     如果没有找到返回 None
     """
     for line in text.splitlines():
+        if line.startswith("py utils.py"):
+            return line
+        # 误判率过高。
         # stripped = line.strip()
-        stripped = line
-        if stripped.startswith("py utils.py"):
-            return stripped
+        # if stripped.startswith("py utils.py"):
+        #     return stripped
     return None
 
 def is_command_present(text: str) -> bool:
@@ -102,11 +108,24 @@ def extract_command(text: str) -> str:
     """提取第一条命令（已strip）"""
     return find_command_line(text) or ""
 
-async def main():
-    print(ROOT_PATH) # 修改为print绝对路径
-    # 1. 连接 LLM
-    client = LLMClient("wss://d.810114.xyz/ws/client")
-    success = await client.connect_and_pair("deepseek")
+async def main_async(args):
+    """
+    异步主函数
+    args: 解析后的参数对象
+    """
+    print(f"当前工作目录: {ROOT_PATH}")
+    print(f"连接参数: {args.connection}")
+    if not args.connection.startswith(("ws://", "wss://")):
+        print(f"使用 payload: {args.payload}")
+
+    # 1. 初始化客户端（自动根据参数选择后端）
+    client = LLMClient(
+        connection_param=args.connection,
+        payload_name=args.payload,
+        profiles_path=Path(PROFILES_PATH),
+        root_path=Path(ROOT_PATH),
+    )
+    success = await client.connect()
     if not success:
         print("连接失败")
         return
@@ -114,11 +133,7 @@ async def main():
 
     # 2. 构建初始消息
     system_prompt = read_file_content(SYSTEM_PROMPT_FILE)
-    user_msg = ""
-    if len(sys.argv) > 1:
-        user_msg = sys.argv[1]
-    if not user_msg:
-        user_msg = read_and_clear_message(MESSAGE_FILE)
+    user_msg = args.message if args.message else read_and_clear_message(MESSAGE_FILE)
     if not user_msg:
         user_msg = read_file_content(DEFAULT_MESSAGE_FILE)
 
@@ -138,6 +153,9 @@ async def main():
     round_num = 0
 
     while True:
+        # defeault output
+        output = "上一轮对话中的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write或者py utils.py write_multiple。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。"
+
         round_num += 1
 
         # 3.1 检查暂停文件
@@ -146,7 +164,7 @@ async def main():
             await asyncio.sleep(1)
 
         # 3.2 发送消息给 LLM
-        print(f"\n第 {round_num} 轮：发送消息...")
+        print(f"\n{'='*50}\n第 {round_num} 轮：发送消息...")
         await client.send_prompt(current_msg)
 
         # 3.3 接收回复
@@ -162,16 +180,6 @@ async def main():
 
         # 3.6 检查结束标记
         lines = content.splitlines()
-        finish_lines = [i for i, line in enumerate(lines) if line.strip() == FINISH_MARKER]
-        if finish_lines:
-            print("检测到结束标记，任务完成")
-            # 移除结束标记行后保存最终答案
-            filtered_lines = [line for i, line in enumerate(lines) if i not in finish_lines]
-            final_content = "\n".join(filtered_lines).strip()
-            save_response(final_content, LAST_RESPONSE_FILE)
-            with open(LOG_FILE, "a", encoding="utf-8") as log:
-                log.write("\n最终答案已保存到 LAST_RESPONSE.txt\n")
-            break
 
         # 3.7 处理命令
         if is_command_present(content):
@@ -214,17 +222,48 @@ async def main():
                 with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
                     f.write(output)
                 current_msg = output
-        else:
-            # 无命令，保存回复内容到 LAST_RESPONSE.txt，并提示继续
-            print("回复中无命令，已保存到 LAST_RESPONSE.txt")
-            save_response(content, LAST_RESPONSE_FILE)
-            default_next = "上一轮对话的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write或者py utils.py write_multiple。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。"
-            with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
-                f.write(default_next)
-            current_msg = default_next
+        # 你这样子做了会出问题的。
+        # else:
+        #     # 无命令，保存回复内容到 LAST_RESPONSE.txt，并提示继续
+        #     print("回复中无命令，已保存到 LAST_RESPONSE.txt")
+        
+        save_response(content, LAST_RESPONSE_FILE)
+        current_msg = output
+        
+        finish_lines = [i for i, line in enumerate(lines) if line.strip() == FINISH_MARKER]
+        if finish_lines:
+            print("检测到结束标记，任务完成")
+            # 移除结束标记行后保存最终答案
+            filtered_lines = [line for i, line in enumerate(lines) if i not in finish_lines]
+            final_content = "\n".join(filtered_lines).strip()
+            save_response(final_content, LAST_RESPONSE_FILE)
+            with open(LOG_FILE, "a", encoding="utf-8") as log:
+                log.write("\n最终答案已保存到 LAST_RESPONSE.txt\n")
+            break
 
     print("Agent 结束")
-    # await client.close()
+    await client.close()
+
+def main():
+    """入口函数，解析命令行参数"""
+    parser = argparse.ArgumentParser(
+        description="Agent 客户端，支持 WebSocket 和 HTTP 后端"
+    )
+    parser.add_argument(
+        "connection",
+        help="连接参数：WebSocket URL (以 ws:// 或 wss:// 开头) 或 profiles.json 中的键名 (如 silicon)"
+    )
+    parser.add_argument(
+        "-m", "--message",
+        help="直接提供消息内容，否则从 MESSAGE.txt 或 MESSAGE_DEFAULT.txt 读取"
+    )
+    parser.add_argument(
+        "-p", "--payload",
+        default="default.json",
+        help="payload 文件名（位于 payloads/ 目录下），仅用于 HTTP 模式，默认 default.json"
+    )
+    args = parser.parse_args()
+    asyncio.run(main_async(args))
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
