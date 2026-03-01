@@ -58,7 +58,7 @@ LAST_RESPONSE_FILE = os.path.join(ROOT_PATH, "LAST_RESPONSE.txt")
 THIS_RESPONSE_FILE = os.path.join(ROOT_PATH, "THIS_RESPONSE.txt")
 # 系统提示文件现在放在 agent 子目录下，与 profiles.json 同位置
 SYSTEM_PROMPT_FILE = os.path.join(ROOT_PATH, "SYSTEM_PROMPT.txt")
-DEFAULT_MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE_DEFAULT.txt")
+DEFAULT_MESSAGE_FILE = os.path.join(ROOT_PATH, "DEFAULT_MESSAGE.txt")
 PAUSE_FLAG_FILE = os.path.join(ROOT_PATH, ".pause")
 LOG_FILE = os.path.join(ROOT_PATH, "agent.log")
 FINISH_MARKER = "=== FINISH ==="
@@ -134,6 +134,27 @@ def extract_commands(text: str) -> list[str]:
     """提取所有命令（已strip）"""
     return find_all_commands(text)
 
+def initial_message(args) -> str:
+    # 2. 读取系统提示和用户消息
+    system_prompt = read_file_content(SYSTEM_PROMPT_FILE)
+    user_msg = args.message if args.message else read_file_content(DEFAULT_MESSAGE_FILE)
+
+    print(args.new_chat , system_prompt, user_msg)
+    
+    # 3. 根据 --new-chat 标志决定是否重置对话并发送系统提示
+    if args.new_chat:
+        if system_prompt and user_msg:
+            initial_msg = f"{system_prompt}\n\n{user_msg}"
+        elif system_prompt:
+            initial_msg = system_prompt
+        else:
+            initial_msg = user_msg
+    else:
+        # 不重置对话，也不发送系统提示
+        initial_msg = user_msg
+
+    return initial_msg
+
 
 async def main_async(args):
     """
@@ -159,49 +180,25 @@ async def main_async(args):
         return
     print("连接成功，开始任务")
 
-    # 2. 读取系统提示和用户消息
-    system_prompt = read_file_content(SYSTEM_PROMPT_FILE)
-    user_msg = args.message if args.message else read_and_clear_message(MESSAGE_FILE)
-    if not user_msg:
-        user_msg = read_file_content(DEFAULT_MESSAGE_FILE)
-
-    # 3. 根据 --new-chat 标志决定是否重置对话并发送系统提示
     if args.new_chat:
         await client.new_chat()
-        if system_prompt and user_msg:
-            initial_msg = f"{system_prompt}\n\n{user_msg}"
-        elif system_prompt:
-            initial_msg = system_prompt
-        else:
-            initial_msg = user_msg
-    else:
-        # 不重置对话，也不发送系统提示
-        initial_msg = user_msg
-
-    if not initial_msg:
-        print(
-            "没有初始消息，请提供命令行参数或在MESSAGE.txt/MESSAGE_DEFAULT.txt中写入内容"
-        )
-        return
-
+        
     if os.path.exists(PAUSE_FLAG_FILE):
         os.remove(PAUSE_FLAG_FILE)  # 删除暂停标记
 
     # 4. Agent 主循环
-    current_msg = initial_msg
     round_num = 0
 
     ongoing = True
     paused = False
     while ongoing and not paused:
         # 默认输出（仅当无命令且不暂停时会被使用，但新逻辑中无命令直接暂停，所以这里可保留原值，但实际不再使用）
-        output = "上一轮对话中的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请根据情况使用 py utils.py write（对直接给出的文件）或者 py utils.py write_multiple（通过===分割的文件）进行写入。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。\n到这条信息为止，没有任何文件被保存，如果这不符合期望，请再次检查。\n提示：\npy utils.py help pause\npy utils.py help write\npy utils.py help write_multiple"
-
+        # output = "上一轮对话中的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请根据情况使用 py utils.py write（对直接给出的文件）或者 py utils.py write_multiple（通过===分割的文件）进行写入。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。\n到这条信息为止，没有任何文件被保存，如果这不符合期望，请再次检查。\n提示：\npy utils.py help pause\npy utils.py help write\npy utils.py help write_multiple"
+        current_msg = read_and_clear_message(MESSAGE_FILE) or initial_message(args=args)
         round_num += 1
 
         # 4.1 检查暂停文件
-        while os.path.exists(PAUSE_FLAG_FILE):
-            print("检测到 .pause 文件，暂停中... (等待删除)")
+        if os.path.exists(PAUSE_FLAG_FILE):
             paused = True
 
         # 4.2 发送消息给 LLM
@@ -221,26 +218,6 @@ async def main_async(args):
         print(f"推理过程:\n{reasoning}\n")
         print("=" * 30)
         print(f"回复内容:\n{content}\n")
-
-        # 4.6 检查结束标记
-        lines = content.splitlines()
-        finish_lines = [
-            i for i, line in enumerate(lines) if line.strip() == FINISH_MARKER
-        ]
-        if finish_lines:
-            print("检测到结束标记，任务完成")
-            # 移除结束标记行后保存最终答案
-            filtered_lines = [
-                line for i, line in enumerate(lines) if i not in finish_lines
-            ]
-            final_content = "\n".join(filtered_lines).strip()
-            save_response(final_content, LAST_RESPONSE_FILE)
-            with open(LOG_FILE, "a", encoding="utf-8") as log:
-                log.write("\n最终答案已保存到 LAST_RESPONSE.txt\n")
-            ongoing = False
-            # 结束循环前关闭客户端
-            await client.close()
-            break
 
         # 4.7 处理命令
         if is_command_present(content):
@@ -264,9 +241,7 @@ async def main_async(args):
                     )
                     cmd_output = result.stdout + result.stderr
                     if result.returncode != 0:
-                        cmd_output = (
-                            f"命令执行失败 (返回码 {result.returncode}):\n{cmd_output}"
-                        )
+                        cmd_output = f"命令执行失败 (返回码 {result.returncode}):\n{cmd_output}"
                     else:
                         cmd_output = cmd_output.strip()
                 except Exception as e:
@@ -290,64 +265,25 @@ async def main_async(args):
                 log.write(f"\n{'='*25}\n工具输出\n{'='*25}\n")
                 log.write(output + "\n")
 
-            # 原有的空输出暂停逻辑：如果所有命令执行后输出为空（理论上加了提示行不可能为空），则进入人工干预
-            if not output.strip():
-                print("工具请求暂停，进入人工干预...")
-                # 清空 MESSAGE.txt，等待用户恢复
-                with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
-                    f.write("")
-                while os.path.exists(PAUSE_FLAG_FILE):
-                    await asyncio.sleep(1)
-                print("暂停解除")
-                current_msg = read_and_clear_message(MESSAGE_FILE)
-                if not current_msg:
-                    current_msg = "人工干预结束，请继续任务"
-                # 继续下一轮循环（跳过后续的保存和current_msg赋值）
-                save_response(content, LAST_RESPONSE_FILE)  # 仍保存LLM回复
-                continue
-            else:
-                # 将命令输出写入 MESSAGE.txt 作为下一轮的输入
-                with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
-                    f.write(output)
-                current_msg = output
-        else:
-            # 无命令：保存 LLM 回复，创建暂停文件，等待用户干预
-            print("未检测到任何命令，将暂停等待用户干预。")
-            save_response(content, LAST_RESPONSE_FILE)
-
-            # 清空 MESSAGE.txt，等待用户写入新消息
+            # 将命令输出写入 MESSAGE.txt 作为下一轮的输入
             with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
-                f.write("")
+                f.write(output)
+            # current_msg 将在循环末尾设置
+        else:
+            # 无命令：返回系统提示
+            print("未检测到命令，返回系统提示。")
+            output = initial_message(args=args)
+            with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                f.write(output)
 
-            # 创建暂停文件
-            Path(PAUSE_FLAG_FILE).touch()
-
-            # 输出提示信息（控制台和日志）
-            no_cmd_hint = (
-                "没有检测到指令，使用 py utils.py cat SYSTEM_PROMPT.txt 查看系统指令。"
-            )
-            print(no_cmd_hint)
-            with open(LOG_FILE, "a", encoding="utf-8") as log:
-                log.write(f"\n提示: {no_cmd_hint}\n")
-
-            # 等待用户删除暂停文件
-            while os.path.exists(PAUSE_FLAG_FILE):
-                await asyncio.sleep(1)
-
-            print("暂停解除")
-            current_msg = read_and_clear_message(MESSAGE_FILE)
-            if not current_msg:
-                current_msg = "人工干预结束，请继续任务"
-
-            # 继续下一轮循环（跳过后续的保存和current_msg赋值）
-            continue
-
-        # 保存本轮 LLM 回复到 LAST_RESPONSE.txt（无命令分支已提前保存并continue，这里仅命令分支会执行）
+        # 保存本轮 LLM 回复到 LAST_RESPONSE.txt
         save_response(content, LAST_RESPONSE_FILE)
-        # current_msg 已在命令分支中设置，循环继续
+        # 设置下一轮的消息
+        current_msg = output
 
     print("=" * 30)
     print("Agent 结束")
+    await client.close()
 
 
 def main():
