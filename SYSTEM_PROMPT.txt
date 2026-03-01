@@ -41,6 +41,6 @@ py utils.py help
 py utils.py cat utils.py
 ```
 
-
+如果system prompt有效，请先查询目前存在什么工具。
 
 ☆☆☆ SYSTEM_PROMPT 到此结束 ☆☆☆
