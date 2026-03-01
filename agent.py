@@ -52,6 +52,7 @@ UTILS_PATH = get_utils_path()
 # 所有文件路径均基于 ROOT_PATH
 MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE.txt")
 LAST_RESPONSE_FILE = os.path.join(ROOT_PATH, "LAST_RESPONSE.txt")
+THIS_RESPONSE_FILE = os.path.join(ROOT_PATH, "THIS_RESPONSE.txt")
 # 系统提示文件现在放在 agent 子目录下，与 profiles.json 同位置
 SYSTEM_PROMPT_FILE = os.path.join(ROOT_PATH, "SYSTEM_PROMPT.txt")
 DEFAULT_MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE_DEFAULT.txt")
@@ -174,7 +175,9 @@ async def main_async(args):
     current_msg = initial_msg
     round_num = 0
 
-    while True:
+    ongoing = True
+
+    while ongoing:
         # defeault output
         output = "上一轮对话中的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write（对直接给出的文件）或者py utils.py write_multiple（通过===分割的文件）进行写入。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。\n到这条信息为止，没有任何文件被保存，如果这不符合期望，请再次检查。"
 
@@ -192,7 +195,7 @@ async def main_async(args):
         # 3.3 接收回复
         print("等待 LLM 回复...\n")
         reasoning, content = await client.completion()
-
+        save_response(content, THIS_RESPONSE_FILE)
         # 3.4 记录日志
         log_entry(round_num, current_msg, reasoning, content)
 
@@ -213,7 +216,7 @@ async def main_async(args):
             save_response(final_content, LAST_RESPONSE_FILE)
             with open(LOG_FILE, "a", encoding="utf-8") as log:
                 log.write("\n最终答案已保存到 LAST_RESPONSE.txt\n")
-            break
+            ongoing = False
 
         # 3.7 处理命令
         if is_command_present(content):
@@ -245,7 +248,7 @@ async def main_async(args):
                 log.write("\n工具输出\n")
                 log.write(output + "\n")
 
-            if output.startswith("PAUSED:"):
+            if not output:
                 print("工具请求暂停，进入人工干预...")
                 # 清空 MESSAGE.txt，等待用户恢复
                 with open(MESSAGE_FILE, "w", encoding="utf-8") as f:

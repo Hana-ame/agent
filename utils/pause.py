@@ -14,6 +14,6 @@ def run(ctx, args):
     try:
         with open(pause_file, "w") as f:
             f.write("paused")
-        return "已设置暂停标志。后续命令将暂停执行，直到运行 'py utils.py resume'。"
+        return ""
     except Exception as e:
         return f"错误：无法设置暂停标志 - {e}"
