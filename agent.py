@@ -29,7 +29,7 @@ def get_root_path():
 
 
 def get_utils_path():
-    """从.env文件读取ROOT_PATH，若不存在则返回当前工作目录"""
+    """从.env文件读取UTILS_PATH，若不存在则返回当前工作目录"""
     root = os.getcwd()
     env_path = os.path.join(os.getcwd(), ".env")
     try:
@@ -67,14 +67,9 @@ PAYLOADS_DIR = os.path.join(ROOT_PATH, "payloads")
 
 
 def save_response(text: str, file=LAST_RESPONSE_FILE) -> None:
-    # """保存响应内容到文件，移除首尾的```标记"""
-    lines = text.splitlines()
-    # if lines and lines[0].startswith("```"):
-    #     lines.pop(0)
-    # if lines and lines[-1].startswith("```"):
-    #     lines.pop()
+    """保存响应内容到文件，不移除任何标记"""
     with open(file, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+        f.write(text)
 
 
 def read_and_clear_message(file=MESSAGE_FILE) -> str:
@@ -118,29 +113,26 @@ def log_entry(
             log.write(tool_output + "\n")
 
 
-def find_command_line(text: str) -> str | None:
+def find_all_commands(text: str) -> list[str]:
     """
-    查找以 'py utils.py' 开头的行，返回第一个匹配行（已strip）
-    如果没有找到返回 None
+    查找所有以 'py utils.py' 开头的行（忽略行首空白），返回列表。
     """
+    commands = []
     for line in text.splitlines():
-        if line.startswith("py utils.py"):
-            return line
-        # 误判率过高。
-        # stripped = line.strip()
-        # if stripped.startswith("py utils.py"):
-        #     return stripped
-    return None
+        stripped = line.strip()
+        if stripped.startswith("py utils.py"):
+            commands.append(stripped)
+    return commands
 
 
 def is_command_present(text: str) -> bool:
-    """判断回复中是否包含命令"""
-    return find_command_line(text) is not None
+    """判断回复中是否包含任何命令"""
+    return len(find_all_commands(text)) > 0
 
 
-def extract_command(text: str) -> str:
-    """提取第一条命令（已strip）"""
-    return find_command_line(text) or ""
+def extract_commands(text: str) -> list[str]:
+    """提取所有命令（已strip）"""
+    return find_all_commands(text)
 
 
 async def main_async(args):
@@ -191,10 +183,10 @@ async def main_async(args):
             "没有初始消息，请提供命令行参数或在MESSAGE.txt/MESSAGE_DEFAULT.txt中写入内容"
         )
         return
-    
+
     if os.path.exists(PAUSE_FLAG_FILE):
-        os.remove(PAUSE_FLAG_FILE)  # delete pause flag
-    
+        os.remove(PAUSE_FLAG_FILE)  # 删除暂停标记
+
     # 4. Agent 主循环
     current_msg = initial_msg
     round_num = 0
@@ -202,8 +194,8 @@ async def main_async(args):
     ongoing = True
 
     while ongoing:
-        # defeault output
-        output = "上一轮对话中的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write（对直接给出的文件）或者py utils.py write_multiple（通过===分割的文件）进行写入。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。\n到这条信息为止，没有任何文件被保存，如果这不符合期望，请再次检查。\n提示：\npy utils.py help pause\npy utils.py help write\npy utils.py help write_multiple"
+        # 默认输出（仅当无命令且不暂停时会被使用，但新逻辑中无命令直接暂停，所以这里可保留原值，但实际不再使用）
+        output = "上一轮对话中的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请根据情况使用 py utils.py write（对直接给出的文件）或者 py utils.py write_multiple（通过===分割的文件）进行写入。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。\n到这条信息为止，没有任何文件被保存，如果这不符合期望，请再次检查。\n提示：\npy utils.py help pause\npy utils.py help write\npy utils.py help write_multiple"
 
         round_num += 1
 
@@ -220,6 +212,7 @@ async def main_async(args):
         print("等待 LLM 回复...\n")
         reasoning, content = await client.completion()
         save_response(content, THIS_RESPONSE_FILE)
+
         # 4.4 记录日志
         log_entry(round_num, current_msg, reasoning, content)
 
@@ -245,40 +238,58 @@ async def main_async(args):
             with open(LOG_FILE, "a", encoding="utf-8") as log:
                 log.write("\n最终答案已保存到 LAST_RESPONSE.txt\n")
             ongoing = False
+            # 结束循环前关闭客户端
+            await client.close()
+            break
 
         # 4.7 处理命令
         if is_command_present(content):
-            command = extract_command(content)
+            commands = extract_commands(content)
             print("=" * 30)
-            print(f"执行命令: {command}")
+            print(f"检测到 {len(commands)} 条命令，开始执行...")
 
-            try:
-                parts = shlex.split(command)
-                if parts and parts[0] in ("py", "python", "python3"):
-                    parts[0] = sys.executable
-                    # 如果第二个参数是 utils.py 或 ./utils.py，则替换为绝对路径
-                    if len(parts) > 1 and os.path.basename(parts[1]) == "utils.py":
-                        parts[1] = os.path.join(UTILS_PATH, "utils.py")
-                # 然后设置 cwd=ROOT_PATH
-                result = subprocess.run(
-                    parts, capture_output=True, text=True, cwd=ROOT_PATH
-                )
-                output = result.stdout + result.stderr
-                if result.returncode != 0:
-                    output = f"命令执行失败 (返回码 {result.returncode}):\n{output}"
+            all_outputs = []
+            for cmd in commands:
+                print(f"执行命令: {cmd}")
+                try:
+                    parts = shlex.split(cmd)
+                    if parts and parts[0] in ("py", "python", "python3"):
+                        parts[0] = sys.executable
+                        # 如果第二个参数是 utils.py 或 ./utils.py，则替换为绝对路径
+                        if len(parts) > 1 and os.path.basename(parts[1]) == "utils.py":
+                            parts[1] = os.path.join(UTILS_PATH, "utils.py")
+                    # 设置 cwd=ROOT_PATH
+                    result = subprocess.run(
+                        parts, capture_output=True, text=True, cwd=ROOT_PATH
+                    )
+                    cmd_output = result.stdout + result.stderr
+                    if result.returncode != 0:
+                        cmd_output = f"命令执行失败 (返回码 {result.returncode}):\n{cmd_output}"
+                    else:
+                        cmd_output = cmd_output.strip()
+                except Exception as e:
+                    cmd_output = f"执行命令时出错: {str(e)}"
+
+                # 添加提示行
+                hint = f"command {cmd} has been run, the result returned:"
+                if cmd_output:
+                    block = f"{hint}\n{cmd_output}"
                 else:
-                    output = output.strip()
-            except Exception as e:
-                output = f"执行命令时出错: {str(e)}"
+                    block = hint + " (no output)"
+                all_outputs.append(block)
+
+            # 合并所有命令的输出，用空行分隔
+            output = "\n\n".join(all_outputs)
 
             print("=" * 30)
-            print(f"工具输出:\n{output}")
+            print(f"工具输出汇总:\n{output}")
 
             with open(LOG_FILE, "a", encoding="utf-8") as log:
                 log.write(f"\n{'='*25}\n工具输出\n{'='*25}\n")
                 log.write(output + "\n")
 
-            if not output:
+            # 原有的空输出暂停逻辑：如果所有命令执行后输出为空（理论上加了提示行不可能为空），则进入人工干预
+            if not output.strip():
                 print("工具请求暂停，进入人工干预...")
                 # 清空 MESSAGE.txt，等待用户恢复
                 with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
@@ -289,22 +300,35 @@ async def main_async(args):
                 current_msg = read_and_clear_message(MESSAGE_FILE)
                 if not current_msg:
                     current_msg = "人工干预结束，请继续任务"
+                # 继续下一轮循环（跳过后续的保存和current_msg赋值）
+                save_response(content, LAST_RESPONSE_FILE)  # 仍保存LLM回复
                 continue
             else:
+                # 将命令输出写入 MESSAGE.txt 作为下一轮的输入
                 with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
                     f.write(output)
                 current_msg = output
-        # 你这样子做了会出问题的。
-        # else:
-        #     # 无命令，保存回复内容到 LAST_RESPONSE.txt，并提示继续
-        #     print("回复中无命令，已保存到 LAST_RESPONSE.txt")
+        else:
+            # 无命令：保存 LLM 回复，创建暂停文件，提示用户
+            print("未检测到任何命令，将暂停等待用户干预。")
+            save_response(content, LAST_RESPONSE_FILE)
 
+            # 创建暂停文件
+            Path(PAUSE_FLAG_FILE).touch()
+            # 输出提示信息（控制台和日志）
+            no_cmd_hint = "没有检测到指令，使用 py utils.py cat SYSTEM_PROMPT.txt 查看系统指令。"
+            print(no_cmd_hint)
+            with open(LOG_FILE, "a", encoding="utf-8") as log:
+                log.write(f"\n提示: {no_cmd_hint}\n")
+            # 继续下一轮循环，下一轮会因暂停文件而等待
+            continue
+
+        # 保存本轮 LLM 回复到 LAST_RESPONSE.txt（无命令分支已提前保存并continue，这里仅命令分支会执行）
         save_response(content, LAST_RESPONSE_FILE)
-        current_msg = output
+        # current_msg 已在命令分支中设置，循环继续
 
     print("=" * 30)
     print("Agent 结束")
-    await client.close()
 
 
 def main():
