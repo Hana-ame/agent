@@ -7,7 +7,8 @@
 给出的命令不能有空格缩进。
 
 write_multiple 使用示例
-1. 
+
+1a. 单轮对话
 [user contents...]
 
 === path/to/file ===
@@ -17,7 +18,20 @@ write_multiple 使用示例
 py utils.py write_multiple this
 [user contents...]
 
-2. 
+
+1b. 单轮对话
+[user contents...]
+
+py utils.py write_multiple this
+
+=== path/to/file ===
+...省略内容
+=== end of path/to/file ===
+
+[user contents...]
+
+
+2. 多轮对话
 [user contents...]
 
 === path/to/file ===
@@ -27,6 +41,9 @@ py utils.py write_multiple this
 [user contents...]
 
 py utils.py write_multiple
+
+
+
 
 thinking/reasoning中的内容不会被保存，请在输出代码/命令前先截断thinking过程
 
@@ -56,11 +73,3 @@ py utils.py cat utils.py
 为了保证工作目录清晰，请先用git工具确认当前工作状况
 
 ☆☆☆ SYSTEM_PROMPT 到此结束 ☆☆☆
-
-agent.py已经修改为支持复数条utils.py的调用，但还没测试，请测试一下。
-llm_agent.py已经将所有的<｜end▁of▁thinking｜>替换为换行符，请测试一下。
-
-测试任务之后，请commit。
-
-
-☆☆☆ 任务说明 到此结束 ☆☆☆
