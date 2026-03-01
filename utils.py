@@ -22,6 +22,12 @@ utils.py - 工具调用入口
     git <git命令...>
     ... 可扩展
 
+为了方便，部分常用命令设有别名：
+    cat  -> read
+    ls   -> list
+    mv   -> move
+    rm   -> delete
+
 使用 'py utils.py help' 查看所有工具。
 """
 
@@ -29,6 +35,14 @@ import sys
 import importlib
 import os
 import shlex
+
+# 别名映射：用户输入的命令 -> 实际工具名称
+ALIASES = {
+    'cat': 'read',
+    'ls': 'list',
+    'mv': 'move',
+    'rm': 'delete',
+}
 
 def show_help(tool_name=None):
     """显示帮助信息"""
@@ -51,16 +65,18 @@ def show_help(tool_name=None):
                     doc = "无法加载"
                 print(f"  {t:15} - {doc}")
         print("\n使用 'py utils.py help <工具名>' 查看具体工具的帮助。")
+        print("常用别名：cat(→read), ls(→list), mv(→move), rm(→delete)")
     else:
-        # 显示特定工具帮助
+        # 显示特定工具帮助（支持别名）
+        actual_tool = ALIASES.get(tool_name, tool_name)
         try:
-            module = importlib.import_module(f"utils.{tool_name}")
+            module = importlib.import_module(f"utils.{actual_tool}")
             if module.__doc__:
                 print(module.__doc__.strip())
             else:
-                print(f"工具 '{tool_name}' 没有提供帮助文档。")
+                print(f"工具 '{actual_tool}' 没有提供帮助文档。")
         except ImportError:
-            print(f"错误：未知的工具名称 '{tool_name}'")
+            print(f"错误：未知的工具名称 '{tool_name}'（尝试映射后为 '{actual_tool}' 仍不存在）")
 
 def main():
     # 无参数模式：从 LAST_PROMPT.txt 读取命令批量执行
@@ -95,14 +111,15 @@ def main():
                     results.append(f"第 {line_num} 行命令为空")
                     continue
 
-                tool_name = args_list[0]
+                raw_tool = args_list[0]
+                tool_name = ALIASES.get(raw_tool, raw_tool)  # 别名映射
                 tool_args = args_list[1:]
 
                 # 执行工具
                 try:
                     module = importlib.import_module(f"utils.{tool_name}")
                 except ImportError:
-                    results.append(f"第 {line_num} 行: 未知工具 '{tool_name}'")
+                    results.append(f"第 {line_num} 行: 未知工具 '{raw_tool}'（映射后为 '{tool_name}' 仍不存在）")
                     continue
 
                 if not hasattr(module, "run"):
@@ -142,14 +159,15 @@ def main():
             show_help()
         sys.exit(0)
 
-    # 正常工具调用
-    tool_name = command
+    # 正常工具调用，应用别名映射
+    raw_tool = command
+    tool_name = ALIASES.get(raw_tool, raw_tool)
     tool_args = args
 
     try:
         module = importlib.import_module(f"utils.{tool_name}")
     except ImportError:
-        print(f"错误：未知的工具名称 '{tool_name}'")
+        print(f"错误：未知的工具名称 '{raw_tool}'（映射后为 '{tool_name}' 仍不存在）")
         print("可用工具：")
         utils_dir = os.path.join(os.path.dirname(__file__), "utils")
         if os.path.isdir(utils_dir):

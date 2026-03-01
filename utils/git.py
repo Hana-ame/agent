@@ -13,9 +13,12 @@ git - 执行 Git 命令
 
 import subprocess
 
+
 def run(ctx, args):
     try:
-        result = subprocess.run(["git"] + args, capture_output=True, text=True, cwd=ctx.root_path)
-        return result.stdout + result.stderr
+        result = subprocess.run(
+            ["git"] + args, capture_output=True, text=True, cwd=ctx.root_path
+        )
+        return "git 返回了下面的信息：、\n" + result.stdout + result.stderr
     except Exception as e:
         return f"Git 错误：{e}"
