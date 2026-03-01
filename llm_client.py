@@ -3,81 +3,80 @@ import json
 import websockets
 import re
 
-# DeepSeek 专用流解析器
+class StreamChunk:
+    """通用的流数据结构"""
+    TYPE_REASONING = "reasoning"
+    TYPE_CONTENT = "content"
+    TYPE_DONE = "done"
+
+    def __init__(self, chunk_type, delta):
+        self.type = chunk_type
+        self.delta = delta
+
 class DeepSeekBridge:
+    """将 DeepSeek 的私有协议编译为通用流"""
     def __init__(self):
-        self.reasoning_buffer = []
-        self.content_buffer = []
-        self.fragment_types = []  # 核心：记录每一个 fragment 的类型
+        self.fragment_types =[]
         self.is_finished = False
 
-    def process(self, data):
-        # 1. 提取基本元数据
+    def parse(self, data: dict):
+        chunks =[]
         p = data.get("p", "")
         v = data.get("v")
         o = data.get("o", "")
 
-        # 2. 识别最终结束信号 (BATCH 模式)
+        # 1. 识别结束信号 (BATCH 模式)
         if o == "BATCH" and p == "response":
-            val_list = v if isinstance(v, list) else []
+            val_list = v if isinstance(v, list) else[]
             for item in val_list:
                 if item.get("p") == "quasi_status" and item.get("v") == "FINISHED":
                     self.is_finished = True
-                    return self.get_result()
+                    chunks.append(StreamChunk(StreamChunk.TYPE_DONE, ""))
+                    return chunks
 
-        # 3. 处理新 Fragment 的创建 (APPEND 模式)
-        # 此时会明确告知 type: "THINK" 或 "RESPONSE"
+        # 2. 🌟 修复点：处理初始全量数据 (如果不搜索，第一个包会在这里)
+        if isinstance(v, dict) and "response" in v:
+            fragments = v["response"].get("fragments",[])
+            for f in fragments:
+                f_type = f.get("type")
+                self.fragment_types.append(f_type)
+                content = f.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(f_type, content))
+            return chunks
+
+        # 3. 处理新 Fragment 创建 (APPEND 模式)
         if o == "APPEND" and p == "response/fragments":
             for fragment in v:
                 f_type = fragment.get("type")
                 self.fragment_types.append(f_type)
-                # 如果创建时就自带 content (如日志中的 '嗯' 或 '今天')
-                initial_content = fragment.get("content", "")
-                if initial_content:
-                    self._append_to_buffer(f_type, initial_content)
+                content = fragment.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(f_type, content))
+            return chunks
 
-        # 4. 处理内容更新 (路径更新模式)
-        # 匹配格式如: response/fragments/-1/content
+        # 4. 处理路径更新模式 (形如 response/fragments/-1/content)
         match = re.match(r"response/fragments/(-?\d+)/content", p)
         if match and isinstance(v, str):
             idx = int(match.group(1))
             # 转换负索引为实际索引
             real_idx = idx if idx >= 0 else len(self.fragment_types) + idx
-            
             if 0 <= real_idx < len(self.fragment_types):
-                f_type = self.fragment_types[real_idx]
-                self._append_to_buffer(f_type, v)
+                chunks.append(self._create_chunk(self.fragment_types[real_idx], v))
+            return chunks
         
-        # 5. 处理隐式更新 (没有路径 p，只有 v)
-        # 这种情况通常延续上一个活跃的 fragment
-        elif not p and isinstance(v, str) and self.fragment_types:
-            f_type = self.fragment_types[-1]
-            self._append_to_buffer(f_type, v)
+        # 5. 处理隐式更新 (纯增量字符串)
+        if not p and isinstance(v, str) and self.fragment_types:
+            chunks.append(self._create_chunk(self.fragment_types[-1], v))
+            return chunks
 
-        # 6. 处理初始全量数据 (如果 API 第一次返回了完整结构)
-        elif isinstance(v, dict) and "response" in v:
-            fragments = v["response"].get("fragments", [])
-            for f in fragments:
-                f_type = f.get("type")
-                self.fragment_types.append(f_type)
-                self._append_to_buffer(f_type, f.get("content", ""))
+        return chunks
 
-        return self.get_result()
-
-    def _append_to_buffer(self, f_type, text):
-        if not text or not isinstance(text, str):
-            return
-        if f_type == "THINK":
-            self.reasoning_buffer.append(text)
-        elif f_type == "RESPONSE":
-            self.content_buffer.append(text)
-
-    def get_result(self):
-        """统一返回当前状态"""
-        return "".join(self.reasoning_buffer), "".join(self.content_buffer)
+    def _create_chunk(self, raw_type, content):
+        ctype = StreamChunk.TYPE_REASONING if raw_type == "THINK" else StreamChunk.TYPE_CONTENT
+        return StreamChunk(ctype, content)
 
 
-# 统一的客户端控制封装类
 class LLMClient:
     def __init__(self, ws_url="ws://localhost:8765/ws/client"):
         self.ws_url = ws_url
@@ -86,7 +85,6 @@ class LLMClient:
         self.parser = None
 
     async def connect_and_pair(self, model_name: str) -> bool:
-        """连接服务端并请求配对指定的模型浏览器"""
         self.model = model_name
         self.ws = await websockets.connect(self.ws_url)
 
@@ -104,26 +102,55 @@ class LLMClient:
         await self.ws.send(json.dumps({"type": "command", "command": "new_chat"}))
 
     async def send_prompt(self, text: str):
-        # 重置解析器，确保新对话不携带旧状态
+        # 每次提问重置解析器状态
         self.parser.__init__()
         await self.ws.send(
-            json.dumps(
-                {
-                    "type": "command",
-                    "command": "send_prompt",
-                    "params": {"prompt": text},
-                }
-            )
+            json.dumps({
+                "type": "command",
+                "command": "send_prompt",
+                "params": {"prompt": text},
+            })
         )
 
-    async def send_command(self, command: str):
-        await self.ws.send(json.dumps({"type": "command", "command": command}))
+    async def completion(self, text: str = "") -> tuple[str, str]:
+        """
+        处理 WebSocket 流，实时在控制台更新 received length
+        完成后返回最终的 (reasoning, content) 元组
+        """
+        reasoning_buffer = []
+        content_buffer =[]
+        reasoning_len = 0
+        content_len = 0
 
-    def completion(self, msg: dict) -> tuple:
-        if not isinstance(msg, dict) or msg.get("type") != "token":
-            return self.parser.get_result()
-        return self.parser.process(msg.get("content", {}))
+        while True:
+            raw_msg = await self.ws.recv()
+            msg = json.loads(raw_msg)
+
+            # 对方可能断开连接
+            if msg.get("type") == "system" and msg.get("content") == "partner_disconnected":
+                print("\n🔴 浏览器端已断开连接")
+                break
+
+            if msg.get("type") == "token":
+                chunks = self.parser.parse(msg.get("content", {}))
+                for chunk in chunks:
+                    if chunk.type == StreamChunk.TYPE_REASONING:
+                        reasoning_buffer.append(chunk.delta)
+                        reasoning_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_CONTENT:
+                        content_buffer.append(chunk.delta)
+                        content_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_DONE:
+                        # 接收结束
+                        print(f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]", end="", flush=True)
+                        return "".join(reasoning_buffer), "".join(content_buffer)
+                
+                # 有内容更新时，实时打印控制台进度
+                if chunks:
+                    print(f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]", end="", flush=True)
+
+        return "".join(reasoning_buffer), "".join(content_buffer)
 
     @property
     def is_finished(self):
-        return self.parser.is_finished
+        return self.parser.is_finished if self.parser else False
