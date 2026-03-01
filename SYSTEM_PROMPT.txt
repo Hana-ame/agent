@@ -12,6 +12,12 @@ py utils.py write [文件路径]
 轮次之间：第一轮的输出保存到LAST_RESPONSE.txt
 第二轮：输出指令，会将上一轮的输出代码文件（此时在LAST_RESPONSE.txt）保存到目标文件路径。
 
+并注意：
+py utils.py write_multiple
+内容物只要出现 === 文件名 === 
+以 === 结尾
+就一定用 write_multiple 进行保存。
+
 thinking/reasoning中的内容不会被保存，请在输出代码/命令前先截断thinking过程
 
 由于这是一个多轮对话项目。

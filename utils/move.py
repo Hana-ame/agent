@@ -1,4 +1,6 @@
-=== utils/move.py ===
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
 move - 移动或重命名文件/目录
 
@@ -61,4 +63,3 @@ def run(ctx, args):
         return f"成功：已将 '{src_raw}' 移动到 '{os.path.relpath(dst_path, ctx.root_path)}'"
     except Exception as e:
         return f"错误：移动失败 - {e}"
-===

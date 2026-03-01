@@ -1,4 +1,6 @@
-=== utils/delete.py ===
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
 delete - 删除一个或多个文件
 
@@ -42,4 +44,3 @@ def run(ctx, args):
     if fail_messages:
         result += "\n失败详情：\n" + "\n".join(fail_messages)
     return result
-===
