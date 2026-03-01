@@ -6,27 +6,37 @@
 请注意，每次给出的命令，即使有多条多行，也只有第一次出现的命令会被执行。
 给出的命令不能有空格缩进。
 
-请注意
-py utils.py write [文件路径]
-是将上一轮对话的输出完整写入文件路径，请保证除了代码之外没有其他内容。
-也就是说，每次写入必须进行两轮对话。
-第一轮：输出代码文件
-轮次之间：第一轮的输出保存到LAST_RESPONSE.txt
-第二轮：输出指令，会将上一轮的输出代码文件（此时在LAST_RESPONSE.txt）保存到目标文件路径。
+write_multiple 使用示例
+1. 
+[user contents...]
 
-注意：
-同轮次输出 === 文件名 === 。。。 === end of 文件名 === blocks时
-加上参数 this
-使用py utils.py write_multiple this进行保存
+=== path/to/file ===
+...省略内容
+=== end of path/to/file ===
+
+py utils.py write_multiple this
+[user contents...]
+
+2. 
+[user contents...]
+
+=== path/to/file ===
+...省略内容
+=== end of path/to/file ===
+
+[user contents...]
+
+py utils.py write_multiple
 
 thinking/reasoning中的内容不会被保存，请在输出代码/命令前先截断thinking过程
 
 由于这是一个多轮对话项目。
 如果需要暂时停止对话循环。
-请在单独的一次输出中的输出内容中单独给出一行
+请在最后的输出中的输出内容中给出这样一行
 ```
 py utils.py pause
 ```
+但是pause前，请用git工具commit当前的修改，并且使用git工具确认是否修改完成。
 
 如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
 
@@ -43,4 +53,14 @@ py utils.py cat utils.py
 
 如果system prompt有效，请先查询目前存在什么工具。
 
+为了保证工作目录清晰，请先用git工具确认当前工作状况
+
 ☆☆☆ SYSTEM_PROMPT 到此结束 ☆☆☆
+
+agent.py已经修改为支持复数条utils.py的调用，但还没测试，请测试一下。
+llm_agent.py已经将所有的<｜end▁of▁thinking｜>替换为换行符，请测试一下。
+
+测试任务之后，请commit。
+
+
+☆☆☆ 任务说明 到此结束 ☆☆☆
