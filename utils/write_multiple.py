@@ -20,7 +20,7 @@ import os
 import re
 
 def run(ctx, args):
-    last_response_path = os.path.join(os.getcwd(), "LAST_RESPONSE.txt")
+    last_response_path = os.path.join(ctx.root_path, "LAST_RESPONSE.txt")
     try:
         with open(last_response_path, "r", encoding="utf-8") as f:
             lines = f.readlines()

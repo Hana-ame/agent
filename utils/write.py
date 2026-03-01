@@ -16,7 +16,7 @@ def run(ctx, args):
     if len(args) != 1:
         return "错误：write 需要 1 个参数：<相对路径>"
     path = ctx.validate_path(args[0])
-    last_response_path = os.path.join(os.getcwd(), "LAST_RESPONSE.txt")
+    last_response_path = os.path.join(ctx.root_path, "LAST_RESPONSE.txt")
     try:
         with open(last_response_path, "r", encoding="utf-8") as f:
             content = f.read()
