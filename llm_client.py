@@ -3,6 +3,7 @@ import json
 import re
 import pathlib
 from typing import List, Dict, Optional, Any, Tuple
+
 try:
     import websockets
 except ImportError:
@@ -31,6 +32,7 @@ class StreamChunk:
 # ==============================================================================
 # WebSocket 桥接（用于 DeepSeek 私有协议）
 # ==============================================================================
+
 
 class DeepSeekBridge:
     """将 DeepSeek 的私有协议解析为统一的流式数据块。"""
@@ -113,7 +115,9 @@ class WebSocketBridge:
         else:
             raise ValueError(f"不支持的模型: {self.model_name}")
 
-        await self.ws.send(json.dumps({"type": "pair_request", "model": self.model_name}))
+        await self.ws.send(
+            json.dumps({"type": "pair_request", "model": self.model_name})
+        )
         response = await self.ws.recv()
         data = json.loads(response)
         return data.get("type") == "pair_result" and data.get("content") is True
@@ -140,14 +144,16 @@ class WebSocketBridge:
             raw_msg = await self.ws.recv()
             msg = json.loads(raw_msg)
 
-            if msg.get("type") == "system" and msg.get("content") == "partner_disconnected":
+            if (
+                msg.get("type") == "system"
+                and msg.get("content") == "partner_disconnected"
+            ):
                 print("\n?? 浏览器端已断开连接")
                 break
 
             if msg.get("type") == "token":
                 chunks = self.parser.parse(msg.get("content", {}))
                 for chunk in chunks:
-                    print(chunk)
                     if chunk.type == StreamChunk.TYPE_REASONING:
                         reasoning_buffer.append(chunk.delta)
                         reasoning_len += len(chunk.delta)
@@ -187,6 +193,7 @@ class WebSocketBridge:
 # ==============================================================================
 # HTTP 桥接（用于 OpenAI 兼容 API，支持从 payloads 目录加载配置）
 # ==============================================================================
+
 
 class OpenAIStreamParser:
     """解析 OpenAI 兼容 API 的 SSE 流式响应"""
@@ -252,7 +259,9 @@ class HTTPBridge:
         self.client: httpx.AsyncClient = None
         self.endpoint = None
         self.api_key = None
-        self.payload_base: Dict[str, Any] = {}  # 从 payload 文件加载的基础配置（不含 messages）
+        self.payload_base: Dict[str, Any] = (
+            {}
+        )  # 从 payload 文件加载的基础配置（不含 messages）
         self.messages: List[Dict[str, str]] = []  # 对话历史
         self._parser = None
         self._is_finished = False
@@ -301,7 +310,9 @@ class HTTPBridge:
             return False
 
         # 移除下划线开头的控制字段（如 _context），保留其他字段作为基础 payload
-        self.payload_base = {k: v for k, v in payload_data.items() if not k.startswith("_")}
+        self.payload_base = {
+            k: v for k, v in payload_data.items() if not k.startswith("_")
+        }
         # 确保 payload 中不包含 messages 字段（会被历史替换）
         self.payload_base.pop("messages", None)
 
@@ -312,7 +323,9 @@ class HTTPBridge:
                 self.payload_base["model"] = model_from_profile
             else:
                 self.payload_base["model"] = self._guess_default_model(self.endpoint)
-                print(f"[提示] 未指定 model，使用猜测的默认模型: {self.payload_base['model']}")
+                print(
+                    f"[提示] 未指定 model，使用猜测的默认模型: {self.payload_base['model']}"
+                )
 
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
         self.messages = []
@@ -378,7 +391,11 @@ class HTTPBridge:
                             continue
                         chunks = self._parser.feed_line(data_line)
                         for chunk in chunks:
-                            if chunk.type == StreamChunk.TYPE_REASONING or chunk.type == StreamChunk.TYPE_THINKING:
+                            # print(chunk.type, chunk.delta)
+                            if (
+                                chunk.type == StreamChunk.TYPE_REASONING
+                                or chunk.type == StreamChunk.TYPE_THINKING
+                            ):
                                 reasoning_parts.append(chunk.delta)
                                 reasoning_len += len(chunk.delta)
                             elif chunk.type == StreamChunk.TYPE_CONTENT:
@@ -392,7 +409,9 @@ class HTTPBridge:
                                     flush=True,
                                 )
                                 assistant_content = "".join(content_parts)
-                                self.messages.append({"role": "assistant", "content": assistant_content})
+                                self.messages.append(
+                                    {"role": "assistant", "content": assistant_content}
+                                )
                                 return "".join(reasoning_parts), assistant_content
 
                         if chunks:
@@ -430,6 +449,7 @@ class HTTPBridge:
 # ==============================================================================
 # 统一 LLM 客户端入口
 # ==============================================================================
+
 
 class LLMClient:
     """
