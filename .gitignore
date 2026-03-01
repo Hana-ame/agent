@@ -1,1 +1,7 @@
 __pycache__
+
+*.db
+
+LAST_RESPONSE.txt
+MESSAGE.txt
+memory_dump.txt

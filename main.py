@@ -218,7 +218,7 @@ async def main():
             # 无命令，保存回复内容到 LAST_RESPONSE.txt，并提示继续
             print("回复中无命令，已保存到 LAST_RESPONSE.txt")
             save_response(content, LAST_RESPONSE_FILE)
-            default_next = "内容已保存到 LAST_RESPONSE.txt，请根据情况继续。"
+            default_next = "上一轮对话的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write或者py utils.py write_multiple。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。"
             with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
                 f.write(default_next)
             current_msg = default_next
