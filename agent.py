@@ -309,18 +309,33 @@ async def main_async(args):
                     f.write(output)
                 current_msg = output
         else:
-            # 无命令：保存 LLM 回复，创建暂停文件，提示用户
+            # 无命令：保存 LLM 回复，创建暂停文件，等待用户干预
             print("未检测到任何命令，将暂停等待用户干预。")
             save_response(content, LAST_RESPONSE_FILE)
 
+            # 清空 MESSAGE.txt，等待用户写入新消息
+            with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                f.write("")
+
             # 创建暂停文件
             Path(PAUSE_FLAG_FILE).touch()
+            
             # 输出提示信息（控制台和日志）
             no_cmd_hint = "没有检测到指令，使用 py utils.py cat SYSTEM_PROMPT.txt 查看系统指令。"
             print(no_cmd_hint)
             with open(LOG_FILE, "a", encoding="utf-8") as log:
                 log.write(f"\n提示: {no_cmd_hint}\n")
-            # 继续下一轮循环，下一轮会因暂停文件而等待
+
+            # 等待用户删除暂停文件
+            while os.path.exists(PAUSE_FLAG_FILE):
+                await asyncio.sleep(1)
+
+            print("暂停解除")
+            current_msg = read_and_clear_message(MESSAGE_FILE)
+            if not current_msg:
+                current_msg = "人工干预结束，请继续任务"
+
+            # 继续下一轮循环（跳过后续的保存和current_msg赋值）
             continue
 
         # 保存本轮 LLM 回复到 LAST_RESPONSE.txt（无命令分支已提前保存并continue，这里仅命令分支会执行）
