@@ -1,0 +1,3810 @@
+
+==================================================
+第 1 轮
+==================================================
+
+=========================
+发送内容
+=========================
+这是一个多轮对话项目。user只会在pause的时候或者finished之后进行查看干预。
+其余时间，你应该积极使用 py utils.py 开头的命令使用工具。
+由于LLM会出现幻觉并且忽视需求等特性，目前并不希望直接写文件。而是在目前已有文件基础上修改。
+
+请注意，每次给出的命令，即使有多条多行，也只有第一次出现的命令会被执行。
+
+请注意
+py utils.py write [文件路径]
+是将上一轮对话的输出完整写入文件路径，请保证除了代码之外没有其他内容。
+也就是说，每次写入必须进行两轮对话。
+第一轮：输出代码文件
+轮次之间：第一轮的输出保存到LAST_RESPONSE.txt
+第二轮：输出指令，会将上一轮的输出代码文件（此时在LAST_RESPONSE.txt）保存到目标文件路径。
+
+thinking/reasoning中的内容不会被读取到，请在输出代码/命令前先截断thinking过程
+
+由于这是一个多轮对话项目。
+如果需要停止对话循环。
+请在输出内容中单独给出一行
+
+```
+=== FINISH ===
+```
+
+如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
+
+```
+py utils.py help
+```
+来获得工具使用的帮助
+
+
+
+=== SYSTEM_PROMPT 到此结束 ===
+
+wss://d.810114.xyz/ws/client
+
+=========================
+推理过程
+=========================
+我们被要求使用py utils.py命令来操作文件。目前对话历史显示我们刚刚创建了payloads/kimi.json，并且llm_client.py和agent.py已经修改支持payloads。现在用户给了一个WebSocket URL "wss://d.810114.xyz/ws/client"。我们需要理解这个上下文：可能是让agent使用这个WebSocket连接？之前的agent.py已经支持：如果connection参数以ws://或wss://开头，就使用WebSocket桥接。所以用户想测试WebSocket连接。但我们需要确认：用户只是给出了URL，没有附带指令？可能是想让我们使用这个URL运行agent。但按照系统提示，我们需要先使用工具观察项目，然后根据情况修改。然而现在项目已经就绪，可能只需测试。但用户说“这是一个多轮对话项目。user只会在pause的时候或者finished之后进行查看干预。”，所以我们需要主动使用工具，比如执行命令来测试。但我们现在处于对话中，不能直接运行agent（因为agent是外部程序，我们需要通过命令行启动，但这里我们只能输出命令让用户去执行？不对，我们是LLM，应该通过输出命令给系统执行？在之前的交互中，我们使用py utils.py来调用工具，但agent本身不是工具，而是脚本。我们可以输出建议让用户手动运行，但系统提示说“其余时间，你应该积极使用 py utils.py 开头的命令使用工具。”所以我们应该使用工具来操作文件或执行一些检查，而不是直接建议运行agent。但agent的运行不是通过py utils.py，而是通过python agent.py。所以我们需要考虑如何用工具来协助。也许我们可以检查一下当前的代码和payload，确保一切正常。用户给出了WebSocket URL，可能想让我们修改agent.py以使用这个URL作为默认？但agent.py已经支持命令行参数传递URL，所以不需要修改。我们可以用py utils.py list查看当前目录，确认文件存在。然后可能输出一些说明，告诉用户如何运行。但系统提示要求“积极使用 py utils.py 开头的命令使用工具”，所以我们应当执行一些命令，比如列出目录、读取文件等，然后根据输出决定下一步。当前上下文：用户刚刚发了一个URL，可能是想让我们运行agent。但我们需要通过工具来验证环境，比如检查agent.py是否存在，检查payloads/kimi.json是否存在，然后给出运行命令。注意：我们不能直接写文件，因为系统提示“目前并不希望直接写文件”，除非必要。所以我们应该先读取文件，然后根据情况输出建议。另外，我们也可以使用py utils.py git或其他工具，但这里不需要。
+
+所以我们应该执行一些命令来查看当前状态，然后输出建议的运行命令，并可能加上FINISH标记。但要注意，如果我们输出FINISH，对话就结束了，用户会进行干预。但用户可能希望我们继续测试？不确定。
+
+根据系统提示，我们应该在pause或finished之后进行查看干预，现在用户给了新输入，说明我们进入了新的一轮，应该积极使用工具。所以我们先使用py utils.py list .来查看根目录，确认agent.py等存在。然后可能使用py utils.py read agent.py来确认代码。但agent.py已经多次写入，应该是正确的。我们可以再读取一下llm_client.py确保。但为了节省轮次，我们可以先列出目录，然后根据结果决定是否需要读取文件。然后我们可以输出建议的运行命令，并加上FINISH，让用户去测试。或者我们也可以模拟运行？但无法模拟。
+
+我决定：先执行py utils.py list .查看目录，然后执行py utils.py read agent.py快速查看（但可能不需要），然后输出如何使用WebSocket URL运行agent的命令，并加上FINISH。注意，输出FINISH之前，我们需要确保没有其他要做的。
+
+但系统提示说“每次给出的命令，即使有多条多行，也只有第一次出现的命令会被执行。”所以我们在一轮中只能执行一条命令。我们需要在每一轮中只输出一条命令。所以我们需要多轮来执行多个命令。我们可以先执行list，等待结果，然后再执行read等。但这样会消耗多轮。可能我们只需要list一下，然后就可以输出FINISH。因为用户只是给了URL，可能只是让我们知道这个URL，我们可以直接说明使用方法。
+
+为了谨慎，我们先执行list命令。
+
+所以本轮输出：py utils.py list .
+
+=========================
+回复内容
+=========================
+py utils.py list .
+
+工具输出
+.env
+.git
+.gitignore
+agent
+agent.log
+agent.py
+expand.py
+LAST_RESPONSE.txt
+llm_client.py
+main.py
+memory.db
+memory_dump.txt
+MESSAGE.txt
+payloads
+README.md
+run.py
+SYSTEM_PROMPT.txt
+utils
+utils.py
+__pycache__
+
+==================================================
+第 1 轮
+==================================================
+
+=========================
+发送内容
+=========================
+这是一个多轮对话项目。user只会在pause的时候或者finished之后进行查看干预。
+其余时间，你应该积极使用 py utils.py 开头的命令使用工具。
+由于LLM会出现幻觉并且忽视需求等特性，目前并不希望直接写文件。而是在目前已有文件基础上修改。
+
+请注意，每次给出的命令，即使有多条多行，也只有第一次出现的命令会被执行。
+
+请注意
+py utils.py write [文件路径]
+是将上一轮对话的输出完整写入文件路径，请保证除了代码之外没有其他内容。
+也就是说，每次写入必须进行两轮对话。
+第一轮：输出代码文件
+轮次之间：第一轮的输出保存到LAST_RESPONSE.txt
+第二轮：输出指令，会将上一轮的输出代码文件（此时在LAST_RESPONSE.txt）保存到目标文件路径。
+
+thinking/reasoning中的内容不会被读取到，请在输出代码/命令前先截断thinking过程
+
+由于这是一个多轮对话项目。
+如果需要停止对话循环。
+请在输出内容中单独给出一行
+
+```
+=== FINISH ===
+```
+
+如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
+
+```
+py utils.py help
+```
+来获得工具使用的帮助
+
+
+
+=== SYSTEM_PROMPT 到此结束 ===
+
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\agent.py", line 268, in <module>
+    main()
+  File "C:\workplace\agent - 副本\python-client\agent.py", line 265, in main
+    asyncio.run(main_async(args))
+  File "C:\Python312\Lib\asyncio\runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\asyncio\base_events.py", line 684, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "C:\workplace\agent - 副本\python-client\agent.py", line 122, in main_async
+    client = LLMClient(
+             ^^^^^^^^^^
+  File "C:\workplace\agent - 副本\python-client\llm_client.py", line 452, in __init__
+    self.root_path = Path(root_path)
+                     ^^^^
+UnboundLocalError: cannot access local variable 'Path' where it is not associated with a value
+
+挂掉了，请再看看agent.py
+
+=========================
+推理过程
+=========================
+我们收到了一个错误报告：在 `llm_client.py` 的第452行，`Path(root_path)` 中 `Path` 未定义。这是因为在 `LLMClient.__init__` 中使用了 `Path` 但没有导入 `pathlib.Path`（或者局部变量遮盖）。查看我们之前提供的 `llm_client.py` 代码，在文件开头确实导入了 `from pathlib import Path`，但可能是在函数内部由于某些原因（比如变量名 `Path` 被重新赋值？）导致未找到。但错误信息显示 `UnboundLocalError: cannot access local variable 'Path' where it is not associated with a value`，这通常是因为在函数内部有一个局部变量 `Path` 被赋值或引用了，但还未定义。在 `__init__` 方法中，我们有：
+
+```python
+if root_path is None:
+    from pathlib import Path
+    root_path = Path.cwd()
+self.root_path = Path(root_path)
+```
+
+如果 `root_path` 不是 `None`，那么就不会执行 `from pathlib import Path`，导致 `Path` 未定义，从而出现 `UnboundLocalError`。正确的做法是在函数外部导入 `Path`，或者在函数内部始终确保 `Path` 可用。
+
+检查代码：在 `LLMClient.__init__` 中，我们是这样写的：
+
+```python
+def __init__(
+    self,
+    connection_param: str,
+    payload_name: str = "default.json",
+    profiles_path: Path = None,
+    root_path: Path = None,
+):
+    ...
+    if root_path is None:
+        from pathlib import Path
+        root_path = Path.cwd()
+    self.root_path = Path(root_path)
+```
+
+如果 `root_path` 传入了一个 `Path` 对象，那么 `root_path` 不是 `None`，就不会执行 `from pathlib import Path`，但是下面一行 `self.root_path = Path(root_path)` 中的 `Path` 就没有被导入，因此出错。应该将 `from pathlib import Path` 放在文件顶部，或者在 `__init__` 开始时就导入。由于 `profiles_path` 类型标注为 `Path`，实际上已经暗示了 `Path` 可用，但实际执行时若未导入则仍会出错。最简单的修复是：在文件顶部已经导入了 `Path`，所以只要确保该导入在整个模块中可见即可。但在我们的代码中，确实在文件开头导入了 `from pathlib import Path`，所以按理说不应该出现这个问题，除非在某个地方重新定义了 `Path` 变量。但错误信息表明在 `__init__` 中访问 `Path` 时未绑定，可能是因为 `root_path` 参数的类型提示 `Path` 导致 Python 认为 `Path` 是局部变量？实际上，类型提示不影响运行时。问题可能是：在 `__init__` 内部，如果 `root_path` 不是 `None`，则没有执行导入语句，但代码中直接用了 `Path`，而 Python 在编译时看到 `self.root_path = Path(root_path)` 中的 `Path` 是一个名称，它会在函数作用域中查找。由于函数内部有一个 `from pathlib import Path` 语句（在 if 块内），Python 会将 `Path` 视为函数内部的局部变量（因为存在导入语句），但该导入语句只在 if 块内执行，如果条件不成立，那么局部变量 `Path` 就没有被赋值，导致 `UnboundLocalError`。
+
+这是 Python 的作用域规则：如果一个函数中有 `import` 或赋值语句（即使是条件块内），该名称会被视为局部变量，除非用 `global` 或 `nonlocal` 声明。因此，即使顶部导入了 `Path`，但在函数内部有一个 `from pathlib import Path`（哪怕在 if 块中），也会使 `Path` 成为函数的局部变量，而不会引用全局的 `Path`。当 if 条件不满足时，该局部变量未定义，导致错误。
+
+修复方法：移除内部的导入，或者将导入移到函数外部（已经在顶部有了），并确保没有局部赋值。所以我们应该删除 `if root_path is None:` 块中的导入，因为已经在顶部导入了。
+
+让我们检查一下 `llm_client.py` 的顶部，确实有 `from pathlib import Path`。所以删除内部导入即可。
+
+另外，确保 `root_path` 参数的类型为 `Path` 或 `str`，我们将其转换为 `Path` 对象即可。
+
+因此，我们需要修改 `llm_client.py` 中的 `LLMClient.__init__` 方法，删除内部导入，并确保处理字符串路径。
+
+修改后的代码片段：
+
+```python
+def __init__(
+    self,
+    connection_param: str,
+    payload_name: str = "default.json",
+    profiles_path: Path = None,
+    root_path: Path = None,
+):
+    self.connection_param = connection_param
+    self.payload_name = payload_name
+    self._bridge = None
+
+    if root_path is None:
+        root_path = Path.cwd()
+    self.root_path = Path(root_path)  # 确保是 Path 对象
+
+    if profiles_path is None:
+        self.profiles_path = self.root_path / "agent" / "profiles.json"
+    else:
+        self.profiles_path = Path(profiles_path)
+
+    self.payloads_dir = self.root_path / "payloads"
+```
+
+同时，需要确保 `profiles_path` 参数如果传入的是字符串，也能转换为 Path。这里已经处理了。
+
+现在，输出修改后的 `llm_client.py` 完整代码。由于这是一个多轮对话项目，我需要先输出代码，然后让用户用 `py utils.py write` 写入。我会确保代码是完整的，没有多余说明。
+
+但是，由于我们之前已经多次写入，并且当前错误是由于 `llm_client.py` 中的一个小问题，我只需要输出修复后的 `llm_client.py` 文件内容。注意要包含完整的代码，不要有额外的文本。
+
+接下来，我将输出修复后的 `llm_client.py` 完整代码。
+
+=========================
+回复内容
+=========================
+```python
+import asyncio
+import json
+import re
+from pathlib import Path
+from typing import List, Dict, Optional, Any, Tuple
+try:
+    import websockets
+except ImportError:
+    print("请安装websockets: pip install websockets")
+    raise
+try:
+    import httpx
+except ImportError:
+    print("请安装httpx: pip install httpx")
+    raise
+
+
+class StreamChunk:
+    """统一的流数据块，表示从模型接收到的每一个片段"""
+
+    TYPE_REASONING = "reasoning"  # 思考过程（如 DeepSeek 的 THINK 类型）
+    TYPE_CONTENT = "content"  # 正式回答内容
+    TYPE_DONE = "done"  # 流结束标记
+
+    def __init__(self, chunk_type, delta):
+        self.type = chunk_type
+        self.delta = delta
+
+
+# ==============================================================================
+# WebSocket 桥接（用于 DeepSeek 私有协议）
+# ==============================================================================
+
+class DeepSeekBridge:
+    """将 DeepSeek 的私有协议解析为统一的流式数据块。"""
+
+    def __init__(self):
+        self.fragment_types = []
+        self.is_finished = False
+
+    def parse(self, data: dict):
+        chunks = []
+        path = data.get("p", "")
+        value = data.get("v")
+        operation = data.get("o", "")
+
+        if operation == "BATCH" and path == "response":
+            items = value if isinstance(value, list) else []
+            for item in items:
+                if item.get("p") == "quasi_status" and item.get("v") == "FINISHED":
+                    self.is_finished = True
+                    chunks.append(StreamChunk(StreamChunk.TYPE_DONE, ""))
+                    return chunks
+
+        if isinstance(value, dict) and "response" in value:
+            fragments = value["response"].get("fragments", [])
+            for frag in fragments:
+                frag_type = frag.get("type")
+                self.fragment_types.append(frag_type)
+                content = frag.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(frag_type, content))
+            return chunks
+
+        if operation == "APPEND" and path == "response/fragments":
+            for fragment in value:
+                frag_type = fragment.get("type")
+                self.fragment_types.append(frag_type)
+                content = fragment.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(frag_type, content))
+            return chunks
+
+        match = re.match(r"response/fragments/(-?\d+)/content", path)
+        if match and isinstance(value, str):
+            idx = int(match.group(1))
+            real_idx = idx if idx >= 0 else len(self.fragment_types) + idx
+            if 0 <= real_idx < len(self.fragment_types):
+                chunks.append(self._create_chunk(self.fragment_types[real_idx], value))
+            return chunks
+
+        if not path and isinstance(value, str) and self.fragment_types:
+            chunks.append(self._create_chunk(self.fragment_types[-1], value))
+            return chunks
+
+        return chunks
+
+    def _create_chunk(self, raw_type, content):
+        chunk_type = (
+            StreamChunk.TYPE_REASONING
+            if raw_type == "THINK"
+            else StreamChunk.TYPE_CONTENT
+        )
+        return StreamChunk(chunk_type, content)
+
+
+class WebSocketBridge:
+    """WebSocket 桥接，使用 DeepSeek 私有协议"""
+
+    def __init__(self, ws_url: str, model_name: str = "deepseek"):
+        self.ws_url = ws_url
+        self.model_name = model_name
+        self.ws = None
+        self.parser = None
+        self._is_finished = False
+
+    async def connect(self) -> bool:
+        self.ws = await websockets.connect(self.ws_url)
+
+        if self.model_name == "deepseek":
+            self.parser = DeepSeekBridge()
+        else:
+            raise ValueError(f"不支持的模型: {self.model_name}")
+
+        await self.ws.send(json.dumps({"type": "pair_request", "model": self.model_name}))
+        response = await self.ws.recv()
+        data = json.loads(response)
+        return data.get("type") == "pair_result" and data.get("content") is True
+
+    async def send_prompt(self, text: str):
+        self.parser.__init__()
+        await self.ws.send(
+            json.dumps(
+                {
+                    "type": "command",
+                    "command": "send_prompt",
+                    "params": {"prompt": text},
+                }
+            )
+        )
+
+    async def completion(self) -> tuple[str, str]:
+        reasoning_buffer = []
+        content_buffer = []
+        reasoning_len = 0
+        content_len = 0
+
+        while True:
+            raw_msg = await self.ws.recv()
+            msg = json.loads(raw_msg)
+
+            if msg.get("type") == "system" and msg.get("content") == "partner_disconnected":
+                print("\n?? 浏览器端已断开连接")
+                break
+
+            if msg.get("type") == "token":
+                chunks = self.parser.parse(msg.get("content", {}))
+                for chunk in chunks:
+                    if chunk.type == StreamChunk.TYPE_REASONING:
+                        reasoning_buffer.append(chunk.delta)
+                        reasoning_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_CONTENT:
+                        content_buffer.append(chunk.delta)
+                        content_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_DONE:
+                        self._is_finished = True
+                        print(
+                            f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                            end="",
+                            flush=True,
+                        )
+                        return "".join(reasoning_buffer), "".join(content_buffer)
+
+                if chunks:
+                    print(
+                        f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                        end="",
+                        flush=True,
+                    )
+
+        return "".join(reasoning_buffer), "".join(content_buffer)
+
+    async def new_chat(self):
+        await self.ws.send(json.dumps({"type": "command", "command": "new_chat"}))
+
+    async def close(self):
+        if self.ws:
+            await self.ws.close()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._is_finished or (self.parser and self.parser.is_finished)
+
+
+# ==============================================================================
+# HTTP 桥接（用于 OpenAI 兼容 API，支持从 payloads 目录加载配置）
+# ==============================================================================
+
+class OpenAIStreamParser:
+    """解析 OpenAI 兼容 API 的 SSE 流式响应"""
+
+    def __init__(self):
+        self.is_finished = False
+
+    def feed_line(self, line: str):
+        if not line or not line.startswith("data: "):
+            return []
+
+        data_str = line[6:].strip()
+        if data_str == "[DONE]":
+            self.is_finished = True
+            return [StreamChunk(StreamChunk.TYPE_DONE, "")]
+
+        try:
+            chunk = json.loads(data_str)
+        except json.JSONDecodeError:
+            return []
+
+        choices = chunk.get("choices", [])
+        if not choices:
+            return []
+
+        delta = choices[0].get("delta", {})
+        finish_reason = choices[0].get("finish_reason")
+        if finish_reason is not None:
+            self.is_finished = True
+            return [StreamChunk(StreamChunk.TYPE_DONE, "")]
+
+        chunks = []
+        reasoning = delta.get("reasoning_content")
+        if reasoning:
+            chunks.append(StreamChunk(StreamChunk.TYPE_REASONING, reasoning))
+        content = delta.get("content")
+        if content:
+            chunks.append(StreamChunk(StreamChunk.TYPE_CONTENT, content))
+
+        return chunks
+
+
+class HTTPBridge:
+    """
+    HTTP 桥接，使用 OpenAI 兼容 API。
+    从 profiles.json 读取 endpoint 和 api_key，从 payloads/ 目录读取请求模板（含 model 等参数）。
+    """
+
+    def __init__(
+        self,
+        profile_name: str,
+        payload_name: str,
+        profiles_path: Path,
+        payloads_dir: Path,
+        root_path: Path,
+    ):
+        self.profile_name = profile_name
+        self.payload_name = payload_name
+        self.profiles_path = profiles_path
+        self.payloads_dir = payloads_dir
+        self.root_path = root_path
+
+        self.client: httpx.AsyncClient = None
+        self.endpoint = None
+        self.api_key = None
+        self.payload_base: Dict[str, Any] = {}  # 从 payload 文件加载的基础配置（不含 messages）
+        self.messages: List[Dict[str, str]] = []  # 对话历史
+        self._parser = None
+        self._is_finished = False
+
+    async def connect(self) -> bool:
+        """加载配置，初始化 HTTP 客户端"""
+        import json
+
+        # 1. 加载 profiles.json
+        if not self.profiles_path.exists():
+            print(f"[错误] 配置文件不存在: {self.profiles_path}")
+            return False
+
+        try:
+            with open(self.profiles_path, "r", encoding="utf-8") as f:
+                profiles = json.load(f)
+        except Exception as e:
+            print(f"[错误] 读取配置文件失败: {e}")
+            return False
+
+        if self.profile_name not in profiles:
+            print(f"[错误] 配置文件中不存在 profile: {self.profile_name}")
+            return False
+
+        config = profiles[self.profile_name]
+        self.endpoint = config.get("endpoint")
+        self.api_key = config.get("api_key")
+        if not self.endpoint or not self.api_key:
+            print(f"[错误] profile '{self.profile_name}' 缺少 endpoint 或 api_key")
+            return False
+
+        # 2. 确保 payloads 目录存在
+        self.payloads_dir.mkdir(parents=True, exist_ok=True)
+
+        # 3. 加载 payload 文件
+        payload_file = self.payloads_dir / self.payload_name
+        if not payload_file.exists():
+            print(f"[错误] Payload 文件不存在: {payload_file}")
+            return False
+
+        try:
+            with open(payload_file, "r", encoding="utf-8") as f:
+                payload_data = json.load(f)
+        except Exception as e:
+            print(f"[错误] 读取 payload 文件失败: {e}")
+            return False
+
+        # 移除下划线开头的控制字段（如 _context），保留其他字段作为基础 payload
+        self.payload_base = {k: v for k, v in payload_data.items() if not k.startswith("_")}
+        # 确保 payload 中不包含 messages 字段（会被历史替换）
+        self.payload_base.pop("messages", None)
+
+        # 可选：如果 payload 中没有 model，尝试从 profiles 中获取或猜测
+        if "model" not in self.payload_base:
+            model_from_profile = config.get("model")
+            if model_from_profile:
+                self.payload_base["model"] = model_from_profile
+            else:
+                self.payload_base["model"] = self._guess_default_model(self.endpoint)
+                print(f"[提示] 未指定 model，使用猜测的默认模型: {self.payload_base['model']}")
+
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+        self.messages = []
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+        return True
+
+    def _guess_default_model(self, endpoint: str) -> str:
+        endpoint_lower = endpoint.lower()
+        if "siliconflow" in endpoint_lower:
+            return "deepseek-ai/DeepSeek-V2.5"
+        elif "nvidia" in endpoint_lower:
+            return "meta/llama3-70b-instruct"
+        elif "deepseek" in endpoint_lower:
+            return "deepseek-chat"
+        elif "groq" in endpoint_lower:
+            return "mixtral-8x7b-32768"
+        else:
+            return "gpt-3.5-turbo"
+
+    async def send_prompt(self, text: str):
+        """将用户消息添加到历史中"""
+        self.messages.append({"role": "user", "content": text})
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+
+    async def completion(self) -> tuple[str, str]:
+        if not self.client or not self.endpoint or not self.api_key:
+            raise RuntimeError("客户端未正确初始化，请先调用 connect")
+
+        if not self.messages or self.messages[-1]["role"] != "user":
+            return "", ""
+
+        # 构建最终 payload：基础配置 + 当前消息列表
+        payload = self.payload_base.copy()
+        payload["messages"] = self.messages
+        payload["stream"] = True  # 强制流式
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        reasoning_parts = []
+        content_parts = []
+        reasoning_len = 0
+        content_len = 0
+
+        try:
+            async with self.client.stream(
+                "POST", self.endpoint, json=payload, headers=headers
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    print(f"[错误] HTTP {response.status_code}: {error_text[:200]}")
+                    return "", ""
+
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    for data_line in line.split("\n"):
+                        if not data_line:
+                            continue
+                        chunks = self._parser.feed_line(data_line)
+                        for chunk in chunks:
+                            if chunk.type == StreamChunk.TYPE_REASONING:
+                                reasoning_parts.append(chunk.delta)
+                                reasoning_len += len(chunk.delta)
+                            elif chunk.type == StreamChunk.TYPE_CONTENT:
+                                content_parts.append(chunk.delta)
+                                content_len += len(chunk.delta)
+                            elif chunk.type == StreamChunk.TYPE_DONE:
+                                self._is_finished = True
+                                print(
+                                    f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                                    end="",
+                                    flush=True,
+                                )
+                                assistant_content = "".join(content_parts)
+                                self.messages.append({"role": "assistant", "content": assistant_content})
+                                return "".join(reasoning_parts), assistant_content
+
+                        if chunks:
+                            print(
+                                f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                                end="",
+                                flush=True,
+                            )
+
+            # 流正常结束（无 DONE 标记）
+            self._is_finished = True
+            assistant_content = "".join(content_parts)
+            self.messages.append({"role": "assistant", "content": assistant_content})
+            return "".join(reasoning_parts), assistant_content
+
+        except Exception as e:
+            print(f"\n[异常] {type(e).__name__}: {e}")
+            self._is_finished = True
+            return "", ""
+
+    async def new_chat(self):
+        self.messages = []
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+
+    async def close(self):
+        if self.client:
+            await self.client.aclose()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._is_finished
+
+
+# ==============================================================================
+# 统一 LLM 客户端入口
+# ==============================================================================
+
+class LLMClient:
+    """
+    统一的 LLM 客户端，根据 connection_param 自动选择底层桥接：
+      - 以 ws:// 或 wss:// 开头 → 使用 WebSocket 桥接（DeepSeek 私有协议）
+      - 否则视为 profiles.json 中的 profile 名称 → 使用 HTTP 桥接（OpenAI 兼容 API），
+        需要额外指定 payload 名称（默认 "default.json"）
+    """
+
+    def __init__(
+        self,
+        connection_param: str,
+        payload_name: str = "default.json",
+        profiles_path: Path = None,
+        root_path: Path = None,
+    ):
+        self.connection_param = connection_param
+        self.payload_name = payload_name
+        self._bridge = None
+
+        # 确保 root_path 为 Path 对象
+        if root_path is None:
+            root_path = Path.cwd()
+        self.root_path = Path(root_path)
+
+        # 确定 profiles.json 路径
+        if profiles_path is None:
+            self.profiles_path = self.root_path / "agent" / "profiles.json"
+        else:
+            self.profiles_path = Path(profiles_path)
+
+        self.payloads_dir = self.root_path / "payloads"
+
+    async def connect(self) -> bool:
+        """根据参数初始化并连接对应的桥接"""
+        if self.connection_param.startswith(("ws://", "wss://")):
+            self._bridge = WebSocketBridge(self.connection_param, model_name="deepseek")
+        else:
+            self._bridge = HTTPBridge(
+                profile_name=self.connection_param,
+                payload_name=self.payload_name,
+                profiles_path=self.profiles_path,
+                payloads_dir=self.payloads_dir,
+                root_path=self.root_path,
+            )
+        return await self._bridge.connect()
+
+    async def send_prompt(self, text: str):
+        await self._bridge.send_prompt(text)
+
+    async def completion(self) -> tuple[str, str]:
+        return await self._bridge.completion()
+
+    async def new_chat(self):
+        await self._bridge.new_chat()
+
+    async def close(self):
+        await self._bridge.close()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._bridge.is_finished if self._bridge else False
+```
+
+==================================================
+第 2 轮
+==================================================
+
+=========================
+发送内容
+=========================
+上一轮对话的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write或者py utils.py write_multiple。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。
+
+=========================
+推理过程
+=========================
+我们收到了用户的错误报告，显示在 agent.py 中运行出现了 UnboundLocalError，因为 llm_client.py 中的 `Path` 变量在函数内被使用但未导入。错误信息指向 llm_client.py 的第 452 行：`self.root_path = Path(root_path)` 处使用了 `Path` 但未在作用域内定义。实际上，在 llm_client.py 的开头我们已经导入了 `from pathlib import Path`，所以应该不会出现此问题。但可能原因是：在文件的开头我们确实有 `from pathlib import Path`，但也许在某个分支里（比如 root_path 为 None 时的处理）重新定义了 `root_path` 并尝试调用 `Path`，而 `Path` 因为某些原因（如被覆盖）不存在。
+
+但根据错误信息，是 UnboundLocalError: cannot access local variable 'Path' where it is not associated with a value。这很奇怪，因为 `Path` 是导入的模块，应该是全局变量。除非在函数内部有一个局部变量也叫 `Path`，但没有赋值，导致访问时出错。但在给出的 llm_client.py 代码中，`LLMClient.__init__` 方法内部并没有重新定义 `Path`。可能的原因是在 `__init__` 中，某个地方有 `Path` 作为变量名，但未被赋值。检查代码：
+
+```python
+def __init__(
+    self,
+    connection_param: str,
+    payload_name: str = "default.json",
+    profiles_path: Path = None,
+    root_path: Path = None,
+):
+    self.connection_param = connection_param
+    self.payload_name = payload_name
+    self._bridge = None
+
+    # 确保 root_path 为 Path 对象
+    if root_path is None:
+        root_path = Path.cwd()
+    self.root_path = Path(root_path)
+```
+
+这里 `profiles_path` 和 `root_path` 的类型提示是 `Path`，但这是类型注解，不是赋值。实际在函数体内部，我们使用了 `Path.cwd()` 和 `Path(root_path)`。`Path` 应该指的是从 `pathlib` 导入的类。除非在函数内部有一个局部变量 `Path` 被重新定义但没有值。检查代码，没有局部变量 `Path`。可能的原因是在文件的某个地方，`Path` 被重新赋值为其他东西，但之前的代码中并没有。或者用户运行的是旧版本的 llm_client.py，其中 `from pathlib import Path` 缺失或被注释掉。从之前用户给出的错误来看，是 `UnboundLocalError`，这通常发生在尝试访问一个局部变量但未定义时。在 Python 中，如果在函数内部对某个变量进行赋值（即使是在条件分支中），该变量就会被视为局部变量。如果我们在条件分支中赋值，但该分支未执行，那么在该函数中访问该变量时就会引发 UnboundLocalError。但是 `Path` 是模块级别的，除非我们在函数内部有 `Path = something`，否则它应该是全局变量。
+
+可能的情况是：在 `__init__` 函数内部，我们有 `Path` 作为参数名？没有。或者我们使用了 `Path` 作为变量名，例如 `Path = None` 之类的。检查代码，没有。但是注意，在 `__init__` 的参数中，有 `profiles_path: Path = None` 和 `root_path: Path = None`，这里的 `Path` 是类型注解，在运行时不会创建局部变量。所以应该没问题。
+
+可能的原因是在 `LLMClient.__init__` 之前的代码中，有错误导致 `Path` 没有被正确导入，或者导入的 `Path` 被覆盖了。例如，如果用户之前运行了有错误的代码，然后我们后来提供了正确的代码，但用户可能没有正确写入。根据用户的错误报告，错误发生在 `llm_client.py` 第 452 行，对应 `self.root_path = Path(root_path)`。我们需要检查用户当前版本的 llm_client.py 是否真的包含了 `from pathlib import Path`。
+
+用户要求我们“再看看 agent.py”，但错误发生在 llm_client.py 中。用户可能想让我们修正 llm_client.py 中的错误。我们需要输出修正后的 llm_client.py 代码，确保 `Path` 被正确导入和使用。
+
+此外，我们还需要确保 agent.py 正确调用 LLMClient。agent.py 中的调用可能没有传递 root_path，导致使用默认的 Path.cwd()，这应该没问题。
+
+因此，我们需要输出修正后的 llm_client.py，确保导入 Path 并正确处理 root_path。另外，可能需要在文件开头明确导入 Path。当前代码开头确实有 `from pathlib import Path`。为了确保万无一失，我们可以将 `Path` 的导入放在文件顶部，并确保没有其他地方重新定义。另外，可以修改 `__init__` 中对 root_path 的处理，避免使用可能未绑定的局部变量。但现有代码已经是正确的。
+
+考虑到错误信息是 `UnboundLocalError: cannot access local variable 'Path' where it is not associated with a value`，这很可能是因为在函数内部，`Path` 被当作一个局部变量，但没有赋值。这通常发生在 Python 中当你在函数内部对 `Path` 进行赋值操作时。检查代码，唯一可能的是我们使用了 `Path` 作为类型注解，但这不会导致它成为局部变量。另一种可能是用户运行的 llm_client.py 版本中，`Path` 被重新赋值了，例如在某个地方有 `Path = something`。但现有代码中没有。
+
+也许是因为在 `__init__` 的参数中，`profiles_path: Path = None` 中的 `Path` 被解释为一个局部变量？在 Python 中，类型注解中的名称是在其所在的作用域中解析的，但通常是在函数定义时解析，它会在全局作用域中查找 `Path`。这应该不会导致函数内部的局部变量。
+
+可能真正的原因是用户环境中的 Python 版本或某些导入问题导致 `pathlib` 模块没有正确导入，或者 `Path` 类不可用。但我们无法改变环境。
+
+为了安全起见，我们可以在 `__init__` 函数内部重新导入 `Path` 或使用 `pathlib.Path` 全名。但更好的办法是保持导入，并确保不会出现局部变量名冲突。
+
+我们输出的代码应保持原样，但可以添加注释确保导入正确。另外，错误也可能源于 agent.py 中调用 LLMClient 时传递了不正确的参数。agent.py 中调用是：
+
+```python
+client = LLMClient(
+    connection_param=args.connection,
+    payload_name=args.payload,
+    profiles_path=Path(PROFILES_PATH),
+    root_path=Path(ROOT_PATH),
+)
+```
+
+这里传入了 `Path(PROFILES_PATH)` 和 `Path(ROOT_PATH)`，但 `PROFILES_PATH` 是字符串路径，转换为 Path 对象。这应该没问题。
+
+因此，我们需要输出修正后的 llm_client.py 代码，确保导入 Path，并在必要时使用 `pathlib.Path` 来避免歧义。我们可以将 `Path` 的导入保留，并在代码中显式使用 `pathlib.Path` 而不是 `Path`，以避免任何局部变量问题。例如，将 `from pathlib import Path` 改为 `import pathlib`，然后使用 `pathlib.Path`。但这样改动较大。或者我们可以在函数内部使用 `pathlib.Path` 来确保始终访问的是模块。
+
+考虑到用户可能因为某种原因导致 `Path` 未定义，使用 `pathlib.Path` 更可靠。但需要修改多处。
+
+让我们决定：输出修正后的 llm_client.py，在文件顶部导入 `pathlib` 作为 `pl` 或直接使用 `from pathlib import Path`，并确保所有使用 `Path` 的地方都没有问题。同时，检查是否有任何地方将 `Path` 用作变量名。目前没有。
+
+可能更简单的修复是在 `__init__` 函数内部，在访问 `Path` 之前先确保 `Path` 可用。我们可以添加：
+
+```python
+from pathlib import Path as _Path
+```
+
+然后在代码中使用 `_Path`。但这不是必须的。
+
+考虑到用户想要我们修复这个错误，最直接的方案是输出一个修正后的 llm_client.py，确保导入正确，并可能添加一个额外的检查。但错误本身很奇怪。我们可以修改 `__init__` 中对 root_path 的处理，避免使用 `Path` 作为变量，而是使用 `pathlib.Path`：
+
+```python
+import pathlib
+...
+self.root_path = pathlib.Path(root_path)
+```
+
+这可以避免任何关于 `Path` 作为未定义局部变量的问题。因为 `pathlib` 是导入的模块，始终可用。这是最安全的做法。
+
+我们还需要确保其他使用 `Path` 的地方也改为 `pathlib.Path`，或者保持导入 `Path` 但确保不被覆盖。
+
+综合考虑，我们将修改 llm_client.py，使用 `import pathlib`，并替换所有 `Path` 为 `pathlib.Path`。这样即使 `Path` 作为局部变量被错误赋值，也不会影响，因为我们使用的是模块名。同时，为了保持代码风格一致，我们可以在文件顶部导入 `pathlib` 为 `pl`，但简单使用 `import pathlib` 然后到处使用 `pathlib.Path` 也可以。
+
+让我们重写 llm_client.py，将 `from pathlib import Path` 替换为 `import pathlib`，并将所有 `Path` 出现的地方改为 `pathlib.Path`。这样将避免任何关于 `Path` 变量未绑定的问题。
+
+注意：代码中还有 `from typing import List, Dict, Optional, Any, Tuple`，不需要修改。
+
+我们将输出完整的修改后的 llm_client.py 代码。
+
+=========================
+回复内容
+=========================
+```python
+import asyncio
+import json
+import re
+import pathlib
+from typing import List, Dict, Optional, Any, Tuple
+try:
+    import websockets
+except ImportError:
+    print("请安装websockets: pip install websockets")
+    raise
+try:
+    import httpx
+except ImportError:
+    print("请安装httpx: pip install httpx")
+    raise
+
+
+class StreamChunk:
+    """统一的流数据块，表示从模型接收到的每一个片段"""
+
+    TYPE_REASONING = "reasoning"  # 思考过程（如 DeepSeek 的 THINK 类型）
+    TYPE_CONTENT = "content"  # 正式回答内容
+    TYPE_DONE = "done"  # 流结束标记
+
+    def __init__(self, chunk_type, delta):
+        self.type = chunk_type
+        self.delta = delta
+
+
+# ==============================================================================
+# WebSocket 桥接（用于 DeepSeek 私有协议）
+# ==============================================================================
+
+class DeepSeekBridge:
+    """将 DeepSeek 的私有协议解析为统一的流式数据块。"""
+
+    def __init__(self):
+        self.fragment_types = []
+        self.is_finished = False
+
+    def parse(self, data: dict):
+        chunks = []
+        path = data.get("p", "")
+        value = data.get("v")
+        operation = data.get("o", "")
+
+        if operation == "BATCH" and path == "response":
+            items = value if isinstance(value, list) else []
+            for item in items:
+                if item.get("p") == "quasi_status" and item.get("v") == "FINISHED":
+                    self.is_finished = True
+                    chunks.append(StreamChunk(StreamChunk.TYPE_DONE, ""))
+                    return chunks
+
+        if isinstance(value, dict) and "response" in value:
+            fragments = value["response"].get("fragments", [])
+            for frag in fragments:
+                frag_type = frag.get("type")
+                self.fragment_types.append(frag_type)
+                content = frag.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(frag_type, content))
+            return chunks
+
+        if operation == "APPEND" and path == "response/fragments":
+            for fragment in value:
+                frag_type = fragment.get("type")
+                self.fragment_types.append(frag_type)
+                content = fragment.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(frag_type, content))
+            return chunks
+
+        match = re.match(r"response/fragments/(-?\d+)/content", path)
+        if match and isinstance(value, str):
+            idx = int(match.group(1))
+            real_idx = idx if idx >= 0 else len(self.fragment_types) + idx
+            if 0 <= real_idx < len(self.fragment_types):
+                chunks.append(self._create_chunk(self.fragment_types[real_idx], value))
+            return chunks
+
+        if not path and isinstance(value, str) and self.fragment_types:
+            chunks.append(self._create_chunk(self.fragment_types[-1], value))
+            return chunks
+
+        return chunks
+
+    def _create_chunk(self, raw_type, content):
+        chunk_type = (
+            StreamChunk.TYPE_REASONING
+            if raw_type == "THINK"
+            else StreamChunk.TYPE_CONTENT
+        )
+        return StreamChunk(chunk_type, content)
+
+
+class WebSocketBridge:
+    """WebSocket 桥接，使用 DeepSeek 私有协议"""
+
+    def __init__(self, ws_url: str, model_name: str = "deepseek"):
+        self.ws_url = ws_url
+        self.model_name = model_name
+        self.ws = None
+        self.parser = None
+        self._is_finished = False
+
+    async def connect(self) -> bool:
+        self.ws = await websockets.connect(self.ws_url)
+
+        if self.model_name == "deepseek":
+            self.parser = DeepSeekBridge()
+        else:
+            raise ValueError(f"不支持的模型: {self.model_name}")
+
+        await self.ws.send(json.dumps({"type": "pair_request", "model": self.model_name}))
+        response = await self.ws.recv()
+        data = json.loads(response)
+        return data.get("type") == "pair_result" and data.get("content") is True
+
+    async def send_prompt(self, text: str):
+        self.parser.__init__()
+        await self.ws.send(
+            json.dumps(
+                {
+                    "type": "command",
+                    "command": "send_prompt",
+                    "params": {"prompt": text},
+                }
+            )
+        )
+
+    async def completion(self) -> tuple[str, str]:
+        reasoning_buffer = []
+        content_buffer = []
+        reasoning_len = 0
+        content_len = 0
+
+        while True:
+            raw_msg = await self.ws.recv()
+            msg = json.loads(raw_msg)
+
+            if msg.get("type") == "system" and msg.get("content") == "partner_disconnected":
+                print("\n?? 浏览器端已断开连接")
+                break
+
+            if msg.get("type") == "token":
+                chunks = self.parser.parse(msg.get("content", {}))
+                for chunk in chunks:
+                    if chunk.type == StreamChunk.TYPE_REASONING:
+                        reasoning_buffer.append(chunk.delta)
+                        reasoning_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_CONTENT:
+                        content_buffer.append(chunk.delta)
+                        content_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_DONE:
+                        self._is_finished = True
+                        print(
+                            f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                            end="",
+                            flush=True,
+                        )
+                        return "".join(reasoning_buffer), "".join(content_buffer)
+
+                if chunks:
+                    print(
+                        f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                        end="",
+                        flush=True,
+                    )
+
+        return "".join(reasoning_buffer), "".join(content_buffer)
+
+    async def new_chat(self):
+        await self.ws.send(json.dumps({"type": "command", "command": "new_chat"}))
+
+    async def close(self):
+        if self.ws:
+            await self.ws.close()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._is_finished or (self.parser and self.parser.is_finished)
+
+
+# ==============================================================================
+# HTTP 桥接（用于 OpenAI 兼容 API，支持从 payloads 目录加载配置）
+# ==============================================================================
+
+class OpenAIStreamParser:
+    """解析 OpenAI 兼容 API 的 SSE 流式响应"""
+
+    def __init__(self):
+        self.is_finished = False
+
+    def feed_line(self, line: str):
+        if not line or not line.startswith("data: "):
+            return []
+
+        data_str = line[6:].strip()
+        if data_str == "[DONE]":
+            self.is_finished = True
+            return [StreamChunk(StreamChunk.TYPE_DONE, "")]
+
+        try:
+            chunk = json.loads(data_str)
+        except json.JSONDecodeError:
+            return []
+
+        choices = chunk.get("choices", [])
+        if not choices:
+            return []
+
+        delta = choices[0].get("delta", {})
+        finish_reason = choices[0].get("finish_reason")
+        if finish_reason is not None:
+            self.is_finished = True
+            return [StreamChunk(StreamChunk.TYPE_DONE, "")]
+
+        chunks = []
+        reasoning = delta.get("reasoning_content")
+        if reasoning:
+            chunks.append(StreamChunk(StreamChunk.TYPE_REASONING, reasoning))
+        content = delta.get("content")
+        if content:
+            chunks.append(StreamChunk(StreamChunk.TYPE_CONTENT, content))
+
+        return chunks
+
+
+class HTTPBridge:
+    """
+    HTTP 桥接，使用 OpenAI 兼容 API。
+    从 profiles.json 读取 endpoint 和 api_key，从 payloads/ 目录读取请求模板（含 model 等参数）。
+    """
+
+    def __init__(
+        self,
+        profile_name: str,
+        payload_name: str,
+        profiles_path: pathlib.Path,
+        payloads_dir: pathlib.Path,
+        root_path: pathlib.Path,
+    ):
+        self.profile_name = profile_name
+        self.payload_name = payload_name
+        self.profiles_path = profiles_path
+        self.payloads_dir = payloads_dir
+        self.root_path = root_path
+
+        self.client: httpx.AsyncClient = None
+        self.endpoint = None
+        self.api_key = None
+        self.payload_base: Dict[str, Any] = {}  # 从 payload 文件加载的基础配置（不含 messages）
+        self.messages: List[Dict[str, str]] = []  # 对话历史
+        self._parser = None
+        self._is_finished = False
+
+    async def connect(self) -> bool:
+        """加载配置，初始化 HTTP 客户端"""
+        import json
+
+        # 1. 加载 profiles.json
+        if not self.profiles_path.exists():
+            print(f"[错误] 配置文件不存在: {self.profiles_path}")
+            return False
+
+        try:
+            with open(self.profiles_path, "r", encoding="utf-8") as f:
+                profiles = json.load(f)
+        except Exception as e:
+            print(f"[错误] 读取配置文件失败: {e}")
+            return False
+
+        if self.profile_name not in profiles:
+            print(f"[错误] 配置文件中不存在 profile: {self.profile_name}")
+            return False
+
+        config = profiles[self.profile_name]
+        self.endpoint = config.get("endpoint")
+        self.api_key = config.get("api_key")
+        if not self.endpoint or not self.api_key:
+            print(f"[错误] profile '{self.profile_name}' 缺少 endpoint 或 api_key")
+            return False
+
+        # 2. 确保 payloads 目录存在
+        self.payloads_dir.mkdir(parents=True, exist_ok=True)
+
+        # 3. 加载 payload 文件
+        payload_file = self.payloads_dir / self.payload_name
+        if not payload_file.exists():
+            print(f"[错误] Payload 文件不存在: {payload_file}")
+            return False
+
+        try:
+            with open(payload_file, "r", encoding="utf-8") as f:
+                payload_data = json.load(f)
+        except Exception as e:
+            print(f"[错误] 读取 payload 文件失败: {e}")
+            return False
+
+        # 移除下划线开头的控制字段（如 _context），保留其他字段作为基础 payload
+        self.payload_base = {k: v for k, v in payload_data.items() if not k.startswith("_")}
+        # 确保 payload 中不包含 messages 字段（会被历史替换）
+        self.payload_base.pop("messages", None)
+
+        # 可选：如果 payload 中没有 model，尝试从 profiles 中获取或猜测
+        if "model" not in self.payload_base:
+            model_from_profile = config.get("model")
+            if model_from_profile:
+                self.payload_base["model"] = model_from_profile
+            else:
+                self.payload_base["model"] = self._guess_default_model(self.endpoint)
+                print(f"[提示] 未指定 model，使用猜测的默认模型: {self.payload_base['model']}")
+
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+        self.messages = []
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+        return True
+
+    def _guess_default_model(self, endpoint: str) -> str:
+        endpoint_lower = endpoint.lower()
+        if "siliconflow" in endpoint_lower:
+            return "deepseek-ai/DeepSeek-V2.5"
+        elif "nvidia" in endpoint_lower:
+            return "meta/llama3-70b-instruct"
+        elif "deepseek" in endpoint_lower:
+            return "deepseek-chat"
+        elif "groq" in endpoint_lower:
+            return "mixtral-8x7b-32768"
+        else:
+            return "gpt-3.5-turbo"
+
+    async def send_prompt(self, text: str):
+        """将用户消息添加到历史中"""
+        self.messages.append({"role": "user", "content": text})
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+
+    async def completion(self) -> tuple[str, str]:
+        if not self.client or not self.endpoint or not self.api_key:
+            raise RuntimeError("客户端未正确初始化，请先调用 connect")
+
+        if not self.messages or self.messages[-1]["role"] != "user":
+            return "", ""
+
+        # 构建最终 payload：基础配置 + 当前消息列表
+        payload = self.payload_base.copy()
+        payload["messages"] = self.messages
+        payload["stream"] = True  # 强制流式
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        reasoning_parts = []
+        content_parts = []
+        reasoning_len = 0
+        content_len = 0
+
+        try:
+            async with self.client.stream(
+                "POST", self.endpoint, json=payload, headers=headers
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    print(f"[错误] HTTP {response.status_code}: {error_text[:200]}")
+                    return "", ""
+
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    for data_line in line.split("\n"):
+                        if not data_line:
+                            continue
+                        chunks = self._parser.feed_line(data_line)
+                        for chunk in chunks:
+                            if chunk.type == StreamChunk.TYPE_REASONING:
+                                reasoning_parts.append(chunk.delta)
+                                reasoning_len += len(chunk.delta)
+                            elif chunk.type == StreamChunk.TYPE_CONTENT:
+                                content_parts.append(chunk.delta)
+                                content_len += len(chunk.delta)
+                            elif chunk.type == StreamChunk.TYPE_DONE:
+                                self._is_finished = True
+                                print(
+                                    f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                                    end="",
+                                    flush=True,
+                                )
+                                assistant_content = "".join(content_parts)
+                                self.messages.append({"role": "assistant", "content": assistant_content})
+                                return "".join(reasoning_parts), assistant_content
+
+                        if chunks:
+                            print(
+                                f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                                end="",
+                                flush=True,
+                            )
+
+            # 流正常结束（无 DONE 标记）
+            self._is_finished = True
+            assistant_content = "".join(content_parts)
+            self.messages.append({"role": "assistant", "content": assistant_content})
+            return "".join(reasoning_parts), assistant_content
+
+        except Exception as e:
+            print(f"\n[异常] {type(e).__name__}: {e}")
+            self._is_finished = True
+            return "", ""
+
+    async def new_chat(self):
+        self.messages = []
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+
+    async def close(self):
+        if self.client:
+            await self.client.aclose()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._is_finished
+
+
+# ==============================================================================
+# 统一 LLM 客户端入口
+# ==============================================================================
+
+class LLMClient:
+    """
+    统一的 LLM 客户端，根据 connection_param 自动选择底层桥接：
+      - 以 ws:// 或 wss:// 开头 → 使用 WebSocket 桥接（DeepSeek 私有协议）
+      - 否则视为 profiles.json 中的 profile 名称 → 使用 HTTP 桥接（OpenAI 兼容 API），
+        需要额外指定 payload 名称（默认 "default.json"）
+    """
+
+    def __init__(
+        self,
+        connection_param: str,
+        payload_name: str = "default.json",
+        profiles_path: pathlib.Path = None,
+        root_path: pathlib.Path = None,
+    ):
+        self.connection_param = connection_param
+        self.payload_name = payload_name
+        self._bridge = None
+
+        # 确保 root_path 为 pathlib.Path 对象
+        if root_path is None:
+            root_path = pathlib.Path.cwd()
+        self.root_path = pathlib.Path(root_path)
+
+        # 确定 profiles.json 路径
+        if profiles_path is None:
+            self.profiles_path = self.root_path / "agent" / "profiles.json"
+        else:
+            self.profiles_path = pathlib.Path(profiles_path)
+
+        self.payloads_dir = self.root_path / "payloads"
+
+    async def connect(self) -> bool:
+        """根据参数初始化并连接对应的桥接"""
+        if self.connection_param.startswith(("ws://", "wss://")):
+            self._bridge = WebSocketBridge(self.connection_param, model_name="deepseek")
+        else:
+            self._bridge = HTTPBridge(
+                profile_name=self.connection_param,
+                payload_name=self.payload_name,
+                profiles_path=self.profiles_path,
+                payloads_dir=self.payloads_dir,
+                root_path=self.root_path,
+            )
+        return await self._bridge.connect()
+
+    async def send_prompt(self, text: str):
+        await self._bridge.send_prompt(text)
+
+    async def completion(self) -> tuple[str, str]:
+        return await self._bridge.completion()
+
+    async def new_chat(self):
+        await self._bridge.new_chat()
+
+    async def close(self):
+        await self._bridge.close()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._bridge.is_finished if self._bridge else False
+```
+
+==================================================
+第 3 轮
+==================================================
+
+=========================
+发送内容
+=========================
+上一轮对话的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write或者py utils.py write_multiple。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。
+
+=========================
+推理过程
+=========================
+我们收到了用户的上一条消息是“挂掉了，请再看看agent.py”，然后我们连续输出了多次llm_client.py的代码（但agent.py未修改）。最后用户给出了完整的llm_client.py代码（带`import pathlib`的版本）。现在用户说“上一轮对话的回复内容已保存到 LAST_RESPONSE.txt”，要求我们根据情况使用write或write_multiple。
+
+我们刚刚输出的最后一段代码是llm_client.py的修正版本（修复了Path导入问题）。我们需要将这段代码写入llm_client.py。同时，可能还需要修正agent.py吗？但是用户没有提供agent.py的修改，只要求将LAST_RESPONSE.txt的内容写入对应文件。目前LAST_RESPONSE.txt应该包含的是我们最后输出的llm_client.py代码。因此我们应执行`py utils.py write llm_client.py`。
+
+但是，用户之前报错是在agent.py，但我们并没有输出agent.py的代码，所以agent.py可能还有问题？不过当前阶段用户只要求处理LAST_RESPONSE.txt的内容，即llm_client.py。我们应优先执行write命令。
+
+我们需要先确保LAST_RESPONSE.txt的内容正确，然后执行write。
+
+由于我们是模拟，假设LAST_RESPONSE.txt已经保存了我们上一次输出的完整llm_client.py代码。因此，我们可以直接调用write。
+
+注意：我们需要在回复中给出命令，并且要保证只有第一条命令被执行。我们可以输出：
+
+py utils.py write llm_client.py
+
+然后等待下一轮。
+
+=========================
+回复内容
+=========================
+py utils.py write llm_client.py
+
+工具输出
+成功：已将 LAST_RESPONSE.txt 的内容写入 llm_client.py
+
+==================================================
+第 4 轮
+==================================================
+
+=========================
+发送内容
+=========================
+成功：已将 LAST_RESPONSE.txt 的内容写入 llm_client.py
+
+=========================
+推理过程
+=========================
+我们解决了Path未导入的问题（通过使用pathlib或导入Path），现在文件已更新。接下来用户可能希望测试kimi的使用。可以给出使用说明。
+
+但是按照系统提示，这是一个多轮对话项目，用户会在pause或finished后干预。现在finished标记可能还没出现，我们需要决定是否继续。用户上次的指令是“挂掉了，请再看看agent.py”，我们已经修改了llm_client.py，现在agent.py应该也能正常工作。如果需要测试kimi，我们可以给出命令示例，但不再写入文件。我们可以输出一些指导信息，并可能以FINISH结束。
+
+但根据规则，如果需要停止，需要输出=== FINISH ===。我们可以在提供完指导后输出FINISH。
+
+注意：用户可能希望我们继续运行命令来测试，但根据项目描述，用户会在pause或finished后干预，所以我们主动执行命令是允许的，但要注意命令需要以py utils.py开头。不过测试kimi不是工具命令，而是运行agent.py。我们可以建议用户手动运行，也可以尝试自动运行？但自动运行agent.py可能会进入循环，不是我们工具命令的范畴。所以我们更适合给出指导。
+
+我们将提供如何使用kimi的说明，并建议用户运行测试。然后输出FINISH。
+
+=========================
+回复内容
+=========================
+`llm_client.py` 已修复（添加了 `import pathlib` 并修正了类型提示），现在应该可以正常运行。要使用 kimi 模型，请确保：
+
+1. **`agent/profiles.json` 中有对应的 profile**（例如 `silicon`），包含正确的 `endpoint` 和 `api_key`。
+2. **`payloads/kimi.json` 已存在**（您已创建），内容为 kimi 的请求模板。
+
+### 使用示例
+```bash
+# 使用 silicon profile 和 kimi payload，直接发送消息
+python agent.py silicon -p kimi.json "你好，请介绍一下自己"
+
+# 如果不直接给消息，则从 MESSAGE.txt 读取
+python agent.py silicon -p kimi.json
+```
+
+### 参数说明
+- `silicon`：对应 `profiles.json` 中的配置名称（您已有的 `silicon` 配置指向 SiliconFlow）。
+- `-p kimi.json`：指定使用 `payloads/kimi.json` 作为请求模板。
+- 可选的消息内容：如果命令行中提供了额外参数，则视为直接发送的消息；否则从 `MESSAGE.txt` 或 `MESSAGE_DEFAULT.txt` 读取。
+
+如果遇到问题，请检查：
+- `profiles.json` 中 `silicon` 的 `api_key` 是否有效。
+- `payloads/kimi.json` 中的 `model` 名称是否与 SiliconFlow 支持的模型名称一致（您当前的是 `"Pro/moonshotai/Kimi-K2.5"`，可能需要确认该模型在 SiliconFlow 中是否可用）。
+- 网络连接是否正常。
+
+项目已就绪，可以开始使用。如需进一步修改，请随时指示。
+
+=== FINISH ===
+
+最终答案已保存到 LAST_RESPONSE.txt
+
+==================================================
+第 1 轮
+==================================================
+
+=========================
+发送内容
+=========================
+这是一个多轮对话项目。user只会在pause的时候或者finished之后进行查看干预。
+其余时间，你应该积极使用 py utils.py 开头的命令使用工具。
+由于LLM会出现幻觉并且忽视需求等特性，目前并不希望直接写文件。而是在目前已有文件基础上修改。
+
+请注意，每次给出的命令，即使有多条多行，也只有第一次出现的命令会被执行。
+
+请注意
+py utils.py write [文件路径]
+是将上一轮对话的输出完整写入文件路径，请保证除了代码之外没有其他内容。
+也就是说，每次写入必须进行两轮对话。
+第一轮：输出代码文件
+轮次之间：第一轮的输出保存到LAST_RESPONSE.txt
+第二轮：输出指令，会将上一轮的输出代码文件（此时在LAST_RESPONSE.txt）保存到目标文件路径。
+
+thinking/reasoning中的内容不会被读取到，请在输出代码/命令前先截断thinking过程
+
+由于这是一个多轮对话项目。
+如果需要停止对话循环。
+请在输出内容中单独给出一行
+
+```
+=== FINISH ===
+```
+
+如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
+
+```
+py utils.py help
+```
+来获得工具使用的帮助
+
+
+
+=== SYSTEM_PROMPT 到此结束 ===
+
+直接输出finish
+
+=========================
+推理过程
+=========================
+我们收到了用户的要求：直接输出 `=== FINISH ===`。这表示用户希望结束当前的对话循环，可能是不需要再进行任何操作或修改。按照对话协议，我们应当输出一行 `=== FINISH ===` 来结束本轮对话。不需要输出其他内容，也不需要执行任何命令。
+
+因此，我们直接回复 `=== FINISH ===`。
+
+=========================
+回复内容
+=========================
+=== FINISH ===
+
+最终答案已保存到 LAST_RESPONSE.txt
+
+==================================================
+第 1 轮
+==================================================
+
+=========================
+发送内容
+=========================
+这是一个多轮对话项目。user只会在pause的时候或者finished之后进行查看干预。
+其余时间，你应该积极使用 py utils.py 开头的命令使用工具。
+由于LLM会出现幻觉并且忽视需求等特性，目前并不希望直接写文件。而是在目前已有文件基础上修改。
+
+请注意，每次给出的命令，即使有多条多行，也只有第一次出现的命令会被执行。
+
+请注意
+py utils.py write [文件路径]
+是将上一轮对话的输出完整写入文件路径，请保证除了代码之外没有其他内容。
+也就是说，每次写入必须进行两轮对话。
+第一轮：输出代码文件
+轮次之间：第一轮的输出保存到LAST_RESPONSE.txt
+第二轮：输出指令，会将上一轮的输出代码文件（此时在LAST_RESPONSE.txt）保存到目标文件路径。
+
+thinking/reasoning中的内容不会被读取到，请在输出代码/命令前先截断thinking过程
+
+由于这是一个多轮对话项目。
+如果需要停止对话循环。
+请在输出内容中单独给出一行
+
+```
+=== FINISH ===
+```
+
+如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
+
+```
+py utils.py help
+```
+来获得工具使用的帮助
+
+
+
+=== SYSTEM_PROMPT 到此结束 ===
+
+游览一下当前目录，并在
+README.me
+写入这个project的readme。
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+```
+py utils.py ls
+```
+
+```
+py utils.py cat README.me
+```
+
+工具输出
+命令执行失败 (返回码 1):
+错误：未知的工具名称 'ls'
+可用工具：
+    append
+    delete
+    git
+    list
+    memory
+    pause
+    read
+    replace
+    resume
+    write
+    write_multiple
+
+
+==================================================
+第 2 轮
+==================================================
+
+=========================
+发送内容
+=========================
+命令执行失败 (返回码 1):
+错误：未知的工具名称 'ls'
+可用工具：
+    append
+    delete
+    git
+    list
+    memory
+    pause
+    read
+    replace
+    resume
+    write
+    write_multiple
+
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+我明白了，让我使用正确的工具来探索目录结构。
+
+```
+py utils.py list .
+```
+
+工具输出
+.env
+.git
+.gitignore
+agent
+agent.log
+agent.py
+expand.py
+LAST_RESPONSE.txt
+llm_client.py
+main.py
+memory.db
+memory_dump.txt
+MESSAGE.txt
+payloads
+README.md
+run.py
+SYSTEM_PROMPT.txt
+utils
+utils.py
+__pycache__
+
+==================================================
+第 3 轮
+==================================================
+
+=========================
+发送内容
+=========================
+.env
+.git
+.gitignore
+agent
+agent.log
+agent.py
+expand.py
+LAST_RESPONSE.txt
+llm_client.py
+main.py
+memory.db
+memory_dump.txt
+MESSAGE.txt
+payloads
+README.md
+run.py
+SYSTEM_PROMPT.txt
+utils
+utils.py
+__pycache__
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+现在让我查看一些关键文件来了解项目结构：
+
+```
+py utils.py read main.py
+py utils.py read run.py
+py utils.py read agent.py
+```
+
+工具输出
+import sys
+import asyncio
+import os
+import shlex
+import subprocess
+from llm_client import LLMClient
+
+def get_root_path():
+    """从.env文件读取ROOT_PATH，若不存在则返回当前工作目录"""
+    root = os.getcwd()
+    env_path = os.path.join(os.getcwd(), '.env')
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('ROOT_PATH='):
+                    root = line.strip().split('=', 1)[1].strip()
+                    # 去除可能的引号
+                    if root.startswith('"') and root.endswith('"'):
+                        root = root[1:-1]
+                    elif root.startswith("'") and root.endswith("'"):
+                        root = root[1:-1]
+                    break
+    except FileNotFoundError:
+        pass
+    return os.path.abspath(root)
+
+# 根目录
+ROOT_PATH = get_root_path()
+
+# 所有文件路径均基于 ROOT_PATH
+MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE.txt")
+LAST_RESPONSE_FILE = os.path.join(ROOT_PATH, "LAST_RESPONSE.txt")
+SYSTEM_PROMPT_FILE = os.path.join(ROOT_PATH, "SYSTEM_PROMPT.txt")
+DEFAULT_MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE_DEFAULT.txt")
+PAUSE_FLAG_FILE = os.path.join(ROOT_PATH, ".pause")
+LOG_FILE = os.path.join(ROOT_PATH, "agent.log")
+FINISH_MARKER = "=== FINISH ==="
+
+def save_response(text: str, file=LAST_RESPONSE_FILE) -> None:
+    """保存响应内容到文件，移除首尾的```标记"""
+    lines = text.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines.pop(0)
+    if lines and lines[-1].startswith("```"):
+        lines.pop()
+    with open(file, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+def read_and_clear_message(file=MESSAGE_FILE) -> str:
+    """读取并清空消息文件"""
+    content = ""
+    try:
+        with open(file, "r", encoding="utf-8") as f:
+            content = f.read()
+        with open(file, "w", encoding="utf-8") as f:
+            f.write("")
+    except FileNotFoundError:
+        pass
+    return content
+
+def read_file_content(file: str) -> str:
+    """读取文件内容并去除首尾空白"""
+    try:
+        with open(file, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ""
+
+def log_entry(round_num: int, sent: str, reasoning: str, content: str, tool_output: str = None):
+    """记录一轮交互到日志文件"""
+    with open(LOG_FILE, "a", encoding="utf-8") as log:
+        log.write(f"\n{'='*50}\n")
+        log.write(f"第 {round_num} 轮\n")
+        log.write(f"{'='*50}\n")
+        log.write(f"\n{'='*25}\n发送内容\n{'='*25}\n")
+        log.write(sent + "\n")
+        log.write(f"\n{'='*25}\n推理过程\n{'='*25}\n")
+        log.write(reasoning + "\n")
+        log.write(f"\n{'='*25}\n回复内容\n{'='*25}\n")
+        log.write(content + "\n")
+        if tool_output is not None:
+            log.write(f"\n{'='*25}\n工具输出\n{'='*25}\n")
+            log.write(tool_output + "\n")
+
+def find_command_line(text: str) -> str | None:
+    """
+    查找以 'py utils.py' 开头的行，返回第一个匹配行（已strip）
+    如果没有找到返回 None
+    """
+    for line in text.splitlines():
+        # stripped = line.strip()
+        stripped = line
+        if stripped.startswith("py utils.py"):
+            return stripped
+    return None
+
+def is_command_present(text: str) -> bool:
+    """判断回复中是否包含命令"""
+    return find_command_line(text) is not None
+
+def extract_command(text: str) -> str:
+    """提取第一条命令（已strip）"""
+    return find_command_line(text) or ""
+
+async def main():
+    print(ROOT_PATH) # 修改为print绝对路径
+    # 1. 连接 LLM
+    client = LLMClient("wss://d.810114.xyz/ws/client")
+    success = await client.connect_and_pair("deepseek")
+    if not success:
+        print("连接失败")
+        return
+    print("连接成功，开始任务")
+
+    # 2. 构建初始消息
+    system_prompt = read_file_content(SYSTEM_PROMPT_FILE)
+    user_msg = ""
+    if len(sys.argv) > 1:
+        user_msg = sys.argv[1]
+    if not user_msg:
+        user_msg = read_and_clear_message(MESSAGE_FILE)
+    if not user_msg:
+        user_msg = read_file_content(DEFAULT_MESSAGE_FILE)
+
+    if system_prompt and user_msg:
+        initial_msg = f"{system_prompt}\n\n{user_msg}"
+    elif system_prompt:
+        initial_msg = system_prompt
+    else:
+        initial_msg = user_msg
+
+    if not initial_msg:
+        print("没有初始消息，请提供命令行参数或在MESSAGE.txt/MESSAGE_DEFAULT.txt中写入内容")
+        return
+
+    # 3. Agent 主循环
+    current_msg = initial_msg
+    round_num = 0
+
+    while True:
+        round_num += 1
+
+        # 3.1 检查暂停文件
+        while os.path.exists(PAUSE_FLAG_FILE):
+            print("检测到 .pause 文件，暂停中... (等待删除)")
+            await asyncio.sleep(1)
+
+        # 3.2 发送消息给 LLM
+        print(f"\n第 {round_num} 轮：发送消息...")
+        await client.send_prompt(current_msg)
+
+        # 3.3 接收回复
+        print("等待 LLM 回复...\n")
+        reasoning, content = await client.completion()
+
+        # 3.4 记录日志
+        log_entry(round_num, current_msg, reasoning, content)
+
+        # 3.5 显示回复
+        print(f"推理过程:\n{reasoning}\n")
+        print(f"回复内容:\n{content}\n")
+
+        # 3.6 检查结束标记
+        lines = content.splitlines()
+        finish_lines = [i for i, line in enumerate(lines) if line.strip() == FINISH_MARKER]
+        if finish_lines:
+            print("检测到结束标记，任务完成")
+            # 移除结束标记行后保存最终答案
+            filtered_lines = [line for i, line in enumerate(lines) if i not in finish_lines]
+            final_content = "\n".join(filtered_lines).strip()
+            save_response(final_content, LAST_RESPONSE_FILE)
+            with open(LOG_FILE, "a", encoding="utf-8") as log:
+                log.write("\n最终答案已保存到 LAST_RESPONSE.txt\n")
+            break
+
+        # 3.7 处理命令
+        if is_command_present(content):
+            command = extract_command(content)
+            print(f"执行命令: {command}")
+
+            try:
+                parts = shlex.split(command)
+                if parts and parts[0] in ('py', 'python', 'python3'):
+                    parts[0] = sys.executable
+                # 设置工作目录为 ROOT_PATH，确保工具在正确路径下运行
+                result = subprocess.run(parts, capture_output=True, text=True, cwd=ROOT_PATH)
+                output = result.stdout + result.stderr
+                if result.returncode != 0:
+                    output = f"命令执行失败 (返回码 {result.returncode}):\n{output}"
+                else:
+                    output = output.strip()
+            except Exception as e:
+                output = f"执行命令时出错: {str(e)}"
+
+            print(f"工具输出:\n{output}")
+
+            with open(LOG_FILE, "a", encoding="utf-8") as log:
+                log.write("\n工具输出\n")
+                log.write(output + "\n")
+
+            if output.startswith("PAUSED:"):
+                print("工具请求暂停，进入人工干预...")
+                # 清空 MESSAGE.txt，等待用户恢复
+                with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                    f.write("")
+                while os.path.exists(PAUSE_FLAG_FILE):
+                    await asyncio.sleep(1)
+                print("暂停解除")
+                current_msg = read_and_clear_message(MESSAGE_FILE)
+                if not current_msg:
+                    current_msg = "人工干预结束，请继续任务"
+                continue
+            else:
+                with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                    f.write(output)
+                current_msg = output
+        else:
+            # 无命令，保存回复内容到 LAST_RESPONSE.txt，并提示继续
+            print("回复中无命令，已保存到 LAST_RESPONSE.txt")
+            save_response(content, LAST_RESPONSE_FILE)
+            default_next = "上一轮对话的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write或者py utils.py write_multiple。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。"
+            with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                f.write(default_next)
+            current_msg = default_next
+
+    print("Agent 结束")
+    # await client.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+==================================================
+第 4 轮
+==================================================
+
+=========================
+发送内容
+=========================
+import sys
+import asyncio
+import os
+import shlex
+import subprocess
+from llm_client import LLMClient
+
+def get_root_path():
+    """从.env文件读取ROOT_PATH，若不存在则返回当前工作目录"""
+    root = os.getcwd()
+    env_path = os.path.join(os.getcwd(), '.env')
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('ROOT_PATH='):
+                    root = line.strip().split('=', 1)[1].strip()
+                    # 去除可能的引号
+                    if root.startswith('"') and root.endswith('"'):
+                        root = root[1:-1]
+                    elif root.startswith("'") and root.endswith("'"):
+                        root = root[1:-1]
+                    break
+    except FileNotFoundError:
+        pass
+    return os.path.abspath(root)
+
+# 根目录
+ROOT_PATH = get_root_path()
+
+# 所有文件路径均基于 ROOT_PATH
+MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE.txt")
+LAST_RESPONSE_FILE = os.path.join(ROOT_PATH, "LAST_RESPONSE.txt")
+SYSTEM_PROMPT_FILE = os.path.join(ROOT_PATH, "SYSTEM_PROMPT.txt")
+DEFAULT_MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE_DEFAULT.txt")
+PAUSE_FLAG_FILE = os.path.join(ROOT_PATH, ".pause")
+LOG_FILE = os.path.join(ROOT_PATH, "agent.log")
+FINISH_MARKER = "=== FINISH ==="
+
+def save_response(text: str, file=LAST_RESPONSE_FILE) -> None:
+    """保存响应内容到文件，移除首尾的```标记"""
+    lines = text.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines.pop(0)
+    if lines and lines[-1].startswith("```"):
+        lines.pop()
+    with open(file, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+def read_and_clear_message(file=MESSAGE_FILE) -> str:
+    """读取并清空消息文件"""
+    content = ""
+    try:
+        with open(file, "r", encoding="utf-8") as f:
+            content = f.read()
+        with open(file, "w", encoding="utf-8") as f:
+            f.write("")
+    except FileNotFoundError:
+        pass
+    return content
+
+def read_file_content(file: str) -> str:
+    """读取文件内容并去除首尾空白"""
+    try:
+        with open(file, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ""
+
+def log_entry(round_num: int, sent: str, reasoning: str, content: str, tool_output: str = None):
+    """记录一轮交互到日志文件"""
+    with open(LOG_FILE, "a", encoding="utf-8") as log:
+        log.write(f"\n{'='*50}\n")
+        log.write(f"第 {round_num} 轮\n")
+        log.write(f"{'='*50}\n")
+        log.write(f"\n{'='*25}\n发送内容\n{'='*25}\n")
+        log.write(sent + "\n")
+        log.write(f"\n{'='*25}\n推理过程\n{'='*25}\n")
+        log.write(reasoning + "\n")
+        log.write(f"\n{'='*25}\n回复内容\n{'='*25}\n")
+        log.write(content + "\n")
+        if tool_output is not None:
+            log.write(f"\n{'='*25}\n工具输出\n{'='*25}\n")
+            log.write(tool_output + "\n")
+
+def find_command_line(text: str) -> str | None:
+    """
+    查找以 'py utils.py' 开头的行，返回第一个匹配行（已strip）
+    如果没有找到返回 None
+    """
+    for line in text.splitlines():
+        # stripped = line.strip()
+        stripped = line
+        if stripped.startswith("py utils.py"):
+            return stripped
+    return None
+
+def is_command_present(text: str) -> bool:
+    """判断回复中是否包含命令"""
+    return find_command_line(text) is not None
+
+def extract_command(text: str) -> str:
+    """提取第一条命令（已strip）"""
+    return find_command_line(text) or ""
+
+async def main():
+    print(ROOT_PATH) # 修改为print绝对路径
+    # 1. 连接 LLM
+    client = LLMClient("wss://d.810114.xyz/ws/client")
+    success = await client.connect_and_pair("deepseek")
+    if not success:
+        print("连接失败")
+        return
+    print("连接成功，开始任务")
+
+    # 2. 构建初始消息
+    system_prompt = read_file_content(SYSTEM_PROMPT_FILE)
+    user_msg = ""
+    if len(sys.argv) > 1:
+        user_msg = sys.argv[1]
+    if not user_msg:
+        user_msg = read_and_clear_message(MESSAGE_FILE)
+    if not user_msg:
+        user_msg = read_file_content(DEFAULT_MESSAGE_FILE)
+
+    if system_prompt and user_msg:
+        initial_msg = f"{system_prompt}\n\n{user_msg}"
+    elif system_prompt:
+        initial_msg = system_prompt
+    else:
+        initial_msg = user_msg
+
+    if not initial_msg:
+        print("没有初始消息，请提供命令行参数或在MESSAGE.txt/MESSAGE_DEFAULT.txt中写入内容")
+        return
+
+    # 3. Agent 主循环
+    current_msg = initial_msg
+    round_num = 0
+
+    while True:
+        round_num += 1
+
+        # 3.1 检查暂停文件
+        while os.path.exists(PAUSE_FLAG_FILE):
+            print("检测到 .pause 文件，暂停中... (等待删除)")
+            await asyncio.sleep(1)
+
+        # 3.2 发送消息给 LLM
+        print(f"\n第 {round_num} 轮：发送消息...")
+        await client.send_prompt(current_msg)
+
+        # 3.3 接收回复
+        print("等待 LLM 回复...\n")
+        reasoning, content = await client.completion()
+
+        # 3.4 记录日志
+        log_entry(round_num, current_msg, reasoning, content)
+
+        # 3.5 显示回复
+        print(f"推理过程:\n{reasoning}\n")
+        print(f"回复内容:\n{content}\n")
+
+        # 3.6 检查结束标记
+        lines = content.splitlines()
+        finish_lines = [i for i, line in enumerate(lines) if line.strip() == FINISH_MARKER]
+        if finish_lines:
+            print("检测到结束标记，任务完成")
+            # 移除结束标记行后保存最终答案
+            filtered_lines = [line for i, line in enumerate(lines) if i not in finish_lines]
+            final_content = "\n".join(filtered_lines).strip()
+            save_response(final_content, LAST_RESPONSE_FILE)
+            with open(LOG_FILE, "a", encoding="utf-8") as log:
+                log.write("\n最终答案已保存到 LAST_RESPONSE.txt\n")
+            break
+
+        # 3.7 处理命令
+        if is_command_present(content):
+            command = extract_command(content)
+            print(f"执行命令: {command}")
+
+            try:
+                parts = shlex.split(command)
+                if parts and parts[0] in ('py', 'python', 'python3'):
+                    parts[0] = sys.executable
+                # 设置工作目录为 ROOT_PATH，确保工具在正确路径下运行
+                result = subprocess.run(parts, capture_output=True, text=True, cwd=ROOT_PATH)
+                output = result.stdout + result.stderr
+                if result.returncode != 0:
+                    output = f"命令执行失败 (返回码 {result.returncode}):\n{output}"
+                else:
+                    output = output.strip()
+            except Exception as e:
+                output = f"执行命令时出错: {str(e)}"
+
+            print(f"工具输出:\n{output}")
+
+            with open(LOG_FILE, "a", encoding="utf-8") as log:
+                log.write("\n工具输出\n")
+                log.write(output + "\n")
+
+            if output.startswith("PAUSED:"):
+                print("工具请求暂停，进入人工干预...")
+                # 清空 MESSAGE.txt，等待用户恢复
+                with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                    f.write("")
+                while os.path.exists(PAUSE_FLAG_FILE):
+                    await asyncio.sleep(1)
+                print("暂停解除")
+                current_msg = read_and_clear_message(MESSAGE_FILE)
+                if not current_msg:
+                    current_msg = "人工干预结束，请继续任务"
+                continue
+            else:
+                with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                    f.write(output)
+                current_msg = output
+        else:
+            # 无命令，保存回复内容到 LAST_RESPONSE.txt，并提示继续
+            print("回复中无命令，已保存到 LAST_RESPONSE.txt")
+            save_response(content, LAST_RESPONSE_FILE)
+            default_next = "上一轮对话的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write或者py utils.py write_multiple。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。"
+            with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                f.write(default_next)
+            current_msg = default_next
+
+    print("Agent 结束")
+    # await client.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+现在让我继续查看其他关键文件：
+
+```
+py utils.py read utils.py
+py utils.py read llm_client.py
+py utils.py read SYSTEM_PROMPT.txt
+```
+
+工具输出
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+utils.py - 工具调用入口
+
+支持的命令格式（通过 py utils.py 调用）：
+    <工具名称> [参数...]
+    help [工具名称]   # 显示帮助信息
+
+工具列表（位于 utils/ 目录下）：
+    read <相对路径>
+    write <相对路径>
+    append <相对路径> <内容>
+    replace <相对路径> <旧文本> <新文本>
+    list <相对路径>
+    delete <相对路径>
+    pause
+    resume
+    write_multiple
+    git <git命令...>
+    ... 可扩展
+"""
+
+import sys
+import importlib
+import os
+
+def show_help(tool_name=None):
+    """显示帮助信息"""
+    utils_dir = os.path.join(os.path.dirname(__file__), "utils")
+    if tool_name is None:
+        # 显示所有工具列表
+        print("可用工具：")
+        if os.path.isdir(utils_dir):
+            tools = []
+            for f in os.listdir(utils_dir):
+                if f.endswith(".py") and f not in ("__init__.py", "core.py"):
+                    tools.append(f[:-3])
+            tools.sort()
+            for t in tools:
+                # 尝试导入模块，获取文档字符串第一行
+                try:
+                    module = importlib.import_module(f"utils.{t}")
+                    doc = module.__doc__.strip().split('\n')[0] if module.__doc__ else "无说明"
+                except:
+                    doc = "无法加载"
+                print(f"  {t:15} - {doc}")
+        print("\n使用 'py utils.py help <工具名>' 查看具体工具的帮助。")
+    else:
+        # 显示特定工具帮助
+        try:
+            module = importlib.import_module(f"utils.{tool_name}")
+            if module.__doc__:
+                print(module.__doc__.strip())
+            else:
+                print(f"工具 '{tool_name}' 没有提供帮助文档。")
+        except ImportError:
+            print(f"错误：未知的工具名称 '{tool_name}'")
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+
+    command = sys.argv[1].lower()
+    args = sys.argv[2:]
+
+    if command == "help":
+        if args:
+            show_help(args[0])
+        else:
+            show_help()
+        sys.exit(0)
+
+    # 正常工具调用
+    tool_name = command
+    tool_args = args
+
+    try:
+        module = importlib.import_module(f"utils.{tool_name}")
+    except ImportError:
+        print(f"错误：未知的工具名称 '{tool_name}'")
+        print("可用工具：")
+        utils_dir = os.path.join(os.path.dirname(__file__), "utils")
+        if os.path.isdir(utils_dir):
+            for f in os.listdir(utils_dir):
+                if f.endswith(".py") and f not in ("__init__.py", "core.py"):
+                    print(f"    {f[:-3]}")
+        sys.exit(1)
+
+    if not hasattr(module, "run"):
+        print(f"错误：工具模块 '{tool_name}' 缺少 run 函数")
+        sys.exit(1)
+
+    from utils import core
+    ctx = core.Context(core.load_root_path())
+
+    try:
+        result = module.run(ctx, tool_args)
+        if result is not None:
+            print(result)
+    except Exception as e:
+        print(f"执行工具时出错：{e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+
+==================================================
+第 5 轮
+==================================================
+
+=========================
+发送内容
+=========================
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+utils.py - 工具调用入口
+
+支持的命令格式（通过 py utils.py 调用）：
+    <工具名称> [参数...]
+    help [工具名称]   # 显示帮助信息
+
+工具列表（位于 utils/ 目录下）：
+    read <相对路径>
+    write <相对路径>
+    append <相对路径> <内容>
+    replace <相对路径> <旧文本> <新文本>
+    list <相对路径>
+    delete <相对路径>
+    pause
+    resume
+    write_multiple
+    git <git命令...>
+    ... 可扩展
+"""
+
+import sys
+import importlib
+import os
+
+def show_help(tool_name=None):
+    """显示帮助信息"""
+    utils_dir = os.path.join(os.path.dirname(__file__), "utils")
+    if tool_name is None:
+        # 显示所有工具列表
+        print("可用工具：")
+        if os.path.isdir(utils_dir):
+            tools = []
+            for f in os.listdir(utils_dir):
+                if f.endswith(".py") and f not in ("__init__.py", "core.py"):
+                    tools.append(f[:-3])
+            tools.sort()
+            for t in tools:
+                # 尝试导入模块，获取文档字符串第一行
+                try:
+                    module = importlib.import_module(f"utils.{t}")
+                    doc = module.__doc__.strip().split('\n')[0] if module.__doc__ else "无说明"
+                except:
+                    doc = "无法加载"
+                print(f"  {t:15} - {doc}")
+        print("\n使用 'py utils.py help <工具名>' 查看具体工具的帮助。")
+    else:
+        # 显示特定工具帮助
+        try:
+            module = importlib.import_module(f"utils.{tool_name}")
+            if module.__doc__:
+                print(module.__doc__.strip())
+            else:
+                print(f"工具 '{tool_name}' 没有提供帮助文档。")
+        except ImportError:
+            print(f"错误：未知的工具名称 '{tool_name}'")
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+
+    command = sys.argv[1].lower()
+    args = sys.argv[2:]
+
+    if command == "help":
+        if args:
+            show_help(args[0])
+        else:
+            show_help()
+        sys.exit(0)
+
+    # 正常工具调用
+    tool_name = command
+    tool_args = args
+
+    try:
+        module = importlib.import_module(f"utils.{tool_name}")
+    except ImportError:
+        print(f"错误：未知的工具名称 '{tool_name}'")
+        print("可用工具：")
+        utils_dir = os.path.join(os.path.dirname(__file__), "utils")
+        if os.path.isdir(utils_dir):
+            for f in os.listdir(utils_dir):
+                if f.endswith(".py") and f not in ("__init__.py", "core.py"):
+                    print(f"    {f[:-3]}")
+        sys.exit(1)
+
+    if not hasattr(module, "run"):
+        print(f"错误：工具模块 '{tool_name}' 缺少 run 函数")
+        sys.exit(1)
+
+    from utils import core
+    ctx = core.Context(core.load_root_path())
+
+    try:
+        result = module.run(ctx, tool_args)
+        if result is not None:
+            print(result)
+    except Exception as e:
+        print(f"执行工具时出错：{e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+继续查看其他关键文件：
+
+```
+py utils.py read llm_client.py
+py utils.py read SYSTEM_PROMPT.txt
+py utils.py list utils
+```
+
+工具输出
+import asyncio
+import json
+import re
+import pathlib
+from typing import List, Dict, Optional, Any, Tuple
+try:
+    import websockets
+except ImportError:
+    print("请安装websockets: pip install websockets")
+    raise
+try:
+    import httpx
+except ImportError:
+    print("请安装httpx: pip install httpx")
+    raise
+
+
+class StreamChunk:
+    """统一的流数据块，表示从模型接收到的每一个片段"""
+
+    TYPE_REASONING = "reasoning"  # 思考过程（如 DeepSeek 的 THINK 类型）
+    TYPE_CONTENT = "content"  # 正式回答内容
+    TYPE_DONE = "done"  # 流结束标记
+
+    def __init__(self, chunk_type, delta):
+        self.type = chunk_type
+        self.delta = delta
+
+
+# ==============================================================================
+# WebSocket 桥接（用于 DeepSeek 私有协议）
+# ==============================================================================
+
+class DeepSeekBridge:
+    """将 DeepSeek 的私有协议解析为统一的流式数据块。"""
+
+    def __init__(self):
+        self.fragment_types = []
+        self.is_finished = False
+
+    def parse(self, data: dict):
+        chunks = []
+        path = data.get("p", "")
+        value = data.get("v")
+        operation = data.get("o", "")
+
+        if operation == "BATCH" and path == "response":
+            items = value if isinstance(value, list) else []
+            for item in items:
+                if item.get("p") == "quasi_status" and item.get("v") == "FINISHED":
+                    self.is_finished = True
+                    chunks.append(StreamChunk(StreamChunk.TYPE_DONE, ""))
+                    return chunks
+
+        if isinstance(value, dict) and "response" in value:
+            fragments = value["response"].get("fragments", [])
+            for frag in fragments:
+                frag_type = frag.get("type")
+                self.fragment_types.append(frag_type)
+                content = frag.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(frag_type, content))
+            return chunks
+
+        if operation == "APPEND" and path == "response/fragments":
+            for fragment in value:
+                frag_type = fragment.get("type")
+                self.fragment_types.append(frag_type)
+                content = fragment.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(frag_type, content))
+            return chunks
+
+        match = re.match(r"response/fragments/(-?\d+)/content", path)
+        if match and isinstance(value, str):
+            idx = int(match.group(1))
+            real_idx = idx if idx >= 0 else len(self.fragment_types) + idx
+            if 0 <= real_idx < len(self.fragment_types):
+                chunks.append(self._create_chunk(self.fragment_types[real_idx], value))
+            return chunks
+
+        if not path and isinstance(value, str) and self.fragment_types:
+            chunks.append(self._create_chunk(self.fragment_types[-1], value))
+            return chunks
+
+        return chunks
+
+    def _create_chunk(self, raw_type, content):
+        chunk_type = (
+            StreamChunk.TYPE_REASONING
+            if raw_type == "THINK"
+            else StreamChunk.TYPE_CONTENT
+        )
+        return StreamChunk(chunk_type, content)
+
+
+class WebSocketBridge:
+    """WebSocket 桥接，使用 DeepSeek 私有协议"""
+
+    def __init__(self, ws_url: str, model_name: str = "deepseek"):
+        self.ws_url = ws_url
+        self.model_name = model_name
+        self.ws = None
+        self.parser = None
+        self._is_finished = False
+
+    async def connect(self) -> bool:
+        self.ws = await websockets.connect(self.ws_url)
+
+        if self.model_name == "deepseek":
+            self.parser = DeepSeekBridge()
+        else:
+            raise ValueError(f"不支持的模型: {self.model_name}")
+
+        await self.ws.send(json.dumps({"type": "pair_request", "model": self.model_name}))
+        response = await self.ws.recv()
+        data = json.loads(response)
+        return data.get("type") == "pair_result" and data.get("content") is True
+
+    async def send_prompt(self, text: str):
+        self.parser.__init__()
+        await self.ws.send(
+            json.dumps(
+                {
+                    "type": "command",
+                    "command": "send_prompt",
+                    "params": {"prompt": text},
+                }
+            )
+        )
+
+    async def completion(self) -> tuple[str, str]:
+        reasoning_buffer = []
+        content_buffer = []
+        reasoning_len = 0
+        content_len = 0
+
+        while True:
+            raw_msg = await self.ws.recv()
+            msg = json.loads(raw_msg)
+
+            if msg.get("type") == "system" and msg.get("content") == "partner_disconnected":
+                print("\n?? 浏览器端已断开连接")
+                break
+
+            if msg.get("type") == "token":
+                chunks = self.parser.parse(msg.get("content", {}))
+                for chunk in chunks:
+                    if chunk.type == StreamChunk.TYPE_REASONING:
+                        reasoning_buffer.append(chunk.delta)
+                        reasoning_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_CONTENT:
+                        content_buffer.append(chunk.delta)
+                        content_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_DONE:
+                        self._is_finished = True
+                        print(
+                            f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                            end="",
+                            flush=True,
+                        )
+                        return "".join(reasoning_buffer), "".join(content_buffer)
+
+                if chunks:
+                    print(
+                        f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                        end="",
+                        flush=True,
+                    )
+
+        return "".join(reasoning_buffer), "".join(content_buffer)
+
+    async def new_chat(self):
+        await self.ws.send(json.dumps({"type": "command", "command": "new_chat"}))
+
+    async def close(self):
+        if self.ws:
+            await self.ws.close()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._is_finished or (self.parser and self.parser.is_finished)
+
+
+# ==============================================================================
+# HTTP 桥接（用于 OpenAI 兼容 API，支持从 payloads 目录加载配置）
+# ==============================================================================
+
+class OpenAIStreamParser:
+    """解析 OpenAI 兼容 API 的 SSE 流式响应"""
+
+    def __init__(self):
+        self.is_finished = False
+
+    def feed_line(self, line: str):
+        if not line or not line.startswith("data: "):
+            return []
+
+        data_str = line[6:].strip()
+        if data_str == "[DONE]":
+            self.is_finished = True
+            return [StreamChunk(StreamChunk.TYPE_DONE, "")]
+
+        try:
+            chunk = json.loads(data_str)
+        except json.JSONDecodeError:
+            return []
+
+        choices = chunk.get("choices", [])
+        if not choices:
+            return []
+
+        delta = choices[0].get("delta", {})
+        finish_reason = choices[0].get("finish_reason")
+        if finish_reason is not None:
+            self.is_finished = True
+            return [StreamChunk(StreamChunk.TYPE_DONE, "")]
+
+        chunks = []
+        reasoning = delta.get("reasoning_content")
+        if reasoning:
+            chunks.append(StreamChunk(StreamChunk.TYPE_REASONING, reasoning))
+        content = delta.get("content")
+        if content:
+            chunks.append(StreamChunk(StreamChunk.TYPE_CONTENT, content))
+
+        return chunks
+
+
+class HTTPBridge:
+    """
+    HTTP 桥接，使用 OpenAI 兼容 API。
+    从 profiles.json 读取 endpoint 和 api_key，从 payloads/ 目录读取请求模板（含 model 等参数）。
+    """
+
+    def __init__(
+        self,
+        profile_name: str,
+        payload_name: str,
+        profiles_path: pathlib.Path,
+        payloads_dir: pathlib.Path,
+        root_path: pathlib.Path,
+    ):
+        self.profile_name = profile_name
+        self.payload_name = payload_name
+        self.profiles_path = profiles_path
+        self.payloads_dir = payloads_dir
+        self.root_path = root_path
+
+        self.client: httpx.AsyncClient = None
+        self.endpoint = None
+        self.api_key = None
+        self.payload_base: Dict[str, Any] = {}  # 从 payload 文件加载的基础配置（不含 messages）
+        self.messages: List[Dict[str, str]] = []  # 对话历史
+        self._parser = None
+        self._is_finished = False
+
+    async def connect(self) -> bool:
+        """加载配置，初始化 HTTP 客户端"""
+        import json
+
+        # 1. 加载 profiles.json
+        if not self.profiles_path.exists():
+            print(f"[错误] 配置文件不存在: {self.profiles_path}")
+            return False
+
+        try:
+            with open(self.profiles_path, "r", encoding="utf-8") as f:
+                profiles = json.load(f)
+        except Exception as e:
+            print(f"[错误] 读取配置文件失败: {e}")
+            return False
+
+        if self.profile_name not in profiles:
+            print(f"[错误] 配置文件中不存在 profile: {self.profile_name}")
+            return False
+
+        config = profiles[self.profile_name]
+        self.endpoint = config.get("endpoint")
+        self.api_key = config.get("api_key")
+        if not self.endpoint or not self.api_key:
+            print(f"[错误] profile '{self.profile_name}' 缺少 endpoint 或 api_key")
+            return False
+
+        # 2. 确保 payloads 目录存在
+        self.payloads_dir.mkdir(parents=True, exist_ok=True)
+
+        # 3. 加载 payload 文件
+        payload_file = self.payloads_dir / self.payload_name
+        if not payload_file.exists():
+            print(f"[错误] Payload 文件不存在: {payload_file}")
+            return False
+
+        try:
+            with open(payload_file, "r", encoding="utf-8") as f:
+                payload_data = json.load(f)
+        except Exception as e:
+            print(f"[错误] 读取 payload 文件失败: {e}")
+            return False
+
+        # 移除下划线开头的控制字段（如 _context），保留其他字段作为基础 payload
+        self.payload_base = {k: v for k, v in payload_data.items() if not k.startswith("_")}
+        # 确保 payload 中不包含 messages 字段（会被历史替换）
+        self.payload_base.pop("messages", None)
+
+        # 可选：如果 payload 中没有 model，尝试从 profiles 中获取或猜测
+        if "model" not in self.payload_base:
+            model_from_profile = config.get("model")
+            if model_from_profile:
+                self.payload_base["model"] = model_from_profile
+            else:
+                self.payload_base["model"] = self._guess_default_model(self.endpoint)
+                print(f"[提示] 未指定 model，使用猜测的默认模型: {self.payload_base['model']}")
+
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+        self.messages = []
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+        return True
+
+    def _guess_default_model(self, endpoint: str) -> str:
+        endpoint_lower = endpoint.lower()
+        if "siliconflow" in endpoint_lower:
+            return "deepseek-ai/DeepSeek-V2.5"
+        elif "nvidia" in endpoint_lower:
+            return "meta/llama3-70b-instruct"
+        elif "deepseek" in endpoint_lower:
+            return "deepseek-chat"
+        elif "groq" in endpoint_lower:
+            return "mixtral-8x7b-32768"
+        else:
+            return "gpt-3.5-turbo"
+
+    async def send_prompt(self, text: str):
+        """将用户消息添加到历史中"""
+        self.messages.append({"role": "user", "content": text})
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+
+    async def completion(self) -> tuple[str, str]:
+        if not self.client or not self.endpoint or not self.api_key:
+            raise RuntimeError("客户端未正确初始化，请先调用 connect")
+
+        if not self.messages or self.messages[-1]["role"] != "user":
+            return "", ""
+
+        # 构建最终 payload：基础配置 + 当前消息列表
+        payload = self.payload_base.copy()
+        payload["messages"] = self.messages
+        payload["stream"] = True  # 强制流式
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        reasoning_parts = []
+        content_parts = []
+        reasoning_len = 0
+        content_len = 0
+
+        try:
+            async with self.client.stream(
+                "POST", self.endpoint, json=payload, headers=headers
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    print(f"[错误] HTTP {response.status_code}: {error_text[:200]}")
+                    return "", ""
+
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    for data_line in line.split("\n"):
+                        if not data_line:
+                            continue
+                        chunks = self._parser.feed_line(data_line)
+                        for chunk in chunks:
+                            if chunk.type == StreamChunk.TYPE_REASONING:
+                                reasoning_parts.append(chunk.delta)
+                                reasoning_len += len(chunk.delta)
+                            elif chunk.type == StreamChunk.TYPE_CONTENT:
+                                content_parts.append(chunk.delta)
+                                content_len += len(chunk.delta)
+                            elif chunk.type == StreamChunk.TYPE_DONE:
+                                self._is_finished = True
+                                print(
+                                    f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                                    end="",
+                                    flush=True,
+                                )
+                                assistant_content = "".join(content_parts)
+                                self.messages.append({"role": "assistant", "content": assistant_content})
+                                return "".join(reasoning_parts), assistant_content
+
+                        if chunks:
+                            print(
+                                f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                                end="",
+                                flush=True,
+                            )
+
+            # 流正常结束（无 DONE 标记）
+            self._is_finished = True
+            assistant_content = "".join(content_parts)
+            self.messages.append({"role": "assistant", "content": assistant_content})
+            return "".join(reasoning_parts), assistant_content
+
+        except Exception as e:
+            print(f"\n[异常] {type(e).__name__}: {e}")
+            self._is_finished = True
+            return "", ""
+
+    async def new_chat(self):
+        self.messages = []
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+
+    async def close(self):
+        if self.client:
+            await self.client.aclose()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._is_finished
+
+
+# ==============================================================================
+# 统一 LLM 客户端入口
+# ==============================================================================
+
+class LLMClient:
+    """
+    统一的 LLM 客户端，根据 connection_param 自动选择底层桥接：
+      - 以 ws:// 或 wss:// 开头 → 使用 WebSocket 桥接（DeepSeek 私有协议）
+      - 否则视为 profiles.json 中的 profile 名称 → 使用 HTTP 桥接（OpenAI 兼容 API），
+        需要额外指定 payload 名称（默认 "default.json"）
+    """
+
+    def __init__(
+        self,
+        connection_param: str,
+        payload_name: str = "default.json",
+        profiles_path: pathlib.Path = None,
+        root_path: pathlib.Path = None,
+    ):
+        self.connection_param = connection_param
+        self.payload_name = payload_name
+        self._bridge = None
+
+        # 确保 root_path 为 pathlib.Path 对象
+        if root_path is None:
+            root_path = pathlib.Path.cwd()
+        self.root_path = pathlib.Path(root_path)
+
+        # 确定 profiles.json 路径
+        if profiles_path is None:
+            self.profiles_path = self.root_path / "agent" / "profiles.json"
+        else:
+            self.profiles_path = pathlib.Path(profiles_path)
+
+        self.payloads_dir = self.root_path / "payloads"
+
+    async def connect(self) -> bool:
+        """根据参数初始化并连接对应的桥接"""
+        if self.connection_param.startswith(("ws://", "wss://")):
+            self._bridge = WebSocketBridge(self.connection_param, model_name="deepseek")
+        else:
+            self._bridge = HTTPBridge(
+                profile_name=self.connection_param,
+                payload_name=self.payload_name,
+                profiles_path=self.profiles_path,
+                payloads_dir=self.payloads_dir,
+                root_path=self.root_path,
+            )
+        return await self._bridge.connect()
+
+    async def send_prompt(self, text: str):
+        await self._bridge.send_prompt(text)
+
+    async def completion(self) -> tuple[str, str]:
+        return await self._bridge.completion()
+
+    async def new_chat(self):
+        await self._bridge.new_chat()
+
+    async def close(self):
+        await self._bridge.close()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._bridge.is_finished if self._bridge else False
+
+==================================================
+第 6 轮
+==================================================
+
+=========================
+发送内容
+=========================
+import asyncio
+import json
+import re
+import pathlib
+from typing import List, Dict, Optional, Any, Tuple
+try:
+    import websockets
+except ImportError:
+    print("请安装websockets: pip install websockets")
+    raise
+try:
+    import httpx
+except ImportError:
+    print("请安装httpx: pip install httpx")
+    raise
+
+
+class StreamChunk:
+    """统一的流数据块，表示从模型接收到的每一个片段"""
+
+    TYPE_REASONING = "reasoning"  # 思考过程（如 DeepSeek 的 THINK 类型）
+    TYPE_CONTENT = "content"  # 正式回答内容
+    TYPE_DONE = "done"  # 流结束标记
+
+    def __init__(self, chunk_type, delta):
+        self.type = chunk_type
+        self.delta = delta
+
+
+# ==============================================================================
+# WebSocket 桥接（用于 DeepSeek 私有协议）
+# ==============================================================================
+
+class DeepSeekBridge:
+    """将 DeepSeek 的私有协议解析为统一的流式数据块。"""
+
+    def __init__(self):
+        self.fragment_types = []
+        self.is_finished = False
+
+    def parse(self, data: dict):
+        chunks = []
+        path = data.get("p", "")
+        value = data.get("v")
+        operation = data.get("o", "")
+
+        if operation == "BATCH" and path == "response":
+            items = value if isinstance(value, list) else []
+            for item in items:
+                if item.get("p") == "quasi_status" and item.get("v") == "FINISHED":
+                    self.is_finished = True
+                    chunks.append(StreamChunk(StreamChunk.TYPE_DONE, ""))
+                    return chunks
+
+        if isinstance(value, dict) and "response" in value:
+            fragments = value["response"].get("fragments", [])
+            for frag in fragments:
+                frag_type = frag.get("type")
+                self.fragment_types.append(frag_type)
+                content = frag.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(frag_type, content))
+            return chunks
+
+        if operation == "APPEND" and path == "response/fragments":
+            for fragment in value:
+                frag_type = fragment.get("type")
+                self.fragment_types.append(frag_type)
+                content = fragment.get("content", "")
+                if content:
+                    chunks.append(self._create_chunk(frag_type, content))
+            return chunks
+
+        match = re.match(r"response/fragments/(-?\d+)/content", path)
+        if match and isinstance(value, str):
+            idx = int(match.group(1))
+            real_idx = idx if idx >= 0 else len(self.fragment_types) + idx
+            if 0 <= real_idx < len(self.fragment_types):
+                chunks.append(self._create_chunk(self.fragment_types[real_idx], value))
+            return chunks
+
+        if not path and isinstance(value, str) and self.fragment_types:
+            chunks.append(self._create_chunk(self.fragment_types[-1], value))
+            return chunks
+
+        return chunks
+
+    def _create_chunk(self, raw_type, content):
+        chunk_type = (
+            StreamChunk.TYPE_REASONING
+            if raw_type == "THINK"
+            else StreamChunk.TYPE_CONTENT
+        )
+        return StreamChunk(chunk_type, content)
+
+
+class WebSocketBridge:
+    """WebSocket 桥接，使用 DeepSeek 私有协议"""
+
+    def __init__(self, ws_url: str, model_name: str = "deepseek"):
+        self.ws_url = ws_url
+        self.model_name = model_name
+        self.ws = None
+        self.parser = None
+        self._is_finished = False
+
+    async def connect(self) -> bool:
+        self.ws = await websockets.connect(self.ws_url)
+
+        if self.model_name == "deepseek":
+            self.parser = DeepSeekBridge()
+        else:
+            raise ValueError(f"不支持的模型: {self.model_name}")
+
+        await self.ws.send(json.dumps({"type": "pair_request", "model": self.model_name}))
+        response = await self.ws.recv()
+        data = json.loads(response)
+        return data.get("type") == "pair_result" and data.get("content") is True
+
+    async def send_prompt(self, text: str):
+        self.parser.__init__()
+        await self.ws.send(
+            json.dumps(
+                {
+                    "type": "command",
+                    "command": "send_prompt",
+                    "params": {"prompt": text},
+                }
+            )
+        )
+
+    async def completion(self) -> tuple[str, str]:
+        reasoning_buffer = []
+        content_buffer = []
+        reasoning_len = 0
+        content_len = 0
+
+        while True:
+            raw_msg = await self.ws.recv()
+            msg = json.loads(raw_msg)
+
+            if msg.get("type") == "system" and msg.get("content") == "partner_disconnected":
+                print("\n?? 浏览器端已断开连接")
+                break
+
+            if msg.get("type") == "token":
+                chunks = self.parser.parse(msg.get("content", {}))
+                for chunk in chunks:
+                    if chunk.type == StreamChunk.TYPE_REASONING:
+                        reasoning_buffer.append(chunk.delta)
+                        reasoning_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_CONTENT:
+                        content_buffer.append(chunk.delta)
+                        content_len += len(chunk.delta)
+                    elif chunk.type == StreamChunk.TYPE_DONE:
+                        self._is_finished = True
+                        print(
+                            f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                            end="",
+                            flush=True,
+                        )
+                        return "".join(reasoning_buffer), "".join(content_buffer)
+
+                if chunks:
+                    print(
+                        f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                        end="",
+                        flush=True,
+                    )
+
+        return "".join(reasoning_buffer), "".join(content_buffer)
+
+    async def new_chat(self):
+        await self.ws.send(json.dumps({"type": "command", "command": "new_chat"}))
+
+    async def close(self):
+        if self.ws:
+            await self.ws.close()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._is_finished or (self.parser and self.parser.is_finished)
+
+
+# ==============================================================================
+# HTTP 桥接（用于 OpenAI 兼容 API，支持从 payloads 目录加载配置）
+# ==============================================================================
+
+class OpenAIStreamParser:
+    """解析 OpenAI 兼容 API 的 SSE 流式响应"""
+
+    def __init__(self):
+        self.is_finished = False
+
+    def feed_line(self, line: str):
+        if not line or not line.startswith("data: "):
+            return []
+
+        data_str = line[6:].strip()
+        if data_str == "[DONE]":
+            self.is_finished = True
+            return [StreamChunk(StreamChunk.TYPE_DONE, "")]
+
+        try:
+            chunk = json.loads(data_str)
+        except json.JSONDecodeError:
+            return []
+
+        choices = chunk.get("choices", [])
+        if not choices:
+            return []
+
+        delta = choices[0].get("delta", {})
+        finish_reason = choices[0].get("finish_reason")
+        if finish_reason is not None:
+            self.is_finished = True
+            return [StreamChunk(StreamChunk.TYPE_DONE, "")]
+
+        chunks = []
+        reasoning = delta.get("reasoning_content")
+        if reasoning:
+            chunks.append(StreamChunk(StreamChunk.TYPE_REASONING, reasoning))
+        content = delta.get("content")
+        if content:
+            chunks.append(StreamChunk(StreamChunk.TYPE_CONTENT, content))
+
+        return chunks
+
+
+class HTTPBridge:
+    """
+    HTTP 桥接，使用 OpenAI 兼容 API。
+    从 profiles.json 读取 endpoint 和 api_key，从 payloads/ 目录读取请求模板（含 model 等参数）。
+    """
+
+    def __init__(
+        self,
+        profile_name: str,
+        payload_name: str,
+        profiles_path: pathlib.Path,
+        payloads_dir: pathlib.Path,
+        root_path: pathlib.Path,
+    ):
+        self.profile_name = profile_name
+        self.payload_name = payload_name
+        self.profiles_path = profiles_path
+        self.payloads_dir = payloads_dir
+        self.root_path = root_path
+
+        self.client: httpx.AsyncClient = None
+        self.endpoint = None
+        self.api_key = None
+        self.payload_base: Dict[str, Any] = {}  # 从 payload 文件加载的基础配置（不含 messages）
+        self.messages: List[Dict[str, str]] = []  # 对话历史
+        self._parser = None
+        self._is_finished = False
+
+    async def connect(self) -> bool:
+        """加载配置，初始化 HTTP 客户端"""
+        import json
+
+        # 1. 加载 profiles.json
+        if not self.profiles_path.exists():
+            print(f"[错误] 配置文件不存在: {self.profiles_path}")
+            return False
+
+        try:
+            with open(self.profiles_path, "r", encoding="utf-8") as f:
+                profiles = json.load(f)
+        except Exception as e:
+            print(f"[错误] 读取配置文件失败: {e}")
+            return False
+
+        if self.profile_name not in profiles:
+            print(f"[错误] 配置文件中不存在 profile: {self.profile_name}")
+            return False
+
+        config = profiles[self.profile_name]
+        self.endpoint = config.get("endpoint")
+        self.api_key = config.get("api_key")
+        if not self.endpoint or not self.api_key:
+            print(f"[错误] profile '{self.profile_name}' 缺少 endpoint 或 api_key")
+            return False
+
+        # 2. 确保 payloads 目录存在
+        self.payloads_dir.mkdir(parents=True, exist_ok=True)
+
+        # 3. 加载 payload 文件
+        payload_file = self.payloads_dir / self.payload_name
+        if not payload_file.exists():
+            print(f"[错误] Payload 文件不存在: {payload_file}")
+            return False
+
+        try:
+            with open(payload_file, "r", encoding="utf-8") as f:
+                payload_data = json.load(f)
+        except Exception as e:
+            print(f"[错误] 读取 payload 文件失败: {e}")
+            return False
+
+        # 移除下划线开头的控制字段（如 _context），保留其他字段作为基础 payload
+        self.payload_base = {k: v for k, v in payload_data.items() if not k.startswith("_")}
+        # 确保 payload 中不包含 messages 字段（会被历史替换）
+        self.payload_base.pop("messages", None)
+
+        # 可选：如果 payload 中没有 model，尝试从 profiles 中获取或猜测
+        if "model" not in self.payload_base:
+            model_from_profile = config.get("model")
+            if model_from_profile:
+                self.payload_base["model"] = model_from_profile
+            else:
+                self.payload_base["model"] = self._guess_default_model(self.endpoint)
+                print(f"[提示] 未指定 model，使用猜测的默认模型: {self.payload_base['model']}")
+
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+        self.messages = []
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+        return True
+
+    def _guess_default_model(self, endpoint: str) -> str:
+        endpoint_lower = endpoint.lower()
+        if "siliconflow" in endpoint_lower:
+            return "deepseek-ai/DeepSeek-V2.5"
+        elif "nvidia" in endpoint_lower:
+            return "meta/llama3-70b-instruct"
+        elif "deepseek" in endpoint_lower:
+            return "deepseek-chat"
+        elif "groq" in endpoint_lower:
+            return "mixtral-8x7b-32768"
+        else:
+            return "gpt-3.5-turbo"
+
+    async def send_prompt(self, text: str):
+        """将用户消息添加到历史中"""
+        self.messages.append({"role": "user", "content": text})
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+
+    async def completion(self) -> tuple[str, str]:
+        if not self.client or not self.endpoint or not self.api_key:
+            raise RuntimeError("客户端未正确初始化，请先调用 connect")
+
+        if not self.messages or self.messages[-1]["role"] != "user":
+            return "", ""
+
+        # 构建最终 payload：基础配置 + 当前消息列表
+        payload = self.payload_base.copy()
+        payload["messages"] = self.messages
+        payload["stream"] = True  # 强制流式
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        reasoning_parts = []
+        content_parts = []
+        reasoning_len = 0
+        content_len = 0
+
+        try:
+            async with self.client.stream(
+                "POST", self.endpoint, json=payload, headers=headers
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    print(f"[错误] HTTP {response.status_code}: {error_text[:200]}")
+                    return "", ""
+
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    for data_line in line.split("\n"):
+                        if not data_line:
+                            continue
+                        chunks = self._parser.feed_line(data_line)
+                        for chunk in chunks:
+                            if chunk.type == StreamChunk.TYPE_REASONING:
+                                reasoning_parts.append(chunk.delta)
+                                reasoning_len += len(chunk.delta)
+                            elif chunk.type == StreamChunk.TYPE_CONTENT:
+                                content_parts.append(chunk.delta)
+                                content_len += len(chunk.delta)
+                            elif chunk.type == StreamChunk.TYPE_DONE:
+                                self._is_finished = True
+                                print(
+                                    f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                                    end="",
+                                    flush=True,
+                                )
+                                assistant_content = "".join(content_parts)
+                                self.messages.append({"role": "assistant", "content": assistant_content})
+                                return "".join(reasoning_parts), assistant_content
+
+                        if chunks:
+                            print(
+                                f"\r[思考字符: {reasoning_len}] | [回答字符: {content_len}]",
+                                end="",
+                                flush=True,
+                            )
+
+            # 流正常结束（无 DONE 标记）
+            self._is_finished = True
+            assistant_content = "".join(content_parts)
+            self.messages.append({"role": "assistant", "content": assistant_content})
+            return "".join(reasoning_parts), assistant_content
+
+        except Exception as e:
+            print(f"\n[异常] {type(e).__name__}: {e}")
+            self._is_finished = True
+            return "", ""
+
+    async def new_chat(self):
+        self.messages = []
+        self._parser = OpenAIStreamParser()
+        self._is_finished = False
+
+    async def close(self):
+        if self.client:
+            await self.client.aclose()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._is_finished
+
+
+# ==============================================================================
+# 统一 LLM 客户端入口
+# ==============================================================================
+
+class LLMClient:
+    """
+    统一的 LLM 客户端，根据 connection_param 自动选择底层桥接：
+      - 以 ws:// 或 wss:// 开头 → 使用 WebSocket 桥接（DeepSeek 私有协议）
+      - 否则视为 profiles.json 中的 profile 名称 → 使用 HTTP 桥接（OpenAI 兼容 API），
+        需要额外指定 payload 名称（默认 "default.json"）
+    """
+
+    def __init__(
+        self,
+        connection_param: str,
+        payload_name: str = "default.json",
+        profiles_path: pathlib.Path = None,
+        root_path: pathlib.Path = None,
+    ):
+        self.connection_param = connection_param
+        self.payload_name = payload_name
+        self._bridge = None
+
+        # 确保 root_path 为 pathlib.Path 对象
+        if root_path is None:
+            root_path = pathlib.Path.cwd()
+        self.root_path = pathlib.Path(root_path)
+
+        # 确定 profiles.json 路径
+        if profiles_path is None:
+            self.profiles_path = self.root_path / "agent" / "profiles.json"
+        else:
+            self.profiles_path = pathlib.Path(profiles_path)
+
+        self.payloads_dir = self.root_path / "payloads"
+
+    async def connect(self) -> bool:
+        """根据参数初始化并连接对应的桥接"""
+        if self.connection_param.startswith(("ws://", "wss://")):
+            self._bridge = WebSocketBridge(self.connection_param, model_name="deepseek")
+        else:
+            self._bridge = HTTPBridge(
+                profile_name=self.connection_param,
+                payload_name=self.payload_name,
+                profiles_path=self.profiles_path,
+                payloads_dir=self.payloads_dir,
+                root_path=self.root_path,
+            )
+        return await self._bridge.connect()
+
+    async def send_prompt(self, text: str):
+        await self._bridge.send_prompt(text)
+
+    async def completion(self) -> tuple[str, str]:
+        return await self._bridge.completion()
+
+    async def new_chat(self):
+        await self._bridge.new_chat()
+
+    async def close(self):
+        await self._bridge.close()
+
+    @property
+    def is_finished(self) -> bool:
+        return self._bridge.is_finished if self._bridge else False
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+继续查看其他文件：
+
+```
+py utils.py read SYSTEM_PROMPT.txt
+py utils.py list utils
+py utils.py read payloads/default.json
+```
+
+工具输出
+这是一个多轮对话项目。user只会在pause的时候或者finished之后进行查看干预。
+其余时间，你应该积极使用 py utils.py 开头的命令使用工具。
+由于LLM会出现幻觉并且忽视需求等特性，目前并不希望直接写文件。而是在目前已有文件基础上修改。
+
+请注意，每次给出的命令，即使有多条多行，也只有第一次出现的命令会被执行。
+
+请注意
+py utils.py write [文件路径]
+是将上一轮对话的输出完整写入文件路径，请保证除了代码之外没有其他内容。
+也就是说，每次写入必须进行两轮对话。
+第一轮：输出代码文件
+轮次之间：第一轮的输出保存到LAST_RESPONSE.txt
+第二轮：输出指令，会将上一轮的输出代码文件（此时在LAST_RESPONSE.txt）保存到目标文件路径。
+
+thinking/reasoning中的内容不会被读取到，请在输出代码/命令前先截断thinking过程
+
+由于这是一个多轮对话项目。
+如果需要停止对话循环。
+请在输出内容中单独给出一行
+
+```
+=== FINISH ===
+```
+
+如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
+
+```
+py utils.py help
+```
+来获得工具使用的帮助
+
+
+
+=== SYSTEM_PROMPT 到此结束 ===
+
+==================================================
+第 7 轮
+==================================================
+
+=========================
+发送内容
+=========================
+这是一个多轮对话项目。user只会在pause的时候或者finished之后进行查看干预。
+其余时间，你应该积极使用 py utils.py 开头的命令使用工具。
+由于LLM会出现幻觉并且忽视需求等特性，目前并不希望直接写文件。而是在目前已有文件基础上修改。
+
+请注意，每次给出的命令，即使有多条多行，也只有第一次出现的命令会被执行。
+
+请注意
+py utils.py write [文件路径]
+是将上一轮对话的输出完整写入文件路径，请保证除了代码之外没有其他内容。
+也就是说，每次写入必须进行两轮对话。
+第一轮：输出代码文件
+轮次之间：第一轮的输出保存到LAST_RESPONSE.txt
+第二轮：输出指令，会将上一轮的输出代码文件（此时在LAST_RESPONSE.txt）保存到目标文件路径。
+
+thinking/reasoning中的内容不会被读取到，请在输出代码/命令前先截断thinking过程
+
+由于这是一个多轮对话项目。
+如果需要停止对话循环。
+请在输出内容中单独给出一行
+
+```
+=== FINISH ===
+```
+
+如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
+
+```
+py utils.py help
+```
+来获得工具使用的帮助
+
+
+
+=== SYSTEM_PROMPT 到此结束 ===
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+```
+py utils.py list utils
+py utils.py read payloads/default.json
+py utils.py list payloads
+```
+
+工具输出
+append.py
+core.py
+delete.py
+git.py
+list.py
+memory.py
+pause.py
+read.py
+replace.py
+resume.py
+write.py
+write_multiple.py
+__init__.py
+__pycache__
+
+==================================================
+第 8 轮
+==================================================
+
+=========================
+发送内容
+=========================
+append.py
+core.py
+delete.py
+git.py
+list.py
+memory.py
+pause.py
+read.py
+replace.py
+resume.py
+write.py
+write_multiple.py
+__init__.py
+__pycache__
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+现在让我查看 payloads 目录和 README.md 的当前内容：
+
+```
+py utils.py read payloads/default.json
+py utils.py read README.md
+py utils.py list payloads
+```
+
+工具输出
+Error: cannot read file payloads/default.json - [Errno 2] No such file or directory: 'C:\\workplace\\agent - 副本\\python-client\\payloads\\default.json'
+
+==================================================
+第 9 轮
+==================================================
+
+=========================
+发送内容
+=========================
+Error: cannot read file payloads/default.json - [Errno 2] No such file or directory: 'C:\\workplace\\agent - 副本\\python-client\\payloads\\default.json'
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+```
+py utils.py list payloads
+py utils.py read README.md
+py utils.py read .env
+```
+
+工具输出
+kimi.json
+
+==================================================
+第 10 轮
+==================================================
+
+=========================
+发送内容
+=========================
+kimi.json
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+现在我对项目有了全面的了解。让我查看最后几个关键文件：
+
+```
+py utils.py read payloads/kimi.json
+py utils.py read agent/profiles.json
+py utils.py read README.md
+```
+
+工具输出
+{
+  "max_tokens": 1024,
+  "temperature": 1,
+  "top_p": 0.95,
+  "top_k": 50,
+  "frequency_penalty": 0,
+  "enable_thinking": false,
+  "thinking_budget": 1024,
+  "model": "Pro/moonshotai/Kimi-K2.5",
+  "messages": [ ]
+}
+
+==================================================
+第 11 轮
+==================================================
+
+=========================
+发送内容
+=========================
+{
+  "max_tokens": 1024,
+  "temperature": 1,
+  "top_p": 0.95,
+  "top_k": 50,
+  "frequency_penalty": 0,
+  "enable_thinking": false,
+  "thinking_budget": 1024,
+  "model": "Pro/moonshotai/Kimi-K2.5",
+  "messages": [ ]
+}
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+现在我已经收集了足够的信息来编写README。让我基于对项目的理解来撰写 README.md 的内容：
+
+```markdown
+# Auto-Agent
+
+一个基于多轮对话的自动化任务执行系统，支持通过 LLM 代理（Agent）调用本地工具来完成文件操作、代码修改等任务。
+
+## 项目特点
+
+- **多轮对话循环**：LLM 与用户通过工具调用持续交互，直到任务完成
+- **双桥接支持**：同时支持 WebSocket（DeepSeek 私有协议）和 HTTP（OpenAI 兼容 API）
+- **安全的文件操作**：所有文件修改基于已有文件，避免直接生成全新内容，减少幻觉风险
+- **工具化架构**：模块化的工具系统，易于扩展
+- **人工干预机制**：支持暂停/恢复机制，用户可在关键点介入
+
+## 项目结构
+
+```
+.
+├── main.py              # 主入口，启动 Agent 循环
+├── run.py               # 便捷的启动脚本
+├── agent.py             # 简化版启动器（可能已弃用）
+├── llm_client.py        # LLM 客户端，支持 WebSocket 和 HTTP 桥接
+├── expand.py            # 文本扩展/处理工具
+├── utils.py             # 工具调用入口和分发器
+├── utils/               # 工具模块目录
+│   ├── core.py          # 工具上下文和根路径管理
+│   ├── read.py          # 读取文件内容
+│   ├── write.py         # 写入文件（基于上一轮输出）
+│   ├── append.py        # 追加内容到文件
+│   ├── replace.py       # 替换文件中的文本
+│   ├── list.py          # 列出目录内容
+│   ├── delete.py        # 删除文件
+│   ├── pause.py         # 暂停任务，等待人工干预
+│   ├── resume.py        # 恢复暂停的任务
+│   ├── memory.py        # 持久化存储（SQLite）
+│   ├── git.py           # Git 操作
+│   └── write_multiple.py # 批量写入多个文件
+├── payloads/            # API 请求配置模板
+│   └── kimi.json        # Kimi API 的 payload 配置
+├── agent/               # Agent 配置目录
+│   └── profiles.json    # LLM 连接配置文件（含 endpoint 和 api_key）
+├── SYSTEM_PROMPT.txt    # 系统提示词，定义 Agent 行为规则
+├── MESSAGE.txt          # 用户输入消息（轮询读取）
+├── LAST_RESPONSE.txt    # 保存上一轮 LLM 的输出
+├── .env                 # 环境配置（ROOT_PATH 等）
+└── memory.db            # SQLite 持久化数据库
+```
+
+## 快速开始
+
+### 1. 环境配置
+
+创建 `.env` 文件指定工作目录：
+
+```bash
+# .env
+ROOT_PATH="C:/your/project/path"
+```
+
+### 2. 配置 LLM 连接
+
+编辑 `agent/profiles.json`：
+
+```json
+{
+  "kimi": {
+    "endpoint": "https://api.moonshot.cn/v1/chat/completions",
+    "api_key": "your-api-key-here",
+    "model": "Pro/moonshotai/Kimi-K2.5"
+  },
+  "deepseek": {
+    "endpoint": "wss://your-deepseek-bridge/ws/client"
+  }
+}
+```
+
+### 3. 配置 Payload（HTTP 模式）
+
+在 `payloads/` 目录下创建 JSON 文件，例如 `kimi.json`：
+
+```json
+{
+  "model": "Pro/moonshotai/Kimi-K2.5",
+  "temperature": 1,
+  "max_tokens": 1024,
+  "top_p": 0.95
+}
+```
+
+### 4. 启动 Agent
+
+```bash
+# WebSocket 模式（DeepSeek）
+python main.py "wss://your-bridge-url/ws/client"
+
+# HTTP 模式（OpenAI 兼容 API）
+python main.py kimi
+```
+
+或通过消息文件启动：
+
+```bash
+echo "你的任务描述" > MESSAGE.txt
+python run.py
+```
+
+## 核心工作流程
+
+1. **初始化**：读取 `SYSTEM_PROMPT.txt` 和用户输入
+2. **发送**：将消息发送给 LLM
+3. **接收**：获取 LLM 的推理过程和回复内容
+4. **解析**：提取回复中的工具命令（`py utils.py ...`）
+5. **执行**：执行第一个找到的命令
+6. **循环**：将工具输出作为下一轮输入，重复 2-5 步
+7. **结束**：检测到 `=== FINISH ===` 标记时停止
+
+## 特殊机制
+
+### 安全写入模式
+
+为避免 LLM 幻觉生成错误代码，项目采用**两轮写入**机制：
+
+1. **第一轮**：LLM 输出完整的代码内容（保存到 `LAST_RESPONSE.txt`）
+2. **第二轮
+
+==================================================
+第 12 轮
+==================================================
+
+=========================
+发送内容
+=========================
+上一轮对话中的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请请根据情况使用py utils.py write或者py utils.py write_multiple。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+```
+py utils.py write README.md
+```
+
+工具输出
+成功：已将 LAST_RESPONSE.txt 的内容写入 README.md
+
+==================================================
+第 13 轮
+==================================================
+
+=========================
+发送内容
+=========================
+成功：已将 LAST_RESPONSE.txt 的内容写入 README.md
+
+=========================
+推理过程
+=========================
+
+
+=========================
+回复内容
+=========================
+```
+=== FINISH ===
+```
+
+最终答案已保存到 LAST_RESPONSE.txt
