@@ -1,1 +1,1 @@
-py utils.py write utils.py
+py utils.py git status

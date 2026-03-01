@@ -1,1 +1,1 @@
-py utils.py pause
+py utils.py git add -A

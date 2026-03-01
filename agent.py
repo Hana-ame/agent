@@ -189,7 +189,6 @@ async def main_async(args):
     if os.path.exists(PAUSE_FLAG_FILE):
         os.remove(PAUSE_FLAG_FILE)  # delete pause flag
     
-
     # 3. Agent 主循环
     current_msg = initial_msg
     round_num = 0
@@ -270,7 +269,7 @@ async def main_async(args):
             print(f"工具输出:\n{output}")
 
             with open(LOG_FILE, "a", encoding="utf-8") as log:
-                log.write("\n工具输出\n")
+                log.write(f"\n{'='*25}\n工具输出\n{'='*25}\n")
                 log.write(output + "\n")
 
             if not output:
