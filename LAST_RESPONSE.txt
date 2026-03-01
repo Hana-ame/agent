@@ -1,1 +1,1 @@
-py utils.py read SYSTEM_PROMPT.txt
+py utils.py write utils/read.py

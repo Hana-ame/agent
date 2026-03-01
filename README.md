@@ -1,4 +1,3 @@
-
 # Auto-Agent
 
 一个基于多轮对话的自动化任务执行系统，支持通过 LLM 代理（Agent）调用本地工具来完成文件操作、代码修改等任务。
@@ -33,7 +32,8 @@
 │   ├── resume.py        # 恢复暂停的任务
 │   ├── memory.py        # 持久化存储（SQLite）
 │   ├── git.py           # Git 操作
-│   └── write_multiple.py # 批量写入多个文件
+│   ├── write_multiple.py # 批量写入多个文件
+│   └── search.py        # 返回搜索请求字符串
 ├── agent/               # Agent 配置目录
 │   └── profiles.json    # LLM 连接配置文件（含 endpoint）
 ├── SYSTEM_PROMPT.txt    # 系统提示词，定义 Agent 行为规则
@@ -138,6 +138,7 @@ Agent 在回复中输出命令时需遵循：
 | `memory` | 持久化存储/查询 |
 | `git` | 执行 Git 命令 |
 | `write_multiple` | 批量写入多个文件 |
+| `search` | 返回搜索请求字符串 |
 
 **注意**：工具的返回格式已经过优化，避免包含“成功”等可能干扰LLM推理的词语。具体地：
 - `write`：执行成功后返回被写入文件的内容原文，后跟一行“写入至：[文件路径]”。
