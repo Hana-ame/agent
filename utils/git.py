@@ -1,9 +1,19 @@
+"""
+git - 执行 Git 命令
+
+用法：py utils.py git <git子命令> [参数...]
+
+示例：
+  py utils.py git status
+  py utils.py git add .
+  py utils.py git commit -m "message"
+
+所有命令在根目录下执行。
+"""
 
 import subprocess
 
 def run(ctx, args):
-    # 如果 git 命令需要操作文件，可使用 ctx.validate_path 确保安全
-    # 此处仅作演示，直接执行 git 命令
     try:
         result = subprocess.run(["git"] + args, capture_output=True, text=True, cwd=ctx.root_path)
         return result.stdout + result.stderr

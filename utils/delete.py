@@ -1,5 +1,13 @@
+"""
+delete - 删除指定文件
 
-# utils/delete.py
+用法：py utils.py delete <相对路径>
+
+参数：
+  <相对路径>  要删除的文件路径（相对于根目录）
+
+注意：只能删除文件，不能删除目录。
+"""
 
 import os
 

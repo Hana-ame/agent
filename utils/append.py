@@ -1,5 +1,14 @@
+"""
+append - 将指定内容追加到文件末尾
 
-# utils/append.py
+用法：py utils.py append <相对路径> <内容>
+
+参数：
+  <相对路径>  相对于根目录的文件路径
+  <内容>      要追加的文本内容（多个参数自动用空格连接）
+
+如果文件不存在，会自动创建。
+"""
 
 def run(ctx, args):
     if len(args) < 2:

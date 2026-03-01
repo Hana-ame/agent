@@ -1,4 +1,14 @@
-# utils/write.py
+"""
+write - 将 LAST_RESPONSE.txt 的内容写入文件
+
+用法：py utils.py write <相对路径>
+
+参数：
+  <相对路径>  目标文件路径
+
+注意：需要先通过纯文本输出内容，由 Agent 自动保存到 LAST_RESPONSE.txt，
+然后执行此命令写入文件。LAST_RESPONSE.txt 位于根目录。
+"""
 
 import os
 
@@ -6,7 +16,6 @@ def run(ctx, args):
     if len(args) != 1:
         return "错误：write 需要 1 个参数：<相对路径>"
     path = ctx.validate_path(args[0])
-    # 读取 LAST_RESPONSE.txt 的内容
     last_response_path = os.path.join(os.getcwd(), "LAST_RESPONSE.txt")
     try:
         with open(last_response_path, "r", encoding="utf-8") as f:

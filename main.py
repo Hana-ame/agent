@@ -88,7 +88,8 @@ def find_command_line(text: str) -> str | None:
     如果没有找到返回 None
     """
     for line in text.splitlines():
-        stripped = line.strip()
+        # stripped = line.strip()
+        stripped = line
         if stripped.startswith("py utils.py"):
             return stripped
     return None

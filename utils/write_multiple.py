@@ -1,25 +1,25 @@
+"""
+write_multiple - 批量写入多个文件（从 LAST_RESPONSE.txt 解析）
 
-# utils/write_multiple.py
+用法：py utils.py write_multiple
+
+LAST_RESPONSE.txt 中需包含按以下格式组织的多个文件块：
+
+    === 相对路径1 ===
+    文件内容（可包含多行，保留原格式）
+    ===
+    === 相对路径2 ===
+    文件内容2
+    ===
+
+每个块以 "=== 相对路径 ===" 开始，以单独一行的 "===" 结束。
+工具会自动创建父目录。
+"""
+
 import os
 import re
 
 def run(ctx, args):
-    """
-    从 LAST_RESPONSE.txt 解析多个文件并写入。
-    格式：
-        === 相对路径1 ===
-        文件内容（可以包含任意字符，包括换行、引号等）
-        ===
-        === 相对路径2 ===
-        文件内容2
-        ===
-        ...
-    规则：
-        - 每个文件块以 "=== 相对路径 ===" 开始，单独占一行。
-        - 文件内容可以包含多行，直到遇到单独一行的 "===" 结束。
-        - 所有内容之间的空行会被保留。
-        - 忽略开始标记和结束标记之间的任何无关行（即开始标记前的行和结束标记后的行将被忽略，但通常不会有）。
-    """
     last_response_path = os.path.join(os.getcwd(), "LAST_RESPONSE.txt")
     try:
         with open(last_response_path, "r", encoding="utf-8") as f:
@@ -31,23 +31,19 @@ def run(ctx, args):
     i = 0
     while i < len(lines):
         line = lines[i].rstrip('\n')
-        # 匹配开始标记：=== 相对路径 ===
         start_match = re.match(r'^=== (.+) ===$', line)
         if start_match:
             rel_path = start_match.group(1).strip()
             i += 1
             content_lines = []
-            # 收集内容直到遇到单独的 "==="
             while i < len(lines):
                 current_line = lines[i].rstrip('\n')
                 if current_line == "===":
                     break
-                content_lines.append(lines[i])  # 保留原换行符
+                content_lines.append(lines[i])
                 i += 1
-            # 跳过结束标记
             if i < len(lines) and lines[i].rstrip('\n') == "===":
                 i += 1
-            # 组合内容（注意 content_lines 已经包含换行符，所以直接拼接）
             file_content = ''.join(content_lines)
             files.append((rel_path, file_content))
         else:
@@ -60,7 +56,6 @@ def run(ctx, args):
     for rel_path, file_content in files:
         try:
             full_path = ctx.validate_path(rel_path)
-            # 自动创建父目录
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(file_content)
