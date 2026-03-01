@@ -185,8 +185,10 @@ async def main_async(args):
             "没有初始消息，请提供命令行参数或在MESSAGE.txt/MESSAGE_DEFAULT.txt中写入内容"
         )
         return
-
-    os.remove(PAUSE_FLAG_FILE)  # delete pause flag
+    
+    if os.path.exists(PAUSE_FLAG_FILE):
+        os.remove(PAUSE_FLAG_FILE)  # delete pause flag
+    
 
     # 3. Agent 主循环
     current_msg = initial_msg
