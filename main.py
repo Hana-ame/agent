@@ -56,12 +56,17 @@ async def main():
 
     # 4. 发送最新信息
     print("✍️ 发送信息...")
-    msg = sys.argv[1]
+    msg = ""
+    if len(sys.argv) > 1:
+        msg = sys.argv[1]
     if not msg:
         msg = read_and_clear_message()
     if not msg:
-        print("msg 为空")
-        return
+        try:
+            with open("MESSAGE_DEFAULT.txt", "r", encoding="utf-8") as f:
+                msg = f.read()
+        except FileNotFoundError:
+            pass
     await client.send_prompt(msg)
 
     # 5. 监听信息流
