@@ -169,7 +169,7 @@ class WebSocketBridge:
                             end="",
                             flush=True,
                         )
-                        return "".join(reasoning_buffer), "".join(content_buffer)
+                        return fix_deepseek("".join(reasoning_buffer), "".join(content_buffer))
 
                 if chunks:
                     print(
@@ -178,7 +178,7 @@ class WebSocketBridge:
                         flush=True,
                     )
 
-        return "".join(reasoning_buffer), "".join(content_buffer)
+        return fix_deepseek("".join(reasoning_buffer), "".join(content_buffer))
 
     async def new_chat(self):
         await self.ws.send(json.dumps({"type": "command", "command": "new_chat"}))

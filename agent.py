@@ -192,8 +192,8 @@ async def main_async(args):
     round_num = 0
 
     ongoing = True
-
-    while ongoing:
+    paused = False
+    while ongoing and not paused:
         # 默认输出（仅当无命令且不暂停时会被使用，但新逻辑中无命令直接暂停，所以这里可保留原值，但实际不再使用）
         output = "上一轮对话中的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请根据情况使用 py utils.py write（对直接给出的文件）或者 py utils.py write_multiple（通过===分割的文件）进行写入。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。\n到这条信息为止，没有任何文件被保存，如果这不符合期望，请再次检查。\n提示：\npy utils.py help pause\npy utils.py help write\npy utils.py help write_multiple"
 
@@ -202,7 +202,7 @@ async def main_async(args):
         # 4.1 检查暂停文件
         while os.path.exists(PAUSE_FLAG_FILE):
             print("检测到 .pause 文件，暂停中... (等待删除)")
-            await asyncio.sleep(1)
+            paused = True
 
         # 4.2 发送消息给 LLM
         print(f"\n{'='*50}\n第 {round_num} 轮：发送消息...")
@@ -264,7 +264,9 @@ async def main_async(args):
                     )
                     cmd_output = result.stdout + result.stderr
                     if result.returncode != 0:
-                        cmd_output = f"命令执行失败 (返回码 {result.returncode}):\n{cmd_output}"
+                        cmd_output = (
+                            f"命令执行失败 (返回码 {result.returncode}):\n{cmd_output}"
+                        )
                     else:
                         cmd_output = cmd_output.strip()
                 except Exception as e:
@@ -319,9 +321,11 @@ async def main_async(args):
 
             # 创建暂停文件
             Path(PAUSE_FLAG_FILE).touch()
-            
+
             # 输出提示信息（控制台和日志）
-            no_cmd_hint = "没有检测到指令，使用 py utils.py cat SYSTEM_PROMPT.txt 查看系统指令。"
+            no_cmd_hint = (
+                "没有检测到指令，使用 py utils.py cat SYSTEM_PROMPT.txt 查看系统指令。"
+            )
             print(no_cmd_hint)
             with open(LOG_FILE, "a", encoding="utf-8") as log:
                 log.write(f"\n提示: {no_cmd_hint}\n")
