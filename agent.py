@@ -14,7 +14,26 @@ def get_root_path():
     try:
         with open(env_path, 'r', encoding='utf-8') as f:
             for line in f:
-                if line.startswith('ROOT_PATH='):
+                if line.startswith('ROOT_PATH'):
+                    root = line.strip().split('=', 1)[1].strip()
+                    # 去除可能的引号
+                    if root.startswith('"') and root.endswith('"'):
+                        root = root[1:-1]
+                    elif root.startswith("'") and root.endswith("'"):
+                        root = root[1:-1]
+                    break
+    except FileNotFoundError:
+        pass
+    return os.path.abspath(root)
+
+def get_utils_path():
+    """从.env文件读取ROOT_PATH，若不存在则返回当前工作目录"""
+    root = os.getcwd()
+    env_path = os.path.join(os.getcwd(), '.env')
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('UTILS_PATH'):
                     root = line.strip().split('=', 1)[1].strip()
                     # 去除可能的引号
                     if root.startswith('"') and root.endswith('"'):
@@ -28,10 +47,12 @@ def get_root_path():
 
 # 根目录
 ROOT_PATH = get_root_path()
+UTILS_PATH = get_utils_path()
 
 # 所有文件路径均基于 ROOT_PATH
 MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE.txt")
 LAST_RESPONSE_FILE = os.path.join(ROOT_PATH, "LAST_RESPONSE.txt")
+# 系统提示文件现在放在 agent 子目录下，与 profiles.json 同位置
 SYSTEM_PROMPT_FILE = os.path.join(ROOT_PATH, "SYSTEM_PROMPT.txt")
 DEFAULT_MESSAGE_FILE = os.path.join(ROOT_PATH, "MESSAGE_DEFAULT.txt")
 PAUSE_FLAG_FILE = os.path.join(ROOT_PATH, ".pause")
@@ -114,6 +135,7 @@ async def main_async(args):
     args: 解析后的参数对象
     """
     print(f"当前工作目录: {ROOT_PATH}")
+    print(f"当前工具目录: {UTILS_PATH}")
     print(f"连接参数: {args.connection}")
     if not args.connection.startswith(("ws://", "wss://")):
         print(f"使用 payload: {args.payload}")
@@ -175,7 +197,9 @@ async def main_async(args):
         log_entry(round_num, current_msg, reasoning, content)
 
         # 3.5 显示回复
+        print("="*30)
         print(f"推理过程:\n{reasoning}\n")
+        print("="*30)
         print(f"回复内容:\n{content}\n")
 
         # 3.6 检查结束标记
@@ -194,13 +218,17 @@ async def main_async(args):
         # 3.7 处理命令
         if is_command_present(content):
             command = extract_command(content)
+            print("="*30)
             print(f"执行命令: {command}")
 
             try:
                 parts = shlex.split(command)
                 if parts and parts[0] in ('py', 'python', 'python3'):
                     parts[0] = sys.executable
-                # 设置工作目录为 ROOT_PATH，确保工具在正确路径下运行
+                    # 如果第二个参数是 utils.py 或 ./utils.py，则替换为绝对路径
+                    if len(parts) > 1 and os.path.basename(parts[1]) == 'utils.py':
+                        parts[1] = os.path.join(UTILS_PATH, 'utils.py')
+                # 然后设置 cwd=ROOT_PATH
                 result = subprocess.run(parts, capture_output=True, text=True, cwd=ROOT_PATH)
                 output = result.stdout + result.stderr
                 if result.returncode != 0:
@@ -210,6 +238,7 @@ async def main_async(args):
             except Exception as e:
                 output = f"执行命令时出错: {str(e)}"
 
+            print("="*30)
             print(f"工具输出:\n{output}")
 
             with open(LOG_FILE, "a", encoding="utf-8") as log:
@@ -240,6 +269,7 @@ async def main_async(args):
         save_response(content, LAST_RESPONSE_FILE)
         current_msg = output
 
+    print("="*30)
     print("Agent 结束")
     await client.close()
 

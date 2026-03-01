@@ -17,7 +17,7 @@ def run(ctx, args):
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
         # Replace non-ASCII characters with '?' to avoid encoding errors when printing
-        content = content.encode('GBK', errors='replace').decode('GBK')
+        # content = content.encode('GBK', errors='replace').decode('GBK')
         return content
     except Exception as e:
         return f"Error: cannot read file {args[0]} - {e}"
