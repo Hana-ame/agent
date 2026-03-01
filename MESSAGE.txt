@@ -1,1 +1,217 @@
-成功：已将 LAST_RESPONSE.txt 的内容写入 utils.md
+import sys
+import asyncio
+import os
+import shlex
+import subprocess
+from llm_client import LLMClient
+
+# ??????
+MESSAGE_FILE = "MESSAGE.txt"
+LAST_RESPONSE_FILE = "LAST_RESPONSE.txt"
+SYSTEM_PROMPT_FILE = "SYSTEM_PROMPT.txt"
+DEFAULT_MESSAGE_FILE = "MESSAGE_DEFAULT.txt"
+PAUSE_FLAG_FILE = ".pause"
+LOG_FILE = "agent.log"
+FINISH_MARKER = "=== FINISH ==="  # ??????????????????????
+
+def save_response(text: str, file=LAST_RESPONSE_FILE) -> None:
+    """?????????????????????```?"""
+    lines = text.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines.pop(0)
+    if lines and lines[-1].startswith("```"):
+        lines.pop()
+    with open(file, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+def read_and_clear_message(file=MESSAGE_FILE) -> str:
+    """??????????????????????"""
+    content = ""
+    try:
+        with open(file, "r", encoding="utf-8") as f:
+            content = f.read()
+        with open(file, "w", encoding="utf-8") as f:
+            f.write("")
+    except FileNotFoundError:
+        pass
+    return content
+
+def read_file_content(file: str) -> str:
+    """?????????????????"""
+    try:
+        with open(file, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ""
+
+def log_entry(round_num: int, sent: str, reasoning: str, content: str, tool_output: str = None):
+    """???????????"""
+    with open(LOG_FILE, "a", encoding="utf-8") as log:
+        log.write(f"\n{'='*50}\n")
+        log.write(f"? {round_num} ?\n")
+        log.write(f"{'='*50}\n")
+        log.write(f"\n{'='*25}\n?????\n{'='*25}\n")
+        log.write(sent + "\n")
+        log.write(f"\n{'='*25}\n????\n{'='*25}\n")
+        log.write(reasoning + "\n")
+        log.write(f"\n{'='*25}\n????\n{'='*25}\n")
+        log.write(content + "\n")
+        if tool_output is not None:
+            log.write(f"\n{'='*25}\n??????\n{'='*25}\n")
+            log.write(tool_output + "\n")
+
+def find_command_line(text: str) -> str | None:
+    """
+    ?????????? 'py utils.py' ?????????????
+    ????????????????????? None?
+    """
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("py utils.py"):
+            return stripped
+    return None
+
+def is_command_present(text: str) -> bool:
+    """???????????"""
+    return find_command_line(text) is not None
+
+def extract_command(text: str) -> str:
+    """????????????? strip?"""
+    return find_command_line(text) or ""
+
+async def main():
+    # 1. ?????????
+    client = LLMClient("wss://d.810114.xyz/ws/client")
+    success = await client.connect_and_pair("deepseek")
+    if not success:
+        print("? ?????")
+        return
+    print("? ??????????")
+
+    # 2. ??????
+    system_prompt = read_file_content(SYSTEM_PROMPT_FILE)
+    user_msg = ""
+    if len(sys.argv) > 1:
+        user_msg = sys.argv[1]
+    if not user_msg:
+        user_msg = read_and_clear_message(MESSAGE_FILE)
+    if not user_msg:
+        user_msg = read_file_content(DEFAULT_MESSAGE_FILE)
+
+    if system_prompt and user_msg:
+        initial_msg = f"{system_prompt}\n\n{user_msg}"
+    elif system_prompt:
+        initial_msg = system_prompt
+    else:
+        initial_msg = user_msg
+
+    if not initial_msg:
+        print("? ??????????????????MESSAGE.txt ? MESSAGE_DEFAULT.txt ???")
+        return
+
+    # 3. Agent ???
+    current_msg = initial_msg
+    round_num = 0
+
+    while True:
+        round_num += 1
+
+        # 3.1 ?????? .pause
+        while os.path.exists(PAUSE_FLAG_FILE):
+            print("?? ??? .pause ??????... (???????)")
+            await asyncio.sleep(1)
+
+        # 3.2 ????? LLM
+        print(f"\n?? ? {round_num} ?????...")
+        await client.send_prompt(current_msg)
+
+        # 3.3 ????
+        print("? ?? LLM ??...\n")
+        reasoning, content = await client.completion()
+
+        # 3.4 ????
+        log_entry(round_num, current_msg, reasoning, content)
+
+        # 3.5 ???????
+        print(f"? REASONING:\n{reasoning}\n")
+        print(f"? CONTENT:\n{content}\n")
+
+        # 3.6 ???????????????
+        lines = content.splitlines()
+        # ???????????????????
+        finish_lines = [i for i, line in enumerate(lines) if line.strip() == FINISH_MARKER]
+        if finish_lines:
+            print("? ????????????????????")
+            # ?????????????????????
+            filtered_lines = [line for i, line in enumerate(lines) if i not in finish_lines]
+            final_content = "\n".join(filtered_lines).strip()
+            save_response(final_content, LAST_RESPONSE_FILE)
+            with open(LOG_FILE, "a", encoding="utf-8") as log:
+                log.write("\n?????????? LAST_RESPONSE.txt\n")
+            break
+
+        # 3.7 ???????
+        if is_command_present(content):
+            # ???????
+            command = extract_command(content)
+            print(f"?? ????: {command}")
+
+            # ??????
+            try:
+                # ??????? 'py' ????? Python ?????
+                parts = shlex.split(command)
+                if parts and parts[0] in ('py', 'python', 'python3'):
+                    parts[0] = sys.executable
+                result = subprocess.run(parts, capture_output=True, text=True, cwd=os.getcwd())
+                output = result.stdout + result.stderr
+                if result.returncode != 0:
+                    output = f"?????? (??? {result.returncode}):\n{output}"
+                else:
+                    output = output.strip()
+            except Exception as e:
+                output = f"?????????: {str(e)}"
+
+            print(f"? ????:\n{output}")
+
+            # ?????????
+            with open(LOG_FILE, "a", encoding="utf-8") as log:
+                log.write("\n????????\n")
+                log.write(output + "\n")
+
+            # ???????????? PAUSED: ?????????
+            if output.startswith("PAUSED:"):
+                print("?? ????????????????...")
+                # ?? MESSAGE.txt?????
+                with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                    f.write("")
+                # ?? .pause ?????????? resume ??????
+                while os.path.exists(PAUSE_FLAG_FILE):
+                    await asyncio.sleep(1)
+                print("?? ????")
+                # ??????????? MESSAGE.txt ???????
+                current_msg = read_and_clear_message(MESSAGE_FILE)
+                if not current_msg:
+                    # ????????
+                    current_msg = "??????????????"
+                continue  # ??????????? output ???????
+            else:
+                # ????????? MESSAGE.txt ???????
+                with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                    f.write(output)
+                current_msg = output
+        else:
+            # ???????????????????????????????
+            print("? ??????????? LAST_RESPONSE.txt ???...")
+            save_response(content, LAST_RESPONSE_FILE)
+            # ???????? LLM ???????
+            default_next = "?????? LAST_RESPONSE.txt?????????"
+            with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+                f.write(default_next)
+            current_msg = default_next
+
+    print("? Agent ???")
+    # ??????
+    await client.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
