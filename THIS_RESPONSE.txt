@@ -1,1 +1,3 @@
-py utils.py git add -A
+当前状态：已查看项目文件，发现git有修改。根据版本控制要求，应先暂存更改。
+
+py utils.py git add .
