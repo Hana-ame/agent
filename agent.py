@@ -167,17 +167,23 @@ async def main_async(args):
         return
     print("连接成功，开始任务")
 
-    # 2. 构建初始消息
+    # 2. 读取系统提示和用户消息
     system_prompt = read_file_content(SYSTEM_PROMPT_FILE)
     user_msg = args.message if args.message else read_and_clear_message(MESSAGE_FILE)
     if not user_msg:
         user_msg = read_file_content(DEFAULT_MESSAGE_FILE)
 
-    if system_prompt and user_msg:
-        initial_msg = f"{system_prompt}\n\n{user_msg}"
-    elif system_prompt:
-        initial_msg = system_prompt
+    # 3. 根据 --new-chat 标志决定是否重置对话并发送系统提示
+    if args.new_chat:
+        await client.new_chat()
+        if system_prompt and user_msg:
+            initial_msg = f"{system_prompt}\n\n{user_msg}"
+        elif system_prompt:
+            initial_msg = system_prompt
+        else:
+            initial_msg = user_msg
     else:
+        # 不重置对话，也不发送系统提示
         initial_msg = user_msg
 
     if not initial_msg:
@@ -189,7 +195,7 @@ async def main_async(args):
     if os.path.exists(PAUSE_FLAG_FILE):
         os.remove(PAUSE_FLAG_FILE)  # delete pause flag
     
-    # 3. Agent 主循环
+    # 4. Agent 主循环
     current_msg = initial_msg
     round_num = 0
 
@@ -201,29 +207,29 @@ async def main_async(args):
 
         round_num += 1
 
-        # 3.1 检查暂停文件
+        # 4.1 检查暂停文件
         while os.path.exists(PAUSE_FLAG_FILE):
             print("检测到 .pause 文件，暂停中... (等待删除)")
             await asyncio.sleep(1)
 
-        # 3.2 发送消息给 LLM
+        # 4.2 发送消息给 LLM
         print(f"\n{'='*50}\n第 {round_num} 轮：发送消息...")
         await client.send_prompt(current_msg)
 
-        # 3.3 接收回复
+        # 4.3 接收回复
         print("等待 LLM 回复...\n")
         reasoning, content = await client.completion()
         save_response(content, THIS_RESPONSE_FILE)
-        # 3.4 记录日志
+        # 4.4 记录日志
         log_entry(round_num, current_msg, reasoning, content)
 
-        # 3.5 显示回复
+        # 4.5 显示回复
         print("=" * 30)
         print(f"推理过程:\n{reasoning}\n")
         print("=" * 30)
         print(f"回复内容:\n{content}\n")
 
-        # 3.6 检查结束标记
+        # 4.6 检查结束标记
         lines = content.splitlines()
         finish_lines = [
             i for i, line in enumerate(lines) if line.strip() == FINISH_MARKER
@@ -240,7 +246,7 @@ async def main_async(args):
                 log.write("\n最终答案已保存到 LAST_RESPONSE.txt\n")
             ongoing = False
 
-        # 3.7 处理命令
+        # 4.7 处理命令
         if is_command_present(content):
             command = extract_command(content)
             print("=" * 30)
@@ -320,6 +326,11 @@ def main():
         "--payload",
         default="default.json",
         help="payload 文件名（位于 payloads/ 目录下），仅用于 HTTP 模式，默认 default.json",
+    )
+    parser.add_argument(
+        "--new-chat",
+        action="store_true",
+        help="开启新对话并发送系统提示（如果存在），否则不重置对话也不发送系统提示",
     )
     args = parser.parse_args()
     asyncio.run(main_async(args))
