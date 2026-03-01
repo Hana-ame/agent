@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time" // 新增导入
 
 	"github.com/gorilla/websocket"
 )
@@ -32,6 +33,7 @@ type Client struct {
 	id      string  // 唯一会话ID
 	partner *Client // 配对对象
 	mu      sync.Mutex
+	done    chan struct{} // 用于停止心跳的通道
 }
 
 func (c *Client) WriteJSON(msg Message) error {
@@ -99,6 +101,7 @@ func wsHandler(role string) http.HandlerFunc {
 			conn: conn,
 			role: role,
 			id:   hub.nextID(role),
+			done: make(chan struct{}),
 		}
 
 		log.Printf("➕ [%s] 建立连接, ID: %s", role, c.id)
@@ -109,7 +112,28 @@ func wsHandler(role string) http.HandlerFunc {
 			hub.Unlock()
 		}
 
+		// 启动心跳 goroutine (每秒发送 ping)
+		go func() {
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					c.mu.Lock()
+					err := c.conn.WriteMessage(websocket.PingMessage, []byte{})
+					c.mu.Unlock()
+					if err != nil {
+						// 连接已关闭，退出 goroutine
+						return
+					}
+				case <-c.done:
+					return
+				}
+			}
+		}()
+
 		defer func() {
+			close(c.done) // 通知心跳 goroutine 退出
 			hub.Lock()
 			hub.ReleasePair(c)
 			if role == "browser" {
