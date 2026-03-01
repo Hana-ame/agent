@@ -51,7 +51,7 @@ def log_entry(round_num: int, sent: str, reasoning: str, content: str, tool_outp
         log.write(f"\n{'='*50}\n")
         log.write(f"第 {round_num} 轮\n")
         log.write(f"{'='*50}\n")
-        log.write(f"{'='*25}发送的消息\n{'='*25}\n")
+        log.write(f"\n{'='*25}\n发送的消息\n{'='*25}\n")
         log.write(sent + "\n")
         log.write(f"\n{'='*25}\n推理过程\n{'='*25}\n")
         log.write(reasoning + "\n")
@@ -212,7 +212,7 @@ async def main():
 
     print("👋 Agent 结束。")
     # 可选关闭连接
-    # await client.close()
+    await client.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
