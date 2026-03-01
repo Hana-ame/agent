@@ -10,17 +10,19 @@ write_multiple - 批量写入多个文件（从指定的响应文件解析）
 
     === 相对路径1 ===
     文件内容（可包含多行，保留原格式）
-    ===
+    === end of 相对路径1 ===
     === 相对路径2 ===
     文件内容2
-    ===
+    === end of 相对路径2 ===
 
-每个块以 "=== 相对路径 ===" 开始，以单独一行的 "===" 结束。
+每个块以 "=== 相对路径 ===" 开始，以 "=== end of 相对路径 ===" 结束。
 工具会自动创建父目录。
 """
 
 import os
 import re
+
+PREVIEW_LENGTH = 250
 
 def run(ctx, args):
     # 解析参数，决定使用哪个响应文件
@@ -51,11 +53,14 @@ def run(ctx, args):
             content_lines = []
             while i < len(lines):
                 current_line = lines[i].rstrip('\n')
-                if current_line == "===":
+                # 检测结束标记：=== end of 文件名 ===，且文件名必须匹配
+                end_match = re.match(r'^=== end of (.+) ===$', current_line)
+                if end_match and end_match.group(1).strip() == rel_path:
                     break
                 content_lines.append(lines[i])
                 i += 1
-            if i < len(lines) and lines[i].rstrip('\n') == "===":
+            # 跳过结束标记行（如果存在）
+            if i < len(lines) and re.match(r'^=== end of .+ ===$', lines[i].rstrip('\n')):
                 i += 1
             file_content = ''.join(content_lines)
             files.append((rel_path, file_content))
@@ -64,11 +69,11 @@ def run(ctx, args):
 
     if not files:
         response = "\n".join(lines)
-        return f"错误：{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... ===\n{os.path.basename(response_file)}文件预览:\n{response[:100]}...(中间省略)...{"\n".join(lines)[-100:]}"
+        return f"错误：{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n{os.path.basename(response_file)}文件预览:\n{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"
 
     results = []
     for rel_path, file_content in files:
-        # """保存响应内容到文件，移除首尾的```标记"""
+        # 保存响应内容到文件，移除首尾的```标记
         lines = file_content.splitlines()
         while lines and not lines[0].strip():
             lines.pop(0)
@@ -88,10 +93,9 @@ def run(ctx, args):
             
             result_str = f"{rel_path}中被写入了以下内容\n{striped_content}\n\n"
             if (len(striped_content) > 200):
-                result_str = f"{rel_path}中被写入了以下内容\n{striped_content[0:100]}...(中间省略)...{striped_content[-100:]}\n\n"
+                result_str = f"{rel_path}中被写入了以下内容\n{striped_content[0:PREVIEW_LENGTH]}...(中间省略)...{striped_content[-PREVIEW_LENGTH:]}\n\n"
             results.append(result_str)
         except Exception as e:
             results.append(f"错误：{rel_path} - {e}")
 
     return "\n\n".join(results)  # 用两个换行分隔每个文件块
- 

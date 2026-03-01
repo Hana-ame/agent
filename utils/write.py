@@ -15,6 +15,8 @@ write - 将 LAST_RESPONSE.txt 的内容写入文件
 
 import os
 
+PREVIEW_LENGTH = 250
+
 def run(ctx, args):
     # 参数检查：允许 1 个或 2 个参数
     if len(args) not in (1, 2):
@@ -49,7 +51,7 @@ def run(ctx, args):
 
     if has_multiple_blocks and not force:
         return (
-            "检测到内容中包含多个 '===' 开头的行，可能为多文件块。\n"
+            "检测到内容中包含 '===' 开头的行，可能为多文件块。\n"
             "建议使用 'py utils.py write_multiple' 来批量写入。\n"
             "如果仍要强制使用 write 写入单个文件，请添加 force 参数：\n"
             "py utils.py write <路径> force"
@@ -60,7 +62,7 @@ def run(ctx, args):
             f.write(striped_content)
         # 回显写入内容
         if len(striped_content) > 200:
-            return f"{striped_content[0:100]}...(中间省略)...{striped_content[-100:]}\n\n写入至：{args[0]}"
+            return f"{striped_content[0:PREVIEW_LENGTH]}...(中间省略)...{striped_content[-PREVIEW_LENGTH:]}\n\n写入至：{args[0]}"
         return f"{striped_content}\n\n写入至：{args[0]}"
     except Exception as e:
         return f"错误：无法写入文件 {args[0]} - {e}"

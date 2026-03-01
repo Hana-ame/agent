@@ -7,15 +7,16 @@ import argparse
 from pathlib import Path
 from llm_client import LLMClient
 
+
 def get_root_path():
     """从.env文件读取ROOT_PATH，若不存在则返回当前工作目录"""
     root = os.getcwd()
-    env_path = os.path.join(os.getcwd(), '.env')
+    env_path = os.path.join(os.getcwd(), ".env")
     try:
-        with open(env_path, 'r', encoding='utf-8') as f:
+        with open(env_path, "r", encoding="utf-8") as f:
             for line in f:
-                if line.startswith('ROOT_PATH'):
-                    root = line.strip().split('=', 1)[1].strip()
+                if line.startswith("ROOT_PATH"):
+                    root = line.strip().split("=", 1)[1].strip()
                     # 去除可能的引号
                     if root.startswith('"') and root.endswith('"'):
                         root = root[1:-1]
@@ -26,15 +27,16 @@ def get_root_path():
         pass
     return os.path.abspath(root)
 
+
 def get_utils_path():
     """从.env文件读取ROOT_PATH，若不存在则返回当前工作目录"""
     root = os.getcwd()
-    env_path = os.path.join(os.getcwd(), '.env')
+    env_path = os.path.join(os.getcwd(), ".env")
     try:
-        with open(env_path, 'r', encoding='utf-8') as f:
+        with open(env_path, "r", encoding="utf-8") as f:
             for line in f:
-                if line.startswith('UTILS_PATH'):
-                    root = line.strip().split('=', 1)[1].strip()
+                if line.startswith("UTILS_PATH"):
+                    root = line.strip().split("=", 1)[1].strip()
                     # 去除可能的引号
                     if root.startswith('"') and root.endswith('"'):
                         root = root[1:-1]
@@ -44,6 +46,7 @@ def get_utils_path():
     except FileNotFoundError:
         pass
     return os.path.abspath(root)
+
 
 # 根目录
 ROOT_PATH = get_root_path()
@@ -62,6 +65,7 @@ FINISH_MARKER = "=== FINISH ==="
 PROFILES_PATH = os.path.join(ROOT_PATH, "agent", "profiles.json")
 PAYLOADS_DIR = os.path.join(ROOT_PATH, "payloads")
 
+
 def save_response(text: str, file=LAST_RESPONSE_FILE) -> None:
     # """保存响应内容到文件，移除首尾的```标记"""
     lines = text.splitlines()
@@ -71,6 +75,7 @@ def save_response(text: str, file=LAST_RESPONSE_FILE) -> None:
     #     lines.pop()
     with open(file, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
+
 
 def read_and_clear_message(file=MESSAGE_FILE) -> str:
     """读取并清空消息文件"""
@@ -84,6 +89,7 @@ def read_and_clear_message(file=MESSAGE_FILE) -> str:
         pass
     return content
 
+
 def read_file_content(file: str) -> str:
     """读取文件内容并去除首尾空白"""
     try:
@@ -92,7 +98,10 @@ def read_file_content(file: str) -> str:
     except FileNotFoundError:
         return ""
 
-def log_entry(round_num: int, sent: str, reasoning: str, content: str, tool_output: str = None):
+
+def log_entry(
+    round_num: int, sent: str, reasoning: str, content: str, tool_output: str = None
+):
     """记录一轮交互到日志文件"""
     with open(LOG_FILE, "a", encoding="utf-8") as log:
         log.write(f"\n{'='*50}\n")
@@ -108,6 +117,7 @@ def log_entry(round_num: int, sent: str, reasoning: str, content: str, tool_outp
             log.write(f"\n{'='*25}\n工具输出\n{'='*25}\n")
             log.write(tool_output + "\n")
 
+
 def find_command_line(text: str) -> str | None:
     """
     查找以 'py utils.py' 开头的行，返回第一个匹配行（已strip）
@@ -122,13 +132,16 @@ def find_command_line(text: str) -> str | None:
         #     return stripped
     return None
 
+
 def is_command_present(text: str) -> bool:
     """判断回复中是否包含命令"""
     return find_command_line(text) is not None
 
+
 def extract_command(text: str) -> str:
     """提取第一条命令（已strip）"""
     return find_command_line(text) or ""
+
 
 async def main_async(args):
     """
@@ -168,8 +181,12 @@ async def main_async(args):
         initial_msg = user_msg
 
     if not initial_msg:
-        print("没有初始消息，请提供命令行参数或在MESSAGE.txt/MESSAGE_DEFAULT.txt中写入内容")
+        print(
+            "没有初始消息，请提供命令行参数或在MESSAGE.txt/MESSAGE_DEFAULT.txt中写入内容"
+        )
         return
+
+    os.remove(PAUSE_FLAG_FILE)  # delete pause flag
 
     # 3. Agent 主循环
     current_msg = initial_msg
@@ -200,18 +217,22 @@ async def main_async(args):
         log_entry(round_num, current_msg, reasoning, content)
 
         # 3.5 显示回复
-        print("="*30)
+        print("=" * 30)
         print(f"推理过程:\n{reasoning}\n")
-        print("="*30)
+        print("=" * 30)
         print(f"回复内容:\n{content}\n")
 
         # 3.6 检查结束标记
         lines = content.splitlines()
-        finish_lines = [i for i, line in enumerate(lines) if line.strip() == FINISH_MARKER]
+        finish_lines = [
+            i for i, line in enumerate(lines) if line.strip() == FINISH_MARKER
+        ]
         if finish_lines:
             print("检测到结束标记，任务完成")
             # 移除结束标记行后保存最终答案
-            filtered_lines = [line for i, line in enumerate(lines) if i not in finish_lines]
+            filtered_lines = [
+                line for i, line in enumerate(lines) if i not in finish_lines
+            ]
             final_content = "\n".join(filtered_lines).strip()
             save_response(final_content, LAST_RESPONSE_FILE)
             with open(LOG_FILE, "a", encoding="utf-8") as log:
@@ -221,18 +242,20 @@ async def main_async(args):
         # 3.7 处理命令
         if is_command_present(content):
             command = extract_command(content)
-            print("="*30)
+            print("=" * 30)
             print(f"执行命令: {command}")
 
             try:
                 parts = shlex.split(command)
-                if parts and parts[0] in ('py', 'python', 'python3'):
+                if parts and parts[0] in ("py", "python", "python3"):
                     parts[0] = sys.executable
                     # 如果第二个参数是 utils.py 或 ./utils.py，则替换为绝对路径
-                    if len(parts) > 1 and os.path.basename(parts[1]) == 'utils.py':
-                        parts[1] = os.path.join(UTILS_PATH, 'utils.py')
+                    if len(parts) > 1 and os.path.basename(parts[1]) == "utils.py":
+                        parts[1] = os.path.join(UTILS_PATH, "utils.py")
                 # 然后设置 cwd=ROOT_PATH
-                result = subprocess.run(parts, capture_output=True, text=True, cwd=ROOT_PATH)
+                result = subprocess.run(
+                    parts, capture_output=True, text=True, cwd=ROOT_PATH
+                )
                 output = result.stdout + result.stderr
                 if result.returncode != 0:
                     output = f"命令执行失败 (返回码 {result.returncode}):\n{output}"
@@ -241,7 +264,7 @@ async def main_async(args):
             except Exception as e:
                 output = f"执行命令时出错: {str(e)}"
 
-            print("="*30)
+            print("=" * 30)
             print(f"工具输出:\n{output}")
 
             with open(LOG_FILE, "a", encoding="utf-8") as log:
@@ -268,13 +291,14 @@ async def main_async(args):
         # else:
         #     # 无命令，保存回复内容到 LAST_RESPONSE.txt，并提示继续
         #     print("回复中无命令，已保存到 LAST_RESPONSE.txt")
-        
+
         save_response(content, LAST_RESPONSE_FILE)
         current_msg = output
 
-    print("="*30)
+    print("=" * 30)
     print("Agent 结束")
     await client.close()
+
 
 def main():
     """入口函数，解析命令行参数"""
@@ -283,19 +307,22 @@ def main():
     )
     parser.add_argument(
         "connection",
-        help="连接参数：WebSocket URL (以 ws:// 或 wss:// 开头) 或 profiles.json 中的键名 (如 silicon)"
+        help="连接参数：WebSocket URL (以 ws:// 或 wss:// 开头) 或 profiles.json 中的键名 (如 silicon)",
     )
     parser.add_argument(
-        "-m", "--message",
-        help="直接提供消息内容，否则从 MESSAGE.txt 或 MESSAGE_DEFAULT.txt 读取"
+        "-m",
+        "--message",
+        help="直接提供消息内容，否则从 MESSAGE.txt 或 MESSAGE_DEFAULT.txt 读取",
     )
     parser.add_argument(
-        "-p", "--payload",
+        "-p",
+        "--payload",
         default="default.json",
-        help="payload 文件名（位于 payloads/ 目录下），仅用于 HTTP 模式，默认 default.json"
+        help="payload 文件名（位于 payloads/ 目录下），仅用于 HTTP 模式，默认 default.json",
     )
     args = parser.parse_args()
     asyncio.run(main_async(args))
+
 
 if __name__ == "__main__":
     main()
