@@ -2,19 +2,82 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""
+utils.py - 工具调用入口
+
+支持的命令格式（通过 py utils.py 调用）：
+    <工具名称> [参数...]
+    help [工具名称]   # 显示帮助信息
+
+工具列表（位于 utils/ 目录下）：
+    read <相对路径>
+    write <相对路径>
+    append <相对路径> <内容>
+    replace <相对路径> <旧文本> <新文本>
+    list <相对路径>
+    delete <相对路径>
+    pause
+    resume
+    write_multiple
+    git <git命令...>
+    ... 可扩展
+"""
+
 import sys
 import importlib
 import os
+
+def show_help(tool_name=None):
+    """显示帮助信息"""
+    utils_dir = os.path.join(os.path.dirname(__file__), "utils")
+    if tool_name is None:
+        # 显示所有工具列表
+        print("可用工具：")
+        if os.path.isdir(utils_dir):
+            tools = []
+            for f in os.listdir(utils_dir):
+                if f.endswith(".py") and f not in ("__init__.py", "core.py"):
+                    tools.append(f[:-3])
+            tools.sort()
+            for t in tools:
+                # 尝试导入模块，获取文档字符串第一行
+                try:
+                    module = importlib.import_module(f"utils.{t}")
+                    doc = module.__doc__.strip().split('\n')[0] if module.__doc__ else "无说明"
+                except:
+                    doc = "无法加载"
+                print(f"  {t:15} - {doc}")
+        print("\n使用 'py utils.py help <工具名>' 查看具体工具的帮助。")
+    else:
+        # 显示特定工具帮助
+        try:
+            module = importlib.import_module(f"utils.{tool_name}")
+            if module.__doc__:
+                print(module.__doc__.strip())
+            else:
+                print(f"工具 '{tool_name}' 没有提供帮助文档。")
+        except ImportError:
+            print(f"错误：未知的工具名称 '{tool_name}'")
 
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
 
-    tool_name = sys.argv[1].lower()
-    tool_args = sys.argv[2:]
+    command = sys.argv[1].lower()
+    args = sys.argv[2:]
 
-    # 尝试导入工具模块
+    if command == "help":
+        if args:
+            show_help(args[0])
+        else:
+            show_help()
+        sys.exit(0)
+
+    # 正常工具调用
+    tool_name = command
+    tool_args = args
+
     try:
         module = importlib.import_module(f"utils.{tool_name}")
     except ImportError:
@@ -27,12 +90,10 @@ def main():
                     print(f"    {f[:-3]}")
         sys.exit(1)
 
-    # 检查模块是否包含 run 函数
     if not hasattr(module, "run"):
         print(f"错误：工具模块 '{tool_name}' 缺少 run 函数")
         sys.exit(1)
 
-    # 从 core 导入上下文
     from utils import core
     ctx = core.Context(core.load_root_path())
 
