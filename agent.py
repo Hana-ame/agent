@@ -3,6 +3,8 @@ import asyncio
 import os
 import shlex
 import subprocess
+import argparse
+from pathlib import Path
 from llm_client import LLMClient
 
 def get_root_path():
@@ -36,6 +38,7 @@ PAUSE_FLAG_FILE = os.path.join(ROOT_PATH, ".pause")
 LOG_FILE = os.path.join(ROOT_PATH, "agent.log")
 FINISH_MARKER = "=== FINISH ==="
 PROFILES_PATH = os.path.join(ROOT_PATH, "agent", "profiles.json")
+PAYLOADS_DIR = os.path.join(ROOT_PATH, "payloads")
 
 def save_response(text: str, file=LAST_RESPONSE_FILE) -> None:
     """保存响应内容到文件，移除首尾的```标记"""
@@ -105,16 +108,23 @@ def extract_command(text: str) -> str:
     """提取第一条命令（已strip）"""
     return find_command_line(text) or ""
 
-async def main_async(connection_param: str, user_msg_arg: str = None):
+async def main_async(args):
     """
     异步主函数
-    connection_param: 可以是 WebSocket URL（以 ws:// 或 wss:// 开头），或者是 profiles.json 中的键名
+    args: 解析后的参数对象
     """
     print(f"当前工作目录: {ROOT_PATH}")
-    print(f"连接参数: {connection_param}")
+    print(f"连接参数: {args.connection}")
+    if not args.connection.startswith(("ws://", "wss://")):
+        print(f"使用 payload: {args.payload}")
 
     # 1. 初始化客户端（自动根据参数选择后端）
-    client = LLMClient(connection_param, profiles_path=PROFILES_PATH)
+    client = LLMClient(
+        connection_param=args.connection,
+        payload_name=args.payload,
+        profiles_path=Path(PROFILES_PATH),
+        root_path=Path(ROOT_PATH),
+    )
     success = await client.connect()
     if not success:
         print("连接失败")
@@ -123,7 +133,7 @@ async def main_async(connection_param: str, user_msg_arg: str = None):
 
     # 2. 构建初始消息
     system_prompt = read_file_content(SYSTEM_PROMPT_FILE)
-    user_msg = user_msg_arg if user_msg_arg else read_and_clear_message(MESSAGE_FILE)
+    user_msg = args.message if args.message else read_and_clear_message(MESSAGE_FILE)
     if not user_msg:
         user_msg = read_file_content(DEFAULT_MESSAGE_FILE)
 
@@ -235,15 +245,24 @@ async def main_async(connection_param: str, user_msg_arg: str = None):
 
 def main():
     """入口函数，解析命令行参数"""
-    if len(sys.argv) < 2:
-        print("用法: python agent.py <connection-param> [message]")
-        print("  connection-param: WebSocket URL (以 ws:// 或 wss:// 开头) 或 profiles.json 中的键名 (如 silicon, nvidia)")
-        print("  message: 可选，直接提供消息内容，否则从文件读取")
-        sys.exit(1)
-
-    connection_param = sys.argv[1]
-    user_msg_arg = sys.argv[2] if len(sys.argv) > 2 else None
-    asyncio.run(main_async(connection_param, user_msg_arg))
+    parser = argparse.ArgumentParser(
+        description="Agent 客户端，支持 WebSocket 和 HTTP 后端"
+    )
+    parser.add_argument(
+        "connection",
+        help="连接参数：WebSocket URL (以 ws:// 或 wss:// 开头) 或 profiles.json 中的键名 (如 silicon)"
+    )
+    parser.add_argument(
+        "-m", "--message",
+        help="直接提供消息内容，否则从 MESSAGE.txt 或 MESSAGE_DEFAULT.txt 读取"
+    )
+    parser.add_argument(
+        "-p", "--payload",
+        default="default.json",
+        help="payload 文件名（位于 payloads/ 目录下），仅用于 HTTP 模式，默认 default.json"
+    )
+    args = parser.parse_args()
+    asyncio.run(main_async(args))
 
 if __name__ == "__main__":
     main()
