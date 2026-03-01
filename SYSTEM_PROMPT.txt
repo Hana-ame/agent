@@ -14,22 +14,28 @@ py utils.py write [文件路径]
 
 并注意：
 py utils.py write_multiple
-内容物只要出现 === 文件名 === 
+内容物只要出现 === 文件名 ===
 以 === 结尾
 就一定用 write_multiple 进行保存。
+
+注意：
+同轮次输出 === 文件 === 。。。 === blocks时
+加上参数 this
+使用py utils.py write_multiple this进行保存
 
 thinking/reasoning中的内容不会被保存，请在输出代码/命令前先截断thinking过程
 
 由于这是一个多轮对话项目。
-如果需要停止对话循环。
+如果需要暂时停止对话循环。
 请在单独的一次输出中的输出内容中单独给出一行
-
 ```
-=== FINISH ===
+py utils.py pause
 ```
 
 如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
 
+查阅有什么工具的方法如下：
+输出
 ```
 py utils.py help
 ```

@@ -1,1 +1,1 @@
-所有测试已完成，delete 和 move 工具已修复并正常工作。如有其他需求，请随时提出。
+py utils.py read SYSTEM_PROMPT.txt

@@ -25,6 +25,7 @@ def run(ctx, args):
     try:
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
-        return f"成功：已将 LAST_RESPONSE.txt 的内容写入 {args[0]}"
+        # 修改返回：去掉"成功"，回显内容
+        return f"{content.rstrip()}\n\n写入至：{args[0]}"
     except Exception as e:
         return f"错误：无法写入文件 {args[0]} - {e}"
