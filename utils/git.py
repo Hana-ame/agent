@@ -19,6 +19,6 @@ def run(ctx, args):
         result = subprocess.run(
             ["git"] + args, capture_output=True, text=True, cwd=ctx.root_path
         )
-        return "git 返回了下面的信息：、\n" + result.stdout + result.stderr
+        return "git 返回了下面的信息：\n" + result.stdout + result.stderr
     except Exception as e:
         return f"Git 错误：{e}"
