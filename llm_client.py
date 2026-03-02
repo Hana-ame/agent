@@ -15,12 +15,10 @@ except ImportError:
     print("请安装httpx: pip install httpx")
     raise
 
-def fix_deepseek(reasoning_buffer: str, content_buffer: str):
+def fix_deepseek(reasoning_buffer:str, content_buffer:str):
     if content_buffer == "":
         content_buffer, reasoning_buffer = reasoning_buffer, content_buffer
-    return reasoning_buffer.replace("
-", "\n"), content_buffer.replace("
-", "\n")
+    return "".join(reasoning_buffer).replace("<｜end▁of▁thinking｜>","\n"), "".join(content_buffer).replace("<｜end▁of▁thinking｜>","\n")
 
 class StreamChunk:
     """统一的流数据块，表示从模型接收到的每一个片段"""
@@ -481,9 +479,9 @@ class LLMClient:
             root_path = pathlib.Path.cwd()
         self.root_path = pathlib.Path(root_path)
 
-        # 确定 profiles.json 路径：默认放在根目录下
+        # 确定 profiles.json 路径
         if profiles_path is None:
-            self.profiles_path = self.root_path / "profiles.json"
+            self.profiles_path = self.root_path / "agent" / "profiles.json"
         else:
             self.profiles_path = pathlib.Path(profiles_path)
 
