@@ -5,8 +5,8 @@ import argparse
 from pathlib import Path
 
 from llm_client import LLMClient
-from utils import file_utils
-from utils.command_executor import CommandExecutor
+import file_utils
+from command_executor import CommandExecutor
 
 
 class Agent:
