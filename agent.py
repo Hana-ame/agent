@@ -18,7 +18,8 @@ class Agent:
         self.paused = False
         self.client: LLMClient = None
         self._reconnect_attempts = 0
-
+        self._first_run = True
+        
     async def _create_client(self) -> bool:
         """创建并连接客户端，返回是否成功"""
         print(f"当前工作目录: {file_utils.ROOT_PATH}")
@@ -37,8 +38,9 @@ class Agent:
         if success:
             self.client = client
             self._reconnect_attempts = 0
-            if self.args.new_chat:
+            if self.args.new_chat and self._first_run:
                 await client.new_chat()
+                self._first_run = False
             print("连接成功，开始任务")
         else:
             print("连接失败")
@@ -155,13 +157,30 @@ class Agent:
                     log.write(f"\n{'='*25}\n工具输出\n{'='*25}\n")
                     log.write(output + "\n")
 
+                # 检查命令输出中是否包含结束标记
+                if file_utils.FINISH_MARKER in output:
+                    print("检测到结束标记，任务完成。")
+                    ongoing = False
+                    # 仍然将输出写入MESSAGE_FILE，以便可能的外部查看，但循环即将结束
+                    with open(file_utils.MESSAGE_FILE, "w", encoding="utf-8") as f:
+                        f.write(output)
+                    break  # 退出循环
+
                 with open(file_utils.MESSAGE_FILE, "w", encoding="utf-8") as f:
                     f.write(output)
             else:
-                print("未检测到命令，返回系统提示。")
-                output = file_utils.initial_message(self.args)
-                with open(file_utils.MESSAGE_FILE, "w", encoding="utf-8") as f:
-                    f.write(output)
+                print("未检测到命令。")
+                # 检查回复中是否包含结束标记
+                if file_utils.FINISH_MARKER in content:
+                    print("检测到结束标记，任务完成。")
+                    ongoing = False
+                    # 不写入MESSAGE_FILE，直接退出
+                    break
+                else:
+                    # 无命令且无结束标记，可能是意外情况，退出循环
+                    print("无命令且无结束标记，退出循环。")
+                    ongoing = False
+                    break
 
             file_utils.save_response(content, file_utils.LAST_RESPONSE_FILE)
 
