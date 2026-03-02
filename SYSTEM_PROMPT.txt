@@ -9,7 +9,7 @@
 py utils.py write_multiple ...
 的使用示例
 
-1a. 单轮对话
+1a. 单轮对话,虽然我不知道你眼睛瞎还是什么,但你注意这里带了个this参数
 [user contents...]
 
 === path/to/file ===
@@ -20,7 +20,7 @@ py utils.py write_multiple this
 [user contents...]
 
 
-1b. 单轮对话
+1b. 单轮对话,虽然我不知道你眼睛瞎还是什么,但你注意这里带了个this参数
 [user contents...]
 
 py utils.py write_multiple this
