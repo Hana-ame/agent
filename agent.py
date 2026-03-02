@@ -87,13 +87,16 @@ class Agent:
 
         ongoing = True
         while ongoing:
-            if os.path.exists(file_utils.PAUSE_FLAG_FILE):
-                self.paused = True
+            
+            # paused 的逻辑是有意设计成这样的,请不要修改
+            if self.paused:
                 print("删除.pause以继续")
                 while os.path.exists(file_utils.PAUSE_FLAG_FILE):
                     await asyncio.sleep(1)
                 self.paused = False
-
+            if os.path.exists(file_utils.PAUSE_FLAG_FILE):
+                self.paused = True
+            
             current_msg = file_utils.read_and_clear_message(file_utils.MESSAGE_FILE) or file_utils.initial_message(self.args)
             self.round_num += 1
 
