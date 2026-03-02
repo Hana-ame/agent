@@ -46,7 +46,8 @@ class Agent:
 
     async def _ensure_connected(self) -> bool:
         """确保客户端已连接且可用，若断开则尝试重连"""
-        if self.client and not getattr(self.client, 'is_finished', False):
+        # 修复：直接访问 is_finished 属性，而不是用 getattr
+        if self.client and not self.client.is_finished:
             return True
         if self.client:
             await self.client.close()

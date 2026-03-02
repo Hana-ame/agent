@@ -59,7 +59,8 @@ DEFAULT_MESSAGE_FILE = os.path.join(ROOT_PATH, "DEFAULT_MESSAGE.txt")
 PAUSE_FLAG_FILE = os.path.join(ROOT_PATH, ".pause")
 LOG_FILE = os.path.join(ROOT_PATH, "agent.log")
 FINISH_MARKER = "=== FINISH ==="
-PROFILES_PATH = os.path.join(ROOT_PATH, "agent", "profiles.json")
+# 修改：将 profiles.json 放在根目录，避免创建 agent 子目录
+PROFILES_PATH = os.path.join(ROOT_PATH, "profiles.json")
 PAYLOADS_DIR = os.path.join(ROOT_PATH, "payloads")
 
 # ==================== 文件操作工具 ====================
