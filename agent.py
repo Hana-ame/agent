@@ -193,11 +193,15 @@ async def main_async(args):
     paused = False
     while ongoing:
         
+        # print("paused =", paused)
+        # print("os.path.exists(PAUSE_FLAG_FILE)", os.path.exists(PAUSE_FLAG_FILE))
+        
         if paused:
             print("删除.pause以继续")
-        while paused:
-            await asyncio.sleep(1)
-        
+            while os.path.exists(PAUSE_FLAG_FILE):
+                await asyncio.sleep(1)
+            paused = False
+
         # 默认输出（仅当无命令且不暂停时会被使用，但新逻辑中无命令直接暂停，所以这里可保留原值，但实际不再使用）
         # output = "上一轮对话中的回复内容已保存到 LAST_RESPONSE.txt，如果需要保存，请根据情况使用 py utils.py write（对直接给出的文件）或者 py utils.py write_multiple（通过===分割的文件）进行写入。如果输出的不是完整代码或内容中包含代码以外的说明，请先输出完整的，不带说明的代码（注释是被允许的）。\n到这条信息为止，没有任何文件被保存，如果这不符合期望，请再次检查。\n提示：\npy utils.py help pause\npy utils.py help write\npy utils.py help write_multiple"
         current_msg = read_and_clear_message(MESSAGE_FILE) or initial_message(args=args)
@@ -279,13 +283,12 @@ async def main_async(args):
             # 无命令：返回系统提示
             print("未检测到命令，返回系统提示。")
             output = initial_message(args=args)
+            # 将命令输出写入 MESSAGE.txt 作为下一轮的输入
             with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
                 f.write(output)
 
         # 保存本轮 LLM 回复到 LAST_RESPONSE.txt
         save_response(content, LAST_RESPONSE_FILE)
-        # 设置下一轮的消息
-        current_msg = output
 
     print("=" * 30)
     print("Agent 结束")

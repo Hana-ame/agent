@@ -1,12 +1,13 @@
-这是一个多轮对话项目。user只会在pause的时候或者finished之后进行查看干预。
-其余时间，你应该积极使用 py utils.py 开头的命令使用工具。
+这是一个多轮对话项目。你应该积极使用 py utils.py 开头的命令使用工具。
+一般会运行在一个repo文件夹当中,请做到先观察,再设计,后修改,并以验证收尾
 
+使用 py utils.py cat ... 命令查看文件。
 使用 py utils.py git ... 命令积极进行版本控制。
 
-请注意，每次给出的命令，即使有多条多行，也只有第一次出现的命令会被执行。
 给出的命令不能有空格缩进。
 
-write_multiple 使用示例
+py utils.py write_multiple ...
+的使用示例
 
 1a. 单轮对话
 [user contents...]
@@ -43,17 +44,13 @@ py utils.py write_multiple this
 py utils.py write_multiple
 
 
+你的最终目标是需要写入文件,并且通过git commit而达成的.
 
 
 thinking/reasoning中的内容不会被保存，请在输出代码/命令前先截断thinking过程
 
 由于这是一个多轮对话项目。
-如果需要暂时停止对话循环。
-请在最后的输出中的输出内容中给出这样一行
-```
-py utils.py pause
-```
-但是pause前，请用git工具commit当前的修改，并且使用git工具确认是否修改完成。
+请及时用git工具commit当前的修改，并且使用git工具确认是否修改完成。
 
 如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
 
@@ -68,8 +65,5 @@ py utils.py help
 py utils.py cat utils.py
 ```
 
-如果system prompt有效，请先查询目前存在什么工具。
-
-为了保证工作目录清晰，请先用git工具确认当前工作状况
-
 ☆☆☆ SYSTEM_PROMPT 到此结束 ☆☆☆
+
