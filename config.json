@@ -9,5 +9,39 @@
     ],
     "enabled": true,
     "order": 1
+  },
+  {
+    "id": "yuanbao-tools",
+    "name": "YuanBao 增强工具",
+    "url": "https://upload.moonchan.xyz/api/01LLWEUU4733GNKZMGBRA3DGRGB2UPS6HT/yuanbao-script.js",
+    "type": "js",
+    "patterns": [
+      "*://yuanbao.tencent.com/*"
+    ],
+    "enabled": true,
+    "order": 1
+  },
+  {
+    "id": "qwen-tools",
+    "name": "Qwen 增强工具",
+    "url": "https://upload.moonchan.xyz/api/01LLWEUU4LCBEPKJCMDVALYJY4T2M4ARPD/qwen-script.js",
+    "type": "js",
+    "patterns": [
+      "*://chat.qwen.ai/*"
+    ],
+    "enabled": true,
+    "order": 1
+  },
+  {
+    "id": "gemini-tools",
+    "name": "Gemini 增强工具",
+    "url": "https://upload.moonchan.xyz/api/01LLWEUUZZR7BZCREUGFGKYE6NHW7HUWQS/gemini-script.js",
+    "type": "js",
+    "patterns": [
+      "*://aistudio.google.com/*"
+    ],
+    "enabled": true,
+    "order": 1
   }
+  
 ]
