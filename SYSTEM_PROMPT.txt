@@ -69,5 +69,9 @@ py utils.py help pause
 py utils.py cat utils.py
 ```
 
+
+你的最终目标是写入要求的文件,然后commit.
+
+
 ☆☆☆ SYSTEM_PROMPT 到此结束 ☆☆☆
 
