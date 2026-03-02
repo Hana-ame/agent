@@ -63,6 +63,7 @@ def run(ctx, args):
             if i < len(lines) and re.match(r'^=== end of .+ ===$', lines[i].rstrip('\n')):
                 i += 1
             file_content = ''.join(content_lines)
+            rel_path=rel_path.split(" ")[0]
             files.append((rel_path, file_content))
         else:
             i += 1
