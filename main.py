@@ -280,7 +280,8 @@ async def main_async(args):
         else:
             # 无命令：返回系统提示
             print("未检测到命令，返回系统提示。")
-            output = initial_message(args=args)
+            # output = initial_message(args=args)
+            output = "没有操作. py utils.py help [命令] 以获得帮助"
             # 将命令输出写入 MESSAGE.txt 作为下一轮的输入
             with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
                 f.write(output)

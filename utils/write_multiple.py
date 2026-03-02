@@ -2,7 +2,7 @@
 write_multiple - 批量写入多个文件（从指定的响应文件解析）
 
 用法：
-    py utils.py write_multiple              # 默认从 LAST_RESPONSE.txt 读取
+    py utils.py write_multiple              # 默认从 THIS_RESPONSE.txt 读取
     py utils.py write_multiple last          # 从 LAST_RESPONSE.txt 读取
     py utils.py write_multiple this          # 从 THIS_RESPONSE.txt 读取
 
@@ -29,7 +29,7 @@ def run(ctx, args):
     if args and args[0] in ('this', 'last'):
         which = args[0]
     else:
-        which = 'last'  # 默认 last
+        which = 'this'  # 默认 last
     
     if which == 'this':
         response_file = os.path.join(ctx.root_path, "THIS_RESPONSE.txt")
