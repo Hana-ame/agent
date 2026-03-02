@@ -15,10 +15,12 @@ except ImportError:
     print("请安装httpx: pip install httpx")
     raise
 
-def fix_deepseek(reasoning_buffer:str, content_buffer:str):
+def fix_deepseek(reasoning_buffer: str, content_buffer: str):
     if content_buffer == "":
         content_buffer, reasoning_buffer = reasoning_buffer, content_buffer
-    return "".join(reasoning_buffer).replace(" instant","\n"), "".join(content_buffer).replace(" instant","\n")
+    return reasoning_buffer.replace("
+", "\n"), content_buffer.replace("
+", "\n")
 
 class StreamChunk:
     """统一的流数据块，表示从模型接收到的每一个片段"""
