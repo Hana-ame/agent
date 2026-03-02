@@ -32,18 +32,6 @@ py utils.py write_multiple
 [user contents...]
 
 
-2. 多轮对话
-[user contents...]
-
-=== path/to/file ===
-...省略内容
-=== end of path/to/file ===
-
-[user contents...]
-
-py utils.py write_multiple last
-
-
 你的最终目标是需要写入文件,并且通过git commit而达成的.
 
 
