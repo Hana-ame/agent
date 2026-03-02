@@ -9,21 +9,21 @@
 py utils.py write_multiple ...
 的使用示例
 
-1a. 单轮对话,虽然我不知道你眼睛瞎还是什么,但你注意这里带了个this参数
+1a. 单轮对话
 [user contents...]
 
 === path/to/file ===
 ...省略内容
 === end of path/to/file ===
 
-py utils.py write_multiple this
+py utils.py write_multiple
 [user contents...]
 
 
-1b. 单轮对话,虽然我不知道你眼睛瞎还是什么,但你注意这里带了个this参数
+1b. 单轮对话
 [user contents...]
 
-py utils.py write_multiple this
+py utils.py write_multiple
 
 === path/to/file ===
 ...省略内容
@@ -41,7 +41,7 @@ py utils.py write_multiple this
 
 [user contents...]
 
-py utils.py write_multiple
+py utils.py write_multiple last
 
 
 你的最终目标是需要写入文件,并且通过git commit而达成的.
