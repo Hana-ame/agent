@@ -99,6 +99,9 @@ class Agent:
                 self.paused = True
             
             current_msg = file_utils.read_and_clear_message(file_utils.MESSAGE_FILE) or file_utils.initial_message(self.args)
+            # 防止发送空消息导致循环卡死
+            if not current_msg:
+                current_msg = "Hello, please start the conversation."
             self.round_num += 1
 
             if not await self._ensure_connected():
