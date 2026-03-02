@@ -69,7 +69,9 @@ def run(ctx, args):
 
     if not files:
         response = "\n".join(lines)
-        return f"错误：{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n{os.path.basename(response_file)}文件预览:\n{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"
+        if len(response) > PREVIEW_LENGTH*2:
+            return f"错误：{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n{os.path.basename(response_file)}文件预览:\n{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"
+        return f"错误：{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n{os.path.basename(response_file)}文件预览:\n{response}"
 
     results = []
     for rel_path, file_content in files:
@@ -92,7 +94,7 @@ def run(ctx, args):
             # 修改返回：去掉"成功"，回显内容，用 === 包裹
             
             result_str = f"{rel_path}中被写入了以下内容\n{striped_content}\n\n"
-            if (len(striped_content) > 200):
+            if (len(striped_content) > PREVIEW_LENGTH*2):
                 result_str = f"{rel_path}中被写入了以下内容\n{striped_content[0:PREVIEW_LENGTH]}...(中间省略)...{striped_content[-PREVIEW_LENGTH:]}\n\n"
             results.append(result_str)
         except Exception as e:
