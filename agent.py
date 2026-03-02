@@ -209,7 +209,7 @@ async def main_async(args):
 
         # 4.2 发送消息给 LLM
         print(f"\n{'='*50}\n第 {round_num} 轮：发送消息...")
-        await client.send_prompt(current_msg)
+        await client.send_prompt(f"user的第{round_num}轮输入\n{current_msg}\nuser的第{round_num}轮输入已结束")
 
         # 4.3 接收回复
         print("等待 LLM 回复...\n")

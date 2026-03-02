@@ -16,6 +16,8 @@ except ImportError:
     raise
 
 def fix_deepseek(reasoning_buffer:str, content_buffer:str):
+    if content_buffer == "":
+        content_buffer, reasoning_buffer = reasoning_buffer, content_buffer
     return "".join(reasoning_buffer).replace("<｜end▁of▁thinking｜>","\n"), "".join(content_buffer).replace("<｜end▁of▁thinking｜>","\n")
 
 class StreamChunk:
