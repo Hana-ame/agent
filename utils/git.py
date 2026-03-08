@@ -1,24 +1,33 @@
-"""
-git - 执行 Git 命令
 
-用法：py utils.py git <git子命令> [参数...]
-
-示例：
-  py utils.py git status
-  py utils.py git add .
-  py utils.py git commit -m "message"
-
-所有命令在根目录下执行。
-"""
-
+# [START] TOOL-GIT
+# version: 002
+# 描述：执行 git 命令
 import subprocess
 
-
 def run(ctx, args):
+    if not args:
+        return "Error: git 需要子命令 (e.g., status, diff)"
+    
+    # 限制只能运行 git 命令
+    cmd = ["git"] + args
+    
     try:
+        # 在 ctx.root_path 下执行
         result = subprocess.run(
-            ["git"] + args, capture_output=True, text=True, cwd=ctx.root_path
+            cmd,
+            cwd=ctx.root_path,
+            capture_output=True,
+            text=True,
+            timeout=30
         )
-        return "git 返回了下面的信息：\n" + result.stdout + result.stderr
+        
+        output = result.stdout
+        if result.stderr:
+            output += "\n[STDERR]\n" + result.stderr
+            
+        return output.strip()
+    except subprocess.TimeoutExpired:
+        return "Error: Git 命令超时"
     except Exception as e:
-        return f"Git 错误：{e}"
+        return f"Error: Git 执行失败 - {str(e)}"
+# [END] TOOL-GIT
