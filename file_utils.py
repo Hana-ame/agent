@@ -142,3 +142,12 @@ def initial_message(args) -> str:
         initial_msg = user_msg
 
     return initial_msg
+
+
+def read_system_prompt():
+    """
+    读取 .agent/system_prompt.txt 文件的内容并返回。
+    假设文件采用 UTF-8 编码。
+    """
+    with open('.agent/system_prompt.txt', 'r', encoding='utf-8') as file:
+        return file.read()

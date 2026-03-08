@@ -10,7 +10,7 @@ import websockets
 from typing import Tuple, List, Dict
 
 # from adapter.deepseek import DeepSeekParser
-from adapter.deepseek import DeepSeekParser
+from adapters.deepseek import DeepSeekParser
 # [END] ADAPTER-MAIN-PKG
 
 # [START] ADAPTER-BASE
@@ -90,6 +90,7 @@ class WSAdapter(BaseAdapter):
             if msg.get("type") == "token":
                 is_done = self.parser.on_message(msg.get("content", {}))
                 if is_done:
+                    print("----")
                     break
 
         return self.parser.get_result()
