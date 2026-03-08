@@ -1,10 +1,5 @@
+在 utils/文件夹中新建一个mkdir 工具
+与sh指令行为一致。
 
-
---new-chat flag
-只有在第一次对话的时候需要发送new_chat指令.
-
-修改agent.py以及其引用.
-
-注.现在的agent.py 不可用
 
 ☆☆☆ 任务说明 到此结束 ☆☆☆
