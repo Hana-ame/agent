@@ -1,55 +1,70 @@
-# -*- coding: utf-8 -*-
-
-"""
-utils.py - 工具调用入口
-
-支持两种调用方式：
-  1. 命令行模式：py utils.py <工具名称> [参数...]
-  2. 批量模式：py utils.py （无参数）—— 此时会读取 LAST_PROMPT.txt 中的命令并批量执行。
-      LAST_PROMPT.txt 应包含多行，每行以 "py utils.py " 开头，后跟工具名称和参数。
-
-工具列表（位于 utils/ 目录下）：
-    read <相对路径>
-    write <相对路径>
-    append <相对路径> <内容>
-    replace <相对路径> <旧文本> <新文本>
-    list <相对路径>
-    delete <相对路径> [多个路径...]
-    move <源路径> <目标路径>
-    pause
-    resume
-    write_multiple
-    git <git命令...>
-    ... 可扩展
-
-为了方便，部分常用命令设有别名：
-    cat  -> read
-    ls   -> list
-    mv   -> move
-    rm   -> delete
-
-使用 'py utils.py help' 查看所有工具。
-使用 'py utils.py help <工具名>' 查看具体工具的详细帮助。
-使用 'py utils.py help --json' 以 JSON 格式输出工具列表。
-使用 'py utils.py help --search <关键词>' 搜索工具。
-"""
-
+# [START] UTILS-PKG
+# version: 001
+# 上下文：工具调用主入口脚本。先决调用：无。后续调用：动态加载环境初始化。
+# 输入参数：无
+# 输出参数：无
 import sys
-import importlib
+import importlib.util
 import os
 import shlex
 import json
 
-# 别名映射：用户输入的命令 -> 实际工具名称
 ALIASES = {
     'cat': 'read',
     'ls': 'list',
     'mv': 'move',
     'rm': 'delete',
 }
+# [END] UTILS-PKG
 
-def get_tool_info(tool_name):
-    """获取指定工具的详细信息，返回字典包含 name, description, doc, alias"""
+# [START] UTILS-LOADER
+# version: 001
+# 上下文：尝试在指定路径集合中寻址并加载外部独立的 Python 工具文件。先决调用：接收到外部工具名调用请求。后续调用：通过执行工具内的 run 方法运行。
+# 输入参数：tool_name (str)
+# 输出参数：编译并挂载的 Python module 对象或 None
+def load_tool_module(tool_name: str):
+    root_path = os.getcwd()
+    search_paths =[
+        os.path.join(root_path, ".agent"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils")
+    ]
+    
+    for path in search_paths:
+        mod_path = os.path.join(path, f"{tool_name}.py")
+        if os.path.isfile(mod_path):
+            spec = importlib.util.spec_from_file_location(f"tool_{tool_name}", mod_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+    return None
+#[END] UTILS-LOADER
+
+# [START] UTILS-SCANNER
+# version: 001
+# 上下文：获取当前系统两级目录下的所有可用工具集合。先决调用：用户通过 help 指令查看列表。后续调用：交由 help 格式化打印。
+# 输入参数：无
+# 输出参数：去重后的所有工具纯名称列表 (List[str])
+def get_all_tool_names():
+    root_path = os.getcwd()
+    search_paths =[
+        os.path.join(root_path, ".agent"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils")
+    ]
+    tools = set()
+    for path in search_paths:
+        if os.path.isdir(path):
+            for f in os.listdir(path):
+                if f.endswith(".py") and f not in ("__init__.py", "core.py"):
+                    tools.add(f[:-3])
+    return sorted(list(tools))
+# [END] UTILS-SCANNER
+
+# [START] UTILS-INFO
+# version: 001
+# 上下文：探测单个工具详情及说明。先决调用：UTILS-LOADER 寻址工具模块。后续调用：帮助系统的 UI 打印。
+# 输入参数：tool_name (str)
+# 输出参数：描述字段组成的字典 (dict)
+def get_tool_info(tool_name: str):
     actual_tool = ALIASES.get(tool_name, tool_name)
     info = {
         'name': actual_tool,
@@ -57,174 +72,61 @@ def get_tool_info(tool_name):
         'description': '无说明',
         'doc': None
     }
-    try:
-        module = importlib.import_module(f"utils.{actual_tool}")
-        if module.__doc__:
-            doc = module.__doc__.strip()
+    mod = load_tool_module(actual_tool)
+    if mod:
+        if mod.__doc__:
+            doc = mod.__doc__.strip()
             info['doc'] = doc
-            # 提取第一行或第一段作为简短描述
             lines = doc.split('\n')
             desc = lines[0].strip()
             if not desc and len(lines) > 1:
                 desc = lines[1].strip()
             info['description'] = desc
-    except ImportError:
-        info['description'] = f"工具 '{actual_tool}' 不存在或无法加载"
+    else:
+        info['description'] = f"工具 '{actual_tool}' 不存在"
     return info
+# [END] UTILS-INFO
 
-def list_tools(json_output=False, search_term=None):
-    """列出所有可用工具，支持 JSON 输出和搜索"""
-    utils_dir = os.path.join(os.path.dirname(__file__), "utils")
-    tools = []
-    if os.path.isdir(utils_dir):
-        for f in os.listdir(utils_dir):
-            if f.endswith(".py") and f not in ("__init__.py", "core.py"):
-                tools.append(f[:-3])
-    tools.sort()
-
-    # 收集所有工具信息
-    tools_info = []
-    for t in tools:
-        info = get_tool_info(t)  # 传入实际工具名，获取原始信息
-        # 如果提供了搜索词，检查是否匹配
-        if search_term:
-            search_lower = search_term.lower()
-            if (search_lower in info['name'].lower() or
-                search_lower in info['description'].lower() or
-                (info['doc'] and search_lower in info['doc'].lower())):
-                tools_info.append(info)
+# [START] UTILS-SHOW-HELP
+# version: 001
+# 上下文：解析外部 help 入参并输出文档结果。先决调用：启动脚本被传入 help 指令。后续调用：流出到标准输出供查看。
+# 输入参数：args (list)
+# 输出参数：无
+def show_help(args: list):
+    json_output = '--json' in args
+    
+    if len(args) > 0 and not args[0].startswith('--'):
+        tool_name = args[0]
+        info = get_tool_info(tool_name)
+        if json_output:
+            print(json.dumps(info, ensure_ascii=False, indent=2))
         else:
-            tools_info.append(info)
+            print(info['doc'] if info['doc'] else f"工具 '{tool_name}' 没有文档。")
+        return
+
+    tools = get_all_tool_names()
+    tools_info =[get_tool_info(t) for t in tools]
 
     if json_output:
-        # 输出 JSON 格式
-        output = {info['name']: info for info in tools_info}
-        print(json.dumps(output, ensure_ascii=False, indent=2))
+        print(json.dumps({info['name']: info for info in tools_info}, ensure_ascii=False, indent=2))
     else:
-        # 普通文本格式
         if not tools_info:
             print("没有找到匹配的工具。")
             return
         for info in tools_info:
             alias_str = f" (别名: {info['alias']})" if info['alias'] else ""
             print(f"  {info['name']:15}{alias_str} - {info['description']}")
-        # 显示别名映射总览
-        if not search_term:
-            print("\n常用别名：cat(→read), ls(→list), mv(→move), rm(→delete)")
+        print("\n常用别名：cat(→read), ls(→list), mv(→move), rm(→delete)")
+# [END] UTILS-SHOW-HELP
 
-def show_tool_help(tool_name, json_output=False):
-    """显示单个工具的详细帮助"""
-    info = get_tool_info(tool_name)
-    if json_output:
-        print(json.dumps(info, ensure_ascii=False, indent=2))
-    else:
-        if info['doc']:
-            print(info['doc'])
-        else:
-            print(f"工具 '{tool_name}' 没有提供帮助文档。")
-
-def show_help(args=None):
-    """显示帮助信息，args 是命令行剩余参数列表"""
-    if args is None:
-        args = []
-
-    # 解析参数（简单手动解析）
-    json_output = False
-    search_term = None
-    tool_name = None
-
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg == '--json':
-            json_output = True
-        elif arg == '--search' and i+1 < len(args):
-            search_term = args[i+1]
-            i += 1
-        elif not arg.startswith('--'):
-            # 第一个非选项参数视为工具名
-            tool_name = arg
-        i += 1
-
-    if tool_name:
-        # 显示特定工具帮助
-        show_tool_help(tool_name, json_output)
-    elif search_term is not None:
-        # 搜索工具
-        list_tools(json_output, search_term)
-    else:
-        # 显示所有工具列表
-        list_tools(json_output, search_term)
-
+#[START] UTILS-MAIN
+# version: 001
+# 上下文：工具代理脚本独立生命周期起点。先决调用：被 CommandRule 作为独立进程拉起。后续调用：加载具体工具并传递假冒上下文 Context。
+# 输入参数：无
+# 输出参数：无
 def main():
-    # 无参数模式：从 LAST_PROMPT.txt 读取命令批量执行
-    if len(sys.argv) == 1:
-        prompt_file = "LAST_PROMPT.txt"
-        if not os.path.isfile(prompt_file):
-            print(f"错误：找不到 {prompt_file}，请确保文件存在。")
-            sys.exit(1)
-
-        with open(prompt_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-
-        # 初始化上下文
-        from utils import core
-        ctx = core.Context(core.load_root_path())
-
-        results = []
-        for line_num, line in enumerate(lines, 1):
-            line = line.strip()
-            if not line:
-                continue
-            # 只处理以 "py utils.py " 开头的行
-            if line.startswith("py utils.py "):
-                cmd_part = line[len("py utils.py "):]
-                try:
-                    args_list = shlex.split(cmd_part)
-                except Exception as e:
-                    results.append(f"第 {line_num} 行命令解析失败: {e}")
-                    continue
-
-                if not args_list:
-                    results.append(f"第 {line_num} 行命令为空")
-                    continue
-
-                raw_tool = args_list[0]
-                tool_name = ALIASES.get(raw_tool, raw_tool)  # 别名映射
-                tool_args = args_list[1:]
-
-                # 执行工具
-                try:
-                    module = importlib.import_module(f"utils.{tool_name}")
-                except ImportError:
-                    results.append(f"第 {line_num} 行: 未知工具 '{raw_tool}'（映射后为 '{tool_name}' 仍不存在）")
-                    continue
-
-                if not hasattr(module, "run"):
-                    results.append(f"第 {line_num} 行: 工具 '{tool_name}' 缺少 run 函数")
-                    continue
-
-                try:
-                    result = module.run(ctx, tool_args)
-                    if result is not None:
-                        results.append(f"第 {line_num} 行: {result}")
-                    else:
-                        results.append(f"第 {line_num} 行: 执行成功（无输出）")
-                except Exception as e:
-                    results.append(f"第 {line_num} 行: 执行出错 - {e}")
-            else:
-                # 忽略不以 py utils.py 开头的行
-                # 可选择记录调试信息，此处忽略
-                pass
-
-        # 打印所有结果
-        for res in results:
-            print(res)
-        sys.exit(0)
-
-    # 命令行模式（有参数）
     if len(sys.argv) < 2:
-        print(__doc__)
+        print("错误: 必须指定工具名称。")
         sys.exit(1)
 
     command = sys.argv[1].lower()
@@ -234,32 +136,24 @@ def main():
         show_help(args)
         sys.exit(0)
 
-    # 正常工具调用，应用别名映射
     raw_tool = command
     tool_name = ALIASES.get(raw_tool, raw_tool)
-    tool_args = args
 
-    try:
-        module = importlib.import_module(f"utils.{tool_name}")
-    except ImportError:
-        print(f"错误：未知的工具名称 '{raw_tool}'（映射后为 '{tool_name}' 仍不存在）")
-        print("可用工具：")
-        utils_dir = os.path.join(os.path.dirname(__file__), "utils")
-        if os.path.isdir(utils_dir):
-            for f in os.listdir(utils_dir):
-                if f.endswith(".py") and f not in ("__init__.py", "core.py"):
-                    print(f"    {f[:-3]}")
+    mod = load_tool_module(tool_name)
+    if not mod:
+        print(f"错误：未知的工具名称 '{raw_tool}'。尝试 'py utils.py help' 了解可用工具。")
         sys.exit(1)
 
-    if not hasattr(module, "run"):
+    if not hasattr(mod, "run"):
         print(f"错误：工具模块 '{tool_name}' 缺少 run 函数")
         sys.exit(1)
 
-    from utils import core
-    ctx = core.Context(core.load_root_path())
-
+    class DummyContext:
+        def validate_path(self, path):
+            return path
+            
     try:
-        result = module.run(ctx, tool_args)
+        result = mod.run(DummyContext(), args)
         if result is not None:
             print(result)
     except Exception as e:
@@ -268,3 +162,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+# [END] UTILS-MAIN
