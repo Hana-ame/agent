@@ -84,6 +84,7 @@ class DeepSeekParser:
 
     def _append_content(self, raw_type: str, content: str):
         if not content: return
+        print(content, end="",flush=True)
         if raw_type == "THINK":
             self.reasoning_buffer.append(content)
         else:

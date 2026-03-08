@@ -9,8 +9,9 @@ import os
 import argparse
 from pathlib import Path
 
-from adapter import LLMClient
+from llm_client import LLMClient
 from parser_rules import RuleProcessor
+from file_utils import read_system_prompt
 #[END] AGENT-PKG
 
 # [START] AGENT-CORE
@@ -117,7 +118,8 @@ class Agent:
             if not current_msg and self.args.message:
                 current_msg = self.args.message
             if not current_msg:
-                current_msg = "Hello, please start the conversation."
+                # current_msg = "Hello, please start the conversation."
+                current_msg = read_system_prompt()
                 
             self.round_num += 1
 
@@ -125,11 +127,11 @@ class Agent:
                 break
 
             print(f"\n{'='*50}\n第 {self.round_num} 轮：发送消息...")
-            await self.client.send_prompt(f"user的第{self.round_num}轮输入\n{current_msg}\n输入结束")
+            await self.client.send_prompt(f"user的第{self.round_num}轮输入\n\n{current_msg}\n\nuser的第{self.round_num}轮输入结束")
 
             reasoning, content = "", ""
             try:
-                reasoning, content = await asyncio.wait_for(self.client.completion(), timeout=120)
+                reasoning, content = await asyncio.wait_for(self.client.completion(), timeout=60*60)
             except Exception as e:
                 print(f"获取 completion 失败: {e}")
                 break
@@ -149,19 +151,19 @@ class Agent:
                     log.write(f"\n{'='*25}\n第 {self.round_num} 轮输出\n{'='*25}\n")
                     log.write(processor_output + "\n")
                 
-                if "FINISH_AGENT" in processor_output or "FINISH_AGENT" in content:
-                    print("检测到结束标记，任务完成。")
-                    ongoing = False
+                # if "FINISH_AGENT" in processor_output or "FINISH_AGENT" in content:
+                #     print("检测到结束标记，任务完成。")
+                #     ongoing = False
                     
                 with open(self.msg_file, "w", encoding="utf-8") as f:
                     f.write(processor_output)
             else:
                 print("未匹配到任何操作规则。")
-                if "FINISH_AGENT" in content:
-                    print("检测到结束标记，退出循环。")
-                    ongoing = False
-                else:
-                    ongoing = False
+                # if "FINISH_AGENT" in content:
+                #     print("检测到结束标记，退出循环。")
+                #     ongoing = False
+                # else:
+                #     ongoing = False
 
         print("=" * 30)
         print("Agent 结束")

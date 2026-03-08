@@ -74,6 +74,7 @@ class LLMClient:
     # [END] LLMCLIENT-CONNECT
 
     # [START] LLMCLIENT-SEND-PROMPT
+    # last modify: 2026-03-08 
     # version: 001
     # 上下文：Agent 需要发送新一轮对话指令，适配器在此暂存状态。先决调用：LLMCLIENT-CONNECT 成功并处于空闲态。后续调用：触发 LLMCLIENT-COMPLETION 进行阻塞执行。
     # 输入参数：text (str)
@@ -84,6 +85,7 @@ class LLMClient:
     # [END] LLMCLIENT-SEND-PROMPT
 
     # [START] LLMCLIENT-COMPLETION
+    # last modify: 2026-03-08 
     # version: 001
     # 上下文：阻塞等待底层 LLM 接口返回完整的双轨结果。先决调用：LLMCLIENT-SEND-PROMPT 已暂存用户输入。后续调用：结果转交 RuleProcessor 模式引擎处理。
     # 输入参数：无
@@ -96,6 +98,22 @@ class LLMClient:
         self.is_finished = True
         return reasoning, content
     # [END] LLMCLIENT-COMPLETION
+
+    # [START] LLMCLIENT-SEND-PROMPT-AND-COMPLETION
+    # last modify: 2026-03-08 
+    # version: 001
+    # 上下文：Agent 需要发送新一轮对话指令并立即等待完整结果，组合了发送和完成两个步骤。先决调用：LLMCLIENT-CONNECT 成功并处于空闲态。后续调用：结果转交 RuleProcessor 模式引擎处理。
+    # 输入参数：text (str)
+    # 输出参数：reasoning (str), content (str)
+    async def send_prompt_and_completion(self, text: str) -> Tuple[str, str]:
+        if not self.adapter:
+            raise RuntimeError("尚未连接到任何底层 Adapter")
+        self._current_prompt = text
+        self.is_finished = False
+        reasoning, content = await self.adapter.new_prompt(text)
+        self.is_finished = True
+        return reasoning, content
+    # [END] LLMCLIENT-SEND-PROMPT-AND-COMPLETION
 
     # [START] LLMCLIENT-NEW-CHAT
     # version: 001
