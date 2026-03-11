@@ -63,3 +63,5 @@ if ($LASTEXITCODE -ne 0) {
     # 可以显示文件信息
     Get-Item $Output
 }
+
+scp golang-server root@cloudcone.moonchan.xyz:~
