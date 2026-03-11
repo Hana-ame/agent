@@ -97,4 +97,4 @@ def run(ctx, args):
         print(int(time_module.time()))
     else:
         # 默认显示完整日期时间
-        print(now.strftime("%Y-%m-%d %H:%M:%S"))
+        print(now.strftime("%Y-%m-%d %H:%M:%S"))\n# [START] MAIN\n"\"\"\"\n# [END] MAIN\n
