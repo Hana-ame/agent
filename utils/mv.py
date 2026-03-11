@@ -1,10 +1,9 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """
-move - 移动或重命名文件/目录
+mv - 移动或重命名文件/目录
 
-用法：py utils.py move <源路径> <目标路径>
+用法：py utils.py mv <源路径> <目标路径>
 
 参数：
   <源路径>     要移动的文件或目录的相对路径
@@ -19,18 +18,17 @@ move - 移动或重命名文件/目录
   - 目标路径的父目录必须存在，否则报错。
 
 示例：
-  py utils.py move file.txt newname.txt          # 重命名
-  py utils.py move file.txt dir/                  # 移动到 dir/ 目录下
-  py utils.py move dir1/ dir2/                    # 移动目录
+  py utils.py mv file.txt newname.txt          # 重命名
+  py utils.py mv file.txt dir/                 # 移动到 dir/ 目录下
+  py utils.py mv dir1/ dir2/                   # 移动目录
 """
 
 import os
 import shutil
-from pathlib import Path
 
 def run(ctx, args):
     if len(args) != 2:
-        return "错误：move 需要 2 个参数：<源路径> <目标路径>"
+        return "错误：mv 需要 2 个参数：<源路径> <目标路径>"
 
     src_raw, dst_raw = args[0], args[1]
 
