@@ -11,7 +11,7 @@ from pathlib import Path
 
 from llm_client import LLMClient
 from parser_rules import RuleProcessor
-from file_utils import read_system_prompt
+from file_utils import read_system_prompt, save_agent_content
 #[END] AGENT-PKG
 
 # [START] AGENT-CORE
@@ -35,6 +35,9 @@ class Agent:
         self.msg_file = os.path.join(self.agent_dir, "MESSAGE.txt")
         self.pause_file = os.path.join(self.agent_dir, ".pause")
         self.log_file = os.path.join(self.agent_dir, "LOG.txt")
+        
+        self.last_response_file = os.path.join(self.agent_dir, "LAST_RESPONSE.txt")
+        self.this_response_file = os.path.join(self.agent_dir, "THIS_RESPONSE.txt")
         
         self.utils_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils.py")
         self.processor = RuleProcessor(self.root_path, self.agent_dir, self.utils_path)
@@ -140,6 +143,8 @@ class Agent:
             print(f"推理过程:\n{reasoning}\n")
             print("=" * 30)
             print(f"回复内容:\n{content}\n")
+            
+            save_agent_content(self, content)
 
             processor_output = await self.processor.process(content)
             
