@@ -1,10 +1,11 @@
+
 """
 write_multiple - 批量写入多个文件（从指定的响应文件解析）
 
 用法：
     py utils.py write_multiple              # 默认从 THIS_RESPONSE.txt 读取
-    py utils.py write_multiple last          # 从 LAST_RESPONSE.txt 读取
-    py utils.py write_multiple this          # 从 THIS_RESPONSE.txt 读取
+    py utils.py write_multiple last         # 从 LAST_RESPONSE.txt 读取
+    py utils.py write_multiple this         # 从 THIS_RESPONSE.txt 读取
 
 响应文件（LAST_RESPONSE.txt 或 THIS_RESPONSE.txt）中需包含按以下格式组织的多个文件块：
 
@@ -29,12 +30,13 @@ def run(ctx, args):
     if args and args[0] in ('this', 'last'):
         which = args[0]
     else:
-        which = 'this'  # 默认 last
+        which = 'this'  # 默认 this
     
+    # 根据要求，文件路径已经移动到 .agent/ 目录下
     if which == 'this':
-        response_file = os.path.join(ctx.root_path, "THIS_RESPONSE.txt")
+        response_file = os.path.join(ctx.root_path, ".agent", "THIS_RESPONSE.txt")
     else:  # 'last'
-        response_file = os.path.join(ctx.root_path, "LAST_RESPONSE.txt")
+        response_file = os.path.join(ctx.root_path, ".agent", "LAST_RESPONSE.txt")
     
     try:
         with open(response_file, "r", encoding="utf-8") as f:
@@ -42,7 +44,7 @@ def run(ctx, args):
     except Exception as e:
         return f"错误：无法读取 {os.path.basename(response_file)} - {e}"
 
-    files = []
+    files =[]
     i = 0
     while i < len(lines):
         line = lines[i].rstrip('\n')
@@ -50,7 +52,7 @@ def run(ctx, args):
         if start_match:
             rel_path = start_match.group(1).strip()
             i += 1
-            content_lines = []
+            content_lines =[]
             while i < len(lines):
                 current_line = lines[i].rstrip('\n')
                 # 检测结束标记：=== end of 文件名 ===，且文件名必须匹配
@@ -74,7 +76,7 @@ def run(ctx, args):
             return f"错误：{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n{os.path.basename(response_file)}文件预览:\n{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"
         return f"错误：{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n{os.path.basename(response_file)}文件预览:\n{response}"
 
-    results = []
+    results =[]
     for rel_path, file_content in files:
         # 保存响应内容到文件，移除首尾的```标记
         lines = file_content.splitlines()
@@ -92,7 +94,7 @@ def run(ctx, args):
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(striped_content)
-            # 修改返回：去掉"成功"，回显内容，用 === 包裹
+            # 修改返回：去掉"成功"，回显内容
             
             result_str = f"{rel_path}中被写入了以下内容\n{striped_content}\n\n"
             if (len(striped_content) > PREVIEW_LENGTH*2):
