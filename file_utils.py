@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import asyncio
 from pathlib import Path
@@ -151,3 +152,25 @@ def read_system_prompt():
     """
     with open('.agent/system_prompt.txt', 'r', encoding='utf-8') as file:
         return file.read()
+
+
+def save_agent_content(self, content):
+    """
+    保存新内容到 THIS_CONTENT.txt，并将旧内容滚动到 LAST_CONTENT.txt
+    """
+    # 1. 如果当前内容文件已存在，将其备份到 LAST_CONTENT.txt
+    if os.path.exists(self.this_response_file):
+        # 使用 copyfile 或 move，取决于你是否想保留 THIS 文件
+        shutil.copyfile(self.this_response_file, self.last_response_file)
+    
+    # 2. 将新内容写入 THIS_CONTENT.txt
+    try:
+        with open(self.this_response_file, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"内容已成功保存至 {self.this_response_file}")
+    except Exception as e:
+        print(f"保存文件时出错: {e}")
+
+# 调用示例
+# content = "这是本次对话的内容..."
+# self.save_agent_content(content)
