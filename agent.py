@@ -179,7 +179,7 @@ class Agent:
 # 输出参数：无
 def main():
     parser = argparse.ArgumentParser(description="Agent 客户端核心引擎")
-    parser.add_argument("connection", help="连接参数 (WS URL 或 profile name)")
+    parser.add_argument("connection", default="wss://d.810114.xyz/ws/client", help="连接参数 (WS URL 或 profile name)")
     parser.add_argument("-m", "--message", help="直接提供消息内容启动")
     parser.add_argument("-p", "--payload", default="default.json", help="仅 HTTP 模式所需的 payload 模板")
     parser.add_argument("--new-chat", action="store_true", help="强制清除历史记忆")
