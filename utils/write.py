@@ -23,4 +23,4 @@ def run(ctx, args):
         return f"Success: 已写入 {rel_path} (长度: {len(content)})"
     except Exception as e:
         return f"Error: 写入失败 - {str(e)}"
-# [END] TOOL-WRITE\n# [START] TOOL-WRITE\n"# [START] TOOL-WRITE\n# [END] TOOL-WRITE\n# [START] TOOL-WRITE\n"# version: 003 (增强版，支持 --snippet)\n# [END] TOOL-WRITE\n
+# [END] TOOL-WRITE
