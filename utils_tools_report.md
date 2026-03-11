@@ -1,0 +1,1 @@
+"工具可用性报告：append(可用), cat(可用), command_executor(不可用，无run函数), core(不可用，核心模块), delete(可用), file_utils(不可用，无run函数), git(可用), help(可用), ls(可用), memory(可用), mv(可用), pause(可用), replace(可用), search(可用), time(可用), write(可用), write_multiple(可用)。修改方向：将command_executor和file_utils重命名为以下划线开头，避免出现在工具列表中。"
