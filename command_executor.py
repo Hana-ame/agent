@@ -15,7 +15,8 @@ class CommandExecutor:
         命令格式如 'py utils.py ...'，会转换为绝对路径并设置工作目录。
         """
         try:
-            parts = shlex.split(cmd)
+            parts = shlex.split(cmd, posix=False) 
+
             if parts and parts[0] in ("py", "python", "python3"):
                 parts[0] = sys.executable
                 if len(parts) > 1 and os.path.basename(parts[1]) == "utils.py":
