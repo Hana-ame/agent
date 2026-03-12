@@ -1,0 +1,63 @@
+# 工具测试报告：git.py
+
+## 测试时间
+2026-03-12
+
+## 期望用法
+命令格式：`py utils.py git <git-subcommand> [args...]`
+
+输出格式：
+- 成功时：直接返回 git 命令的输出（包含 stdout 和 stderr）
+- 失败时（命令执行失败、超时、异常）：
+  ```
+  === git ===
+  错误：具体错误信息
+  === end of git ===
+  ```
+
+## 实际用法（修改后）
+与期望一致。
+
+## 测试结果
+
+### 1. 成功命令
+命令：`py utils.py git status`
+输出（部分）：
+```
+On branch client
+Your branch is ahead of 'origin/client' by 51 commits.
+...
+```
+✅ 正确返回 git 输出。
+
+### 2. 成功命令带参数
+命令：`py utils.py git log -1 --oneline`
+输出：
+```
+867690c docs: add test report for replace tool
+```
+✅ 正确返回。
+
+### 3. 无效子命令
+命令：`py utils.py git xxx`
+输出：
+```
+=== git ===
+错误：git: 'xxx' is not a git command. See 'git --help'.
+=== end of git ===
+```
+✅ 错误块格式正确。
+
+### 4. 无参数
+命令：`py utils.py git`
+输出：
+```
+错误：git 需要子命令 (e.g., status, diff)
+```
+✅ 符合预期。
+
+## 清理
+已执行 `git clean -fd` 清理未跟踪文件，工作区干净。
+
+## 结论
+`git.py` 已按统一风格修改并通过测试。
