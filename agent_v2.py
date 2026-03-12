@@ -1,8 +1,5 @@
 # [START] AGENT-PKG
 # version: 001
-# 上下文：主控程序入口。先决调用：无。后续调用：AGENT-MAIN。
-# 输入参数：无
-# 输出参数：无
 import sys
 import asyncio
 import os
@@ -12,16 +9,11 @@ from pathlib import Path
 from llm_client import LLMClient
 from parser_rules import RuleProcessor
 from file_utils import read_system_prompt, save_agent_content
-# 导入 thoughts 工具
 from utils import thoughts
-
 #[END] AGENT-PKG
 
 # [START] AGENT-CORE
-# version: 001
-# 上下文：系统的主体控制器。先决调用：参数解析完成。后续调用：建立连接并拉起循环。
-# 输入参数：args (argparse.Namespace)
-# 输出参数：无
+# version: 002  # 修改连接保持逻辑
 class Agent:
     def __init__(self, args):
         self.args = args
@@ -46,7 +38,7 @@ class Agent:
         self.processor = RuleProcessor(self.root_path, self.agent_dir, self.utils_path)
 
     # [START] AGENT-CREATE-CLIENT
-    # version: 001
+    # version: 002
     async def _create_client(self) -> bool:
         print(f"工作目录: {self.root_path}")
         print(f"Agent目录: {self.agent_dir}")
@@ -70,13 +62,14 @@ class Agent:
     # [END] AGENT-CREATE-CLIENT
 
     # [START] AGENT-ENSURE-CONN
-    # version: 001
+    # version: 002  # 改为检查 _connected 属性
     async def _ensure_connected(self) -> bool:
-        if self.client and not self.client.is_finished:
+        if self.client and self.client._connected:
             return True
         if self.client:
             await self.client.close()
 
+        self._reconnect_attempts = 0
         while self._reconnect_attempts < 5:
             self._reconnect_attempts += 1
             print(f"尝试重连 ({self._reconnect_attempts}/5)...")
@@ -87,7 +80,7 @@ class Agent:
     # [END] AGENT-ENSURE-CONN
 
     # [START] AGENT-RUN
-    # version: 003  # 移除内部 _pop_thought，改为调用 thoughts 模块
+    # version: 003  # 移除 is_finished 依赖
     async def run(self):
         if not await self._create_client():
             return
@@ -115,7 +108,6 @@ class Agent:
             if not current_msg and self.args.message:
                 current_msg = self.args.message
             if not current_msg:
-                # 尝试从想法中获取
                 thought = thoughts.pop_thought(self.root_path)
                 if thought:
                     current_msg = thought
@@ -125,6 +117,7 @@ class Agent:
 
             self.round_num += 1
 
+            # 确保连接仍然活跃（但不会因为一轮结束而断开）
             if not await self._ensure_connected():
                 break
 
@@ -159,7 +152,6 @@ class Agent:
                     f.write(processor_output)
             else:
                 print("未匹配到任何操作规则。")
-                # 如果没有生成下一轮消息，且对话仍在继续，下一轮循环将尝试想法或系统提示
 
         print("=" * 30)
         print("Agent 结束")
