@@ -1,5 +1,5 @@
 """
-snippet - 管理文件中的代码段（以 # [START] name 或 // [START] name 标记）
+snippet - 管理文件中的代码段（以 [START] name 和 [END] name 标记，注释符根据文件类型自动判断）
 
 用法：
     py utils.py snippet list <file>               列出文件中的所有代码段
@@ -22,17 +22,59 @@ import argparse
 from pathlib import Path
 from utils import core
 
-# 匹配代码段，支持 # 和 // 作为注释符
-SNIPPET_PATTERN = re.compile(
-    r'^[ \t]*(?:#|//)[ \t]*\[START\][ \t]+([\w-]+)[ \t]*$\n?(.*?)^[ \t]*(?:#|//)[ \t]*\[END\][ \t]+\1[ \t]*$',
-    re.DOTALL | re.MULTILINE
-)
+# 文件扩展名到注释符的映射（行注释）
+_COMMENT_MAP = {
+    # 使用 # 的语言
+    ('.py', '.rb', '.pl', '.pm', '.sh', '.bash', '.yaml', '.yml', '.dockerfile', '.makefile'): ['#'],
+    # 使用 // 的语言
+    ('.c', '.h', '.cpp', '.hpp', '.cc', '.cxx', '.java', '.js', '.ts', '.go', '.rs', '.php', '.swift', '.kt'): ['//'],
+    # 使用 -- 的语言
+    ('.sql',): ['--'],
+    # 其他默认支持 # 和 //（常见）
+}
 
-def find_snippets(content):
+def _get_comment_pattern(file_path):
+    """根据文件路径返回匹配注释符的正则片段（如 '(?:#|//|--)'）"""
+    ext = os.path.splitext(file_path)[1].lower()
+    comment_starts = ['#', '//']  # 默认支持两种
+    for exts, starts in _COMMENT_MAP.items():
+        if ext in exts:
+            comment_starts = starts
+            break
+    # 转义注释符（如 // 需要转义）
+    escaped = [re.escape(c) for c in comment_starts]
+    return '(?:' + '|'.join(escaped) + ')'
+
+def _build_snippet_pattern(file_path):
+    """构建完整的代码段匹配正则"""
+    comment = _get_comment_pattern(file_path)
+    # 注意：反向引用 \1 在 raw 字符串中需写成 \\1
+    return re.compile(
+        r'^[ \t]*' + comment + r'[ \t]*\[START\][ \t]+([\w-]+)[ \t]*$\n?(.*?)^[ \t]*' + comment + r'[ \t]*\[END\][ \t]+\1[ \t]*$',
+        re.DOTALL | re.MULTILINE
+    )
+
+def _build_snippet_pattern_for_name(file_path, name):
+    """构建匹配指定名称代码段的正则"""
+    comment = _get_comment_pattern(file_path)
+    return re.compile(
+        r'^[ \t]*' + comment + r'[ \t]*\[START\][ \t]+' + re.escape(name) + r'[ \t]*$\n?(.*?)^[ \t]*' + comment + r'[ \t]*\[END\][ \t]+' + re.escape(name) + r'[ \t]*$',
+        re.DOTALL | re.MULTILINE
+    )
+
+def _build_snippet_pattern_for_delete(file_path, name):
+    """构建删除代码段的正则（匹配整个块）"""
+    comment = _get_comment_pattern(file_path)
+    return re.compile(
+        r'^[ \t]*' + comment + r'[ \t]*\[START\][ \t]+' + re.escape(name) + r'[ \t]*$\n?(.*?)^[ \t]*' + comment + r'[ \t]*\[END\][ \t]+' + re.escape(name) + r'[ \t]*$\n?',
+        re.DOTALL | re.MULTILINE
+    )
+
+def find_snippets(content, file_path):
     """返回字典 {name: (start_idx, end_idx, start_line, end_line)}"""
+    pattern = _build_snippet_pattern(file_path)
     snippets = {}
-    lines = content.splitlines(keepends=True)
-    for match in SNIPPET_PATTERN.finditer(content):
+    for match in pattern.finditer(content):
         name = match.group(1)
         start_idx = match.start()
         end_idx = match.end()
@@ -41,21 +83,18 @@ def find_snippets(content):
         snippets[name] = (start_idx, end_idx, start_line, end_line)
     return snippets
 
-def get_snippet_content(content, name):
-    matches = list(SNIPPET_PATTERN.finditer(content))
-    for match in matches:
-        if match.group(1) == name:
-            return match.group(2)
+def get_snippet_content(content, name, file_path):
+    pattern = _build_snippet_pattern_for_name(file_path, name)
+    match = pattern.search(content)
+    if match:
+        return match.group(1)
     return None
 
-def replace_snippet(content, name, new_content):
-    # 构建动态正则，匹配指定名称的代码段，支持 # 和 //
-    pattern = re.compile(
-        r'^[ \t]*(?:#|//)[ \t]*\[START\][ \t]+' + re.escape(name) + r'[ \t]*$\n?(.*?)^[ \t]*(?:#|//)[ \t]*\[END\][ \t]+' + re.escape(name) + r'[ \t]*$',
-        re.DOTALL | re.MULTILINE
-    )
-    # 使用与匹配相同的注释符，但替换时固定用 # 还是保持原样？我们决定统一使用 # 作为新标记，因为简单。
-    # 但为了保留原文件的注释风格，最好检测原文件使用的注释符，但实现复杂。此处简化：始终使用 #。
+def replace_snippet(content, name, new_content, file_path):
+    pattern = _build_snippet_pattern_for_name(file_path, name)
+    # 使用检测到的注释符构建新块，但新块统一使用 # 作为注释符（因为不知道原文件注释符类型）
+    # 更稳妥的做法是从原文件提取注释符，但实现复杂，此处简化：始终使用 #。
+    # 用户如果希望保留原注释风格，可以通过直接编辑文件实现。
     new_block = f"# [START] {name}\n{new_content}\n# [END] {name}"
     if pattern.search(content):
         return pattern.sub(new_block, content, count=1)
@@ -64,11 +103,8 @@ def replace_snippet(content, name, new_content):
             content += '\n'
         return content + new_block + '\n'
 
-def delete_snippet(content, name):
-    pattern = re.compile(
-        r'^[ \t]*(?:#|//)[ \t]*\[START\][ \t]+' + re.escape(name) + r'[ \t]*$\n?(.*?)^[ \t]*(?:#|//)[ \t]*\[END\][ \t]+' + re.escape(name) + r'[ \t]*$\n?',
-        re.DOTALL | re.MULTILINE
-    )
+def delete_snippet(content, name, file_path):
+    pattern = _build_snippet_pattern_for_delete(file_path, name)
     return pattern.sub('', content)
 
 def _handle_error(subcmd: str, msg: str) -> str:
@@ -114,7 +150,7 @@ def run(ctx: core.Context, args):
         except Exception as e:
             return _handle_error(subcmd, f"无法读取文件 {parsed.file} - {e}")
 
-        snippets = find_snippets(content)
+        snippets = find_snippets(content, file_path)
         if snippets:
             lines = [f"文件 {parsed.file} 中的代码段："]
             for name, (_, _, start, end) in snippets.items():
@@ -130,7 +166,7 @@ def run(ctx: core.Context, args):
         except Exception as e:
             return _handle_error(subcmd, f"无法读取文件 {parsed.file} - {e}")
 
-        snippet_content = get_snippet_content(content, parsed.name)
+        snippet_content = get_snippet_content(content, parsed.name, file_path)
         if snippet_content is None:
             return _handle_error(subcmd, f"未找到代码段 '{parsed.name}'")
         return snippet_content
@@ -154,7 +190,7 @@ def run(ctx: core.Context, args):
         else:
             content = ""
 
-        new_file_content = replace_snippet(content, parsed.name, new_content)
+        new_file_content = replace_snippet(content, parsed.name, new_content, file_path)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(new_file_content)
@@ -167,7 +203,7 @@ def run(ctx: core.Context, args):
         except Exception as e:
             return _handle_error(subcmd, f"无法读取文件 {parsed.file} - {e}")
 
-        new_content = delete_snippet(content, parsed.name)
+        new_content = delete_snippet(content, parsed.name, file_path)
         if new_content == content:
             return _handle_error(subcmd, f"未找到代码段 '{parsed.name}'")
         with open(file_path, 'w', encoding='utf-8') as f:

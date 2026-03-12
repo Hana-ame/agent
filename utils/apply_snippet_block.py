@@ -1,6 +1,6 @@
 # [START] TOOL-APPLY-SNIPPET-BLOCK
-# version: 0.0.10
-# 描述：从响应文件读取代码段块并更新文件中的代码段
+# version: 0.0.11
+# 描述：从响应文件读取代码段块并更新文件中的代码段（根据文件类型自动选择注释符）
 
 """
 apply_snippet_block - 从响应文件读取代码段块并更新文件中的代码段
@@ -30,46 +30,24 @@ from . import snippet
 PREVIEW_LENGTH = 250
 
 def _handle_error(subcmd: str, msg: str) -> str:
-    return f"=== {subcmd} ===\n错误：{msg}\n=== end of {subcmd} ==="
+    return f"=== {subcmd} ===
+错误：{msg}
+=== end of {subcmd} ==="
 
-# 使用 raw 字符串定义正则，避免转义问题
-_START_PATTERN = re.compile(r'^(?:#|//)\s*\[START\]\s+([\w-]+)')
-_END_PATTERN = re.compile(r'^(?:#|//)\s*\[END\]\s+([\w-]+)')
-
-def _extract_snippet_from_content(content: str):
-    """从内容中提取代码段，返回 (name, snippet_content) 或 None，支持 # 和 // 注释"""
-    lines = content.splitlines()
-    start_line = -1
-    name = None
-    for i, line in enumerate(lines):
-        stripped = line.lstrip()
-        m = _START_PATTERN.match(stripped)
-        if m:
-            name = m.group(1)
-            start_line = i
-            break
-    if name is None:
-        return None, None
-
-    # 找到对应的 END 行
-    end_line = -1
-    for j in range(start_line + 1, len(lines)):
-        stripped = lines[j].lstrip()
-        m = _END_PATTERN.match(stripped)
-        if m and m.group(1) == name:
-            end_line = j
-            break
-    if end_line == -1:
-        return None, None
-
-    # 提取中间内容，去除可能的首尾空行
-    snippet_lines = lines[start_line+1:end_line]
-    while snippet_lines and not snippet_lines[0].strip():
-        snippet_lines.pop(0)
-    while snippet_lines and not snippet_lines[-1].strip():
-        snippet_lines.pop()
-    snippet_content = '\n'.join(snippet_lines)
-    return name, snippet_content
+# 用于从响应文件内容中提取代码段名称和内容的函数，不依赖文件类型（因为响应文件内容中的注释符是固定的 #）
+# 但为了保持一致，也使用 snippet 模块中的相同逻辑提取
+def _extract_snippet_from_content(content: str, file_path: str):
+    """从内容中提取代码段，返回 (name, snippet_content) 或 None，根据 file_path 决定注释符"""
+    # 复用 snippet 模块中的函数，但需要调整：这里传入的内容是响应块内的文本，我们希望提取其中的代码段。
+    # 我们可以直接调用 snippet 模块的 get_snippet_content 但需要文件名和内容。
+    # 由于 snippet.get_snippet_content 需要原文件内容，这里我们传递 content（即响应块内的文本）作为文件内容，并传递 file_path 用于确定注释符。
+    # 但响应块内的文本可能包含多个代码段？我们假设只有一个。
+    # 简单实现：手动匹配，使用 snippet._build_snippet_pattern(file_path) 来解析。
+    pattern = snippet._build_snippet_pattern(file_path)  # 注意：_build_snippet_pattern 是内部函数，需要导入
+    match = pattern.search(content)
+    if match:
+        return match.group(1), match.group(2)
+    return None, None
 
 def run(ctx, args):
     # 解析参数，决定使用哪个响应文件
@@ -92,20 +70,23 @@ def run(ctx, args):
     blocks = []
     i = 0
     while i < len(lines):
-        line = lines[i].rstrip('\n')
+        line = lines[i].rstrip('
+')
         start_match = re.match(r'^=== (.+) ===$', line)
         if start_match:
             rel_path = start_match.group(1).strip()
             i += 1
             content_lines = []
             while i < len(lines):
-                current_line = lines[i].rstrip('\n')
+                current_line = lines[i].rstrip('
+')
                 end_match = re.match(r'^=== end of (.+) ===$', current_line)
                 if end_match and end_match.group(1).strip() == rel_path:
                     break
                 content_lines.append(lines[i])
                 i += 1
-            if i < len(lines) and re.match(r'^=== end of .+ ===$', lines[i].rstrip('\n')):
+            if i < len(lines) and re.match(r'^=== end of .+ ===$', lines[i].rstrip('
+')):
                 i += 1
             file_content = ''.join(content_lines)
             blocks.append((rel_path, file_content))
@@ -113,17 +94,23 @@ def run(ctx, args):
             i += 1
 
     if not blocks:
-        response = "\n".join(lines)
+        response = "
+".join(lines)
         if len(response) > PREVIEW_LENGTH * 2:
-            msg = f"{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n预览:\n{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"
+            msg = f"{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===
+预览:
+{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"
         else:
-            msg = f"{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n预览:\n{response}"
+            msg = f"{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===
+预览:
+{response}"
         return _handle_error("apply_snippet_block", msg)
 
     results = []
     for rel_path, file_content in blocks:
-        # 从文件内容中提取代码段
-        name, snippet_content = _extract_snippet_from_content(file_content)
+        full_path = os.path.join(ctx.root_path, rel_path)
+        # 从文件内容中提取代码段，传递文件路径以确定注释符
+        name, snippet_content = _extract_snippet_from_content(file_content, full_path)
         if name is None:
             results.append(_handle_error(rel_path, "内容中未找到有效的代码段标记"))
             continue
@@ -145,5 +132,8 @@ def run(ctx, args):
         else:
             results.append(f"{rel_path} 更新成功：{snippet_result}")
 
-    return "\n\n".join(results)
+    return "
+
+".join(results)
+
 # [END] TOOL-APPLY-SNIPPET-BLOCK
