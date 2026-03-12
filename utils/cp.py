@@ -29,9 +29,9 @@ import os
 import shutil
 
 def _handle_error(subcmd: str, msg: str) -> str:
-    return f"=== {subcmd} ===
+    return f"""=== {subcmd} ===
 错误：{msg}
-=== end of {subcmd} ==="
+=== end of {subcmd} ==="""
 
 def run(ctx, args):
     if len(args) < 2:
@@ -78,7 +78,7 @@ def run(ctx, args):
     if os.path.isdir(dst_path):
         # 目标是一个已存在的目录，源将被复制到该目录内，保留原名
         dst_path = os.path.join(dst_path, os.path.basename(src_path))
-    elif dst_raw.endswith('/') or dst_raw.endswith('\'):
+    elif dst_raw.endswith('/') or dst_raw.endswith('\\'):
         # 目标以路径分隔符结尾，视为目录（即使不存在），需要创建
         if not os.path.exists(dst_path):
             try:
