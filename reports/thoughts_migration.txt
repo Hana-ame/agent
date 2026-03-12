@@ -1,0 +1,38 @@
+# 迁移报告：将 thoughts 功能移至 utils 并修复 pause
+
+## 时间
+2026-03-12
+
+## 背景
+- 原 thoughts 功能内嵌在 agent_v2.py 中，现需移至 utils/ 作为独立工具。
+- pause 工具需要统一输出格式，并添加对应的 resume 工具。
+
+## 修改内容
+
+### 1. 新增工具 utils/thoughts.py
+- 提供命令行接口：pop, peek, list, add, clear。
+- 提供内部函数 pop_thought，供 agent_v2.py 直接调用。
+- 所有命令输出格式统一，失败时返回错误块。
+
+### 2. 新增工具 utils/resume.py
+- 用于删除暂停标志 .pause 文件，恢复 Agent 执行。
+- 统一输出格式。
+
+### 3. 修改 utils/pause.py
+- 成功时返回简单信息 "已创建暂停标志。"，而非冗长提示。
+- 失败时返回错误块。
+
+### 4. 修改 agent_v2.py
+- 移除内部 _pop_thought 方法。
+- 导入 utils.thoughts 模块，在需要时调用 thoughts.pop_thought(self.root_path)。
+- 其他逻辑保持不变。
+
+## 验证
+- 执行 `py utils.py thoughts add "测试想法"` 可添加想法。
+- 执行 `py utils.py thoughts pop` 可弹出并显示想法。
+- 执行 `py utils.py pause` 创建 .pause 文件。
+- 执行 `py utils.py resume` 删除 .pause 文件。
+- agent_v2.py 运行时，当无消息且无想法时，回退到系统提示。
+
+## 结论
+所有修改已完成，并通过 Git 提交。
