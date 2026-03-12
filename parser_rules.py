@@ -117,7 +117,7 @@ class CodeBlockRule(BaseRule):
 # 输出参数：无
 class RuleProcessor:
     def __init__(self, root_path: str, agent_dir: str, utils_py_path: str):
-        self.rules =[
+        self.rules : list[BaseRule] =[
             CommandRule(root_path, utils_py_path),
             CodeBlockRule(agent_dir)
         ]
@@ -136,3 +136,13 @@ class RuleProcessor:
         return "\n---\n".join(all_outputs)
     # [END] RULE-PROCESSOR-EXEC
 #[END] RULE-PROCESSOR
+
+if __name__ == "__main__":
+    import asyncio
+    p = RuleProcessor(".", ".agent", "utils")
+    txt = """```
+py utils.py cat utils.py
+```"""
+    # 正确方式：使用 asyncio.run() 运行协程
+    result = asyncio.run(p.process(txt))
+    print(result)
