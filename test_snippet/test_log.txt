@@ -1,1 +1,1 @@
-"snippet tool test completed successfully.
+'snippet tool test completed successfully.

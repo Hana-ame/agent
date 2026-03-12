@@ -1,3 +1,3 @@
 # [START] hello
-"def hello(name):
+'def hello(name):
 # [END] hello
