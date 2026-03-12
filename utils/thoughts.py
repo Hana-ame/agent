@@ -2,8 +2,8 @@
 thoughts - 管理 THOUGHTS.md 中的想法
 
 用法：
-    py utils.py thoughts pop          # 弹出第一条想法并返回
-    py utils.py thoughts peek         # 查看第一条想法但不删除
+    py utils.py thoughts peek         # 查看第一条想法
+    py utils.py thoughts pop          # 弹出第一条想法
     py utils.py thoughts list         # 列出所有想法（带编号）
     py utils.py thoughts add <想法>   # 添加一条新想法
     py utils.py thoughts clear        # 清空所有想法
