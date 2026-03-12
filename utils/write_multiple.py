@@ -1,4 +1,3 @@
-
 """
 write_multiple - 批量写入多个文件（从指定的响应文件解析）
 
@@ -9,14 +8,14 @@ write_multiple - 批量写入多个文件（从指定的响应文件解析）
 
 响应文件（LAST_RESPONSE.txt 或 THIS_RESPONSE.txt）中需包含按以下格式组织的多个文件块：
 
-    === 相对路径1 ===
+    ☆☆☆ [START] 相对路径1 ☆☆☆
     完整的文件内容1
-    === end of 相对路径1 ===
-    === 相对路径2 ===
+    ☆☆☆ [END] 相对路径1 ☆☆☆
+    ☆☆☆ [START] 相对路径2 ☆☆☆
     完整的文件内容2
-    === end of 相对路径2 ===
+    ☆☆☆[END] 相对路径2 ☆☆☆
 
-每个块以 "=== 相对路径 ===" 开始，以 "=== end of 相对路径 ===" 结束。格式需要完全一致
+每个块以 "☆☆☆ [START] 相对路径 ☆☆☆" 开始，以 "☆☆☆ [END] 相对路径 ☆☆☆" 结束。格式需要完全一致
 工具会自动创建父目录。
 """
 
@@ -44,28 +43,28 @@ def run(ctx, args):
     except Exception as e:
         return f"错误：无法读取 {os.path.basename(response_file)} - {e}"
 
-    files =[]
+    files = []
     i = 0
     while i < len(lines):
         line = lines[i].rstrip('\n')
-        start_match = re.match(r'^=== (.+) ===$', line)
+        # 检测开始标记：☆☆☆ [START] 相对路径 ☆☆☆
+        start_match = re.match(r'^☆☆☆ \[START\] (.+) ☆☆☆$', line)
         if start_match:
             rel_path = start_match.group(1).strip()
             i += 1
             content_lines =[]
             while i < len(lines):
                 current_line = lines[i].rstrip('\n')
-                # 检测结束标记：=== end of 文件名 ===，且文件名必须匹配
-                end_match = re.match(r'^=== end of (.+) ===$', current_line)
+                # 检测结束标记：☆☆☆ [END] 相对路径 ☆☆☆，且文件名必须匹配
+                end_match = re.match(r'^☆☆☆ \[END\] (.+) ☆☆☆$', current_line)
                 if end_match and end_match.group(1).strip() == rel_path:
                     break
                 content_lines.append(lines[i])
                 i += 1
             # 跳过结束标记行（如果存在）
-            if i < len(lines) and re.match(r'^=== end of .+ ===$', lines[i].rstrip('\n')):
+            if i < len(lines) and re.match(r'^☆☆☆ \[END\] .+ ☆☆☆$', lines[i].rstrip('\n')):
                 i += 1
             file_content = ''.join(content_lines)
-            rel_path=rel_path.split(" ")[0]
             files.append((rel_path, file_content))
         else:
             i += 1
@@ -73,8 +72,8 @@ def run(ctx, args):
     if not files:
         response = "\n".join(lines)
         if len(response) > PREVIEW_LENGTH*2:
-            return f"错误：{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n{os.path.basename(response_file)}文件预览:\n{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"
-        return f"错误：{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===\n{os.path.basename(response_file)}文件预览:\n{response}"
+            return f"错误：{os.path.basename(response_file)} 格式错误（格式：☆☆☆ [START] 路径 ☆☆☆ ... ☆☆☆ [END] 路径 ☆☆☆）\n{os.path.basename(response_file)}文件预览:\n{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"
+        return f"错误：{os.path.basename(response_file)} 格式错误（格式：☆☆☆ [START] 路径 ☆☆☆ ... ☆☆☆ [END] 路径 ☆☆☆）\n{os.path.basename(response_file)}文件预览:\n{response}"
 
     results =[]
     for rel_path, file_content in files:
@@ -98,7 +97,7 @@ def run(ctx, args):
             
             result_str = f"{rel_path}中被写入了以下内容\n{striped_content}\n\n"
             if (len(striped_content) > PREVIEW_LENGTH*2):
-                result_str = f"{rel_path}中被写入了以下内容\n{striped_content[0:PREVIEW_LENGTH]}...(中间省略)...{striped_content[-PREVIEW_LENGTH:]}\n\n"
+                result_str = f"{rel_path}中被写入了以下内容\n{striped_content[0:PREVIEW_LENGTH]}☆☆☆中间省略☆☆☆{striped_content[-PREVIEW_LENGTH:]}\n\n"
             results.append(result_str)
         except Exception as e:
             results.append(f"错误：{rel_path} - {e}")

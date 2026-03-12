@@ -1,0 +1,1 @@
+"创建测试目录和文件，测试 snippet 工具，并将结果保存到 TEST_SNIPPET_RESULTS.md"
