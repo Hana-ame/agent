@@ -1,0 +1,1 @@
+"print(\"Original content in test1/another.py\")"

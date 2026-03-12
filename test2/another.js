@@ -1,0 +1,1 @@
+"console.log(\"Original content in test2/another.js\");"
