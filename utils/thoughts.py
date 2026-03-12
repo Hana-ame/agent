@@ -1,10 +1,10 @@
 """
-thoughts - 管理 THOUGHTS.md 中的想法
+thoughts - 管理想法，每个想法存储为 .thoughts/ 目录下的独立文件（文件名包含微秒时间戳）
 
 用法：
-    py utils.py thoughts peek         # 查看第一条想法
-    py utils.py thoughts pop          # 弹出第一条想法
-    py utils.py thoughts list         # 列出所有想法（带编号）
+    py utils.py thoughts peek         # 查看第一条想法（最早创建）
+    py utils.py thoughts pop          # 弹出第一条想法（删除并返回）
+    py utils.py thoughts list         # 列出所有想法（按时间顺序，带编号）
     py utils.py thoughts add <想法>   # 添加一条新想法
     py utils.py thoughts clear        # 清空所有想法
 
@@ -17,75 +17,88 @@ thoughts - 管理 THOUGHTS.md 中的想法
 """
 
 import os
+from datetime import datetime
 from pathlib import Path
 
-def _get_thoughts_file(root_path):
-    """获取 THOUGHTS.md 的路径"""
-    return Path(root_path) / ".agent" / "THOUGHTS.md"
+def _get_thoughts_dir(root_path):
+    """获取 .thoughts 目录的路径"""
+    return Path(root_path) / ".thoughts"
+
+def _ensure_dir(path):
+    """确保目录存在"""
+    path.mkdir(parents=True, exist_ok=True)
+
+def _get_timestamp():
+    """返回包含微秒的时间戳，确保文件名按时间顺序正确"""
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+
+def _list_thought_files(root_path):
+    """返回按文件名排序的想法文件列表（不含路径）"""
+    thoughts_dir = _get_thoughts_dir(root_path)
+    if not thoughts_dir.exists():
+        return []
+    files = [f for f in thoughts_dir.iterdir() if f.is_file()]
+    files.sort(key=lambda x: x.name)  # 升序，最早的文件在前
+    return files
 
 def pop_thought(root_path):
     """
     弹出第一条想法（删除并返回），如果没有则返回 None。
     供 agent 内部调用。
     """
-    thoughts_file = _get_thoughts_file(root_path)
-    if not thoughts_file.exists():
+    files = _list_thought_files(root_path)
+    if not files:
         return None
+    first = files[0]
     try:
-        with open(thoughts_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        new_lines = []
-        thought = None
-        for line in lines:
-            stripped = line.lstrip()
-            if thought is None and stripped.startswith('- '):
-                thought = stripped[2:].strip()
-                # 跳过该行
-            else:
-                new_lines.append(line)
-        if thought:
-            with open(thoughts_file, 'w', encoding='utf-8') as f:
-                f.writelines(new_lines)
-            return thought
-        else:
-            return None
+        with open(first, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+        first.unlink()
+        return content
     except Exception:
         return None
 
 def list_thoughts(root_path):
-    """列出所有想法（返回列表）"""
-    thoughts_file = _get_thoughts_file(root_path)
-    if not thoughts_file.exists():
-        return []
-    try:
-        with open(thoughts_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        thoughts = []
-        for line in lines:
-            stripped = line.lstrip()
-            if stripped.startswith('- '):
-                thoughts.append(stripped[2:].strip())
-        return thoughts
-    except Exception:
-        return []
+    """返回所有想法内容列表（按时间顺序）"""
+    files = _list_thought_files(root_path)
+    thoughts = []
+    for f in files:
+        try:
+            with open(f, 'r', encoding='utf-8') as fh:
+                thoughts.append(fh.read().strip())
+        except Exception:
+            thoughts.append("(读取失败)")
+    return thoughts
 
 def add_thought(root_path, thought):
-    """添加一条想法"""
-    thoughts_file = _get_thoughts_file(root_path)
-    thoughts_file.parent.mkdir(parents=True, exist_ok=True)
+    """添加一条想法，生成带微秒时间戳的文件名，确保唯一且有序"""
+    thoughts_dir = _get_thoughts_dir(root_path)
+    _ensure_dir(thoughts_dir)
+    timestamp = _get_timestamp()
+    filename = timestamp + ".txt"
+    filepath = thoughts_dir / filename
+    # 极低概率冲突（同一微秒），如果存在则附加序号，但通常不会
+    counter = 1
+    while filepath.exists():
+        filename = f"{timestamp}-{counter}.txt"
+        filepath = thoughts_dir / filename
+        counter += 1
     try:
-        with open(thoughts_file, 'a', encoding='utf-8') as f:
-            f.write(f"- {thought}\n")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(thought)
         return True
     except Exception:
         return False
 
 def clear_thoughts(root_path):
-    """清空想法文件"""
-    thoughts_file = _get_thoughts_file(root_path)
+    """清空 .thoughts 目录"""
+    thoughts_dir = _get_thoughts_dir(root_path)
     try:
-        if thoughts_file.exists():
-            thoughts_file.unlink()
+        if thoughts_dir.exists():
+            for f in thoughts_dir.iterdir():
+                if f.is_file():
+                    f.unlink()
+            thoughts_dir.rmdir()  # 删除空目录（可选）
         return True
     except Exception:
         return False
@@ -106,10 +119,14 @@ def run(ctx, args):
         return thought
 
     elif subcmd == "peek":
-        thoughts = list_thoughts(root_path)
-        if not thoughts:
+        files = _list_thought_files(root_path)
+        if not files:
             return _handle_error(subcmd, "没有想法。")
-        return thoughts[0]
+        try:
+            with open(files[0], 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        except Exception as e:
+            return _handle_error(subcmd, f"读取失败: {e}")
 
     elif subcmd == "list":
         thoughts = list_thoughts(root_path)
