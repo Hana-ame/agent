@@ -17,10 +17,11 @@ mv - 移动或重命名文件/目录
   - 源路径必须存在，否则报错。
   - 目标路径的父目录必须存在，否则报错。
 
-示例：
-  py utils.py mv file.txt newname.txt          # 重命名
-  py utils.py mv file.txt dir/                 # 移动到 dir/ 目录下
-  py utils.py mv dir1/ dir2/                   # 移动目录
+成功输出格式：成功：已将 '<源路径>' 移动到 '<目标路径>'
+失败输出格式：
+  === <源路径> ===
+  错误：具体错误信息
+  === end of <源路径> ===
 """
 
 import os
@@ -36,21 +37,21 @@ def run(ctx, args):
     try:
         src_path = ctx.validate_path(src_raw)
     except Exception as e:
-        return f"错误：无效的源路径 '{src_raw}': {e}"
+        return f"=== {src_raw} ===\n错误：无效的源路径 - {e}\n=== end of {src_raw} ==="
 
     try:
         dst_path = ctx.validate_path(dst_raw)
     except Exception as e:
-        return f"错误：无效的目标路径 '{dst_raw}': {e}"
+        return f"=== {src_raw} ===\n错误：无效的目标路径 - {e}\n=== end of {src_raw} ==="
 
     # 检查源是否存在
     if not os.path.exists(src_path):
-        return f"错误：源路径不存在 '{src_raw}'"
+        return f"=== {src_raw} ===\n错误：源路径不存在\n=== end of {src_raw} ==="
 
     # 检查目标父目录是否存在
     dst_parent = os.path.dirname(dst_path)
     if dst_parent and not os.path.exists(dst_parent):
-        return f"错误：目标路径的父目录不存在 '{os.path.dirname(dst_raw)}'"
+        return f"=== {src_raw} ===\n错误：目标路径的父目录不存在 '{os.path.dirname(dst_raw)}'\n=== end of {src_raw} ==="
 
     # 如果目标已存在且是目录，则将源移动到该目录下（保留原名）
     if os.path.isdir(dst_path):
@@ -58,6 +59,8 @@ def run(ctx, args):
 
     try:
         shutil.move(src_path, dst_path)
-        return f"成功：已将 '{src_raw}' 移动到 '{os.path.relpath(dst_path, ctx.root_path)}'"
+        # 计算相对于根目录的目标路径用于输出
+        rel_dst = os.path.relpath(dst_path, ctx.root_path)
+        return f"成功：已将 '{src_raw}' 移动到 '{rel_dst}'"
     except Exception as e:
-        return f"错误：移动失败 - {e}"
+        return f"=== {src_raw} ===\n错误：移动失败 - {e}\n=== end of {src_raw} ==="
