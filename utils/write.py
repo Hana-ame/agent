@@ -1,5 +1,5 @@
 # [START] TOOL-WRITE
-# version: 002
+# version: 0.0.2
 # 描述：覆盖写入文件
 
 """
@@ -11,36 +11,64 @@ write - 覆盖写入文件
   <相对路径>  相对于根目录的文件路径
   <内容...>   要写入的文本内容（多个参数自动用空格连接）
 
-自动创建父目录。
+说明：
+  - 自动创建父目录。
+  - 可以使用 `\n` 表示换行符（会被转换为真实换行）。
+  - 内容较长时会自动截断预览。
+
+输出格式：
+  - 成功时：返回一行：
+    {rel_path}中被写入了以下内容
+    {内容预览}
+  - 失败时：
+    * 参数不足返回：
+      === write ===
+      错误：write 需要至少 2 个参数：<路径> <内容...>
+      === end of write ===
+    * 写入失败返回针对该文件的错误块：
+      === {rel_path} ===
+      错误：具体错误信息
+      === end of {rel_path} ===
 """
 
 import os
 from . import _file_utils
 
-PREVIEW_LENGTH = _file_utils.PREVIEW_LENGTH
+def _handle_error(subcmd: str, msg: str) -> str:
+    return f"=== {subcmd} ===
+错误：{msg}
+=== end of {subcmd} ==="
 
 def run(ctx, args):
     if len(args) < 2:
-        return "Error: write 需要 2 个参数：<路径> <内容...>"
-    
+        return _handle_error("write", "write 需要至少 2 个参数：<路径> <内容...>")
+
     rel_path = args[0]
+    # 将剩余参数拼接为内容
     content = " ".join(args[1:])
-    
+
     try:
         full_path = ctx.validate_path(rel_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        
-        with open(full_path, 'w', encoding='utf-8') as f:
-            f.write(content.replace(r"\n","\n"))
-        
+
+        # 处理字面量的 \n 和 
+
+        content = content.replace("\n", "
+")
+
+        with open(full_path, 'w', encoding='utf-8', newline='') as f:
+            f.write(content)
+
         # 生成预览
-        if len(content) > PREVIEW_LENGTH * 2:
-            preview = content[:PREVIEW_LENGTH] + "...(中间省略)..." + content[-PREVIEW_LENGTH:]
+        preview_len = getattr(_file_utils, 'PREVIEW_LENGTH', 250)
+        if len(content) > preview_len * 2:
+            preview = content[:preview_len] + f"...(中间省略 {len(content)-preview_len*2} 字符)..." + content[-preview_len:]
         else:
             preview = content
-        
-        return f"{rel_path}中被写入了以下内容\n{preview}"
+
+        return f"{rel_path}中被写入了以下内容
+{preview}"
     except Exception as e:
-        return f"=== {rel_path} ===\n错误：{str(e)}\n=== end of {rel_path} ==="
+        return _handle_error(rel_path, str(e))
 
 # [END] TOOL-WRITE
