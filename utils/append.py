@@ -8,17 +8,46 @@ append - 将指定内容追加到文件末尾
   <内容>      要追加的文本内容（多个参数自动用空格连接）
 
 如果文件不存在，会自动创建。
+自动处理换行：如果文件非空且不以换行结尾，则先添加换行再追加，否则直接追加。
 """
+
+import os
+from . import _file_utils
+
+PREVIEW_LENGTH = _file_utils.PREVIEW_LENGTH
 
 def run(ctx, args):
     if len(args) < 2:
         return "错误：append 需要 2 个参数：<相对路径> <内容>"
-    path = ctx.validate_path(args[0])
+    
+    rel_path = args[0]
     content = " ".join(args[1:])
+    
     try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write("\n")
+        full_path = ctx.validate_path(rel_path)
+        # 确保父目录存在
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        
+        # 处理换行逻辑
+        with open(full_path, 'a+', encoding='utf-8') as f:
+            # 移动指针到文件末尾
+            f.seek(0, os.SEEK_END)
+            # 如果文件不为空且最后一个字符不是换行，则先写入换行
+            if f.tell() > 0:
+                f.seek(f.tell() - 1, os.SEEK_SET)
+                last_char = f.read(1)
+                if last_char != '\n':
+                    f.write('\n')
+            # 追加内容
             f.write(content)
-        return f"成功：已将内容追加到 {args[0]}"
+        
+        # 生成预览
+        preview = content
+        if len(preview) > PREVIEW_LENGTH * 2:
+            preview = preview[:PREVIEW_LENGTH] + "...(中间省略)..." + preview[-PREVIEW_LENGTH:]
+        elif len(preview) > PREVIEW_LENGTH:
+            preview = preview[:PREVIEW_LENGTH] + "...(省略)..." + preview[-PREVIEW_LENGTH:]
+        
+        return f"成功：已追加内容到 {rel_path}\n追加内容预览：\n{preview}"
     except Exception as e:
-        return f"错误：无法追加到文件 {args[0]} - {e}"
+        return f"错误：无法追加到文件 {rel_path} - {e}"
