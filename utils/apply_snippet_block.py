@@ -30,9 +30,9 @@ from . import snippet
 PREVIEW_LENGTH = 250
 
 def _handle_error(subcmd: str, msg: str) -> str:
-    return f"=== {subcmd} ===
+    return f"""=== {subcmd} ===
 错误：{msg}
-=== end of {subcmd} ==="
+=== end of {subcmd} ==="""
 
 # 用于从响应文件内容中提取代码段名称和内容的函数，不依赖文件类型（因为响应文件内容中的注释符是固定的 #）
 # 但为了保持一致，也使用 snippet 模块中的相同逻辑提取
@@ -70,23 +70,20 @@ def run(ctx, args):
     blocks = []
     i = 0
     while i < len(lines):
-        line = lines[i].rstrip('
-')
+        line = lines[i].rstrip('\n')
         start_match = re.match(r'^=== (.+) ===$', line)
         if start_match:
             rel_path = start_match.group(1).strip()
             i += 1
             content_lines = []
             while i < len(lines):
-                current_line = lines[i].rstrip('
-')
+                current_line = lines[i].rstrip('\n')
                 end_match = re.match(r'^=== end of (.+) ===$', current_line)
                 if end_match and end_match.group(1).strip() == rel_path:
                     break
                 content_lines.append(lines[i])
                 i += 1
-            if i < len(lines) and re.match(r'^=== end of .+ ===$', lines[i].rstrip('
-')):
+            if i < len(lines) and re.match(r'^=== end of .+ ===$', lines[i].rstrip('\n')):
                 i += 1
             file_content = ''.join(content_lines)
             blocks.append((rel_path, file_content))
@@ -94,16 +91,15 @@ def run(ctx, args):
             i += 1
 
     if not blocks:
-        response = "
-".join(lines)
+        response = "\n".join(lines)
         if len(response) > PREVIEW_LENGTH * 2:
-            msg = f"{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===
+            msg = f"""{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===
 预览:
-{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"
+{response[:PREVIEW_LENGTH]}...(中间省略)...{response[-PREVIEW_LENGTH:]}"""
         else:
-            msg = f"{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===
+            msg = f"""{os.path.basename(response_file)} 格式错误（格式：=== 路径 === ... === end of 路径 ===
 预览:
-{response}"
+{response}"""
         return _handle_error("apply_snippet_block", msg)
 
     results = []
@@ -132,8 +128,6 @@ def run(ctx, args):
         else:
             results.append(f"{rel_path} 更新成功：{snippet_result}")
 
-    return "
-
-".join(results)
+    return "\n\n".join(results)
 
 # [END] TOOL-APPLY-SNIPPET-BLOCK
