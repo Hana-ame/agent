@@ -17,6 +17,7 @@ def run(ctx, args):
     content = " ".join(args[1:])
     try:
         with open(path, "a", encoding="utf-8") as f:
+            f.write("\n")
             f.write(content)
         return f"成功：已将内容追加到 {args[0]}"
     except Exception as e:
