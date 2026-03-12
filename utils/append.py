@@ -30,24 +30,20 @@ def run(ctx, args):
         
         # 处理换行逻辑
         with open(full_path, 'a+', encoding='utf-8') as f:
-            # 移动指针到文件末尾
             f.seek(0, os.SEEK_END)
-            # 如果文件不为空且最后一个字符不是换行，则先写入换行
             if f.tell() > 0:
                 f.seek(f.tell() - 1, os.SEEK_SET)
                 last_char = f.read(1)
                 if last_char != '\n':
                     f.write('\n')
-            # 追加内容
             f.write(content)
         
-        # 生成预览
-        preview = content
-        if len(preview) > PREVIEW_LENGTH * 2:
-            preview = preview[:PREVIEW_LENGTH] + "...(中间省略)..." + preview[-PREVIEW_LENGTH:]
-        elif len(preview) > PREVIEW_LENGTH:
-            preview = preview[:PREVIEW_LENGTH] + "...(省略)..." + preview[-PREVIEW_LENGTH:]
+        # 生成预览（与 write_multiple 风格一致）
+        if len(content) > PREVIEW_LENGTH * 2:
+            preview = content[:PREVIEW_LENGTH] + "...(中间省略)..." + content[-PREVIEW_LENGTH:]
+        else:
+            preview = content
         
-        return f"成功：已追加内容到 {rel_path}\n追加内容预览：\n{preview}"
+        return f"{rel_path}中被追加了以下内容\n{preview}"
     except Exception as e:
         return f"错误：无法追加到文件 {rel_path} - {e}"
