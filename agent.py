@@ -27,31 +27,28 @@ class Agent:
         self.client: LLMClient = None
         self._reconnect_attempts = 0
         self._first_run = True
-        
+
         self.root_path = os.getcwd()
         self.agent_dir = os.path.join(self.root_path, ".agent")
         os.makedirs(self.agent_dir, exist_ok=True)
-        
+
         self.msg_file = os.path.join(self.agent_dir, "MESSAGE.txt")
         self.pause_file = os.path.join(".pause")
         self.log_file = os.path.join(self.agent_dir, "LOG.txt")
-        
+
         self.last_response_file = os.path.join(self.agent_dir, "LAST_RESPONSE.txt")
         self.this_response_file = os.path.join(self.agent_dir, "THIS_RESPONSE.txt")
-        
+
         self.utils_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils.py")
         self.processor = RuleProcessor(self.root_path, self.agent_dir, self.utils_path)
 
     # [START] AGENT-CREATE-CLIENT
     # version: 001
-    # 上下文：Agent 启动初期或重连机制触发时调用。先决调用：目录初始化。后续调用：ADAPTER 接口。
-    # 输入参数：无
-    # 输出参数：是否成功连接 (bool)
     async def _create_client(self) -> bool:
         print(f"工作目录: {self.root_path}")
         print(f"Agent目录: {self.agent_dir}")
         print(f"Utils路径: {self.utils_path}")
-        
+
         client = LLMClient(
             connection_param=self.args.connection,
             payload_name=self.args.payload,
@@ -71,15 +68,12 @@ class Agent:
 
     # [START] AGENT-ENSURE-CONN
     # version: 001
-    # 上下文：每次循环开始或捕获到异常时校验链路健康度。先决调用：已存在 Client 实例。后续调用：_create_client 尝试拉起。
-    # 输入参数：无
-    # 输出参数：可用状态 (bool)
     async def _ensure_connected(self) -> bool:
         if self.client and not self.client.is_finished:
             return True
         if self.client:
             await self.client.close()
-            
+
         while self._reconnect_attempts < 5:
             self._reconnect_attempts += 1
             print(f"尝试重连 ({self._reconnect_attempts}/5)...")
@@ -89,11 +83,39 @@ class Agent:
         return False
     # [END] AGENT-ENSURE-CONN
 
-    # [START] AGENT-RUN
+    # [START] AGENT-POP-THOUGHT
     # version: 001
-    # 上下文：系统状态机主干流。先决调用：建立长连接成功。后续调用：不断的模型推理循环与规则引擎解析。
+    # 上下文：从 THOUGHTS.md 中获取并移除第一条想法。
     # 输入参数：无
-    # 输出参数：无
+    # 输出参数：想法内容或 None
+    def _pop_thought(self) -> str | None:
+        thoughts_file = os.path.join(self.agent_dir, "THOUGHTS.md")
+        if not os.path.exists(thoughts_file):
+            return None
+        try:
+            with open(thoughts_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            new_lines = []
+            thought = None
+            for line in lines:
+                stripped = line.lstrip()
+                if thought is None and stripped.startswith('- '):
+                    thought = stripped[2:].strip()
+                    # 跳过该行，不加入 new_lines
+                else:
+                    new_lines.append(line)
+            if thought:
+                with open(thoughts_file, 'w', encoding='utf-8') as f:
+                    f.writelines(new_lines)
+                return thought
+            else:
+                return None
+        except Exception:
+            return None
+    # [END] AGENT-POP-THOUGHT
+
+    # [START] AGENT-RUN
+    # version: 002  # 添加 thoughts 功能
     async def run(self):
         if not await self._create_client():
             return
@@ -103,7 +125,7 @@ class Agent:
 
         ongoing = True
         while ongoing:
-            
+
             if self.paused:
                 print("删除 .agent/.pause 以继续")
                 while os.path.exists(self.pause_file):
@@ -111,19 +133,24 @@ class Agent:
                 self.paused = False
             if os.path.exists(self.pause_file):
                 self.paused = True
-            
+
             current_msg = ""
             if os.path.exists(self.msg_file):
                 with open(self.msg_file, 'r', encoding='utf-8') as f:
                     current_msg = f.read().strip()
                 open(self.msg_file, 'w').close()
-            
+
             if not current_msg and self.args.message:
                 current_msg = self.args.message
             if not current_msg:
-                # current_msg = "Hello, please start the conversation."
-                current_msg = read_system_prompt()
-                
+                # 尝试从想法中获取
+                thought = self._pop_thought()
+                if thought:
+                    current_msg = thought
+                    print(f"从 THOUGHTS.md 提取想法: {thought}")
+                else:
+                    current_msg = read_system_prompt()
+
             self.round_num += 1
 
             if not await self._ensure_connected():
@@ -143,32 +170,24 @@ class Agent:
             print(f"推理过程:\n{reasoning}\n")
             print("=" * 30)
             print(f"回复内容:\n{content}\n")
-            
+
             save_agent_content(self, content)
 
             processor_output = await self.processor.process(content)
-            
+
             if processor_output:
                 print("=" * 30)
                 print(f"规则执行结果汇总:\n{processor_output}")
-                
+
                 with open(self.log_file, "a", encoding="utf-8") as log:
                     log.write(f"\n{'='*25}\n第 {self.round_num} 轮输出\n{'='*25}\n")
                     log.write(processor_output + "\n")
-                
-                # if "FINISH_AGENT" in processor_output or "FINISH_AGENT" in content:
-                #     print("检测到结束标记，任务完成。")
-                #     ongoing = False
-                    
+
                 with open(self.msg_file, "w", encoding="utf-8") as f:
                     f.write(processor_output)
             else:
                 print("未匹配到任何操作规则。")
-                # if "FINISH_AGENT" in content:
-                #     print("检测到结束标记，退出循环。")
-                #     ongoing = False
-                # else:
-                #     ongoing = False
+                # 如果没有生成下一轮消息，且对话仍在继续，下一轮循环将尝试想法或系统提示
 
         print("=" * 30)
         print("Agent 结束")
@@ -179,9 +198,6 @@ class Agent:
 
 # [START] AGENT-MAIN
 # version: 001
-# 上下文：脚本独立运行时触发入口。先决调用：PKG 依赖就绪。后续调用：拉起异步环境。
-# 输入参数：无
-# 输出参数：无
 def main():
     parser = argparse.ArgumentParser(description="Agent 客户端核心引擎")
     parser.add_argument("connection", default="wss://d.810114.xyz/ws/client", help="连接参数 (WS URL 或 profile name)")
@@ -189,7 +205,7 @@ def main():
     parser.add_argument("-p", "--payload", default="default.json", help="仅 HTTP 模式所需的 payload 模板")
     parser.add_argument("--new-chat", action="store_true", help="强制清除历史记忆")
     args = parser.parse_args()
-    
+
     agent = Agent(args)
     asyncio.run(agent.run())
 
