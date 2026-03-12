@@ -38,7 +38,7 @@ def run(ctx, args):
                     f.write('\n')
             f.write(content)
         
-        # 生成预览（与 write_multiple 风格一致）
+        # 生成预览
         if len(content) > PREVIEW_LENGTH * 2:
             preview = content[:PREVIEW_LENGTH] + "...(中间省略)..." + content[-PREVIEW_LENGTH:]
         else:
@@ -46,4 +46,4 @@ def run(ctx, args):
         
         return f"{rel_path}中被追加了以下内容\n{preview}"
     except Exception as e:
-        return f"错误：无法追加到文件 {rel_path} - {e}"
+        return f"=== {rel_path} ===\n错误：{str(e)}\n=== end of {rel_path} ==="
