@@ -1,0 +1,89 @@
+# 工具测试报告：delete.py
+
+## 测试时间
+2026-03-12
+
+## 期望用法
+命令格式：`py utils.py delete <相对路径1> [<相对路径2> ...]`
+输出格式：
+- 成功时：`删除完成：成功 <N>，失败 <M>`
+- 如果有失败，则在后面附加错误块，每个错误块格式为：
+  ```
+  === 路径 ===
+  错误：具体错误信息
+  === end of 路径 ===
+  ```
+
+## 实际用法（修改后）
+与期望一致。
+
+## 测试结果
+
+### 1. 删除存在的文件
+命令：`py utils.py write test_delete.txt "This is a test file."` (创建文件)
+命令：`py utils.py delete test_delete.txt`
+输出：
+```
+删除完成：成功 1，失败 0
+```
+✅ 符合期望。
+
+### 2. 删除不存在的文件
+命令：`py utils.py delete non_existent_file.txt`
+输出：
+```
+删除完成：成功 0，失败 1
+
+=== non_existent_file.txt ===
+错误：[WinError 2] 系统找不到指定的文件。: 'C:\\workplace\\agent - 副本\\python-client\\non_existent_file.txt'
+=== end of non_existent_file.txt ===
+```
+✅ 错误块格式正确。
+
+### 3. 混合删除（部分存在、部分不存在）
+先创建 test1.txt 和 test2.txt，然后执行：
+命令：`py utils.py delete test1.txt non_existent_file.txt test2.txt`
+输出：
+```
+删除完成：成功 2，失败 1
+
+=== non_existent_file.txt ===
+错误：[WinError 2] 系统找不到指定的文件。: 'C:\\workplace\\agent - 副本\\python-client\\non_existent_file.txt'
+=== end of non_existent_file.txt ===
+```
+✅ 正确报告成功 2，失败 1，且错误块只包含失败文件。
+
+### 4. 删除目录（应失败）
+命令：`py utils.py delete utils/`
+输出：
+```
+删除完成：成功 0，失败 1
+
+=== utils/ ===
+错误：[WinError 5] 拒绝访问。: 'C:\\workplace\\agent - 副本\\python-client\\utils'
+=== end of utils/ ===
+```
+✅ 正确报告失败，错误块格式正确。
+
+### 5. 删除多个已不存在的文件
+命令：`py utils.py delete test1.txt test2.txt test_delete.txt`
+输出：
+```
+删除完成：成功 0，失败 3
+
+=== test1.txt ===
+错误：[WinError 2] 系统找不到指定的文件。: 'C:\\workplace\\agent - 副本\\python-client\\test1.txt'
+=== end of test1.txt ===
+
+=== test2.txt ===
+错误：[WinError 2] 系统找不到指定的文件。: 'C:\\workplace\\agent - 副本\\python-client\\test2.txt'
+=== end of test2.txt ===
+
+=== test_delete.txt ===
+错误：[WinError 2] 系统找不到指定的文件。: 'C:\\workplace\\agent - 副本\\python-client\\test_delete.txt'
+=== end of test_delete.txt ===
+```
+✅ 正确报告成功 0 失败 3，每个失败文件独立错误块。
+
+## 结论
+`delete.py` 已按统一风格修改并通过测试。
