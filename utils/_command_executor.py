@@ -1,9 +1,14 @@
+"""
+_command_executor - 内部模块，用于执行从回复中提取的命令。
+此模块不提供直接命令行调用，仅供其他工具内部使用。
+"""
+
 import sys
 import os
 import asyncio
 import shlex
 import subprocess
-from . import file_utils
+from . import _file_utils
 
 class CommandExecutor:
     """负责执行从 LLM 回复中提取的命令，并收集输出"""
@@ -19,7 +24,7 @@ class CommandExecutor:
             if parts and parts[0] in ("py", "python", "python3"):
                 parts[0] = sys.executable
                 if len(parts) > 1 and os.path.basename(parts[1]) == "utils.py":
-                    parts[1] = os.path.join(file_utils.UTILS_PATH, "utils.py")
+                    parts[1] = os.path.join(_file_utils.UTILS_PATH, "utils.py")
 
             loop = asyncio.get_event_loop()
             result = await asyncio.wait_for(
@@ -29,11 +34,11 @@ class CommandExecutor:
                         parts,
                         capture_output=True,
                         text=True,
-                        cwd=file_utils.ROOT_PATH,
-                        timeout=file_utils.COMMAND_TIMEOUT
+                        cwd=_file_utils.ROOT_PATH,
+                        timeout=_file_utils.COMMAND_TIMEOUT
                     )
                 ),
-                timeout=file_utils.COMMAND_TIMEOUT + 5
+                timeout=_file_utils.COMMAND_TIMEOUT + 5
             )
 
             cmd_output = result.stdout + result.stderr
@@ -43,7 +48,7 @@ class CommandExecutor:
                 cmd_output = cmd_output.strip()
 
         except subprocess.TimeoutExpired:
-            cmd_output = f"命令执行超时 (超过 {file_utils.COMMAND_TIMEOUT} 秒)"
+            cmd_output = f"命令执行超时 (超过 {_file_utils.COMMAND_TIMEOUT} 秒)"
         except asyncio.TimeoutError:
             cmd_output = f"命令执行超时 (整体等待超时)"
         except Exception as e:

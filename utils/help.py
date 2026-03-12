@@ -26,7 +26,15 @@ def run(ctx, args):
         tools = []
         for filename in os.listdir(utils_dir):
             if filename.endswith(".py") and not filename.startswith("__") and filename not in ("core.py",):
-                tools.append(filename[:-3])
+                module_name = filename[:-3]
+                try:
+                    module = importlib.import_module(f"utils.{module_name}")
+                    # 只列出包含 run 函数的模块
+                    if hasattr(module, 'run') and callable(module.run):
+                        tools.append(module_name)
+                except Exception:
+                    # 如果导入失败，忽略
+                    pass
 
         tools.sort()
 
