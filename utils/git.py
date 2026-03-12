@@ -38,9 +38,11 @@ def run(ctx, args):
             text=True,
             timeout=30
         )
-        if result.returncode != 0:
+        if result.returncode != 0:            
+            stdout_output = result.stdout.strip()
+            stderr_output = result.stderr.strip()
             error_msg = result.stderr.strip() or f"Git 命令返回非零状态码 {result.returncode}"
-            return f"=== git ===\n错误：{error_msg}\n=== end of git ==="
+            return f"=== git ===\n错误：{error_msg}\n{stdout_output}\n{stderr_output}=== end of git ==="
         
         stdout_output = result.stdout.strip()
         stderr_output = result.stderr.strip()

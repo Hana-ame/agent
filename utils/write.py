@@ -30,47 +30,35 @@ write - 覆盖写入文件
       错误：具体错误信息
       === end of {rel_path} ===
 """
-import subprocess
+
+import os
+from . import _file_utils
+
+def _handle_error(subcmd: str, msg: str) -> str:
+    return f"=== {subcmd} ===\n错误：{msg}\n=== end of {subcmd} ==="
 
 def run(ctx, args):
-    if not args:
-        return "错误：git 需要子命令 (e.g., status, diff)"
-    
-    # --- 参数预处理 ---
-    processed_args =[]
-    for arg in args:
-        # 1. 不再需要手动剥离引号，因为 executor 已经以 posix 模式剥离干净
-        # 2. 只需要处理换行符：将字面量 \n 转化为真实的换行
-        arg = arg.replace("\\n", "\n")
-        processed_args.append(arg)
-    
-    cmd = ["git"] + processed_args
-    
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=ctx.root_path,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() or f"Git 命令返回非零状态码 {result.returncode}"
-            return f"=== git ===\n错误：{error_msg}\n=== end of git ==="
-        
-        stdout_output = result.stdout.strip()
-        stderr_output = result.stderr.strip()
-        final_output = stdout_output
-        if stderr_output:
-            if final_output:
-                final_output += "\n" + stderr_output
-            else:
-                final_output = stderr_output
-                
-        return final_output if final_output else "执行成功 (无输出)"
+    if len(args) < 2:
+        return _handle_error("write", "write 需要至少 2 个参数：<路径> <内容...>")
 
-    except subprocess.TimeoutExpired:
-        return "=== git ===\n错误：Git 命令超时\n=== end of git ==="
+    rel_path = args[0]
+    content = " ".join(args[1:])
+
+    try:
+        full_path = ctx.validate_path(rel_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+        with open(full_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        preview_len = getattr(_file_utils, 'PREVIEW_LENGTH', 250)
+        if len(content) > preview_len * 2:
+            preview = content[:preview_len] + f"...(中间省略 {len(content)-preview_len*2} 字符)..." + content[-preview_len:]
+        else:
+            preview = content
+
+        return f"{rel_path}中被写入了以下内容\n{preview}"
     except Exception as e:
-        return f"=== git ===\n错误：Git 执行失败 - {str(e)}\n=== end of git ==="
-# [END] TOOL-GIT
+        return _handle_error(rel_path, str(e))
+
+# [END] TOOL-WRITE
