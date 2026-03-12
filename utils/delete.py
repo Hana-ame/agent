@@ -26,6 +26,7 @@ def run(ctx, args):
     error_blocks = []
     
     for rel_path in args:
+        if rel_path == '-r': continue
         try:
             full_path = ctx.validate_path(rel_path)
             os.remove(full_path)
