@@ -1,4 +1,9 @@
 # [START] hello
-def hello(name):
-    print(f"Hello {name}")
+def hello():
+    print("Hello")
 # [END] hello
+
+# [START] goodbye
+def goodbye():
+    print("Goodbye")
+# [END] goodbye
