@@ -1,0 +1,55 @@
+# 工具测试报告：replace.py
+
+## 测试时间
+2026-03-12
+
+## 期望用法
+命令格式：`py utils.py replace <相对路径> <旧文本> <新文本>`
+
+输出格式：
+- 成功时：`成功：已将 <相对路径> 中的 '<旧文本>' 替换为 '<新文本>'`
+- 失败时：
+  ```
+  === <相对路径> ===
+  错误：具体错误信息
+  === end of <相对路径> ===
+  ```
+
+## 实际用法（修改后）
+与期望一致。
+
+## 测试结果
+
+### 1. 正常替换
+命令：
+```
+py utils.py write test_replace.txt "Hello world, hello python."
+py utils.py replace test_replace.txt "hello" "hi"
+py utils.py cat test_replace.txt
+```
+输出：
+```
+test_replace.txt中被写入了以下内容
+Hello world, hello python.
+成功：已将 test_replace.txt 中的 'hello' 替换为 'hi'
+=== test_replace.txt ===
+Hello world, hi python.
+=== end of test_replace.txt ===
+```
+✅ 替换成功，内容正确。
+
+### 2. 文件不存在
+命令：`py utils.py replace non_existent.txt "foo" "bar"`
+输出：
+```
+=== non_existent.txt ===
+错误：[Errno 2] No such file or directory: 'C:\\workplace\\agent - 副本\\python-client\\non_existent.txt'
+=== end of non_existent.txt ===
+```
+✅ 错误块格式正确。
+
+## 清理
+测试文件已删除。
+
+## 结论
+`replace.py` 已按统一风格修改并通过测试。
