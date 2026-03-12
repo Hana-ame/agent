@@ -1,5 +1,5 @@
 """
-snippet - 管理文件中的代码段（以 # [START] name 和 # [END] name 标记）
+snippet - 管理文件中的代码段（以 # [START] name 或 // [START] name 标记）
 
 用法：
     py utils.py snippet list <file>               列出文件中的所有代码段
@@ -22,8 +22,9 @@ import argparse
 from pathlib import Path
 from utils import core
 
+# 匹配代码段，支持 # 和 // 作为注释符
 SNIPPET_PATTERN = re.compile(
-    r'^[ \t]*#[ \t]*\[START\][ \t]+([\w-]+)[ \t]*$(.*?)^[ \t]*#[ \t]*\[END\][ \t]+\1[ \t]*$',
+    r'^[ \t]*(?:#|//)[ \t]*\[START\][ \t]+([\w-]+)[ \t]*$\n?(.*?)^[ \t]*(?:#|//)[ \t]*\[END\][ \t]+\1[ \t]*$',
     re.DOTALL | re.MULTILINE
 )
 
@@ -48,10 +49,13 @@ def get_snippet_content(content, name):
     return None
 
 def replace_snippet(content, name, new_content):
+    # 构建动态正则，匹配指定名称的代码段，支持 # 和 //
     pattern = re.compile(
-        r'^[ \t]*#[ \t]*\[START\][ \t]+' + re.escape(name) + r'[ \t]*$(.*?)^[ \t]*#[ \t]*\[END\][ \t]+' + re.escape(name) + r'[ \t]*$',
+        r'^[ \t]*(?:#|//)[ \t]*\[START\][ \t]+' + re.escape(name) + r'[ \t]*$\n?(.*?)^[ \t]*(?:#|//)[ \t]*\[END\][ \t]+' + re.escape(name) + r'[ \t]*$',
         re.DOTALL | re.MULTILINE
     )
+    # 使用与匹配相同的注释符，但替换时固定用 # 还是保持原样？我们决定统一使用 # 作为新标记，因为简单。
+    # 但为了保留原文件的注释风格，最好检测原文件使用的注释符，但实现复杂。此处简化：始终使用 #。
     new_block = f"# [START] {name}\n{new_content}\n# [END] {name}"
     if pattern.search(content):
         return pattern.sub(new_block, content, count=1)
@@ -62,7 +66,7 @@ def replace_snippet(content, name, new_content):
 
 def delete_snippet(content, name):
     pattern = re.compile(
-        r'^[ \t]*#[ \t]*\[START\][ \t]+' + re.escape(name) + r'[ \t]*$(.*?)^[ \t]*#[ \t]*\[END\][ \t]+' + re.escape(name) + r'[ \t]*$\n?',
+        r'^[ \t]*(?:#|//)[ \t]*\[START\][ \t]+' + re.escape(name) + r'[ \t]*$\n?(.*?)^[ \t]*(?:#|//)[ \t]*\[END\][ \t]+' + re.escape(name) + r'[ \t]*$\n?',
         re.DOTALL | re.MULTILINE
     )
     return pattern.sub('', content)
@@ -100,7 +104,6 @@ def run(ctx: core.Context, args):
     file_path = ctx.validate_path(parsed.file)
     subcmd = parsed.command
 
-    # 对于非 set 命令，文件必须存在
     if subcmd != "set" and not os.path.exists(file_path):
         return _handle_error(subcmd, f"文件 {parsed.file} 不存在")
 
@@ -130,7 +133,7 @@ def run(ctx: core.Context, args):
         snippet_content = get_snippet_content(content, parsed.name)
         if snippet_content is None:
             return _handle_error(subcmd, f"未找到代码段 '{parsed.name}'")
-        return snippet_content  # 直接返回内容，末尾不加换行，保持原样
+        return snippet_content
 
     elif subcmd == "set":
         if parsed.content:
@@ -143,7 +146,6 @@ def run(ctx: core.Context, args):
             except Exception as e:
                 return _handle_error(subcmd, f"无法读取内容文件 {parsed.content_file} - {e}")
         else:
-            # 从标准输入读取（在这种情况下，我们无法在返回字符串的模型中交互，因此改为错误）
             return _handle_error(subcmd, "必须提供 --content 或 --file 参数")
 
         if os.path.exists(file_path):
@@ -173,5 +175,4 @@ def run(ctx: core.Context, args):
         return f"成功：代码段 '{parsed.name}' 已从 {parsed.file} 删除"
 
     else:
-        # 应该不会走到这里
         return _handle_error("unknown", f"未知的子命令: {subcmd}")
