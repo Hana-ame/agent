@@ -1,0 +1,88 @@
+# 工具测试报告：memory.py
+
+## 测试时间
+2026-03-12
+
+## 期望用法
+命令格式：`py utils.py memory <子命令> [参数...]`
+
+输出格式：
+- 成功时：输出相关提示信息（如记忆已添加、ID、dump 文件路径等）
+- 失败时：输出统一格式错误块：
+  ```
+  === memory <子命令> ===
+  错误：具体错误信息
+  === end of memory <子命令> ===
+  ```
+
+## 实际用法（修改后）
+与期望一致。
+
+## 测试结果
+
+### 1. 添加记忆
+命令：
+```
+py utils.py memory add "第一次测试记忆" --tags test,first
+py utils.py memory add "第二次测试记忆" --tags test,second
+py utils.py memory add "单独记忆"
+```
+输出：
+```
+记忆已添加，ID: 1773291396141
+详情已保存到 memory_dump.txt，可用 'py utils.py cat memory_dump.txt' 查看。
+...
+```
+✅ 添加成功，ID 正确生成，dump 文件提示正确。
+
+### 2. 列出所有记忆
+命令：`py utils.py memory list`
+输出提示列表已保存到 memory_dump.txt，查看内容：
+```
+共 4 条记忆：
+ID: 1773291396141 ... 内容: 第一次测试记忆
+...
+```
+✅ 列出成功，内容完整。
+
+### 3. 按标签筛选
+命令：`py utils.py memory list --tag test`
+输出提示列表已保存，查看内容仅包含 test 标签的记忆，✅ 正确。
+
+### 4. 搜索记忆
+命令：`py utils.py memory search 第一次`
+输出提示搜索结果已保存，查看内容仅包含关键词的记忆，✅ 正确。
+
+### 5. 更新记忆（使用真实存在的 ID）
+命令：
+```
+py utils.py memory update 1773291396141 --content "更新后的第一次" --tags updated
+```
+输出：
+```
+记忆 1773291396141 已更新。
+详情已保存到 memory_dump.txt，可用 'py utils.py cat memory_dump.txt' 查看。
+```
+✅ 更新成功。
+
+### 6. 删除记忆（使用同一 ID）
+命令：
+```
+py utils.py memory delete 1773291396141
+```
+输出：
+```
+记忆 1773291396141 已删除。
+详情已保存到 memory_dump.txt，可用 'py utils.py cat memory_dump.txt' 查看。
+```
+✅ 删除成功。
+
+### 7. 错误情况
+- 缺少参数：`py utils.py memory add` → 返回错误块，提示必须提供内容。
+- 缺少关键词：`py utils.py memory search` → 返回错误块。
+- 删除不存在的 ID：`py utils.py memory delete nonexistent` → 返回错误块。
+- 更新不存在的 ID：`py utils.py memory update nonexistent --content "x"` → 返回错误块。
+所有错误块格式均符合期望。
+
+## 结论
+`memory.py` 已按统一风格修改并通过测试。
