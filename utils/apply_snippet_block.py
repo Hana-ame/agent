@@ -1,5 +1,5 @@
 # [START] TOOL-APPLY-SNIPPET-BLOCK
-# version: 0.0.8
+# version: 0.0.10
 # 描述：从响应文件读取代码段块并更新文件中的代码段
 
 """
@@ -32,6 +32,10 @@ PREVIEW_LENGTH = 250
 def _handle_error(subcmd: str, msg: str) -> str:
     return f"=== {subcmd} ===\n错误：{msg}\n=== end of {subcmd} ==="
 
+# 使用 raw 字符串定义正则，避免转义问题
+_START_PATTERN = re.compile(r'^(?:#|//)\s*\[START\]\s+([\w-]+)')
+_END_PATTERN = re.compile(r'^(?:#|//)\s*\[END\]\s+([\w-]+)')
+
 def _extract_snippet_from_content(content: str):
     """从内容中提取代码段，返回 (name, snippet_content) 或 None，支持 # 和 // 注释"""
     lines = content.splitlines()
@@ -39,8 +43,7 @@ def _extract_snippet_from_content(content: str):
     name = None
     for i, line in enumerate(lines):
         stripped = line.lstrip()
-        # 匹配 # 或 // 后跟 [START]
-        m = re.match(r'^(?:#|//)\s*\[START\]\s+([\w-]+)', stripped)
+        m = _START_PATTERN.match(stripped)
         if m:
             name = m.group(1)
             start_line = i
@@ -52,7 +55,7 @@ def _extract_snippet_from_content(content: str):
     end_line = -1
     for j in range(start_line + 1, len(lines)):
         stripped = lines[j].lstrip()
-        m = re.match(r'^(?:#|//)\s*\[END\]\s+([\w-]+)', stripped)
+        m = _END_PATTERN.match(stripped)
         if m and m.group(1) == name:
             end_line = j
             break
