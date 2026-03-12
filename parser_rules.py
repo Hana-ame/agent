@@ -76,8 +76,8 @@ class CommandRule(BaseRule):
 # [END] COMMAND-RULE
 
 # [START] CODEBLOCK-RULE
-# version: 002
-# 上下文：在规则处理器中注册，用于拦截并提取 Markdown 代码块。增强版：如果代码块内容符合 write_multiple 格式，则自动写入文件。
+# version: 003
+# 上下文：在规则处理器中注册，用于拦截并提取 Markdown 代码块。增强版：支持 write_multiple 格式自动写入，以及 snippet 格式自动更新代码段。
 # 先决调用：BaseRule 接口规范。后续调用：文件系统 I/O 操作。
 # 输入参数：root_path (str), agent_dir (str)
 # 输出参数：无
@@ -120,8 +120,20 @@ class CodeBlockRule(BaseRule):
                 i += 1
         return files
 
+    def _extract_snippet(self, content: str):
+        """从内容中提取第一个代码段，返回 (name, snippet_content) 或 None"""
+        # 匹配 # [START] name 和 # [END] name
+        pattern = re.compile(
+            r'^[ \t]*#[ \t]*\[START\][ \t]+([\w-]+)[ \t]*$\n?(.*?)^[ \t]*#[ \t]*\[END\][ \t]+\1[ \t]*$',
+            re.DOTALL | re.MULTILINE
+        )
+        match = pattern.search(content)
+        if match:
+            return match.group(1), match.group(2)
+        return None, None
+
     # [START] CODEBLOCK-RULE-MATCH
-    # version: 002
+    # version: 003
     # 上下文：正则扫描全文中带有 ``` 包裹的代码段。先决调用：系统接收到 content。后续调用：文件系统 I/O 操作。
     # 输入参数：text (str)
     # 输出参数：文件保存位置信息的通知文本 (str)
@@ -136,16 +148,37 @@ class CodeBlockRule(BaseRule):
             # 尝试解析为 write_multiple 格式
             files = self._parse_write_multiple_blocks(content)
             if files:
-                # 执行文件写入
                 for rel_path, file_content in files:
                     full_path = os.path.join(self.root_path, rel_path)
-                    try:
-                        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                        with open(full_path, 'w', encoding='utf-8') as f:
-                            f.write(file_content)
-                        results.append(f"通过代码块写入文件: {rel_path}")
-                    except Exception as e:
-                        results.append(f"写入文件 {rel_path} 失败: {e}")
+                    # 检查内容是否包含代码段
+                    name, snippet_content = self._extract_snippet(file_content)
+                    if name is not None:
+                        # 处理为代码段更新
+                        try:
+                            # 读取现有文件内容
+                            if os.path.exists(full_path):
+                                with open(full_path, 'r', encoding='utf-8') as f:
+                                    existing = f.read()
+                            else:
+                                existing = ""
+                            # 使用 snippet 的 replace_snippet 函数
+                            from utils.snippet import replace_snippet
+                            new_content = replace_snippet(existing, name, snippet_content)
+                            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                            with open(full_path, 'w', encoding='utf-8') as f:
+                                f.write(new_content)
+                            results.append(f"通过代码块更新代码段 '{name}' 到文件: {rel_path}")
+                        except Exception as e:
+                            results.append(f"更新代码段 {rel_path} 失败: {e}")
+                    else:
+                        # 普通文件写入
+                        try:
+                            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                            with open(full_path, 'w', encoding='utf-8') as f:
+                                f.write(file_content)
+                            results.append(f"通过代码块写入文件: {rel_path}")
+                        except Exception as e:
+                            results.append(f"写入文件 {rel_path} 失败: {e}")
             else:
                 # 回退到原始行为：保存到 .agent/ 目录
                 hash_val = hashlib.md5(content.encode('utf-8')).hexdigest()[:8]
