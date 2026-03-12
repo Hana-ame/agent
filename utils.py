@@ -3,16 +3,23 @@ import sys
 import os
 import importlib
 
-sys.path.append(os.getcwd())
+# 修复：动态提取当前脚本所在的目录，无论从哪里运行，都能正确定位 utils
+utils_dir = os.path.dirname(os.path.abspath(__file__))
+# 找出包的父级目录 (以便能够成功执行 from utils import core)
+parent_dir = os.path.dirname(utils_dir)
+
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+# 兜底：保留 cwd 在环境变量中，兼容可能有其他依赖项在当前目录的情况
+if os.getcwd() not in sys.path:
+    sys.path.append(os.getcwd())
 
 def main():
     if len(sys.argv) < 2:
         print("Usage: py utils.py <tool_name> [args...]")
         return
 
-    # 修复：直接信任 sys.argv。
-    # 因为 CommandExecutor 已经使用了 shlex.split 并通过 subprocess 传递列表，
-    # 操作系统会自动处理好参数边界，sys.argv[1:] 已经是解析好的工具名和参数。
+    # 因为 Executor 使用了 shlex(posix=True) 传参，sys.argv 已经干干净净没有外层引号了
     parsed_args = sys.argv[1:]
 
     tool_name = parsed_args[0]
