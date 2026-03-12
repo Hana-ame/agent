@@ -33,14 +33,13 @@ def run(ctx, args):
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        # 生成预览
-        preview = content
-        if len(preview) > PREVIEW_LENGTH * 2:
-            preview = preview[:PREVIEW_LENGTH] + "...(中间省略)..." + preview[-PREVIEW_LENGTH:]
-        elif len(preview) > PREVIEW_LENGTH:
-            preview = preview[:PREVIEW_LENGTH] + "...(省略)..." + preview[-PREVIEW_LENGTH:]
+        # 生成预览（与 write_multiple 风格一致）
+        if len(content) > PREVIEW_LENGTH * 2:
+            preview = content[:PREVIEW_LENGTH] + "...(中间省略)..." + content[-PREVIEW_LENGTH:]
+        else:
+            preview = content
         
-        return f"Success: 已写入 {rel_path}\n写入内容预览：\n{preview}"
+        return f"{rel_path}中被写入了以下内容\n{preview}"
     except Exception as e:
         return f"Error: 写入失败 - {str(e)}"
 
