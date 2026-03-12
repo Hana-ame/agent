@@ -33,7 +33,7 @@ class Agent:
         os.makedirs(self.agent_dir, exist_ok=True)
         
         self.msg_file = os.path.join(self.agent_dir, "MESSAGE.txt")
-        self.pause_file = os.path.join(self.agent_dir, ".pause")
+        self.pause_file = os.path.join(".pause")
         self.log_file = os.path.join(self.agent_dir, "LOG.txt")
         
         self.last_response_file = os.path.join(self.agent_dir, "LAST_RESPONSE.txt")
