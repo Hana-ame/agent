@@ -1,11 +1,12 @@
 # [START] UTILS-ENTRY
-# version: 002
+# version: 0.0.3
 # 上下文：被 CommandRule 作为子进程拉起。先决调用：CommandRule.match_and_execute。后续调用：具体工具模块的 run 方法。
 # 输入参数：sys.argv (命令行参数)
 # 输出参数：标准输出 (工具执行结果)
 import sys
 import os
 import importlib
+import shlex
 
 # 确保能引用到 utils 包
 sys.path.append(os.getcwd())
@@ -13,11 +14,27 @@ sys.path.append(os.getcwd())
 def main():
     # 1. 参数校验
     if len(sys.argv) < 2:
+        print("Usage: py utils.py <tool_name>[args...]")
+        return
+
+    # 修复上层（如 CommandRule）粗暴按空格切分导致带引号参数被破坏的问题
+    # 正常 Shell 传入 sys.argv 时引号已被剥离；如果发现残留引号，说明被错误切片了
+    if any('"' in arg or "'" in arg for arg in sys.argv[1:]):
+        raw_args_str = " ".join(sys.argv[1:])
+        try:
+            parsed_args = shlex.split(raw_args_str)
+        except ValueError:
+            # 遇到未闭合的引号等解析失败情况，回退使用原始 sys.argv
+            parsed_args = sys.argv[1:]
+    else:
+        parsed_args = sys.argv[1:]
+
+    if not parsed_args:
         print("Usage: py utils.py <tool_name> [args...]")
         return
 
-    tool_name = sys.argv[1]
-    tool_args = sys.argv[2:]
+    tool_name = parsed_args[0]
+    tool_args = parsed_args[1:]
 
     # 2. 初始化上下文 (依赖 utils/core.py)
     try:
