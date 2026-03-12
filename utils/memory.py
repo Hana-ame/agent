@@ -123,7 +123,7 @@ def run(ctx: core.Context, args: List[str]) -> str:
             tags_str = ",".join(tags) if tags else ""
             c.execute(
                 "INSERT INTO memories (id, content, tags, created, updated) VALUES (?, ?, ?, datetime('now'), datetime('now'))",
-                (mem_id, content, tags_str)
+                (mem_id, parsed.content, tags_str)   # 修复：使用 parsed.content
             )
             conn.commit()
             c.execute("SELECT id, content, tags, created, updated FROM memories ORDER BY created DESC")
