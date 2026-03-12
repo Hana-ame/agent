@@ -31,7 +31,7 @@ def run(ctx, args):
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         
         with open(full_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+            f.write(content.replace(r"\n","\n"))
         
         # 生成预览
         if len(content) > PREVIEW_LENGTH * 2:
