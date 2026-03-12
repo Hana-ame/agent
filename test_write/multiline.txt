@@ -1,0 +1,4 @@
+"Line 1 with spaces
+
+Line 3 after empty line
+Line 4 with trailing spaces "

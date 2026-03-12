@@ -15,7 +15,9 @@ class CommandExecutor:
         命令格式如 'py utils.py ...'，会转换为绝对路径并设置工作目录。
         """
         try:
-            parts = shlex.split(cmd, posix=False) 
+            # 修复：使用 posix=True 来贴近 bash 解析方式
+            # 它会自动剥离多余的参数引号，并将引号内带有空格的内容作为一个整体参数传递。
+            parts = shlex.split(cmd, posix=True) 
 
             if parts and parts[0] in ("py", "python", "python3"):
                 parts[0] = sys.executable
@@ -63,7 +65,7 @@ class CommandExecutor:
             return ""
         tasks = [cls.execute_command(cmd) for cmd in commands]
         outputs = await asyncio.gather(*tasks, return_exceptions=True)
-        formatted = []
+        formatted =[]
         for i, out in enumerate(outputs):
             if isinstance(out, Exception):
                 formatted.append(f"命令 {commands[i]} 执行异常: {str(out)}")
