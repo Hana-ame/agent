@@ -16,6 +16,9 @@ import os
 import sys
 import re
 from utils import snippet
+from utils import _file_utils
+
+PREVIEW_LENGTH = _file_utils.PREVIEW_LENGTH
 
 def run(ctx, args):
     # 手动解析参数
@@ -67,7 +70,7 @@ def run(ctx, args):
             with open(ctx.validate_path(content_file), 'r', encoding='utf-8') as f:
                 final_content = f.read()
         except Exception as e:
-            return f"错误：无法读取内容文件 {content_file} - {e}"
+            return f"=== {content_file} ===\n错误：无法读取内容文件 - {e}\n=== end of {content_file} ==="
     elif content_parts:
         final_content = " ".join(content_parts)
     else:
@@ -88,7 +91,14 @@ def run(ctx, args):
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(final_content)
-            return f"Success: 已写入 {path} (长度: {len(final_content)})"
+
+            # 生成预览
+            if len(final_content) > PREVIEW_LENGTH * 2:
+                preview = final_content[:PREVIEW_LENGTH] + "...(中间省略)..." + final_content[-PREVIEW_LENGTH:]
+            else:
+                preview = final_content
+
+            return f"{path}中被写入了以下内容\n{preview}"
         except Exception as e:
-            return f"Error: 写入失败 - {str(e)}"
+            return f"=== {path} ===\n错误：{str(e)}\n=== end of {path} ==="
 # [END] TOOL-WRITE-SNIPPET
