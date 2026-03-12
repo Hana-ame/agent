@@ -76,16 +76,52 @@ class CommandRule(BaseRule):
 # [END] COMMAND-RULE
 
 # [START] CODEBLOCK-RULE
-# version: 001
-# 上下文：在规则处理器中注册，用于拦截并提取 Markdown 代码块。先决调用：BaseRule 接口规范。后续调用：将提取的代码写入 .agent/ 目录下的哈希文件。
-# 输入参数：agent_dir (str)
+# version: 002
+# 上下文：在规则处理器中注册，用于拦截并提取 Markdown 代码块。增强版：如果代码块内容符合 write_multiple 格式，则自动写入文件。
+# 先决调用：BaseRule 接口规范。后续调用：文件系统 I/O 操作。
+# 输入参数：root_path (str), agent_dir (str)
 # 输出参数：无
 class CodeBlockRule(BaseRule):
-    def __init__(self, agent_dir: str):
+    def __init__(self, root_path: str, agent_dir: str):
+        self.root_path = root_path
         self.agent_dir = agent_dir
 
+    def _parse_write_multiple_blocks(self, content: str):
+        """解析符合 write_multiple 格式的代码块内容，返回 (路径, 内容) 列表"""
+        files = []
+        lines = content.splitlines(keepends=True)
+        i = 0
+        while i < len(lines):
+            line = lines[i].rstrip('\n')
+            start_match = re.match(r'^=== (.+) ===$', line)
+            if start_match:
+                rel_path = start_match.group(1).strip()
+                i += 1
+                content_lines = []
+                while i < len(lines):
+                    current_line = lines[i].rstrip('\n')
+                    end_match = re.match(r'^=== end of (.+) ===$', current_line)
+                    if end_match and end_match.group(1).strip() == rel_path:
+                        break
+                    content_lines.append(lines[i])
+                    i += 1
+                if i < len(lines) and re.match(r'^=== end of .+ ===$', lines[i].rstrip('\n')):
+                    i += 1
+                file_content = ''.join(content_lines)
+                # 去除可能的首尾 ``` 标记（与 write_multiple 行为一致）
+                fc_lines = file_content.splitlines()
+                if fc_lines and fc_lines[0].startswith("```"):
+                    fc_lines.pop(0)
+                if fc_lines and fc_lines[-1].startswith("```"):
+                    fc_lines.pop()
+                file_content = "\n".join(fc_lines)
+                files.append((rel_path, file_content))
+            else:
+                i += 1
+        return files
+
     # [START] CODEBLOCK-RULE-MATCH
-    # version: 001
+    # version: 002
     # 上下文：正则扫描全文中带有 ``` 包裹的代码段。先决调用：系统接收到 content。后续调用：文件系统 I/O 操作。
     # 输入参数：text (str)
     # 输出参数：文件保存位置信息的通知文本 (str)
@@ -97,29 +133,43 @@ class CodeBlockRule(BaseRule):
             ext = match.group(1) or 'txt'
             content = match.group(2)
             
-            hash_val = hashlib.md5(content.encode('utf-8')).hexdigest()[:8]
-            filename = f"{hash_val}.{ext}"
-            filepath = os.path.join(self.agent_dir, filename)
-            
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(content)
-                
-            results.append(f"检测到代码块，已提取并保存至: .agent/{filename}")
+            # 尝试解析为 write_multiple 格式
+            files = self._parse_write_multiple_blocks(content)
+            if files:
+                # 执行文件写入
+                for rel_path, file_content in files:
+                    full_path = os.path.join(self.root_path, rel_path)
+                    try:
+                        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                        with open(full_path, 'w', encoding='utf-8') as f:
+                            f.write(file_content)
+                        results.append(f"通过代码块写入文件: {rel_path}")
+                    except Exception as e:
+                        results.append(f"写入文件 {rel_path} 失败: {e}")
+            else:
+                # 回退到原始行为：保存到 .agent/ 目录
+                hash_val = hashlib.md5(content.encode('utf-8')).hexdigest()[:8]
+                filename = f"{hash_val}.{ext}"
+                filepath = os.path.join(self.agent_dir, filename)
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                results.append(f"检测到代码块，已提取并保存至: .agent/{filename}")
             
         return "\n".join(results)
     # [END] CODEBLOCK-RULE-MATCH
 # [END] CODEBLOCK-RULE
 
 # [START] RULE-PROCESSOR
-# version: 001
+# version: 002
 # 上下文：Agent 核心生命周期组件，统筹所有激活的模式匹配规则。先决调用：无。后续调用：在 agent.run 循环中被调用。
 # 输入参数：root_path (str), agent_dir (str), utils_py_path (str)
 # 输出参数：无
 class RuleProcessor:
     def __init__(self, root_path: str, agent_dir: str, utils_py_path: str):
+        self.root_path = root_path
         self.rules : list[BaseRule] =[
             CommandRule(root_path, utils_py_path),
-            CodeBlockRule(agent_dir)
+            CodeBlockRule(root_path, agent_dir)  # 传递 root_path
         ]
 
     # [START] RULE-PROCESSOR-EXEC
@@ -141,8 +191,9 @@ if __name__ == "__main__":
     import asyncio
     p = RuleProcessor(".", ".agent", "utils")
     txt = """```
-py utils.py cat utils.py
+=== test.txt ===
+Hello world
+=== end of test.txt ===
 ```"""
-    # 正确方式：使用 asyncio.run() 运行协程
     result = asyncio.run(p.process(txt))
     print(result)
