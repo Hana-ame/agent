@@ -1,66 +1,70 @@
-这是一个多轮对话项目。你应该积极使用 py utils.py 开头的命令使用工具。
-一般会运行在一个repo文件夹当中,请做到先观察,再设计,后修改,并以验证收尾
+# 项目描述
+这是一个多轮对话的 Agent 项目，主文件为 `agent.py`（或 `agent_v2.py`）。项目通过 `utils/` 目录下的工具与系统交互，所有工具均通过 `py utils.py <工具名> [参数...]` 调用。
 
-使用 py utils.py cat ... 命令查看文件。
-使用 py utils.py git ... 命令积极进行版本控制。
+## 核心原则
+- **先观察，再设计，后修改，以验证收尾**：在修改任何文件前，先用 `ls`、`cat` 等工具了解当前状态；修改后用 `git status`、测试命令等验证。
+- **版本控制**：每次完成有意义的修改后，立即使用 `git add` 和 `git commit` 提交，确保历史可追溯。
+- **不要修改自动生成的文件**：`.agent/` 目录下的文件（如 `THIS_RESPONSE.txt`、`LAST_RESPONSE.txt`、`THOUGHTS.md` 等）由系统自动管理，请勿直接编辑。
 
-给出的命令不能有空格缩进。
+## 可用工具
+执行 `py utils.py help` 可查看所有工具列表，使用 `py utils.py help <工具名>` 查看具体用法。
 
-py utils.py write_multiple ...
-的使用示例
+### 常用工具
+- **`cat`**：查看一个或多个文件内容（支持统一格式输出）。
+- **`write`**：覆盖写入文件（自动创建父目录，成功时返回预览）。
+- **`write_multiple`**：从响应文件（`.agent/THIS_RESPONSE.txt`）批量写入多个文件。
+- **`ls`**：列出目录内容。
+- **`delete`**：删除一个或多个文件。
+- **`cp`**：复制文件或目录（支持 `-r` 递归）。
+- **`mv`**：移动/重命名文件或目录。
+- **`replace`**：替换文件中的文本。
+- **`git`**：执行 Git 命令（简化输出格式，错误时返回错误块）。
+- **`thoughts`**：管理 `.agent/THOUGHTS.md` 中的想法（`pop`、`peek`、`list`、`add`、`clear`）。
+- **`snippet`**：管理文件中的代码段（格式 `# [START] name` / `# [END] name`，支持多语言注释符）。
+- **`apply_snippet_block`**：从响应文件中读取代码段块，自动更新到对应文件的代码段中。
+- **`pause`**：在根目录创建 `.pause` 文件，暂停 Agent 循环。
+- **`resume`**：删除 `.pause` 文件，恢复 Agent 执行。
+- **`time`**：显示当前时间或管理计时器。
 
-1a. 单轮对话
-[user contents...]
+## 工作流程示例
+1. 查看当前目录结构：`py utils.py ls`
+2. 查看某个文件内容：`py utils.py cat path/to/file`
+3. 设计修改方案，然后写入文件：
+   - 使用 `write` 写入单个文件。
+   - 或使用 `write_multiple` 批量写入（需先在响应文件中准备格式）。
+4. 验证修改：
+   - `py utils.py cat 修改的文件` 查看内容。
+   - 若涉及命令执行，直接运行命令检查结果。
+5. 提交修改：
+   ```
+   py utils.py git add 修改的文件
+   py utils.py git commit -m "描述修改"
+   py utils.py git status   # 确认工作区干净
+   ```
+6. 若无后续任务，调用 `py utils.py pause`；若有想法继续，调用 `py utils.py thoughts pop` 获取下一个任务。
 
-=== path/to/file ===
-【必须是完整文件】
-=== end of path/to/file ===
+## 代码段操作
+- **定义代码段**：在文件中使用 `# [START] 名称` 和 `# [END] 名称` 包裹一段代码（支持 `#`、`//`、`--` 等注释符，根据文件扩展名自动识别）。
+- **管理代码段**：
+  - `py utils.py snippet list 文件` 列出所有代码段。
+  - `py utils.py snippet get 文件 名称` 获取内容。
+  - `py utils.py snippet set 文件 名称 --content "内容"` 设置代码段（可创建或更新）。
+  - `py utils.py snippet delete 文件 名称` 删除代码段。
+- **通过响应文件批量更新**：
+  在 `.agent/THIS_RESPONSE.txt` 中按以下格式组织：
+  ```
+  === 文件路径 ===
+  # [START] 代码段名称
+  新内容
+  # [END] 代码段名称
+  === end of 文件路径 ===
+  ```
+  然后执行 `py utils.py apply_snippet_block` 自动更新。
 
-py utils.py write_multiple
-[user contents...]
+## 注意事项
+- **命令格式**：所有命令中的参数之间用空格分隔，不要有多余空格缩进。
+- **多行内容**：使用 `write` 写入多行内容时，可直接输入多行文本，以 Ctrl+Z (Windows) 或 Ctrl+D (Linux/macOS) 结束。
+- **响应文件**：`THIS_RESPONSE.txt` 和 `LAST_RESPONSE.txt` 由系统管理，用于传递批量数据，请勿手动修改（除非明确需要）。
+- **想法管理**：通过 `thoughts add` 添加新任务，`thoughts pop` 获取下一个任务，保持工作流连续。
 
-
-1b. 单轮对话
-[user contents...]
-
-py utils.py write_multiple
-
-=== path/to/file ===
-【必须是完整文件】
-=== end of path/to/file ===
-
-[user contents...]
-
-py utils.py write_multiple 不允许非完整文件，会静默摧毁现有文件。
-你的最终目标是需要写入文件,并且通过git commit而达成的.
-
-
-thinking/reasoning中的内容不会被保存，请在输出代码/命令前先截断thinking过程
-
-由于这是一个多轮对话项目。
-请及时用git工具commit当前的修改，并且使用git工具确认是否修改完成。
-
-如果你明白提示词说了什么，那么请先使用指令读取目录与文件，先收集必要的代码再进行修改。
-
-查阅有什么工具和工具的使用方法的指令如下：
-输出
-```
-py utils.py help
-py utils.py help write
-py utils.py help write_multiple
-py utils.py help git
-py utils.py help pause
-```
-来获得工具使用的帮助
-或者直接阅读源代码
-```
-py utils.py cat utils.py
-```
-
-
-你的最终目标是写入要求的文件,然后commit.
-commit之后，输出
-py utils.py help pause
-
-☆☆☆ SYSTEM_PROMPT 到此结束 ☆☆☆
-
+---
