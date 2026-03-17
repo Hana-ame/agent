@@ -33,8 +33,13 @@ from pathlib import Path
 from typing import List, Dict, Optional, Any
 
 # 依赖组件
-from json_api_requester import JsonApiRequester
-from json_payload_sender import JsonPayloadSender
+try:
+    from json_api_requester import JsonApiRequester
+    from json_payload_sender import JsonPayloadSender
+except ImportError as e:
+    print(f"[错误] 缺失依赖模块: {e}", file=sys.stderr)
+    print("[提示] 确保 json_api_requester.py 和 json_payload_sender.py 在同一目录", file=sys.stderr)
+    sys.exit(1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
