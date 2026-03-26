@@ -1,0 +1,4 @@
+Process A (PID: 17140) working
+Process B (PID: 17140) working
+Process C (PID: 17140) working
+Results: ['AA', 'BB', 'CC']
