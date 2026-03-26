@@ -1,0 +1,3 @@
+Sections: ['bitbucket.org', 'topsecret.server.com']
+bitbucket.org user: hg
+Default compression: yes

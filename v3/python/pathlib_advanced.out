@@ -1,0 +1,7 @@
+Python files: [WindowsPath('temp_structure/file2.py')]
+All .txt files: [WindowsPath('temp_structure/file1.txt'), WindowsPath('temp_structure/subdir/file3.txt')]
+Directory tree:
+  file1.txt
+  file2.py
+  subdir
+  subdir\file3.txt
