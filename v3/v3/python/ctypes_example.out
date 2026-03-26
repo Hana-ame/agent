@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\ctypes_example.py", line 11, in <module>
+    getpid = libc.getpid
+             ^^^^^^^^^^^
+  File "C:\Python312\Lib\ctypes\__init__.py", line 392, in __getattr__
+    func = self.__getitem__(name)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\ctypes\__init__.py", line 397, in __getitem__
+    func = self._FuncPtr((name_or_ordinal, self))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: function 'getpid' not found
