@@ -1,0 +1,21 @@
+Thread-0 acquired semaphore
+Thread-1 acquired semaphore
+Thread-2 acquired semaphore
+Thread-1 releasing
+Thread-3 acquired semaphore
+Thread-2 releasing
+Thread-4 acquired semaphore
+Thread-0 releasing
+Thread-5 acquired semaphore
+Thread-4 releasing
+Thread-6 acquired semaphore
+Thread-3 releasing
+Thread-7 acquired semaphore
+Thread-7 releasing
+Thread-8 acquired semaphore
+Thread-5 releasing
+Thread-9 acquired semaphore
+Thread-6 releasing
+Thread-8 releasing
+Thread-9 releasing
+All done
