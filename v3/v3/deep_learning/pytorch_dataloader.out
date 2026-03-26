@@ -1,0 +1,4 @@
+Dataset size: 500
+Batch 0: data shape torch.Size([32, 10]), labels shape torch.Size([32])
+Batch 1: data shape torch.Size([32, 10]), labels shape torch.Size([32])
+Batch 2: data shape torch.Size([32, 10]), labels shape torch.Size([32])
