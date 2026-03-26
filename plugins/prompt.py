@@ -2,6 +2,8 @@ import re
 import os
 import subprocess
 from .base import Plugin
+
+
 class DefaultPrompt(Plugin):
     def __init__(self, default_prompt: str, system_prompt: str):
         """
@@ -19,6 +21,7 @@ class DefaultPrompt(Plugin):
         else:
             self.system_prompt = system_prompt
         self.first_prompt = True
+
     def before_prompt(self, args, req):
         code = req.get("code", "")
         output = req.get("output", "")
@@ -36,10 +39,14 @@ class DefaultPrompt(Plugin):
             if code or output:
                 req["prompt"] = f"Code:\n{code}\n\nOutput:\n{output}\n\n{user_prompt}"
         return False
+
     def after_prompt(self, args, req, resp):
         return False
+
+
 class SaveCodePlugin(Plugin):
     """自动保存响应中带有 [PATH] 注释的代码块到文件；若无路径指示则保存到 untitled/snippet_xx.txt"""
+
     COMMENT_MAP = {
         "python": "#",
         "javascript": "//",
@@ -83,8 +90,10 @@ class SaveCodePlugin(Plugin):
         "yaml": ".yaml",
     }
     _snippet_counter = 1
+
     def __init__(self):
         self.saved_files = []
+
     def before_prompt(self, args, req):
         if self.saved_files:
             req["code"] = self.saved_files
@@ -92,11 +101,14 @@ class SaveCodePlugin(Plugin):
             pass
         self.saved_files = []
         return False
+
     def after_prompt(self, args, req, resp):
         response = resp.get("response", "")
         if not response:
             return False
-        code_block_pattern = re.compile(r"(?:^|\n)```(\w*)\n(.*?)\n```(?=\n|$)", re.DOTALL)
+        code_block_pattern = re.compile(
+            r"(?:^|\n)```(\w*)\n(.*?)\n```(?=\n|$)", re.DOTALL
+        )
         for match in code_block_pattern.finditer(response):
             lang = match.group(1).strip().lower()
             content = match.group(2)
@@ -115,6 +127,7 @@ class SaveCodePlugin(Plugin):
                     self.saved_files.append(default_path)
                     self.__class__._snippet_counter += 1
         return False
+
     def _extract_path(self, content, lang):
         """根据语言注释符号提取 [PATH] 行中的路径，未找到返回 None"""
         comment_prefix = self.COMMENT_MAP.get(lang)
@@ -130,6 +143,7 @@ class SaveCodePlugin(Plugin):
             if m:
                 return m.group(1).strip()
         return None
+
     def _save_file(self, filepath, content, remove_path_line):
         """保存文件，返回是否成功"""
         if remove_path_line:
@@ -153,6 +167,8 @@ class SaveCodePlugin(Plugin):
         except Exception as e:
             print(f"[SaveCodePlugin] Error saving {filepath}: {e}")
             return False
+
+
 class RunBashCodeBlock(Plugin):
     def __init__(self, bash_path: str = r"C:\Program Files\Git\usr\bin\bash.exe"):
         """
@@ -162,18 +178,18 @@ class RunBashCodeBlock(Plugin):
         self.results = []
         self.output = ""
         self.bin_dir = os.path.dirname(bash_path)  # e.g., C:\Program Files\Git\usr\bin
+
     def before_prompt(self, args, req):
         req["output"] = self.output
         self.output = ""
         return False
+
     def after_prompt(self, args, req, resp):
         response = resp.get("response", "")
         if not response:
             return False
-        pattern = r"```bash\n(.*?)```"
         pattern = re.compile(r"(?:^|\n)```bash\n(.*?)\n```(?=\n|$)", re.DOTALL)
-        
-        matches = re.findall(pattern, response, re.DOTALL)
+        matches = re.findall(pattern, response)
         if not matches:
             return False
         output_parts = []
@@ -189,11 +205,11 @@ class RunBashCodeBlock(Plugin):
                 timeout = 60  # default
                 if lines:
                     first_line = lines[0].strip()
-                    match = re.match(r'^#\s*\[TIMEOUT\]\s*(\d+)$', first_line)
+                    match = re.match(r"^#\s*\[TIMEOUT\]\s*(\d+)$", first_line)
                     if match:
                         timeout = int(match.group(1))
                         # Remove the directive line from code
-                        code = '\n'.join(lines[1:])
+                        code = "\n".join(lines[1:])
                 result = subprocess.run(
                     [self.bash_path, "-c", code],
                     capture_output=True,

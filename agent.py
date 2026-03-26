@@ -2,6 +2,7 @@ import asyncio
 import argparse
 import websockets
 import sys
+import time
 from plugins import Plugin, LogPlugin
 from plugins.prompt import DefaultPrompt, SaveCodePlugin, RunBashCodeBlock
 from adapters.base import MasterClient
@@ -46,7 +47,9 @@ class Agent:
                     return
                 else:
                     break
+                
             await self.client.call_match("chat.deepseek.com")
+            
             while True:
                 req = {"prompt": ""}
                 should_loop = True
@@ -55,6 +58,9 @@ class Agent:
                     for plugin in self.plugins.values():
                         if plugin.before_prompt(self.args, req):
                             should_loop = True
+                    if should_loop:
+                        print('?')
+                        time.sleep(5)
                 prompt_text = req.get("prompt")
                 prompt_image = req.get("image")
                 if not prompt_text:
@@ -74,6 +80,9 @@ class Agent:
                     for plugin in self.plugins.values():
                         if plugin.after_prompt(self.args, req, resp):
                             should_loop = True
+                    if should_loop:
+                        print('?')
+                        time.sleep(5)
                 if self.args.get("should_exit"):
                     break
         except Exception as e:
