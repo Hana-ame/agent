@@ -6,7 +6,7 @@ import asyncio
 import websockets
 from collections import deque
 
-from base import MasterClient
+from .base import MasterClient
 
 
 class DeepSeekWebApp(MasterClient):
@@ -118,8 +118,15 @@ class DeepSeekWebApp(MasterClient):
 
             print(f"❌ 监听发生异常: {stack_str}")
 
-    async def pop_next_response(self):
-        return await self._inbox.get()
+    async def pop_response(self):
+        try:
+            think, response = await self._inbox.get()
+            if think == "" and response == "":
+                return self.pop_response()
+            else:
+                return think, response
+        except:
+            return "error", "error"
 
 
 # ==========================================
@@ -188,13 +195,13 @@ async def run_test(ws_url):
         # print("\n[步骤 4] 触发网页 [删除历史记录] 按钮...")
         # await client.call_remove_msg()
         print(client._inbox)
-        think, response = await client.pop_next_response()
+        think, response = await client.pop_response()
         print(think)
         print(response)
         print("\n🎉 所有自动控制流下发完毕！保持在线以接收回传...")
         print(print("队列大小:", client._inbox.qsize()))
         try:
-            print(await client.pop_next_response())
+            print(await client.pop_response())
         except Exception as e:
             print(f"异常: {e}")
             import traceback
