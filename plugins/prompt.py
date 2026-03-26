@@ -1,20 +1,52 @@
-
+        
 import re
 import os
+import subprocess
+
 from .base import Plugin
 
 class DefaultPrompt(Plugin):
-    def __init__(self, default_prompt:str):
-        self.default_prompt = default_prompt
-        
+    def __init__(self, default_prompt: str):
+        """
+        :param default_prompt: Either a string containing the default prompt,
+                               or a file path (if it ends with .txt or .md)
+        """
+        # If the provided string looks like a file path and the file exists,
+        # read its contents; otherwise treat it as the literal prompt.
+        if os.path.isfile(default_prompt):
+            with open(default_prompt, 'r', encoding='utf-8') as f:
+                self.default_prompt = f.read()
+        else:
+            self.default_prompt = default_prompt
+
+        # (Optional) You could also load a separate system prompt from a file.
+        # self.system_prompt = self._load_system_prompt("system.txt")
+
     def before_prompt(self, args, req):
-        if str(req.get("prompt", ""))  == "":
-            req["prompt"] = self.default_prompt
-        return False            
+        # Build an initial prompt from code and output if they exist
+        code = req.get("code", "")
+        output = req.get("output", "")
+        user_prompt = req.get("prompt", "")
+
+        # If the user hasn't provided a prompt, use the default
+        if not user_prompt:
+            # If we have code and output, we might want to include them as context
+            if code or output:
+                req["prompt"] = f"CodeBlocks:\n{code}\n\nOutput:\n{output}"
+            else:
+                req["prompt"] = self.default_prompt
+        else:
+            # User provided a prompt; optionally we can still prepend code/output
+            # For example, you might always include them as context:
+            if code or output:
+                req["prompt"] = f"Code:\n{code}\n\nOutput:\n{output}\n\n{user_prompt}"
+            # else keep the user prompt as-is
+
+        return False
 
     def after_prompt(self, args, req, resp):
         return False
-
+    
 class SaveCodePlugin(Plugin):
     """自动保存响应中带有 [PATH] 注释的代码块到文件；若无路径指示则保存到 untitled/snippet_xx.txt"""
     
@@ -157,3 +189,93 @@ class SaveCodePlugin(Plugin):
         except Exception as e:
             print(f"[SaveCodePlugin] Error saving {filepath}: {e}")
             return False
+
+class RunBashCodeBlock(Plugin):
+    def __init__(self, bash_path: str = r"C:\Program Files\Git\usr\bin\bash.exe"):
+        """
+        :param bash_path: Path to the bash executable (Git Bash on Windows)
+        """
+        self.bash_path = bash_path
+        self.results = []   # store execution results for later use
+        self.output = ""
+
+    def before_prompt(self, args, req):
+        req['output'] = self.output
+        return False
+
+    def after_prompt(self, args, req, resp):
+        # Only act if there's a response
+        response = resp.get("response", "")
+        if not response:
+            return False
+
+        # Find all bash code blocks: ```bash ... ```
+        pattern = r"```bash\n(.*?)```"
+        matches = re.findall(pattern, response, re.DOTALL)
+
+        if not matches:
+            return False
+
+        output_parts = []
+        self.results = []   # clear previous results
+
+        # Optional: set up environment to include Git Bash's bin folders
+        # env = os.environ.copy()
+        # env["PATH"] = r"C:\Program Files\Git\usr\bin;" + env.get("PATH", "")
+
+        for idx, code in enumerate(matches, start=1):
+            try:
+                result = subprocess.run(
+                    [self.bash_path, "-c", code],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    shell=False,
+                    # env=env,   # uncomment if you need to fix PATH
+                )
+                stdout = result.stdout.strip()
+                stderr = result.stderr.strip()
+
+                block_result = {
+                    "index": idx,
+                    "code": code,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "timeout": False,
+                    "error": None
+                }
+                self.results.append(block_result)
+
+                if stdout:
+                    output_parts.append(f"## Output of block {idx}:\n{stdout}")
+                if stderr:
+                    output_parts.append(f"## Error of block {idx}:\n{stderr}")
+
+            except subprocess.TimeoutExpired:
+                output_parts.append(f"## Block {idx}: Execution timed out (30s)")
+                self.results.append({
+                    "index": idx,
+                    "code": code,
+                    "stdout": "",
+                    "stderr": "Execution timed out (30s)",
+                    "timeout": True,
+                    "error": None
+                })
+            except Exception as e:
+                output_parts.append(f"## Block {idx}: Execution failed - {e}")
+                self.results.append({
+                    "index": idx,
+                    "code": code,
+                    "stdout": "",
+                    "stderr": str(e),
+                    "timeout": False,
+                    "error": e
+                })
+
+        if output_parts:
+            # Append results to the original prompt (if it exists)
+            self.output = "[Execution results]\n" + "\n\n".join(output_parts)
+
+            print(self.output)
+
+        return False   # continue processing
