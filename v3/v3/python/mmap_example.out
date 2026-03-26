@@ -1,0 +1,5 @@
+Content via mmap: Hello mmap world!
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\mmap_example.py", line 13, in <module>
+    mm.write(b"PYTHON")
+TypeError: mmap can't modify a readonly memory map.
