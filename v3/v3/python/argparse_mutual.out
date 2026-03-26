@@ -1,0 +1,5 @@
+usage: argparse_mutual.py [-h] [--verbose | --quiet]
+argparse_mutual.py: error: argument --quiet: not allowed with argument --verbose
+Verbose: True
+Quiet: False
+Mutually exclusive arguments error

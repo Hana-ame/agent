@@ -1,0 +1,3 @@
+127.0.0.1 - - [26/Mar/2026 22:27:42] "GET / HTTP/1.1" 200 -
+Serving on port 24483
+Hello from simple server!

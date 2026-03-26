@@ -1,0 +1,16 @@
+First 10 cycles: ['red', 'green', 'blue', 'red', 'green', 'blue', 'red', 'green', 'blue', 'red']
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\cycle_islice.py", line 13, in round_robin
+    yield next(val)
+          ^^^^^^^^^
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\cycle_islice.py", line 21, in <module>
+    result = list(itertools.islice(round_robin(a, b, c), 10))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\cycle_islice.py", line 16, in round_robin
+    iters.remove(val)
+ValueError: list.remove(x): x not in list
