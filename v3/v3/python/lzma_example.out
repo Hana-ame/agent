@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\lzma_example.py", line 8, in <module>
+    with lzma.open(tmp.name, 'wb') as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\lzma.py", line 309, in open
+    binary_file = LZMAFile(filename, lz_mode, format=format, check=check,
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\lzma.py", line 120, in __init__
+    self._fp = builtins.open(filename, mode)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'C:\\Users\\Lumin\\AppData\\Local\\Temp\\tmpxi5clmiv'

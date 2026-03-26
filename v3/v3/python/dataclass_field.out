@@ -1,0 +1,3 @@
+Product(name='Laptop', price=999.99, id=6870, tags=[])
+Product(name='Mouse', price=29.99, id=1628, tags=[])
+Tags default empty: []

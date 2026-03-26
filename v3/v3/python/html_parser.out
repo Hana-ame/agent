@@ -1,0 +1,16 @@
+Start tag: html, attrs: []
+Start tag: head, attrs: []
+Start tag: title, attrs: []
+Data: Test &
+Data: <
+Data: >A
+End tag: title
+End tag: head
+Start tag: body, attrs: []
+Start tag: p, attrs: []
+Data: Hello World!
+End tag: p
+End tag: body
+End tag: html
+Escaped: &lt;div&gt;Hello &amp; World&lt;/div&gt;
+Unescaped: <div>Hello & World</div>

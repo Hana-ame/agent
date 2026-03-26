@@ -1,0 +1,15 @@
+Email headers:
+From: sender@example.com
+To: recipient@example.com
+Subject: Test Email
+Date: Thu, 26 Mar 2026 14:32:20 -0000
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\email_example.py", line 19, in <module>
+    print("Body preview:", msg.get_content())
+                           ^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\email\message.py", line 1127, in get_content
+    return content_manager.get_content(self, *args, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\email\contentmanager.py", line 25, in get_content
+    raise KeyError(content_type)
+KeyError: 'multipart/mixed'
