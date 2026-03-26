@@ -1,0 +1,86 @@
+=== Python Basic Syntax Exercise ===
+
+Name: Python Learner (type: str)
+Age: 25 (type: int)
+Height: 1.75 (type: float)
+Is student: True (type: bool)
+
+Fruits: ['apple', 'banana', 'orange']
+First fruit: apple
+Person: {'name': 'Alice', 'age': 30}
+Person's name: Alice
+
+Score: 85, Grade: B
+
+Loop through fruits:
+  - apple
+  - banana
+  - orange
+
+Countdown:
+  5
+  4
+  3
+  2
+  1
+  Blast off!
+
+add(10, 20) = 30
+
+File 'output.txt' created successfully.
+=== Execution Output ===
+
+=== Python Basic Syntax Exercise ===
+
+Name: Python Learner (type: str)
+Age: 25 (type: int)
+Height: 1.75 (type: float)
+Is student: True (type: bool)
+
+Fruits: ['apple', 'banana', 'orange']
+First fruit: apple
+Person: {'name': 'Alice', 'age': 30}
+Person's name: Alice
+
+Score: 85, Grade: B
+
+Loop through fruits:
+  - apple
+  - banana
+  - orange
+
+Countdown:
+  5
+  4
+  3
+  2
+  1
+  Blast off!
+
+add(10, 20) = 30
+
+File 'output.txt' created successfully.
+Even numbers squares: [4, 16, 36, 64, 100]
+Squares dict: {1: 1, 2: 4, 3: 9, 4: 16, 5: 25, 6: 36, 7: 49, 8: 64, 9: 81, 10: 100}
+Numbers > 5: {6, 7, 8, 9, 10}
+Index-value pairs:
+  Index 0: 1
+  Index 1: 2
+  Index 2: 3
+  Index 3: 4
+  Index 4: 5
+Alice scored 95
+Bob scored 87
+Charlie scored 91
+
+Content of output.txt:
+This is a test file.
+Line 2
+Line 3
+
+Number of lines: 3
+Line 1: This is a test file.
+Line 2: Line 2
+Line 3: Line 3
+
+'greeting.txt' created with two lines.
