@@ -1,0 +1,12 @@
+Producer 0 produced Item 0-0
+Producer 1 produced Item 1-0
+Consumer 0 consumed Item 0-0
+Consumer 1 consumed Item 1-0
+Producer 1 produced Item 1-1
+Producer 0 produced Item 0-1
+Consumer 0 consumed Item 1-1
+Consumer 1 consumed Item 0-1
+Producer 1 produced Item 1-2
+Producer 0 produced Item 0-2
+Consumer 0 consumed Item 1-2
+Consumer 1 consumed Item 0-2
