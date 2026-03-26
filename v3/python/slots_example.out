@@ -1,2 +1,0 @@
-Point: (10, 20)
-Error: 'Point' object has no attribute 'z'

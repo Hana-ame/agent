@@ -1,2 +1,0 @@
-Rectangle area: 12
-Cannot instantiate abstract class: Can't instantiate abstract class Shape without an implementation for abstract method 'area'

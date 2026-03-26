@@ -1,7 +1,0 @@
-Signature: (x: int, y: int = 10) -> int
-Parameters: ['x', 'y']
-Docstring: Add two numbers.
-Source: def example(x: int, y: int = 10) -> int:
-    """Add two numbers."""
-    return x + y
-

@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "C:\workplace\agent - 副本\python-client\v3\v3\python\test_advanced.py", line 1, in <module>
-    import pytest
-ModuleNotFoundError: No module named 'pytest'
