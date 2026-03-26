@@ -1,0 +1,4 @@
+http://httpbin.org/ip: status=200, size=33
+http://httpbin.org/user-agent: status=200, size=49
+http://httpbin.org/headers: status=200, size=233
+http://httpbin.org/get: status=200, size=315

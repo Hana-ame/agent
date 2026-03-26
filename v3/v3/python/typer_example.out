@@ -1,0 +1,5 @@
+Usage: typer_example.py [OPTIONS] COMMAND [ARGS]...
+Try 'typer_example.py --help' for help.
+┌─ Error ─────────────────────────────────────────────────────────────────────┐
+│ Missing command.                                                            │
+└─────────────────────────────────────────────────────────────────────────────┘

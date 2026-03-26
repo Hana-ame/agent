@@ -1,0 +1,6 @@
+Python version: 3.12.1 (tags/v3.12.1:2305ca5, Dec  7 2023, 22:03:25) [MSC v.1937 64 bit (AMD64)]
+Platform: win32
+Executable: C:\Python312\python.exe
+Path: ['C:\\workplace\\agent - 副本\\python-client\\v3', 'C:\\Python312\\python312.zip', 'C:\\Python312\\DLLs'] ...
+Arguments: ['sys_info.py']
+Recursion limit: 1000
