@@ -171,6 +171,8 @@ class RunBashCodeBlock(Plugin):
         if not response:
             return False
         pattern = r"```bash\n(.*?)```"
+        pattern = re.compile(r"(?:^|\n)```bash\n(.*?)\n```(?=\n|$)", re.DOTALL)
+        
         matches = re.findall(pattern, response, re.DOTALL)
         if not matches:
             return False
@@ -182,11 +184,21 @@ class RunBashCodeBlock(Plugin):
             env["PATH"] = self.bin_dir + os.pathsep + current_path
         for idx, code in enumerate(matches, start=1):
             try:
+                # Parse timeout from first line if present
+                lines = code.splitlines()
+                timeout = 60  # default
+                if lines:
+                    first_line = lines[0].strip()
+                    match = re.match(r'^#\s*\[TIMEOUT\]\s*(\d+)$', first_line)
+                    if match:
+                        timeout = int(match.group(1))
+                        # Remove the directive line from code
+                        code = '\n'.join(lines[1:])
                 result = subprocess.run(
                     [self.bash_path, "-c", code],
                     capture_output=True,
                     text=True,
-                    timeout=600,
+                    timeout=timeout,
                     shell=False,
                     env=env,  # use enhanced environment
                 )
