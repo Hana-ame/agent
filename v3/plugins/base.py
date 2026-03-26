@@ -1,15 +1,38 @@
+import time
 from abc import ABC, abstractmethod
+
+
 class Plugin(ABC):
     @abstractmethod
-    def before_prompt(self, args, req):
+    def before_prompt(self, args: dict, req: dict):
         pass
+
     @abstractmethod
-    def after_prompt(self, args, req, resp):
+    def after_prompt(self, args: dict, req: dict, resp: dict):
         pass
+
+
 class LogPlugin(Plugin):
     def before_prompt(self, args, req):
         print("[LOG] Sending prompt...")
         return False
+
     def after_prompt(self, args, req, resp):
         print(f"[LOG] Received response: {resp.get('response', '')[:50]}...")
-        return False
+
+        # 获取响应内容
+        response_text = resp.get("response", "")
+        # 分割成行，并获取最后一行
+        lines = response_text.splitlines()
+        if lines:
+            last_line = lines[-1].strip()  # 去除可能的空白字符
+        else:
+            last_line = ""
+
+        # 如果最后一行恰好是 "★★★★★"
+        if last_line == "★★★★★":
+            time.sleep(60)  # 睡眠 60 秒
+            return True
+        else:
+            return False
+            return False

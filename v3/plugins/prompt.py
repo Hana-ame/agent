@@ -96,7 +96,7 @@ class SaveCodePlugin(Plugin):
         response = resp.get("response", "")
         if not response:
             return False
-        code_block_pattern = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
+        code_block_pattern = re.compile(r"(?:^|\n)```(\w*)\n(.*?)\n```(?=\n|$)", re.DOTALL)
         for match in code_block_pattern.finditer(response):
             lang = match.group(1).strip().lower()
             content = match.group(2)
