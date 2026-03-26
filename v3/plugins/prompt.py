@@ -186,7 +186,7 @@ class RunBashCodeBlock(Plugin):
                     [self.bash_path, "-c", code],
                     capture_output=True,
                     text=True,
-                    timeout=30,
+                    timeout=600,
                     shell=False,
                     env=env,  # use enhanced environment
                 )
