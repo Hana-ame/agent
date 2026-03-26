@@ -1,214 +1,124 @@
-# [START] AGENT-PKG
-# version: 001
-# 上下文：主控程序入口。先决调用：无。后续调用：AGENT-MAIN。
-# 输入参数：无
-# 输出参数：无
-import sys
 import asyncio
-import os
 import argparse
-from pathlib import Path
-
-from llm_client import LLMClient
-from parser_rules import RuleProcessor
-from file_utils import read_system_prompt, save_agent_content
-#[END] AGENT-PKG
-
-# [START] AGENT-CORE
-# version: 001
-# 上下文：系统的主体控制器。先决调用：参数解析完成。后续调用：建立连接并拉起循环。
-# 输入参数：args (argparse.Namespace)
-# 输出参数：无
+import websockets
+import sys
+from plugins import Plugin, LogPlugin
+from plugins.prompt import DefaultPrompt, SaveCodePlugin, RunBashCodeBlock
+from adapters.base import MasterClient
+from adapters.deepseek_webapp import DeepSeekWebApp
 class Agent:
-    def __init__(self, args):
+    def __init__(self, client: MasterClient, plugins: dict[str, Plugin], args: dict):
         self.args = args
-        self.round_num = 0
-        self.paused = False
-        self.client: LLMClient = None
-        self._reconnect_attempts = 0
-        self._first_run = True
-
-        self.root_path = os.getcwd()
-        self.agent_dir = os.path.join(self.root_path, ".agent")
-        os.makedirs(self.agent_dir, exist_ok=True)
-
-        self.msg_file = os.path.join(self.agent_dir, "MESSAGE.txt")
-        self.pause_file = os.path.join(".pause")
-        self.log_file = os.path.join(self.agent_dir, "LOG.txt")
-
-        self.last_response_file = os.path.join(self.agent_dir, "LAST_RESPONSE.txt")
-        self.this_response_file = os.path.join(self.agent_dir, "THIS_RESPONSE.txt")
-
-        self.utils_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils.py")
-        self.processor = RuleProcessor(self.root_path, self.agent_dir, self.utils_path)
-
-    # [START] AGENT-CREATE-CLIENT
-    # version: 001
-    async def _create_client(self) -> bool:
-        print(f"工作目录: {self.root_path}")
-        print(f"Agent目录: {self.agent_dir}")
-        print(f"Utils路径: {self.utils_path}")
-
-        client = LLMClient(
-            connection_param=self.args.connection,
-            payload_name=self.args.payload,
-            profiles_path=Path(self.root_path) / "agent" / "profiles.json",
-            root_path=Path(self.root_path),
-        )
-        success = await client.connect()
-        if success:
-            self.client = client
-            self._reconnect_attempts = 0
-            if self.args.new_chat and self._first_run:
-                await client.new_chat()
-                self._first_run = False
-            print("连接成功，开始任务")
-        return success
-    # [END] AGENT-CREATE-CLIENT
-
-    # [START] AGENT-ENSURE-CONN
-    # version: 001
-    async def _ensure_connected(self) -> bool:
-        if self.client and not self.client.is_finished:
-            return True
-        if self.client:
-            await self.client.close()
-
-        while self._reconnect_attempts < 5:
-            self._reconnect_attempts += 1
-            print(f"尝试重连 ({self._reconnect_attempts}/5)...")
-            if await self._create_client():
-                return True
-            await asyncio.sleep(2 * self._reconnect_attempts)
-        return False
-    # [END] AGENT-ENSURE-CONN
-
-    # [START] AGENT-POP-THOUGHT
-    # version: 001
-    # 上下文：从 THOUGHTS.md 中获取并移除第一条想法。
-    # 输入参数：无
-    # 输出参数：想法内容或 None
-    def _pop_thought(self) -> str | None:
-        thoughts_file = os.path.join(self.agent_dir, "THOUGHTS.md")
-        if not os.path.exists(thoughts_file):
-            return None
-        try:
-            with open(thoughts_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-            new_lines = []
-            thought = None
-            for line in lines:
-                stripped = line.lstrip()
-                if thought is None and stripped.startswith('- '):
-                    thought = stripped[2:].strip()
-                    # 跳过该行，不加入 new_lines
-                else:
-                    new_lines.append(line)
-            if thought:
-                with open(thoughts_file, 'w', encoding='utf-8') as f:
-                    f.writelines(new_lines)
-                return thought
-            else:
-                return None
-        except Exception:
-            return None
-    # [END] AGENT-POP-THOUGHT
-
-    # [START] AGENT-RUN
-    # version: 002  # 添加 thoughts 功能
+        self.client = client
+        self.plugins = plugins
     async def run(self):
-        if not await self._create_client():
-            return
-
-        if os.path.exists(self.pause_file):
-            os.remove(self.pause_file)
-
-        ongoing = True
-        while ongoing:
-
-            if self.paused:
-                print("删除 .agent/.pause 以继续")
-                while os.path.exists(self.pause_file):
-                    await asyncio.sleep(1)
-                self.paused = False
-            if os.path.exists(self.pause_file):
-                self.paused = True
-
-            current_msg = ""
-            if os.path.exists(self.msg_file):
-                with open(self.msg_file, 'r', encoding='utf-8') as f:
-                    current_msg = f.read().strip()
-                open(self.msg_file, 'w').close()
-
-            if not current_msg and self.args.message:
-                current_msg = self.args.message
-            if not current_msg:
-                # 尝试从想法中获取
-                thought = self._pop_thought()
-                if thought:
-                    current_msg = thought
-                    print(f"从 THOUGHTS.md 提取想法: {thought}")
+        listen_task = asyncio.create_task(self.client.listen())
+        try:
+            await self.client.send("system", {"command": "list"})
+            for i in range(10):
+                await asyncio.sleep(1.0)  # 稍作等待给网络回传时间
+                if not self.client.available_browsers:
+                    print(
+                        "⚠️ 当前没有可用的 Browser 注册在资源池中，请先让 Browser 上线。"
+                    )
+                    if i < 5:
+                        continue
+                    return
                 else:
-                    current_msg = read_system_prompt()
-
-            self.round_num += 1
-
-            if not await self._ensure_connected():
-                break
-
-            print(f"\n{'='*50}\n第 {self.round_num} 轮：发送消息...")
-            await self.client.send_prompt(f"user的第{self.round_num}轮输入\n\n{current_msg}\n\nuser的第{self.round_num}轮输入结束")
-
-            reasoning, content = "", ""
+                    break
+            target_browser = self.client.available_browsers[0]
+            print(f"\n🔗 尝试与选定的 Browser 建立配对...")
+            await self.client.send(
+                "system",
+                {
+                    "command": "pair",
+                    "title": target_browser.get("title"),
+                    "type": target_browser.get("type"),
+                    "timestamp": target_browser.get("timestamp"),
+                },
+            )
+            for i in range(10):
+                await asyncio.sleep(1.0)  # 稍作等待给网络回传时间
+                if not self.client.paired:
+                    if i < 5:
+                        continue
+                    print("⚠️ 无法完成配对，退出控制流。")
+                    return
+                else:
+                    break
+            await self.client.call_match("chat.deepseek.com")
+            while True:
+                req = {"prompt": ""}
+                should_loop = True
+                while should_loop:
+                    should_loop = False
+                    for plugin in self.plugins.values():
+                        if plugin.before_prompt(self.args, req):
+                            should_loop = True
+                prompt_text = req.get("prompt")
+                prompt_image = req.get("image")
+                if not prompt_text:
+                    print("⚠️ 无有效提示词，退出对话。")
+                    continue
+                if prompt_image:
+                    await self.client.call_send_prompt(
+                        text=prompt_text, image_b64=prompt_image
+                    )
+                else:
+                    await self.client.call_send_prompt(text=prompt_text)
+                think, response = await self.client.pop_response()
+                resp = {"think": think, "response": response}
+                should_loop = True
+                while should_loop:
+                    should_loop = False
+                    for plugin in self.plugins.values():
+                        if plugin.after_prompt(self.args, req, resp):
+                            should_loop = True
+                if self.args.get("should_exit"):
+                    break
+        except Exception as e:
+            print(f"运行出错: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            listen_task.cancel()
             try:
-                reasoning, content = await asyncio.wait_for(self.client.completion(), timeout=60*60)
-            except Exception as e:
-                print(f"获取 completion 失败: {e}")
-                break
-
-            print("=" * 30)
-            print(f"推理过程:\n{reasoning}\n")
-            print("=" * 30)
-            print(f"回复内容:\n{content}\n")
-
-            save_agent_content(self, content)
-
-            processor_output = await self.processor.process(content)
-
-            if processor_output:
-                print("=" * 30)
-                print(f"规则执行结果汇总:\n{processor_output}")
-
-                with open(self.log_file, "a", encoding="utf-8") as log:
-                    log.write(f"\n{'='*25}\n第 {self.round_num} 轮输出\n{'='*25}\n")
-                    log.write(processor_output + "\n")
-
-                with open(self.msg_file, "w", encoding="utf-8") as f:
-                    f.write(processor_output)
-            else:
-                print("未匹配到任何操作规则。")
-                # 如果没有生成下一轮消息，且对话仍在继续，下一轮循环将尝试想法或系统提示
-
-        print("=" * 30)
-        print("Agent 结束")
-        if self.client:
-            await self.client.close()
-    # [END] AGENT-RUN
-# [END] AGENT-CORE
-
-# [START] AGENT-MAIN
-# version: 001
-def main():
+                await listen_task
+            except asyncio.CancelledError:
+                pass
+async def main():
     parser = argparse.ArgumentParser(description="Agent 客户端核心引擎")
-    parser.add_argument("connection", default="wss://d.810114.xyz/ws/client", help="连接参数 (WS URL 或 profile name)")
+    parser.add_argument(
+        "url", nargs="?", default="ws://127.26.3.1:8080/ws/client", help="WebSocket URL"
+    )
     parser.add_argument("-m", "--message", help="直接提供消息内容启动")
-    parser.add_argument("-p", "--payload", default="default.json", help="仅 HTTP 模式所需的 payload 模板")
+    parser.add_argument(
+        "-p",
+        "--payload",
+        default="default.json",
+        help="仅 HTTP 模式所需的 payload 模板",
+    )
     parser.add_argument("--new-chat", action="store_true", help="强制清除历史记忆")
+    parser.add_argument("--default-prompt", default="咕咕嘎嘎。", help="默认提示词")
     args = parser.parse_args()
-
-    agent = Agent(args)
-    asyncio.run(agent.run())
-
+    agent_args = {
+        "prompt": args.message,
+        "new_chat": args.new_chat,
+        "default_prompt": args.default_prompt,
+        "next_image": None,  # 如果需要图片，可从命令行扩展
+    }
+    async with websockets.connect(args.url) as ws:
+        client = DeepSeekWebApp(ws)
+        plugins = {
+            "save_code":SaveCodePlugin(),
+            "run_code": RunBashCodeBlock(),
+            "default_prompt": DefaultPrompt(
+                "请继续完成最开始的任务。或者接着探索其他解法。",
+                ".agent/SYSTEM_PROMPT.txt"
+            ),  # 修改：DefaultPrompt 无参，从 args 读取
+            "log": LogPlugin(),
+        }
+        agent = Agent(client, plugins, agent_args)
+        await agent.run()
 if __name__ == "__main__":
-    main()
-# [END] AGENT-MAIN
+    asyncio.run(main())

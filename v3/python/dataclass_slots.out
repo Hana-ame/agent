@@ -1,2 +1,0 @@
-Point(x=10, y=20)
-Cannot add attribute: 'Point' object has no attribute 'z'

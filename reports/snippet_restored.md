@@ -1,1 +1,0 @@
-# Snippet 工具恢复报告\n\n## 生成时间：$(py utils.py time --format '%Y-%m-%d %H:%M:%S')\n\nsnippet.py 已从 commit 9131c07 恢复，当前功能正常。\n\n测试结果：\n- write_snippet 普通写入 ✅\n- write_snippet --snippet 写入代码段 ✅\n- snippet list 能列出代码段 ✅\n- snippet get 能获取内容 ✅\n- snippet delete 能删除代码段 ✅\n\n项目核心功能已恢复稳定。

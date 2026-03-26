@@ -1,4 +1,0 @@
-fib(35): 9227465
-Cache info: CacheInfo(hits=33, misses=36, maxsize=128, currsize=36)
-p1 > p2: True
-p1 <= p2: False

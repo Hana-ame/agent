@@ -1,3 +1,0 @@
-*.txt: ['glob_test\\file1.txt', 'glob_test\\file2.txt']
-*.py: ['glob_test\\file3.py']
-Matches *.txt: ['file1.txt', 'file2.txt']

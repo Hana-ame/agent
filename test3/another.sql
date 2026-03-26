@@ -1,1 +1,0 @@
-"-- Original content in test3/another.sql"

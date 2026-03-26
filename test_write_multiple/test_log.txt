@@ -1,5 +1,0 @@
-write_multiple test completed successfully.
-Steps:
-1. Prepared three file blocks in THIS_RESPONSE.txt.
-2. Executed write_multiple to create files.
-3. Verified with cat.

@@ -1,5 +1,0 @@
-Signature: (a, b=10, *args, **kwargs)
-Parameters: ['a', 'b', 'args', 'kwargs']
-Source lines: ['def example_function(a, b=10, *args, **kwargs):\n', '    """This is a docstring."""\n', '    pass\n']
-Is function? True
-Is module? True

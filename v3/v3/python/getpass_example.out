@@ -1,7 +1,0 @@
-Password input simulation (using fallback)
-Traceback (most recent call last):
-  File "C:\workplace\agent - 副本\python-client\v3\v3\python\getpass_example.py", line 5, in <module>
-    password = getpass.getpass("Enter password (simulated): ")
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Python312\Lib\getpass.py", line 106, in win_getpass
-KeyboardInterrupt

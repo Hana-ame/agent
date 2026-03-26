@@ -1,4 +1,0 @@
- --- modulename: trace_example, funcname: foo
-trace_example.py(5):     bar()
- --- modulename: trace_example, funcname: bar
-trace_example.py(8):     pass

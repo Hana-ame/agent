@@ -1,4 +1,0 @@
-Insert 4 in position: 2
-After insort 4: [1, 3, 4, 5, 7, 9]
-Insert 5 in position (right): 4
-After insort_right 5: [1, 3, 4, 5, 5, 7, 9]

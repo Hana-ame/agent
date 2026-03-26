@@ -1,5 +1,0 @@
-To start a new project with poetry:
-  poetry new myproject
-  cd myproject
-  poetry add requests
-  poetry run python main.py

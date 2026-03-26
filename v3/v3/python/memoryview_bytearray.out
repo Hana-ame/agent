@@ -1,7 +1,0 @@
-Original: bytearray(b'hello world')
-Memoryview: [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]
-Traceback (most recent call last):
-  File "C:\workplace\agent - 副本\python-client\v3\v3\python\memoryview_bytearray.py", line 10, in <module>
-    mv[6:11] = b'python'
-    ~~^^^^^^
-ValueError: memoryview assignment: lvalue and rvalue have different structures
