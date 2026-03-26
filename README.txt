@@ -2,12 +2,12 @@
 
 ## 当前目录结构
 ```
-total 1923
+total 1926
 drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:20 .
 drwxr-xr-x 1 Lumin 197609       0 Mar 10 15:28 ..
 drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:09 .agent
 -rw-r--r-- 1 Lumin 197609     294 Mar  1 17:30 .env
-drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:01 .git
+drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:25 .git
 drwxr-xr-x 1 Lumin 197609       0 Mar 26 20:18 .github
 -rw-r--r-- 1 Lumin 197609     108 Mar  8 13:30 .gitignore
 drwxr-xr-x 1 Lumin 197609       0 Mar 12 20:50 .thoughts
@@ -40,7 +40,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar  1 14:32 payloads
 drwxr-xr-x 1 Lumin 197609       0 Mar 26 19:35 plugins
 -rw-r--r-- 1 Lumin 197609     252 Mar  2 11:43 profiles.json
 -rw-r--r-- 1 Lumin 197609      47 Mar 26 21:18 README.md
--rw-r--r-- 1 Lumin 197609      51 Mar 26 21:23 README.txt
+-rw-r--r-- 1 Lumin 197609      51 Mar 26 21:25 README.txt
 drwxr-xr-x 1 Lumin 197609       0 Mar 12 13:21 reports
 -rw-r--r-- 1 Lumin 197609     533 Mar  1 14:39 run.py
 drwxr-xr-x 1 Lumin 197609       0 Mar 26 20:18 scripts
@@ -62,7 +62,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 12 19:37 test2
 drwxr-xr-x 1 Lumin 197609       0 Mar 12 19:37 test3
 drwxr-xr-x 1 Lumin 197609       0 Mar 26 20:19 tests
 -rw-r--r-- 1 Lumin 197609     863 Mar 12 19:41 TEST直接mkdir_RESULTS.md
-drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 untitled
+drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:25 untitled
 -rw-r--r-- 1 Lumin 197609    9181 Mar 14 02:23 Untitled-2.litcoffee
 drwxr-xr-x 1 Lumin 197609       0 Mar 12 19:27 utils
 -rw-r--r-- 1 Lumin 197609    1688 Mar 12 19:06 utils.py
@@ -122,17 +122,17 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
 2.0K	test3
 2.0K	tests
 4.0K	TEST直接mkdir_RESULTS.md
-47K	untitled
+49K	untitled
 12K	Untitled-2.litcoffee
 317K	utils
 4.0K	utils.py
-119K	v3
+71K	v3
 8.0K	项目描述.md
 ```
 
 ## 文件类型统计
 ```
-    204 txt
+    205 txt
      78 bash
      71 py
      47 pyc
@@ -177,6 +177,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/fd/ff1601e9cec917b708f833453447d908ce66a0
       1 git/objects/fd/917d9ca44d3630eceb23ffd29bcc0b97f8da35
       1 git/objects/fd/85487e08ce89331844be8501e412efdf31790d
+      1 git/objects/fd/6059b8ae5fc1a929aaf9c46ce5255431d056bc
       1 git/objects/fd/5e8866b005ecd2c94cbcd176057239cff9b94f
       1 git/objects/fd/17c6f6bdd083331b601917ae88c0585c66a7e0
       1 git/objects/fc/bd4f200c6ff8d79a27ed68e8796ea8987f33e9
@@ -381,6 +382,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/d9/ae5a8a804a2d5c0f8f6f65d8ed9572e1fb74a0
       1 git/objects/d9/7c8f83c9a35a01bafffeaf549aa4d1065e9f71
       1 git/objects/d9/3dd667425a6e3b2cd8c5e88a5a2274eb8b7a32
+      1 git/objects/d8/f4016390197b3c141f03e2e04b6e5102b676aa
       1 git/objects/d8/ec2287368cf22da0c32def97966b08df2a699c
       1 git/objects/d8/7f942df8bfb9d86db55c8e22688151962e3148
       1 git/objects/d8/63141d8f31415d10259c4ccaa011d0a796def7
@@ -481,6 +483,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/c4/c16d482d61c86244bc89c088adf03b87ce396c
       1 git/objects/c4/3e9ce0038d8de23aa7af9dc38b005fc60bee84
       1 git/objects/c4/3e0d8e1493694cab4615fb969c6020750575a1
+      1 git/objects/c4/0dbe9e268ae93f18f8065bb691e96c51d047cd
       1 git/objects/c3/d342455d9d663e00941c44f87271b6e333221d
       1 git/objects/c3/7a1856c4fd4de82c94facf5d653114cb6e58df
       1 git/objects/c3/73778f7cdf71a38468738c3aa0e34f06026339
@@ -489,6 +492,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/c2/317d32067a53d51095e0372fc548366860cec1
       1 git/objects/c2/17db89d987bbfcd03be7bf66c0370048c90ccd
       1 git/objects/c1/c3a5821259ec74564dd5b7a6d783d33c958422
+      1 git/objects/c1/9a0614f2b14b2dccaf02cea68c3b4593218a5b
       1 git/objects/c1/971b59fa49df988527c244c33e94c8f669d142
       1 git/objects/c1/883b6f0af13d9d44b47aaed807c317127d9641
       1 git/objects/c1/7deceef7a68a1699103aee5ffb6452941b0593
@@ -508,6 +512,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/bc/8522c98513918e93c8a6e6b39142f9d719e210
       1 git/objects/bc/620343bd9d5974f4faf69a13de7ed720b0f943
       1 git/objects/bc/408b4eb773e59f57ccceb1a1f8f8e1da9a9aeb
+      1 git/objects/bc/3d1f31bf963e25d4a3d6cfcea020c7fc75a9eb
       1 git/objects/bc/1696d6ab5262fd458f87b96cf6a753315e2763
       1 git/objects/bb/dacde9ef71d1c21ec69621e132de74b8d14999
       1 git/objects/bb/cade7b6fee48a5146b546ad592304b87a73071
@@ -535,6 +540,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/b7/f5e5decb9387f4d89472f798a66b6dcfb77348
       1 git/objects/b7/14182ce4b6312c48369174f5dad5333c364783
       1 git/objects/b7/1165640a181788698adf356d2bc6b692c5e4f9
+      1 git/objects/b6/be515914a4774233eb95c7b373de84da4f3bb3
       1 git/objects/b6/bc0051d081c3766a2eae48329280fcc1cdafb0
       1 git/objects/b6/a6be9fadb66c8588a4373c9cae69b51fcf7703
       1 git/objects/b6/8f8e7b5061902a5850dd7ba49e0f5fc010732f
@@ -602,6 +608,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/ab/daeac66da6cc2d0645226da3ab215c9bbfeab5
       1 git/objects/ab/aa757e776afc99fa47e05bc8ad5cd9125368b2
       1 git/objects/ab/a6ccf593b29a2a43890ad4fdabab57dad9f0ad
+      1 git/objects/ab/a442df690bff40fd49606b84cb39b6fdf48818
       1 git/objects/ab/9cfd109f1fc7ef65ad9aa5a81e4e9b582e06ee
       1 git/objects/ab/9abcf61572d35aa27a4bae633284e135bda5db
       1 git/objects/ab/9893bf92547e078d811f25535be05ebba1eb68
@@ -641,9 +648,11 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/a6/b0274729b752a75ba61e7de6ddd2984099dc3f
       1 git/objects/a5/de22bfc6cb892e5224dba69e25b1984bf12692
       1 git/objects/a5/c49d6b5feb606dede24b2ae1963b4823dd27f4
+      1 git/objects/a5/7726faaeda962dfea4575be75b73dd329c719b
       1 git/objects/a5/3d76cff26719929023c402c90c19f13a6d500e
       1 git/objects/a4/f8bfeff140666b84fc6825fe8667c808073c03
       1 git/objects/a3/bb5a6c3ae78686435adf10792d9abc23c48b86
+      1 git/objects/a3/b1b4c1e1b70933af9b757742ab9e45e1350c83
       1 git/objects/a3/14a1f9988e280130aa90d01e6b69c8ed960bd6
       1 git/objects/a3/078a93f295a0624cab59df5e35e61ca8a0ad54
       1 git/objects/a2/e3f28ea1c85876fe799a57c9f09f57513de46c
@@ -659,6 +668,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/a1/823ff626fabf109f9c1f5645aca92daca9b5d8
       1 git/objects/a1/5eba7cba6a28522fd2613828854563db6f99f6
       1 git/objects/a1/5040733c520104d7d45153abe2798c76ba2d39
+      1 git/objects/a1/39033fb986988576da93c2cfa8f75670a24186
       1 git/objects/a1/228962815d46b1efe6c11cbf1451a39c4b2dd5
       1 git/objects/a0/c12a4e1dfd85bd59be6a61129abc35f819660d
       1 git/objects/a0/ae18edfa252469dc0d447b73e0841d8f8aa0b0
@@ -752,6 +762,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/8f/9d289b9c4b8c52962e9e56601a70de961249a4
       1 git/objects/8f/8ab0045eb550dd4f2cf8a7805c5851d457cb43
       1 git/objects/8f/89671871be9135a50ec9cd7461b712bca24379
+      1 git/objects/8f/42f6e012d0abd745124928353f0ea7fd13f70a
       1 git/objects/8f/3998b3e7e7adf6173a99a6122756724e4c205f
       1 git/objects/8f/01eb1011ee75b5293a66d793b9fda49870b227
       1 git/objects/8e/fac4e31ac7ce11efed37ad626c0984d4955d87
@@ -760,6 +771,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/8e/a87b23f9ac5367682c07b0a6f9e6a22a992f72
       1 git/objects/8e/8c5605080d2b567a67c1ddc83b48a9c90dfd07
       1 git/objects/8e/6c4ddff0b036a92c7e5d297caf293495a53973
+      1 git/objects/8e/3c5b43eb1a1e38b26c6561a51c995616f88589
       1 git/objects/8e/29e2fc93144a567596324ddd01bb4a57a592c1
       1 git/objects/8e/1d7e634fb67c2cc5f1d9e0b7c3d217c1656edf
       1 git/objects/8d/d7a337a7538788253302f280a3af99fe7aa8a6
@@ -844,6 +856,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/7c/52485f329e9f0b6f13deb34b26729600d58215
       1 git/objects/7c/016c7f1bf1a7d3c859c8fc578d7d32599b3bec
       1 git/objects/7b/9f3b017db536702e9ed8ecd44c10caf781bba5
+      1 git/objects/7b/5ac6da90e125849e18c6bd4d3f33f01b8548d7
       1 git/objects/7b/4154de969611fdf239d7be7e67f4ae5a7416db
       1 git/objects/7b/2c30f0bd4a461f4dd7260ab1b973bdae728dba
       1 git/objects/7b/06d10827ea8af178e5d6debf95710ba7fe275d
@@ -921,6 +934,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/6b/adde6cf4b4e0661d18cdd1e877d77f9d82cf69
       1 git/objects/6b/5f9df1a15176712b4078960183ccafef50afd3
       1 git/objects/6b/2672408f9648742ac30dd82a678a26d945a45e
+      1 git/objects/6b/0bc569765023fafd04508c49ddf58ad95608b2
       1 git/objects/6a/f2618eef405c027b046aa7a969718ed0b21873
       1 git/objects/6a/d42ea5ec0ba65ef5a93a475e80136950b3ff5d
       1 git/objects/6a/bda0f107a35ab77d2a40e1768fdce09d671888
@@ -1008,7 +1022,9 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/5c/a8ded123252529e65a6cf40aac8b2e36265a3c
       1 git/objects/5c/51757472da808141693039170c34b28a917cbe
       1 git/objects/5b/cffea728a4cea9c8e1606cb9baa3b758353163
+      1 git/objects/5b/2e3070c2be0b093096943cea36da3914d0a8be
       1 git/objects/5a/f19431712b3eff05e1c58fa9ceff4d91520fac
+      1 git/objects/5a/c7e1814a7ba23f78d91bd0cbd0fa021999dd27
       1 git/objects/5a/b2f8a4323abafb10abb68657d9d39f1a775057
       1 git/objects/5a/a6a2b1f1460f94f76e6b4268ad4232e9c25113
       1 git/objects/5a/01045f416a076aa3d40521e2a46544c78a822a
@@ -1019,6 +1035,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/59/83784685220e9c5ddc1f88f8a112aec78519aa
       1 git/objects/59/18db9fc04d5fd7a8b2c434b0501b18869e7aa9
       1 git/objects/58/a68d794e250d5f65967d73fd5e925ec3215870
+      1 git/objects/58/915d4a13fc1e8338beb0f2113b637e748735b5
       1 git/objects/58/5e04a766a94bb4f97875592bd30581fdaa0ebf
       1 git/objects/58/330b3ab833961bf9d4a6d8b5fb5356ece6c8bc
       1 git/objects/58/14e817e7ad0994c3575f7e22573d0a3b886b4a
@@ -1159,6 +1176,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/3b/8ef1bb7962c19094dd585ba30be7e8ee5ee292
       1 git/objects/3b/58da8246468e69c7f3eef84902362301ac0ae3
       1 git/objects/3b/5156d8c913da2061eafd38f5a916914f833d5e
+      1 git/objects/3b/0954b1065db654cf0d9fc09fd2dfd9db0a47c2
       1 git/objects/3a/e87163d44c4d8ee7c738ace7b577e424d1a1d8
       1 git/objects/3a/abb3b8c03902f2b45012b4edb456e3f01b69e0
       1 git/objects/3a/a76f111607fdd115a0e8b3d471e7e588c43563
@@ -1275,6 +1293,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/23/e52a1cea1d964500d3731d7d81720a84733979
       1 git/objects/23/e11409543a65e21ce81734a66d3e4e22e5de4f
       1 git/objects/23/c732b85b854f094efadefd4e66fefa1784ca59
+      1 git/objects/23/8a8426c05eb172dc508ac1c69c294fde10df7b
       1 git/objects/23/1976d827acffb51e7d07be4afa72f70505a01a
       1 git/objects/23/03781ba91ee6d7b2fb197e4e6f509fdcd4d3b0
       1 git/objects/22/e1428f694515b54f289eef22800094e90b35f3
@@ -1327,6 +1346,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/1a/0138241246b436b7b10002eef9adf31d72bbcd
       1 git/objects/19/e40fb15b5948b446ca412ac495a7e466c81bd5
       1 git/objects/19/d52a42a578f813512b066d0cdd47b65555cd29
+      1 git/objects/18/b6114fe0214e24e2d8b1bf00b3213e9b0c9de6
       1 git/objects/18/77bdd3e8d7a0c5d93a055c58e6b82b55c2a27d
       1 git/objects/18/40738265f1afa9c7558e8cf20fa796982dc319
       1 git/objects/18/0a3845ae4397810bce5cc254fe07c9c9394da6
@@ -1335,6 +1355,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/17/7e186480195adcd8972758040289e61bc47ac8
       1 git/objects/16/a282f0faa1b3c00d37e3e8cfdeede751d13d7e
       1 git/objects/16/1a5c4520674034bd8df75f9e7eba80646b1feb
+      1 git/objects/15/d5f54ba09cb091152e803743c60287e3c66b06
       1 git/objects/15/98f9c5ef51ba911c983589b2f7d3decbbae524
       1 git/objects/14/8f23607701d068f047a6c5bb563d9dbfbac002
       1 git/objects/14/447b8b9c2f71c50cddbfa9c62b4174e197c2a5
@@ -1358,6 +1379,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/12/89ac4ce30b4d59a10bd27c7c815b88c5498b92
       1 git/objects/12/0b2fab8f072d75edb288bd9e61e49f08969638
       1 git/objects/11/f9d749ac6d15f54aac2c179949b72f95e73fc3
+      1 git/objects/11/f0136a437472c2161fa2b582e0ed29e607d7e0
       1 git/objects/11/ce5689afad41858e35487dcb338b1c6ed49d15
       1 git/objects/11/acaa98232d59037d0e625b832ed87ef7622a18
       1 git/objects/11/6cef461146d677557a66344d74022a389b4bb9
@@ -1400,6 +1422,7 @@ drwxr-xr-x 1 Lumin 197609       0 Mar 26 21:23 v3
       1 git/objects/0a/bcfdf82f0464abb83ce349254a4054ba7b3758
       1 git/objects/0a/523f7351def5034c51a6da4b0f2930a508aedc
       1 git/objects/09/2ef164e3a58dd10558d15f80382a67026e7df0
+      1 git/objects/08/d91c32b617a2f10579b1f6a65875678de787b0
       1 git/objects/08/c20d33ba658f9ce4b990c2ad9d58d248cbf114
       1 git/objects/08/b44dc33d7b416be0e57a087964b44f240e3cfd
       1 git/objects/08/9efc4c88f29004b0e45999fe3d21af65521fbb
