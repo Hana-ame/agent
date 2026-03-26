@@ -1,0 +1,10 @@
+Python version: 3.12.1 (tags/v3.12.1:2305ca5, Dec  7 2023, 22:03:25) [MSC v.1937 64 bit (AMD64)]
+requests        2.31.0
+beautifulsoup4  4.13.4
+pandas          2.2.3
+numpy           1.26.4
+matplotlib      3.8.4
+flask           NOT INSTALLED
+pytest          NOT INSTALLED
+sqlalchemy      NOT INSTALLED
+aiohttp         NOT INSTALLED
