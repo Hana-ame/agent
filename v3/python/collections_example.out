@@ -1,0 +1,4 @@
+Counter: Counter({'apple': 3, 'banana': 2, 'orange': 1})
+Most common: [('apple', 3), ('banana', 2)]
+DefaultDict: {'fruits': ['apple', 'banana'], 'vegetables': ['carrot']}
+Deque: [0, 1, 2, 3, 4]

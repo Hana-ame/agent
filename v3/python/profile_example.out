@@ -1,0 +1,11 @@
+Result: 499999500000
+Profile output (first 500 chars):          2 function calls in 0.246 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.246    0.246    0.246    0.246 C:\workplace\agent - 副本\python-client\v3\python\profile_example.py:5(slow_function)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+
+
