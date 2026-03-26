@@ -1,0 +1,7 @@
+Audit: open ('/dev/null', 'w', 33665)
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\audit_hook.py", line 10, in <module>
+    with open('/dev/null', 'w') as f:
+         ^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/dev/null'
+Audit: open ('C:\\workplace\\agent - 副本\\python-client\\v3\\v3\\python\\audit_hook.py', 'r', 32896)

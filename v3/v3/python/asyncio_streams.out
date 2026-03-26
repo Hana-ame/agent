@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\asyncio_streams.py", line 34, in <module>
+    asyncio.run(main())
+  File "C:\Python312\Lib\asyncio\runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\asyncio\base_events.py", line 684, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\asyncio_streams.py", line 26, in main
+    server, port = await echo_server()
+                   ^^^^^^^^^^^^^^^^^^^
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\asyncio_streams.py", line 4, in echo_server
+    server = await asyncio.start_server(handle_client, '127.0.0.1', 0)
+                                        ^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'handle_client' where it is not associated with a value
