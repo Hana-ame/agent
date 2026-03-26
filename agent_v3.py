@@ -8,7 +8,7 @@ import sys
 
 
 from plugins import Plugin, LogPlugin
-from plugins.prompt import DefaultPrompt
+from plugins.prompt import DefaultPrompt, SaveCodePlugin, RunBashCodeBlock
 
 
 # [START] ADAPTERS-IMPORT
@@ -70,7 +70,7 @@ class Agent:
 
             # 主循环
             while True:
-                req = {}
+                req = {"prompt": ""}
 
                 # 前置插件处理（可能多次执行）
                 should_loop = True
@@ -166,7 +166,10 @@ async def main():
         client = DeepSeekWebApp(ws)
         # 插件列表：顺序很重要，DefaultPrompt 应在最后设置默认值
         plugins = {
-            "logger": LogPlugin(),
+            # "logger": LogPlugin(),
+            
+            "save_code":SaveCodePlugin(),
+            "run_code": RunBashCodeBlock(),
             "default_prompt": DefaultPrompt(
                 args.default_prompt
             ),  # 修改：DefaultPrompt 无参，从 args 读取
