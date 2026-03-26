@@ -1,12 +1,12 @@
-        
 import re
 import os
 import subprocess
 
 from .base import Plugin
 
+
 class DefaultPrompt(Plugin):
-    def __init__(self, default_prompt: str):
+    def __init__(self, default_prompt: str, system_prompt: str):
         """
         :param default_prompt: Either a string containing the default prompt,
                                or a file path (if it ends with .txt or .md)
@@ -14,11 +14,18 @@ class DefaultPrompt(Plugin):
         # If the provided string looks like a file path and the file exists,
         # read its contents; otherwise treat it as the literal prompt.
         if os.path.isfile(default_prompt):
-            with open(default_prompt, 'r', encoding='utf-8') as f:
+            with open(default_prompt, "r", encoding="utf-8") as f:
                 self.default_prompt = f.read()
         else:
             self.default_prompt = default_prompt
 
+        if os.path.isfile(system_prompt):
+            with open(system_prompt, "r", encoding="utf-8") as f:
+                self.system_prompt = f.read()
+        else:
+            self.system_prompt = system_prompt
+
+        self.first_prompt = True
         # (Optional) You could also load a separate system prompt from a file.
         # self.system_prompt = self._load_system_prompt("system.txt")
 
@@ -34,7 +41,11 @@ class DefaultPrompt(Plugin):
             if code or output:
                 req["prompt"] = f"CodeBlocks:\n{code}\n\nOutput:\n{output}"
             else:
-                req["prompt"] = self.default_prompt
+                if self.system_prompt:
+                    req["prompt"] = self.system_prompt
+                    self.system_prompt = ""
+                else:
+                    req["prompt"] = self.default_prompt
         else:
             # User provided a prompt; optionally we can still prepend code/output
             # For example, you might always include them as context:
@@ -46,10 +57,11 @@ class DefaultPrompt(Plugin):
 
     def after_prompt(self, args, req, resp):
         return False
-    
+
+
 class SaveCodePlugin(Plugin):
     """自动保存响应中带有 [PATH] 注释的代码块到文件；若无路径指示则保存到 untitled/snippet_xx.txt"""
-    
+
     # 语言 -> 注释符号（单行），若无法确定则 None
     COMMENT_MAP = {
         "python": "#",
@@ -190,38 +202,43 @@ class SaveCodePlugin(Plugin):
             print(f"[SaveCodePlugin] Error saving {filepath}: {e}")
             return False
 
+
 class RunBashCodeBlock(Plugin):
     def __init__(self, bash_path: str = r"C:\Program Files\Git\usr\bin\bash.exe"):
         """
         :param bash_path: Path to the bash executable (Git Bash on Windows)
         """
         self.bash_path = bash_path
-        self.results = []   # store execution results for later use
+        self.results = []
         self.output = ""
+        # Determine the directory containing Git Bash Unix tools (ls, grep, etc.)
+        self.bin_dir = os.path.dirname(bash_path)  # e.g., C:\Program Files\Git\usr\bin
 
     def before_prompt(self, args, req):
-        req['output'] = self.output
+        req["output"] = self.output
+        self.output = ""
         return False
 
     def after_prompt(self, args, req, resp):
-        # Only act if there's a response
         response = resp.get("response", "")
         if not response:
             return False
 
-        # Find all bash code blocks: ```bash ... ```
+        # Match bash code blocks
         pattern = r"```bash\n(.*?)```"
         matches = re.findall(pattern, response, re.DOTALL)
-
         if not matches:
             return False
 
         output_parts = []
-        self.results = []   # clear previous results
+        self.results = []
 
-        # Optional: set up environment to include Git Bash's bin folders
-        # env = os.environ.copy()
-        # env["PATH"] = r"C:\Program Files\Git\usr\bin;" + env.get("PATH", "")
+        # Build environment with Git Bash bin directory in PATH
+        env = os.environ.copy()
+        # On Windows, PATH uses semicolon as separator
+        current_path = env.get("PATH", "")
+        if self.bin_dir not in current_path.split(os.pathsep):
+            env["PATH"] = self.bin_dir + os.pathsep + current_path
 
         for idx, code in enumerate(matches, start=1):
             try:
@@ -231,7 +248,7 @@ class RunBashCodeBlock(Plugin):
                     text=True,
                     timeout=30,
                     shell=False,
-                    # env=env,   # uncomment if you need to fix PATH
+                    env=env,  # use enhanced environment
                 )
                 stdout = result.stdout.strip()
                 stderr = result.stderr.strip()
@@ -242,7 +259,7 @@ class RunBashCodeBlock(Plugin):
                     "stdout": stdout,
                     "stderr": stderr,
                     "timeout": False,
-                    "error": None
+                    "error": None,
                 }
                 self.results.append(block_result)
 
@@ -253,29 +270,31 @@ class RunBashCodeBlock(Plugin):
 
             except subprocess.TimeoutExpired:
                 output_parts.append(f"## Block {idx}: Execution timed out (30s)")
-                self.results.append({
-                    "index": idx,
-                    "code": code,
-                    "stdout": "",
-                    "stderr": "Execution timed out (30s)",
-                    "timeout": True,
-                    "error": None
-                })
+                self.results.append(
+                    {
+                        "index": idx,
+                        "code": code,
+                        "stdout": "",
+                        "stderr": "Execution timed out (30s)",
+                        "timeout": True,
+                        "error": None,
+                    }
+                )
             except Exception as e:
                 output_parts.append(f"## Block {idx}: Execution failed - {e}")
-                self.results.append({
-                    "index": idx,
-                    "code": code,
-                    "stdout": "",
-                    "stderr": str(e),
-                    "timeout": False,
-                    "error": e
-                })
+                self.results.append(
+                    {
+                        "index": idx,
+                        "code": code,
+                        "stdout": "",
+                        "stderr": str(e),
+                        "timeout": False,
+                        "error": e,
+                    }
+                )
 
         if output_parts:
-            # Append results to the original prompt (if it exists)
             self.output = "[Execution results]\n" + "\n\n".join(output_parts)
-
             print(self.output)
 
-        return False   # continue processing
+        return False
