@@ -1,0 +1,7 @@
+Call 1 of unstable_function
+Result: Success
+Call 2 of unstable_function
+Result: Success
+Call 3 of unstable_function
+Attempt 1 failed: Random failure, retrying in 0.1s
+Final failure: Random failure

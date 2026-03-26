@@ -1,0 +1,3 @@
+Registered plugins: ['PluginA', 'PluginB']
+PluginA: PluginA running
+PluginB: PluginB running
