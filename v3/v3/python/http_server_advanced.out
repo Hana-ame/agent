@@ -1,0 +1,3 @@
+127.0.0.1 - - [26/Mar/2026 22:35:08] "POST /api/data HTTP/1.1" 200 -
+Server on port 26595
+Response: {"status": "ok", "received": {"name": "Alice"}}

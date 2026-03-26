@@ -1,0 +1,7 @@
+Bytecode for add:
+  3           0 RESUME                   0
+
+  4           2 LOAD_FAST                0 (a)
+              4 LOAD_FAST                1 (b)
+              6 BINARY_OP                0 (+)
+             10 RETURN_VALUE
