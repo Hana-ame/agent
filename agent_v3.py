@@ -171,7 +171,8 @@ async def main():
             "save_code":SaveCodePlugin(),
             "run_code": RunBashCodeBlock(),
             "default_prompt": DefaultPrompt(
-                args.default_prompt
+                "请继续完成最开始的任务。或者接着探索其他解法。",
+                ".agent/SYSTEM_PROMPT.txt"
             ),  # 修改：DefaultPrompt 无参，从 args 读取
         }
         agent = Agent(client, plugins, agent_args)
