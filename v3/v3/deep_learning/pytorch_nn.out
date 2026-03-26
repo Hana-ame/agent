@@ -1,0 +1,5 @@
+Epoch 5, Loss: 0.6836
+Epoch 10, Loss: 0.6443
+Epoch 15, Loss: 0.6093
+Epoch 20, Loss: 0.5771
+Test Accuracy: 0.6900
