@@ -1,0 +1,6 @@
+Server listening on port 26287
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\select_example.py", line 28, in <module>
+    data = conn.recv(1024)
+           ^^^^^^^^^^^^^^^
+BlockingIOError: [WinError 10035] 无法立即完成一个非阻止性套接字操作。
