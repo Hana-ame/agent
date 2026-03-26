@@ -1,0 +1,4 @@
+List comprehension time: 0.00200s, size: 85176 bytes
+Generator expression time: 0.00000s, size: 200 bytes
+First 5 from list: [0, 1, 4, 9, 16]
+First 5 from generator: [0, 1, 4, 9, 16]

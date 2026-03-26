@@ -1,0 +1,18 @@
+Task0 started, will take 1.4937623312465007s
+Task1 started, will take 1.1533327083929112s
+Task2 started, will take 1.3734176194063539s
+Task3 started, will take 1.4859426490903167s
+Task4 started, will take 1.0804919458756492s
+Task4 finished
+First completed: Task4
+Cancelled Task-5
+Cancelled Task-2
+Cancelled Task-3
+Cancelled Task-4
+Gather0 started, will take 0.3s
+Gather1 started, will take 0.3s
+Gather2 started, will take 0.3s
+Gather1 finished
+Gather2 finished
+Gather0 finished
+Gather results: ['Gather0', 'Gather1', 'Gather2']
