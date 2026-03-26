@@ -1,0 +1,2 @@
+Original: {'name': 'Alice', 'age': 30, 'city': 'New York', 'hobbies': ['reading', 'coding', 'hiking'], 'is_student': False}
+Loaded:   {'name': 'Alice', 'age': 30, 'city': 'New York', 'hobbies': ['reading', 'coding', 'hiking'], 'is_student': False}
