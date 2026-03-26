@@ -1,0 +1,5 @@
+print("To start a new project with poetry:")
+print("  poetry new myproject")
+print("  cd myproject")
+print("  poetry add requests")
+print("  poetry run python main.py")
