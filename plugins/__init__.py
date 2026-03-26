@@ -1,2 +1,2 @@
-from base import Plugin
-from base import LogPlugin
+from .base import Plugin
+from .base import LogPlugin

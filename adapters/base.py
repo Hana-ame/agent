@@ -90,7 +90,9 @@ class MasterClient:
         await self.send("client", {
             "command": "remove_msg"
         })
-
+    
+    async def pop_response(self):
+        pass
 
 # ==========================================
 # 核心测试业务流 (提至外部)
