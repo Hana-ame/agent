@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "C:\workplace\agent - 副本\python-client\v3\v3\python\resource_example.py", line 1, in <module>
+    import resource
+ModuleNotFoundError: No module named 'resource'

@@ -1,0 +1,6 @@
+Cookie output:
+Set-Cookie: session=abc123; Max-Age=3600
+Set-Cookie: user=Alice; Path=/
+Parsed:
+session = abc123 (attributes: {'expires': '', 'path': '', 'comment': '', 'domain': '', 'max-age': '', 'secure': '', 'httponly': '', 'version': '', 'samesite': ''})
+user = Alice (attributes: {'expires': '', 'path': '', 'comment': '', 'domain': '', 'max-age': '', 'secure': '', 'httponly': '', 'version': '', 'samesite': ''})

@@ -1,0 +1,8 @@
+Scheme: https
+Netloc: example.com:8080
+Path: /path/to/page
+Query: name=Alice&age=30
+Fragment: section
+New URL: https://example.com/path?name=Bob#section
+Encoded params: name=Alice&age=30&city=New+York
+Parsed query string: {'name': ['Alice'], 'age': ['30'], 'city': ['New York']}

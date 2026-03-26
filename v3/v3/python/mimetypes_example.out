@@ -1,0 +1,5 @@
+index.html: text/html (encoding: None)
+image.jpg: image/jpeg (encoding: None)
+script.py: text/x-python (encoding: None)
+data.json: application/json (encoding: None)
+archive.tar.gz: application/x-tar (encoding: gzip)
