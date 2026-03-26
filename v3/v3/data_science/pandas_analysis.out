@@ -1,0 +1,32 @@
+DataFrame:
+      name  age  salary department
+0    Alice   26   51284         IT
+1      Bob   39   46265         HR
+2  Charlie   34   56850         IT
+3    David   30   77194    Finance
+4      Eva   27   61962         HR
+
+Basic statistics:
+             age        salary
+count   5.000000      5.000000
+mean   31.200000  58711.000000
+std     5.357238  11892.401524
+min    26.000000  46265.000000
+25%    27.000000  51284.000000
+50%    30.000000  56850.000000
+75%    34.000000  61962.000000
+max    39.000000  77194.000000
+
+Group by department:
+department
+Finance    77194.0
+HR         54113.5
+IT         54067.0
+Name: salary, dtype: float64
+
+Filter salary > 50000:
+      name  age  salary department
+0    Alice   26   51284         IT
+2  Charlie   34   56850         IT
+3    David   30   77194    Finance
+4      Eva   27   61962         HR
