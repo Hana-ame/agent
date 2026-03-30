@@ -13,6 +13,9 @@ class Plugin(ABC):
 
 
 class LogPlugin(Plugin):
+    def __init__(self):
+        self.flag = False
+        
     def before_prompt(self, args, req):
         print("[LOG] Sending prompt...")
         return False
@@ -29,10 +32,13 @@ class LogPlugin(Plugin):
         else:
             last_line = ""
 
+        if self.flag:
+            time.sleep(180)    
+
         # 如果最后一行恰好是 "★★★★★"
         if last_line == "★★★★★":
-            time.sleep(60)  # 睡眠 60 秒
-            return True
-        else:
+            self.flag = True
             return False
+        else:
+            self.flag = False
             return False

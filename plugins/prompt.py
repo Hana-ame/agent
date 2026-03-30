@@ -261,3 +261,102 @@ class RunBashCodeBlock(Plugin):
             self.output = "[Execution results]\n" + "\n\n".join(output_parts)
             print(self.output)
         return False
+
+class SaveMarkdownPlugin(Plugin):
+    """专门处理 ※※※md 包裹的 Markdown 代码块，支持 [PATH] 注释，无路径时保存到 untitled/snippet_xx.md"""
+
+    _counter = 1  # 独立计数器，与原有插件不冲突
+
+    def __init__(self):
+        self.saved_files = []
+
+    def before_prompt(self, args, req):
+        # 可选：将本次保存的文件列表返回给请求（如果需要，可与原插件合并，但这里保持独立）
+        if self.saved_files:
+            # 为避免覆盖原插件的 req["code"]，可以选择追加或单独存储
+            # 这里简单返回，不影响原逻辑
+            req["md_files"] = self.saved_files
+        self.saved_files = []
+        return False
+
+    def after_prompt(self, args, req, resp):
+        response = resp.get("response", "")
+        if not response:
+            return False
+
+        # 匹配 ※※※ 包裹的代码块，例如：
+        # ※※※md
+        # 内容...
+        # ※※※
+        pattern = re.compile(
+            r"(?:^|\n)※※※(\w*)\n(.*?)\n※※※(?=\n|$)", re.DOTALL
+        )
+        for match in pattern.finditer(response):
+            lang = match.group(1).strip().lower()
+            content = match.group(2)
+            # 只处理 markdown 相关语言
+            if lang not in ("md", "markdown"):
+                continue
+            self._process_markdown_block(content)
+
+        return False
+
+    def _process_markdown_block(self, content):
+        """处理单个 Markdown 代码块，确定路径并保存"""
+        target_path = self._extract_path(content)
+        if target_path:
+            # 若路径无扩展名，补全 .md
+            if not os.path.splitext(target_path)[1]:
+                target_path += ".md"
+            if self._save_file(target_path, content, remove_path_line=True):
+                self.saved_files.append(target_path)
+        else:
+            # 无路径时生成默认文件名
+            default_filename = f"snippet_{self._counter:02d}.md"
+            default_path = os.path.join("untitled", default_filename)
+            if self._save_file(default_path, content, remove_path_line=False):
+                self.saved_files.append(default_path)
+                self.__class__._counter += 1
+
+    def _extract_path(self, content):
+        """从 Markdown 代码块中提取 [PATH] 注释中的路径
+        支持格式：<!-- [PATH] 路径 --> 或 [PATH] 路径（简化）
+        """
+        # 优先匹配完整注释格式 <!-- [PATH] ... -->
+        pattern_full = r"<!--\s*\[PATH\]\s*(.*?)\s*-->"
+        match = re.search(pattern_full, content)
+        if match:
+            return match.group(1).strip()
+        # 兼容无注释标签的简单格式
+        pattern_simple = r"^\[PATH\]\s*(.*)$"
+        for line in content.splitlines():
+            m = re.search(pattern_simple, line.strip())
+            if m:
+                return m.group(1).strip()
+        return None
+
+    def _save_file(self, filepath, content, remove_path_line):
+        """保存文件，返回是否成功"""
+        if remove_path_line:
+            lines = content.splitlines()
+            # 找到包含 [PATH] 的行并删除
+            path_line_idx = None
+            for i, line in enumerate(lines):
+                if "[PATH]" in line:
+                    path_line_idx = i
+                    break
+            if path_line_idx is not None:
+                del lines[path_line_idx]
+            content = "\n".join(lines).strip()
+        # 确保目录存在
+        dir_path = os.path.dirname(filepath)
+        if dir_path and not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"[SaveMarkdownPlugin] Saved to {filepath}")
+            return True
+        except Exception as e:
+            print(f"[SaveMarkdownPlugin] Error saving {filepath}: {e}")
+            return False

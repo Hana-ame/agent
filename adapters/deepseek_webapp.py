@@ -80,6 +80,7 @@ class DeepSeekWebApp(MasterClient):
                     except json.JSONDecodeError:
                         pass
                 if channel == "system":
+                    print(f"\n<<< [收到 Object 回传] 原始报文: {json.dumps(data, indent=2, ensure_ascii=False)}")
                     command = payload.get("command")
                     if command == "list_result":
                         self.available_browsers = payload.get("message", [])
