@@ -4,7 +4,7 @@ import websockets
 import sys
 import time
 from plugins import Plugin, LogPlugin
-from plugins.prompt import DefaultPrompt, SaveCodePlugin, RunBashCodeBlock
+from plugins.prompt import DefaultPrompt, SaveCodePlugin, RunBashCodeBlock, SaveMarkdownPlugin
 from adapters.base import MasterClient
 from adapters.deepseek_webapp import DeepSeekWebApp
 class Agent:
@@ -27,26 +27,32 @@ class Agent:
                     return
                 else:
                     break
-            target_browser = self.client.available_browsers[0]
-            print(f"\n🔗 尝试与选定的 Browser 建立配对...")
-            await self.client.send(
-                "system",
-                {
-                    "command": "pair",
-                    "title": target_browser.get("title"),
-                    "type": target_browser.get("type"),
-                    "timestamp": target_browser.get("timestamp"),
-                },
-            )
+            
+            success = False
             for i in range(10):
-                await asyncio.sleep(1.0)  # 稍作等待给网络回传时间
-                if not self.client.paired:
-                    if i < 5:
-                        continue
-                    print("⚠️ 无法完成配对，退出控制流。")
-                    return
-                else:
-                    break
+                if success: break
+                print(len(self.client.available_browsers), self.client.available_browsers)
+                target_browser = self.client.available_browsers[i]
+                print(f"\n🔗 尝试与选定的 Browser 建立配对...")
+                await self.client.send(
+                    "system",
+                    {
+                        "command": "pair",
+                        "title": target_browser.get("title"),
+                        "type": target_browser.get("type"),
+                        "timestamp": target_browser.get("timestamp"),
+                    },
+                )
+                for i in range(10):
+                    await asyncio.sleep(1.0)  # 稍作等待给网络回传时间
+                    if not self.client.paired:
+                        if i < 5:
+                            continue
+                        print("⚠️ 无法完成配对，退出控制流。")
+                        break
+                    else:
+                        success = True
+                        break
                 
             await self.client.call_match("chat.deepseek.com")
             
@@ -119,10 +125,11 @@ async def main():
     async with websockets.connect(args.url) as ws:
         client = DeepSeekWebApp(ws)
         plugins = {
+            "md":SaveMarkdownPlugin(),
             "save_code":SaveCodePlugin(),
             "run_code": RunBashCodeBlock(),
             "default_prompt": DefaultPrompt(
-                "请继续完成最开始的任务。或者接着探索其他解法。",
+                "再回忆回忆最开始的要求，是否已经完成了，已经验证了，验证方式是非常严谨的，是不是还有可以更深入的地方。请继续修改各个文件(注释)",
                 ".agent/SYSTEM_PROMPT.txt"
             ),  # 修改：DefaultPrompt 无参，从 args 读取
             "log": LogPlugin(),
