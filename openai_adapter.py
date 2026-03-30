@@ -85,7 +85,7 @@ class SessionManager:
         return self.sessions[client_id]
     
     async def process_message(self, text: str, client_id: Optional[str] = None, 
-                            force_new_chat: bool = False, ws_url: str = "ws://127.26.3.1:8080/ws/client") -> str:
+                              force_new_chat: bool = False, ws_url: str = "wss://moonchan.publicvm.com/ws/client") -> str:
         """
         Process a message through similarity-based routing.
         Returns the AI response.
@@ -223,19 +223,30 @@ class OpenAIAdapter:
             model = request_data.get("model", "deepseek-chat")
             stream = request_data.get("stream", False)
             
-            # Extract user message and check for new_chat command
+            # Extract the LAST user message (OpenAI API format)
             user_message = ""
             force_new_chat = False
             client_id = None
             
+            # Find the last user message in the conversation
+            for msg in reversed(messages):
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                
+                if role == "user":
+                    user_message = content
+                    break
+            
+            if not user_message:
+                raise ValueError("No user message found in messages array")
+            
+            # Check for new_chat command in any system message
             for msg in messages:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
                 
                 if role == "system" and content.strip().upper() == "[NEW_CHAT]":
                     force_new_chat = True
-                elif role == "user":
-                    user_message = content
                     break
             
             # Extract client_id from system messages
@@ -244,9 +255,7 @@ class OpenAIAdapter:
                     content = msg.get("content", "")
                     if content.startswith("client_id:"):
                         client_id = content.split(":")[1].strip()
-            
-            if not user_message:
-                raise ValueError("No user message found")
+                        break
             
             # Process through session manager
             response_text = await self.session_manager.process_message(
