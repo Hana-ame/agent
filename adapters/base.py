@@ -63,13 +63,9 @@ class MasterClient:
     async def call_send_prompt(self, text, image_b64=None):
         """
         Send prompt to DeepSeek Web UI.
-        
-        IMPORTANT: WebSocket expects just the text string in payload field, not an object.
-        The 'command' is implied by the channel or context.
         """
-        # WebSocket expects: {"channel": "client", "payload": "text string here"}
-        # NOT: {"channel": "client", "payload": {"command": "send_prompt", "message": "text"}}
-        await self.send("client", text)
+        payload = {"command": "send_prompt", "message": "text"}
+        await self.send("client", payload)
     async def call_remove_msg(self):
         await self.send("client", {
             "command": "remove_msg"
