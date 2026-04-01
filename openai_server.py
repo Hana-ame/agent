@@ -173,7 +173,7 @@ class OpenAIServer:
         print("  GET  /v1/models             - List available models")
         print("  POST /v1/chat/completions   - Chat completion")
         print("")
-        print("🔌 WebSocket URL: wss://c.810114.xyz/ws/client")
+        print("🔌 WebSocket URL: wss://moonchan.publicvm.com/ws/client")
         print("🧠 Similarity threshold: 20% (auto new_chat)")
         print("=" * 60)
         print("")

@@ -42,7 +42,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ## 🔌 WebSocket协议
 
-连接到 `wss://c.810114.xyz/ws/client`（默认），支持以下操作：
+连接到 `wss://moonchan.publicvm.com/ws/client`（默认），支持以下操作：
 
 ### 核心命令
 ```python

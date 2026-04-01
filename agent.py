@@ -98,7 +98,7 @@ class Agent:
 async def main():
     parser = argparse.ArgumentParser(description="Agent 客户端核心引擎")
     parser.add_argument(
-        "url", nargs="?", default="wss://c.810114.xyz/ws/client", help="WebSocket URL"
+        "url", nargs="?", default="wss://moonchan.publicvm.com/ws/client", help="WebSocket URL"
     )
     parser.add_argument("-m", "--message", help="直接提供消息内容启动")
     parser.add_argument(

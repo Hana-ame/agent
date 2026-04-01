@@ -73,7 +73,7 @@ def should_create_new_chat(self, similarity: float) -> bool:
 - 所有插件兼容性保留
 
 ### 3. WebSocket协议不变
-- 仍连接到 `wss://c.810114.xyz/ws/client`
+- 仍连接到 `wss://moonchan.publicvm.com/ws/client`
 - 相同的配对和消息格式
 - 相同的DeepSeek响应解析
 
