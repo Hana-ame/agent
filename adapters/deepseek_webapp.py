@@ -160,7 +160,7 @@ async def run_test(ws_url):
             traceback.print_exc()
         await listen_task
 if __name__ == "__main__":
-    WS_CLIENT_ENDPOINT = "ws://127.26.3.1:8080/ws/client"
+    WS_CLIENT_ENDPOINT = "wss://moonchan.publicvm.com/ws/client"
     try:
         asyncio.run(run_test(WS_CLIENT_ENDPOINT))
     except KeyboardInterrupt:
