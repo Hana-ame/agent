@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-独立 OpenAI 适配器，无外部依赖（除 websockets）。
-每次请求新建 WebSocket 连接，直接解析 DeepSeek 流式响应。
+独立 OpenAI 适配器 - 带详细日志版本
+每次请求新建连接，打印所有原始消息和状态变化。
 """
 
 import asyncio
@@ -13,10 +13,8 @@ from typing import Dict, Optional, Tuple
 import websockets
 
 
-class DeepSeekWebUI:
-    """
-    管理 DeepSeek Web UI 的 WebSocket 连接，处理消息发送和响应收集。
-    """
+class DeepSeekBridge:
+    """管理 WebSocket 连接，解析 DeepSeek 响应"""
 
     def __init__(self, ws):
         self.ws = ws
@@ -31,10 +29,17 @@ class DeepSeekWebUI:
         self._response = []
         self._inbox = asyncio.Queue()
 
+        # 调试模式
+        self.debug = True
+
+    def log(self, msg):
+        if self.debug:
+            print(f"[Bridge] {msg}")
+
     async def send(self, channel: str, payload: dict):
         """发送消息到服务端"""
         msg = json.dumps({"channel": channel, "payload": payload}, ensure_ascii=False)
-        print(f">>> [发送] {msg}")
+        self.log(f"发送: {msg}")
         await self.ws.send(msg)
 
     async def _set_status(self, status: str):
@@ -43,10 +48,12 @@ class DeepSeekWebUI:
         self._is_finished = status == "FINISHED"
         self._is_think = status == "THINK"
         self._is_response = status == "RESPONSE"
+        self.log(f"状态变更: {status} (finished:{self._is_finished})")
 
         if self._is_finished and not prev_finished:
             think_text = "".join(self._think)
             response_text = "".join(self._response)
+            self.log(f"完成！think长度:{len(think_text)}, response长度:{len(response_text)}")
             await self._inbox.put((think_text, response_text))
             self._think, self._response = [], []
 
@@ -60,11 +67,13 @@ class DeepSeekWebUI:
             self._think.append(v)
         elif self._is_response:
             self._response.append(v)
+        # 忽略其他状态
 
     async def _deepseek_append_parser(self, obj: dict):
         """解析一个 fragment"""
         typ = obj.get("type")
         content = obj.get("content")
+        self.log(f"fragment: type={typ}, content={content[:50] if content else ''}...")
         await self._set_status(typ)
         await self._append_v(content)
 
@@ -72,13 +81,16 @@ class DeepSeekWebUI:
         """解析一个完整的 deepseek 对象（可能包含多个片段）"""
         o = obj.get("o")
         p = obj.get("p")
+        v = obj.get("v")
+
+        self.log(f"object: o={o}, p={p}, v类型={type(v)}")
+
         # 普通对象或特定路径的对象
         if (o is None and p is None) or p in (
             "response/fragments/-1/content",
             "quasi_status",
             "response/status",
         ):
-            v = obj.get("v")
             if isinstance(v, dict):
                 response = v.get("response")
                 if response:
@@ -93,20 +105,21 @@ class DeepSeekWebUI:
                 for frag in v_list:
                     await self._deepseek_append_parser(frag)
             else:
-                raise Exception(f"期望列表，得到 {v_list}")
+                self.log(f"APPEND 但 v 不是列表: {v_list}")
         elif o == "BATCH":
             v_list = obj.get("v")
             if isinstance(v_list, list):
                 for sub_obj in v_list:
                     await self._deepseek_object_parser(sub_obj)
             else:
-                raise Exception(f"期望列表，得到 {v_list}")
+                self.log(f"BATCH 但 v 不是列表: {v_list}")
         # 其他操作（如 SET）忽略
 
     async def listen(self):
         """后台监听 WebSocket 消息并解析"""
         try:
             async for raw in self.ws:
+                self.log(f"原始消息: {raw[:200]}")
                 data = json.loads(raw)
                 channel = data.get("channel")
                 payload = data.get("payload", {})
@@ -121,26 +134,30 @@ class DeepSeekWebUI:
                     command = payload.get("command")
                     if command == "list_result":
                         self.available_browsers = payload.get("message", [])
+                        self.log(f"获取浏览器列表: {self.available_browsers}")
                     elif command == "pair_result":
                         if payload.get("message") == "success":
                             self.paired = True
-                            print("✅ 配对成功")
+                            self.log("✅ 配对成功")
                         else:
-                            print(f"❌ 配对失败: {payload.get('message')}")
+                            self.log(f"❌ 配对失败: {payload.get('message')}")
                 else:
                     await self._deepseek_object_parser(payload)
         except websockets.exceptions.ConnectionClosed:
-            print("🛑 连接断开")
+            self.log("🛑 连接断开")
         except Exception as e:
             traceback.print_exc()
+            self.log(f"监听异常: {e}")
 
-    async def pop_response(self) -> Tuple[str, str]:
-        """等待并返回响应（思考内容，最终回答）"""
-        think, response = await self._inbox.get()
-        # 如果都是空字符串，继续等待下一个
-        if think == "" and response == "":
-            return await self.pop_response()
-        return think, response
+    async def pop_response(self, timeout: float = 60.0) -> Tuple[str, str]:
+        """等待并返回响应（思考内容，最终回答），带超时"""
+        try:
+            think, response = await asyncio.wait_for(self._inbox.get(), timeout=timeout)
+            if think == "" and response == "":
+                return await self.pop_response(timeout)
+            return think, response
+        except asyncio.TimeoutError:
+            raise Exception(f"等待响应超时 {timeout} 秒")
 
     async def call_match(self, keyword: str):
         """导航到包含该关键词的域名"""
@@ -159,15 +176,14 @@ class DeepSeekWebUI:
 
 
 class OpenAIAdapter:
-    """OpenAI 兼容接口，每次请求新建连接"""
-
     def __init__(self, ws_url: str = "wss://moonchan.publicvm.com/ws/client"):
         self.ws_url = ws_url
 
     async def _send_and_receive(self, text: str, new_chat: bool = False) -> str:
         """发送消息并等待响应"""
+        print(f"\n=== 开始处理消息: {text[:50]}... ===")
         async with websockets.connect(self.ws_url) as ws:
-            client = DeepSeekWebUI(ws)
+            client = DeepSeekBridge(ws)
             listen_task = asyncio.create_task(client.listen())
 
             # 1. 请求浏览器列表
@@ -175,12 +191,14 @@ class OpenAIAdapter:
             await asyncio.sleep(1.0)
 
             if not client.available_browsers:
+                print("等待浏览器列表...")
                 await asyncio.sleep(1.0)
                 if not client.available_browsers:
                     raise Exception("没有可用的浏览器")
 
             # 2. 配对
             target = client.available_browsers[0]
+            print(f"目标浏览器: {target}")
             await client.send(
                 "system",
                 {
@@ -207,7 +225,7 @@ class OpenAIAdapter:
             await client.call_send_prompt(text=text)
 
             # 6. 等待响应
-            think, response = await client.pop_response()
+            think, response = await client.pop_response(timeout=120.0)
 
             # 清理
             listen_task.cancel()
@@ -216,6 +234,7 @@ class OpenAIAdapter:
             except asyncio.CancelledError:
                 pass
 
+            print(f"=== 收到响应，长度: {len(response)} ===")
             return response if response else think
 
     async def handle_request(self, request_data: Dict) -> Dict:
@@ -274,6 +293,11 @@ async def test():
 
     msg = sys.argv[1] if len(sys.argv) > 1 else "Hello, how are you?"
     req = {"messages": [{"role": "user", "content": msg}]}
+    try:
+        resp = await adapter.handle_request(req)
+        print(json.dumps(resp, indent=2, ensure_ascii=False))
+    except Exception as e:
+        print(f"测试失败: {e}")
     try:
         resp = await adapter.handle_request(req)
         print(json.dumps(resp, indent=2, ensure_ascii=False))
