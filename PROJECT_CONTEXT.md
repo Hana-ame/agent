@@ -24,7 +24,7 @@ adapter-api/
 
 ### 2. `agent.py`
 - 主入口: `async def main()`
-- 连接到WebSocket服务器 (`ws://127.26.3.1:8080/ws/client`)
+- 连接到WebSocket服务器 (`wss://c.810114.xyz/ws/client`)
 - 插件架构: 支持SaveCodePlugin, RunBashCodeBlock, DefaultPrompt, LogPlugin
 - 循环对话模式
 
@@ -121,7 +121,7 @@ NEW_CHAT_THRESHOLD = 0.2  # 相似度低于20%视为全新话题
    - 新增HTTP API接口
 
 ## 待确认问题
-- WebSocket服务器地址: `ws://127.26.3.1:8080/ws/client`
+- WebSocket服务器地址: `wss://c.810114.xyz/ws/client`
 - 是否需要多客户端支持？
 - 相似度阈值如何确定？
 - 是否支持流式响应？
