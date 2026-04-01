@@ -178,7 +178,7 @@ class OpenAIAdapter:
     def __init__(self, ws_url: str = "wss://moonchan.publicvm.com/ws/client"):
         self.ws_url = ws_url
 
-    async def _setup_and_send(self, client: DeepSeekBridge, text: str, new_chat: bool):
+    async def _setup_and_send(self, client: DeepSeekBridge, text: str, image_b64: Optional[str], new_chat: bool):
         """抽取出的公共前置连接、配对、发送过程"""
         await client.send("system", {"command": "list"})
         await asyncio.sleep(1.0)
@@ -211,22 +211,23 @@ class OpenAIAdapter:
             await client.call_new_chat()
             await asyncio.sleep(1.0)
 
-        await client.call_send_prompt(text=text)
+        # 这里传入解析出来的 text 和 image_b64
+        await client.call_send_prompt(text=text, image_b64=image_b64)
 
     async def handle_stream_request(self, request_data: Dict):
         """处理流式 (Stream) 请求的生成器，返回 SSE 格式数据"""
         messages = request_data.get("messages", [])
         model = request_data.get("model", "deepseek-chat")
 
-        user_msg = self._extract_user_msg(messages)
+        # 解包文本和图片
+        user_msg, image_b64 = self._extract_user_msg(messages)
         new_chat = self._is_new_chat(messages)
 
         chat_id = f"chatcmpl-{hashlib.md5(str(time.time()).encode()).hexdigest()[:24]}"
         created_time = int(time.time())
 
-        print(f"\n=== 开始流式处理消息: {user_msg[:50]}... ===")
+        print(f"\n=== 开始流式处理消息: {user_msg[:50]}... (含图片: {bool(image_b64)}) ===")
 
-        # 优先输出初始的 Role Chunk (OpenAI 标准规范)
         initial_chunk = {
             "id": chat_id,
             "object": "chat.completion.chunk",
@@ -241,19 +242,16 @@ class OpenAIAdapter:
             listen_task = asyncio.create_task(client.listen())
 
             try:
-                # 执行配对与发送
-                await self._setup_and_send(client, user_msg, new_chat)
+                # 传入 user_msg 和 image_b64
+                await self._setup_and_send(client, user_msg, image_b64, new_chat)
 
-                # 开始不断读取 stream_queue
                 while True:
                     try:
-                        # 每次读取一个 fragment
                         item = await asyncio.wait_for(client._stream_queue.get(), timeout=60.0)
                     except asyncio.TimeoutError:
-                        break # 超时则断开流
+                        break
 
                     if item["type"] == "done":
-                        # 结束标记
                         finish_chunk = {
                             "id": chat_id,
                             "object": "chat.completion.chunk",
@@ -265,13 +263,10 @@ class OpenAIAdapter:
                         yield "data: [DONE]\n\n"
                         break
                     
-                    # 构建增量 Delta
                     delta = {}
                     if item["type"] == "think":
-                        # DeepSeek 官方 API 标准：思考内容放在 reasoning_content 字段中
                         delta["reasoning_content"] = item["content"]
                     elif item["type"] == "response":
-                        # 正常内容放在 content 字段中
                         delta["content"] = item["content"]
 
                     chunk = {
@@ -295,24 +290,25 @@ class OpenAIAdapter:
                 print("=== 流式响应结束 ===")
 
     async def handle_request(self, request_data: Dict) -> Dict:
-        """处理非流式 (Non-stream) 请求，等待所有内容接收完毕后一次性返回"""
+        """处理非流式 (Non-stream) 请求"""
         messages = request_data.get("messages", [])
         model = request_data.get("model", "deepseek-chat")
 
-        user_msg = self._extract_user_msg(messages)
+        # 解包文本和图片
+        user_msg, image_b64 = self._extract_user_msg(messages)
         new_chat = self._is_new_chat(messages)
 
-        print(f"\n=== 开始非流式处理消息: {user_msg[:50]}... ===")
+        print(f"\n=== 开始非流式处理消息: {user_msg[:50]}... (含图片: {bool(image_b64)}) ===")
         
         async with websockets.connect(self.ws_url) as ws:
             client = DeepSeekBridge(ws)
             listen_task = asyncio.create_task(client.listen())
 
             try:
-                await self._setup_and_send(client, user_msg, new_chat)
+                # 传入 user_msg 和 image_b64
+                await self._setup_and_send(client, user_msg, image_b64, new_chat)
                 think, response = await client.pop_response(timeout=120.0)
                 
-                # 如果没有 response，退回返回 think
                 answer = response if response else think
                 
                 return {
@@ -340,19 +336,61 @@ class OpenAIAdapter:
                 except asyncio.CancelledError:
                     pass
 
-    def _extract_user_msg(self, messages: list) -> str:
+    def _extract_user_msg(self, messages: list) -> Tuple[str, Optional[str]]:
+        """
+        提取用户消息，兼容纯字符串格式和多模态数组格式。
+        返回 (文本内容, base64图片字符串)
+        """
         for msg in reversed(messages):
             if msg.get("role") == "user":
-                return msg.get("content", "")
+                content = msg.get("content", "")
+                
+                # 1. 如果 content 是普通字符串，直接返回
+                if isinstance(content, str):
+                    return content, None
+                
+                # 2. 如果 content 是数组 (多模态格式)
+                elif isinstance(content, list):
+                    text_parts = []
+                    image_b64 = None
+                    
+                    for item in content:
+                        if not isinstance(item, dict):
+                            continue
+                            
+                        # 提取文本
+                        if item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                            
+                        # 提取图片 (如果客户端发了图片)
+                        elif item.get("type") == "image_url":
+                            url = item.get("image_url", {}).get("url", "")
+                            # 取出 base64 数据部分 (data:image/jpeg;base64,xxxxxx...)
+                            if url.startswith("data:image"):
+                                try:
+                                    image_b64 = url.split(",")[1]
+                                except IndexError:
+                                    pass
+                                    
+                    return "\n".join(text_parts), image_b64
+                    
         raise ValueError("未找到用户消息")
 
     def _is_new_chat(self, messages: list) -> bool:
-        return any(
-            msg.get("role") == "system"
-            and msg.get("content", "").strip().upper() == "[NEW_CHAT]"
-            for msg in messages
-        )
-
+        """检查是否有新建对话的系统指令，同样兼容数组格式的 content"""
+        for msg in messages:
+            if msg.get("role") == "system":
+                content = msg.get("content", "")
+                
+                text = ""
+                if isinstance(content, str):
+                    text = content
+                elif isinstance(content, list):
+                    text = "".join([i.get("text", "") for i in content if isinstance(i, dict) and i.get("type") == "text"])
+                
+                if text.strip().upper() == "[NEW_CHAT]":
+                    return True
+        return False
 # ==============================================================================
 # FastAPI HTTP Server 代码
 # ==============================================================================
