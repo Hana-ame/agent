@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import os
+import gzip
 import asyncio
 import json
 import hashlib
@@ -423,6 +425,24 @@ async def list_models():
 async def chat_completions(request: Request, token: HTTPBearer = Depends(security)):
     try:
         request_data = await request.json()
+        
+        # 存储请求数据到 timestamp.json.gz
+        try:
+            # 生成时间戳文件名，确保目录存在
+            timestamp = int(time.time())
+            filename = f"{timestamp}.json.gz"
+            # 可以指定子目录，例如 "./requests/"
+            os.makedirs("./requests", exist_ok=True)
+            filepath = os.path.join("./requests", filename)
+            # 将字典转换为JSON字符串并写入gzip文件（使用线程池避免阻塞）
+            json_str = json.dumps(request_data)
+            # 使用asyncio.to_thread执行同步的gzip写入
+            await asyncio.to_thread(
+                lambda: gzip.open(filepath, 'wt', encoding='utf-8').write(json_str)
+            )
+        except Exception as e:
+            # 记录错误但不中断主流程（可以根据需要打印日志）
+            print(f"Failed to save request: {e}")
         
         # 核心判断：如果客户端请求了 Stream，则返回 StreamingResponse
         if request_data.get("stream", False):
