@@ -1,16 +1,17 @@
 // ==UserScript==
 // @name         DeepSeek 增强脚本 (OOP 架构 + WS启停 + 严格协议版)
-// @version      3.0
+// @version      3.2
 // @description  匹配 Golang Bridge Server API V2，严格遵循面向对象结构，支持 DOM 操作、流拦截、WS 启停与 Channel 路由
 // @match        *://*.deepseek.com/*
 // @grant        none
 // ==/UserScript==
 
 (function () {
-    console.log('🚀 DeepSeek 增强脚本已注入 (OOP 架构版)！');
+    console.log('🚀 DeepSeek 增强脚本已注入 (OOP 架构版 V3.2)！');
 
     const SCRIPT_ID = 'deepseek-tools';
-    const WS_URL = "wss://d.810114.xyz/ws/browser";
+    // 默认 WS 地址，若用户未设置过则使用此地址
+    const DEFAULT_WS_URL = "ws://127.26.3.1:8080/ws/browser";
 
     // ==========================================
     // 1. Utils 辅助工具类
@@ -87,7 +88,7 @@
                 const arrayBuffer = new ArrayBuffer(byteString.length);
                 const uint8Array = new Uint8Array(arrayBuffer);
                 for (let i = 0; i < byteString.length; i++) uint8Array[i] = byteString.charCodeAt(i);
-                
+
                 const blob = new Blob([uint8Array], { type: "image/png" });
                 const file = new File([blob], "pasted_image.png", { type: "image/png" });
 
@@ -108,17 +109,18 @@
 
         /**
          * 统一中控：处理发送、深度思考、联网搜索的开关状态
-         * @param {Object} config - {send: boolean, thinking: boolean, search: boolean}
+         * @param {Object} config - {send?: boolean, thinking?: boolean, search?: boolean}
          */
         doControl(config) {
-            // 1. 深度思考与搜索开关 (如果有特定的 SVG 或按钮标识，可以在这里扩展 findAndClickByPath)
-            if (config.thinking) {
-                console.log("🧠 尝试开启深度思考...");
-                // 示例预留：Utils.findAndClickByPath('深度思考SVG');
+            // 1. 深度思考与搜索开关控制
+            if (config.hasOwnProperty('thinking')) {
+                console.log(`🧠 尝试将深度思考设为: ${config.thinking}`);
+                // 此处预留执行真实 DOM 切换的逻辑，如：
+                // 如果当前状态与 config.thinking 不一致，则 Utils.findAndClickByPath('深度思考SVG')
             }
-            if (config.search) {
-                console.log("🌐 尝试开启联网搜索...");
-                // 示例预留：Utils.findAndClickByPath('联网搜索SVG');
+            if (config.hasOwnProperty('search')) {
+                console.log(`🌐 尝试将联网搜索设为: ${config.search}`);
+                // 此处预留执行真实 DOM 切换的逻辑
             }
 
             // 2. 发送操作 (延时等待前置操作如粘贴图片完成)
@@ -126,7 +128,7 @@
                 setTimeout(() => {
                     const sendPath = 'M8.3125 0.981587C8.66767 1.0545 8.97902 1.20558 9.2627 1.43374';
                     const textarea = document.querySelector('#chat-input') || document.querySelector('textarea');
-                    
+
                     if (Utils.findAndClickByPath(sendPath)) {
                         console.log("✅ 消息已发送 (通过点击)");
                     } else if (textarea) {
@@ -162,42 +164,55 @@
 
     // ==========================================
     // 3. WsHandler WebSocket 与网络处理类
-    // 负责通信建立、断线重连、手动启停、流拦截与消息路由
     // ==========================================
     class WsHandler {
         constructor(adapter, uiRef) {
             this.adapter = adapter;
             this.uiRef = uiRef;      // 引用 UI 实例以更新状态
             this.ws = null;
+            this.wsUrl = localStorage.getItem('deepseek_ws_url') || DEFAULT_WS_URL;
             this.isPaired = false;
-            this.isPaused = false;   // 核心状态：是否由用户手动暂停链接，默认 false (自动连接)
+            this.isPaused = false;   // 核心状态：是否由用户手动暂停链接，默认 false
         }
 
         /**
-         * 初始化/建立 WebSocket 连接
+         * 修改并持久化 WebSocket Endpoint
          */
+        setEndpoint(newUrl) {
+            if (!newUrl || newUrl === this.wsUrl) return;
+            this.wsUrl = newUrl;
+            localStorage.setItem('deepseek_ws_url', newUrl);
+            console.log(`🔧 WS Endpoint 已更新为: ${newUrl}`);
+
+            if (this.ws) {
+                this.ws.close();
+            } else if (!this.isPaused) {
+                this.connect();
+            }
+            if (this.uiRef) this.uiRef.update();
+        }
+
         connect() {
-            if (this.isPaused) return; // 如果被手动暂停，则不允许自动连接
+            if (this.isPaused) return;
             if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
 
-            this.ws = new WebSocket(WS_URL);
+            this.ws = new WebSocket(this.wsUrl);
 
             this.ws.onopen = () => {
-                console.log("🟢 成功连接到 Bridge Server");
-                // 遵循新格式发送系统注册指令
-                this.send("system", { 
-                    command: "register", 
-                    message: document.title // 用标题作为标识
+                console.log(`🟢 成功连接到 Bridge Server [${this.wsUrl}]`);
+                this.send("system", {
+                    command: "register",
+                    title: document.title,          // 对应 Golang 的 payload.Title
+                    type: "deepseek-webapp"         // 对应 Golang 的 payload.Type (可自定义你的浏览器类型标识)
                 });
-                if(this.uiRef) this.uiRef.update();
+                if (this.uiRef) this.uiRef.update();
             };
 
             this.ws.onclose = () => {
                 this.ws = null;
                 this.isPaired = false;
-                if(this.uiRef) this.uiRef.update();
-                
-                // 仅在非手动暂停状态下自动重连
+                if (this.uiRef) this.uiRef.update();
+
                 if (!this.isPaused) {
                     console.log("🔴 连接断开，5秒后尝试重连...");
                     setTimeout(() => this.connect(), 5000);
@@ -209,7 +224,6 @@
             this.ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
-                    // 严格按 Channel 分发
                     if (msg.channel === "system") {
                         this.handleSystemMessage(msg.payload);
                     } else if (msg.channel === "client") {
@@ -221,17 +235,12 @@
             };
         }
 
-        /**
-         * 切换连接状态 (连接 <-> 暂停)
-         */
         toggleConnection() {
             if (this.isPaused) {
-                // 当前是暂停状态，切换为连接
                 this.isPaused = false;
                 console.log("▶️ 恢复 WebSocket 连接...");
                 this.connect();
             } else {
-                // 当前是连接状态，切换为暂停
                 this.isPaused = true;
                 this.isPaired = false;
                 if (this.ws) {
@@ -239,29 +248,17 @@
                     this.ws.close();
                 }
             }
-            if(this.uiRef) this.uiRef.update();
+            if (this.uiRef) this.uiRef.update();
         }
 
-        /**
-         * 遵循协议标准向服务端发送数据
-         * 格式: { channel: channel, payload: payload_object }
-         */
         send(channel, payload) {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify({
-                    channel: channel,
-                    payload: payload
-                }));
+                this.ws.send(JSON.stringify({ channel: channel, payload: payload }));
             }
         }
 
-        /**
-         * 处理 Channel: system 的消息
-         */
         handleSystemMessage(payload) {
             const command = payload.command;
-            console.log("⚙️ 收到系统通知:", command);
-            
             switch (command) {
                 case "register_success":
                     console.log("✅ 浏览器节点注册成功，等待配对...");
@@ -269,58 +266,42 @@
                 case "paired_by_client":
                     this.isPaired = true;
                     console.log("🔗 已被 Client 成功锁定配对！");
-                    if(this.uiRef) this.uiRef.update();
+                    if (this.uiRef) this.uiRef.update();
                     break;
                 case "unpaired":
                     this.isPaired = false;
                     console.log(`🔓 已解除配对，原因: ${payload.message}`);
-                    if(this.uiRef) this.uiRef.update();
+                    if (this.uiRef) this.uiRef.update();
                     break;
             }
         }
 
-        /**
-         * 处理 Channel: client 的透传业务指令
-         * payload 格式: { command: string, message: string, image?: string }
-         */
         handleClientMessage(payload) {
-            console.log("📥 收到 Client 业务指令:", payload);
             const { command, message, image } = payload;
-
             switch (command) {
                 case "match":
                     const isMatch = location.hostname.includes(message);
-                    this.send("browser", {
-                        command: "match_result",
-                        message: isMatch.toString()
-                    });
+                    this.send("browser", { command: "match_result", message: isMatch.toString() });
                     break;
                 case "new_chat":
                     this.adapter.doNewChat();
                     break;
                 case "send_prompt":
-                    // 组合调用 Adapter 完成输入、贴图与发送
                     if (message) this.adapter.doSetPrompt(message);
                     if (image) this.adapter.doAddImage(image);
-                    // 解析控制参数，此处默认触发 send
-                    this.adapter.doControl({ send: true, thinking: true, search: true });
+                    // 透传指令调用发送，不需要显式改变思考和搜索状态
+                    this.adapter.doControl({ send: true });
                     break;
                 case "remove_msg":
                     this.adapter.doRemove();
                     break;
-                default:
-                    console.log("⚠️ 未知 Client 业务指令:", command);
             }
         }
 
-        /**
-         * 劫持原生 XMLHttpRequest，拦截大模型流式输出
-         * payload 格式直接传入 SSE object
-         */
         handleXHR() {
             const originalOpen = window.XMLHttpRequest.prototype.open;
             const originalSend = window.XMLHttpRequest.prototype.send;
-            const self = this; // 保存 WsHandler 实例的引用
+            const self = this;
 
             window.XMLHttpRequest.prototype.open = function (method, url) {
                 this._interceptUrl = typeof url === 'string' ? url : (url?.toString() || '');
@@ -332,7 +313,6 @@
                 let buffer = "";
 
                 this.addEventListener('readystatechange', function () {
-                    // 针对 DeepSeek 的流式对话接口进行拦截
                     if (this._interceptUrl && this._interceptUrl.includes('/chat/completion')) {
                         if (this.readyState === 3 || this.readyState === 4) {
                             const currentText = this.responseText;
@@ -350,8 +330,7 @@
                                 if (!line || !line.startsWith('data:')) continue;
 
                                 const jsonStr = line.substring(5).trim();
-                                
-                                // 根据要求，载荷如果是 SSE 数据，直接包装为 { SSEobject }
+
                                 if (jsonStr === '[DONE]') {
                                     self.send("browser", { done: true });
                                     continue;
@@ -376,23 +355,17 @@
     // ==========================================
     class UI {
         constructor() {
-            this.wsHandler = null; 
+            this.wsHandler = null;
             this.adapter = null;
             this.uiRegistered = false;
         }
 
-        /**
-         * 注入核心依赖并启动轮询注册
-         */
         init(wsHandler, adapter) {
             this.wsHandler = wsHandler;
             this.adapter = adapter;
             this.registerLoop();
         }
 
-        /**
-         * 轮询检查外部悬浮球环境是否就绪
-         */
         registerLoop() {
             if (window.FloatingBallAPI) {
                 this.uiRegistered = true;
@@ -402,13 +375,9 @@
             }
         }
 
-        /**
-         * 渲染 / 更新悬浮球菜单
-         */
         update() {
             if (!this.uiRegistered || !window.FloatingBallAPI) return;
 
-            // 根据状态机决定按钮文本与表现
             const isConnected = this.wsHandler.ws && this.wsHandler.ws.readyState === WebSocket.OPEN;
             const isPaused = this.wsHandler.isPaused;
             const isPaired = this.wsHandler.isPaired;
@@ -421,31 +390,39 @@
             }
 
             // 1. WebSocket 启停按钮
-            window.FloatingBallAPI.registerAction(
-                SCRIPT_ID,
-                'btn_ws_toggle',
-                btnText,
-                () => { this.wsHandler.toggleConnection(); }
-            );
+            window.FloatingBallAPI.registerAction(SCRIPT_ID, 'btn_ws_toggle', btnText, () => {
+                this.wsHandler.toggleConnection();
+            });
 
-            // 2. 清理首条消息按钮
-            window.FloatingBallAPI.registerAction(
-                SCRIPT_ID,
-                'btn_clear_first',
-                '🗑️ 删除首条消息',
-                () => { this.adapter.doRemove(); }
-            );
-
-            // 3. 测试发信按钮
-            window.FloatingBallAPI.registerAction(
-                SCRIPT_ID,
-                'btn_test_send',
-                '✍️ 测试发送消息',
-                () => { 
-                    this.adapter.doSetPrompt('测试消息 - By Script'); 
-                    this.adapter.doControl({send: true}); 
+            // 2. 修改 WS Endpoint 按钮
+            window.FloatingBallAPI.registerAction(SCRIPT_ID, 'btn_change_ws', '🔧 修改 WS 地址', () => {
+                const currentUrl = this.wsHandler.wsUrl;
+                const newUrl = prompt("请输入新的 WebSocket 地址:", currentUrl);
+                if (newUrl) {
+                    this.wsHandler.setEndpoint(newUrl.trim());
                 }
-            );
+            });
+
+            // 3. 直接通过 doControl 操作思考状态
+            window.FloatingBallAPI.registerAction(SCRIPT_ID, 'btn_thinking_on', '🧠 开启思考', () => {
+                this.adapter.doControl({ thinking: true });
+            });
+            window.FloatingBallAPI.registerAction(SCRIPT_ID, 'btn_thinking_off', '🧠 关闭思考', () => {
+                this.adapter.doControl({ thinking: false });
+            });
+
+            // 4. 直接通过 doControl 操作搜索状态
+            window.FloatingBallAPI.registerAction(SCRIPT_ID, 'btn_search_on', '🌐 开启搜索', () => {
+                this.adapter.doControl({ search: true });
+            });
+            window.FloatingBallAPI.registerAction(SCRIPT_ID, 'btn_search_off', '🌐 关闭搜索', () => {
+                this.adapter.doControl({ search: false });
+            });
+
+            // 5. 清理首条消息按钮
+            window.FloatingBallAPI.registerAction(SCRIPT_ID, 'btn_clear_first', '🗑️ 删除首条消息', () => {
+                this.adapter.doRemove();
+            });
         }
     }
 
@@ -456,11 +433,9 @@
     const ui = new UI();
     const wsHandler = new WsHandler(adapter, ui);
 
-    // 双向绑定 (UI 渲染依赖 WS 的状态)
     ui.init(wsHandler, adapter);
 
-    // 默认执行网络与拦截初始化
     wsHandler.handleXHR();
-    wsHandler.connect(); // 默认进入连接状态
+    wsHandler.connect();
 
 })();
