@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Node Worker</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #f0f6fc; padding: 20px; min-height: 100vh; }
+  .api-config { margin-bottom: 16px; }
+  .api-toggle { background: #21262d; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 0.85rem; color: #8b949e; display: inline-flex; align-items: center; gap: 6px; user-select: none; }
+  .api-toggle:hover { background: #30363d; }
+  .api-toggle .arrow { transition: transform .2s; display: inline-block; }
+  .api-toggle.open .arrow { transform: rotate(90deg); }
+  .api-body { display: none; margin-top: 8px; padding: 12px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; }
+  .api-body.show { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .api-body input { flex: 1; min-width: 200px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 6px 10px; color: #f0f6fc; font-size: 0.85rem; }
+  .api-body input:focus { outline: none; border-color: #58a6ff; }
+  .api-body button { background: #238636; color: #fff; border: none; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 0.85rem; }
+  .api-body button:hover { background: #2ea043; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .subtitle { color: #8b949e; font-size: 0.85rem; margin-bottom: 20px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 16px; margin-bottom: 12px; }
+  .card h2 { font-size: 1rem; margin-bottom: 8px; color: #f0f6fc; }
+</style>
+</head>
+<body>
+
+<h1>Node Worker</h1>
+<p class="subtitle">编辑节点 → 提交数据 → 自动执行 → 查看日志</p>
+
+<div class="api-config">
+  <div class="api-toggle" onclick="this.classList.toggle('open'); document.getElementById('apiBody').classList.toggle('show')">
+    <span class="arrow">▶</span> API Endpoint 设置
+  </div>
+  <div class="api-body" id="apiBody">
+    <input id="apiBase" value="https://wsl-8000.moonchan.xyz" placeholder="API 地址">
+    <button onclick="applyApi()">应用</button>
+  </div>
+</div>
+
+<script>
+function applyApi() {
+  var val = document.getElementById('apiBase').value.trim();
+  localStorage.setItem('api_base', val);
+  alert('已设置 API: ' + val);
+}
+</script>
+
+</body>
+</html>

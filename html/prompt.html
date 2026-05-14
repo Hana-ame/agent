@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Manager</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #f0f6fc; padding: 20px; }
+  h1 { font-size: 1.4rem; margin-bottom: 16px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 1rem; margin-bottom: 8px; color: #58a6ff; }
+  .flex { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input, textarea, select { background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 8px 10px; color: #f0f6fc; font-size: 0.9rem; }
+  input:focus, textarea:focus { outline: none; border-color: #58a6ff; }
+  textarea { resize: vertical; min-height: 80px; font-family: inherit; width: 100%; }
+  button { background: #238636; color: #fff; border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer; font-size: 0.9rem; }
+  button:hover { background: #2ea043; }
+  button.ghost { background: transparent; border: 1px solid #30363d; color: #8b949e; }
+  button.ghost:hover { background: #21262d; color: #f0f6fc; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { border: 1px solid #30363d; padding: 6px 10px; text-align: left; }
+  th { background: #21262d; color: #8b949e; font-weight: 500; }
+  td { color: #f0f6fc; max-width: 0; }
+  .tag-badge { display: inline-block; background: #1f6feb33; color: #58a6ff; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; }
+  .msg { font-size: 0.8rem; margin-top: 6px; }
+  .msg.ok { color: #3fb950; }
+  .msg.err { color: #f85149; }
+  .toggle { background: #21262d; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 0.85rem; color: #8b949e; display: inline-flex; align-items: center; gap: 6px; user-select: none; margin-bottom:8px; }
+  .toggle:hover { background: #30363d; }
+  .toggle .arrow { transition: transform .2s; display: inline-block; }
+  .toggle.open .arrow { transform: rotate(90deg); }
+  .api-body { display: none; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom:12px; }
+  .api-body.show { display: flex; }
+  .api-body input { flex: 1; min-width: 200px; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .truncate:hover { color: #58a6ff; }
+  .pagination { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 10px; }
+  .pagination span { color: #8b949e; font-size: 0.8rem; }
+  .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
+  .modal.show { display: flex; }
+  .modal-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto; }
+  .modal-box h3 { margin-bottom: 12px; color: #f0f6fc; }
+  .modal-box pre { background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 12px; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; color: #f0f6fc; max-height: 300px; overflow-y: auto; }
+  .modal-close { float: right; cursor: pointer; color: #8b949e; font-size: 1.3rem; }
+  .modal-close:hover { color: #f0f6fc; }
+</style>
+</head>
+<body>
+
+<h1>📝 Prompt Manager</h1>
+
+<div>
+  <div class="toggle" onclick="this.classList.toggle('open');document.getElementById('apiBody').classList.toggle('show')">
+    <span class="arrow">▶</span> API Endpoint
+  </div>
+  <div class="api-body" id="apiBody">
+    <input id="apiBase" value="https://wsl-8000.moonchan.xyz" placeholder="API 地址">
+    <button onclick="applyApi()">应用</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>添加 Prompt</h2>
+  <div class="flex" style="margin-bottom:8px">
+    <input id="fTag" placeholder="tag（可选）" style="flex:0 0 150px">
+    <input id="fPrevId" type="number" placeholder="上接 id（可选）" style="flex:0 0 150px">
+  </div>
+  <textarea id="fPrompt" placeholder="输入 prompt 内容..."></textarea>
+  <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+    <button onclick="submitPrompt()">提交</button>
+    <span id="submitMsg" class="msg"></span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Prompt 列表</h2>
+  <div class="flex" style="margin-bottom:8px">
+    <input id="filterTag" placeholder="按 tag 筛选" style="flex:0 0 150px">
+    <button onclick="loadPrompts()">刷新</button>
+    <span style="font-size:0.8rem;color:#8b949e" id="countInfo"></span>
+  </div>
+  <table>
+    <thead><tr><th style="width:50px">ID</th><th style="width:60px">上接</th><th style="width:100px">Tag</th><th>Prompt</th><th style="width:120px">预留</th><th style="width:140px">时间</th></tr></thead>
+    <tbody id="promptTable"></tbody>
+  </table>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<div class="modal" id="detailModal">
+  <div class="modal-box">
+    <span class="modal-close" onclick="closeModal()">&times;</span>
+    <h3 id="modalTitle">Prompt 详情</h3>
+    <div style="margin-bottom:8px;font-size:0.85rem;color:#8b949e">
+      <span>ID: <b id="detailId" style="color:#f0f6fc"></b></span>
+      <span style="margin-left:16px">Tag: <b id="detailTag" style="color:#58a6ff"></b></span>
+      <span style="margin-left:16px">上接: <b id="detailPrev" style="color:#f0f6fc"></b></span>
+    </div>
+    <pre id="detailContent"></pre>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button onclick="forkFromDetail()">以此为基础新建</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var BASE = localStorage.getItem('api_base') || 'https://wsl-8000.moonchan.xyz';
+var currentTag = '';
+var cursorNext = null;
+var cursorPrev = null;
+
+function applyApi() {
+  BASE = document.getElementById('apiBase').value.trim();
+  localStorage.setItem('api_base', BASE);
+}
+
+function api(path, opts) {
+  opts = opts || {};
+  var url = (BASE + '/api' + path).replace(/([^:]\/)\/+/g, '$1/');
+  return fetch(url, opts).then(function(r) {
+    if (!r.ok) throw Error(r.statusText);
+    return r.json();
+  });
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Submit ────────────────────────────────────────
+
+function submitPrompt() {
+  var tag = document.getElementById('fTag').value.trim();
+  var prevId = document.getElementById('fPrevId').value.trim();
+  var prompt = document.getElementById('fPrompt').value.trim();
+  var msg = document.getElementById('submitMsg');
+  if (!prompt) { msg.className = 'msg err'; msg.textContent = 'prompt 不能为空'; return; }
+  var body = { tag: tag, prompt: prompt };
+  if (prevId) body.prev_id = parseInt(prevId, 10);
+  api('/prompts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }).then(function() {
+    msg.className = 'msg ok'; msg.textContent = '✅ 已添加';
+    document.getElementById('fPrompt').value = '';
+    loadPrompts();
+  }).catch(function(e) {
+    msg.className = 'msg err'; msg.textContent = '❌ ' + e.message;
+  });
+}
+
+// ── List with cursor pagination ──────────────────
+
+function loadPrompts(dir) {
+  var tag = document.getElementById('filterTag').value.trim();
+  var url = '/prompts?limit=20';
+  if (tag) url += '&tag=' + encodeURIComponent(tag);
+  if (dir === 'older') url += '&id_lt=' + cursorPrev;
+  if (dir === 'newer') url += '&id_gt=' + cursorNext;
+
+  api(url).then(function(res) {
+    var tbody = document.getElementById('promptTable');
+    tbody.innerHTML = '';
+    res.items.forEach(function(r) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + r.id + '</td>' +
+        '<td>' + (r.prev_id || '-') + '</td>' +
+        '<td><span class="tag-badge">' + esc(r.tag || '-') + '</span></td>' +
+        '<td class="truncate" style="max-width:400px" title="点击查看详情" onclick="showDetail(' + r.id + ')">' + esc(r.prompt) + '</td>' +
+        '<td style="font-size:0.75rem;color:#8b949e;text-align:center">-</td>' +
+        '<td style="font-size:0.75rem;color:#8b949e">' + (r.created_at || '') + '</td>';
+      tbody.appendChild(tr);
+    });
+    if (res.items.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#8b949e;padding:20px">暂无数据</td></tr>';
+    }
+
+    cursorNext = res.max_id;
+    cursorPrev = res.min_id;
+
+    var pages = document.getElementById('pagination');
+    pages.innerHTML = '';
+    if (res.has_older) {
+      pages.innerHTML += '<button class="ghost" onclick="loadPrompts(\'older\')">← 更旧</button>';
+    }
+    if (res.has_newer) {
+      pages.innerHTML += '<button class="ghost" onclick="loadPrompts(\'newer\')">更新 →</button>';
+    }
+    document.getElementById('countInfo').textContent = '显示 ' + res.items.length + ' 条';
+  }).catch(function(e) {
+    document.getElementById('promptTable').innerHTML = '<tr><td colspan="6" style="color:#f85149;text-align:center">加载失败: ' + e.message + '</td></tr>';
+  });
+}
+
+// ── Detail Modal ─────────────────────────────────
+
+var detailItem = null;
+
+function showDetail(id) {
+  var url = (BASE + '/api/prompts').replace(/([^:]\/)\/+/g, '$1/');
+  // Fetch single item via filtered list
+  api('/prompts?id_gt=' + (id - 1) + '&id_lt=' + (id + 1)).then(function(res) {
+    var item = res.items.find(function(i) { return i.id === id; });
+    if (!item) return;
+    detailItem = item;
+    document.getElementById('detailId').textContent = item.id;
+    document.getElementById('detailTag').textContent = item.tag || '-';
+    document.getElementById('detailPrev').textContent = item.prev_id || '-';
+    document.getElementById('detailContent').textContent = item.prompt;
+    document.getElementById('detailModal').classList.add('show');
+  });
+}
+
+function closeModal() {
+  document.getElementById('detailModal').classList.remove('show');
+  detailItem = null;
+}
+
+function forkFromDetail() {
+  if (!detailItem) return;
+  document.getElementById('fTag').value = detailItem.tag || '';
+  document.getElementById('fPrevId').value = detailItem.id;
+  document.getElementById('fPrompt').value = detailItem.prompt + '\n\n---\n\n';
+  closeModal();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+window.onload = function() {
+  loadPrompts();
+};
+</script>
+
+</body>
+</html>
