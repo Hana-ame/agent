@@ -53,6 +53,9 @@
 | 9 | Node CRUD update | `curl -x "" -X PUT http://localhost:8000/api/nodes/1 -H "Content-Type: application/json" -d '{"name":"n2","accept_tags":"t1","output_tag":"o","model":"m2","prompt":"","interval":3}'` | `{"status":"ok"}` |
 | 10 | Node CRUD delete | `curl -x "" -X DELETE http://localhost:8000/api/nodes/1` | `{"status":"ok"}` |
 | 11 | call_opencode | `python3 -c "from app import call_opencode; r=call_opencode('hi','...'); print(r['success'])"` | `True` + usage |
+| 12 | Node Exec list | `curl -x "" "http://localhost:8000/api/execs?limit=10"` | JSON `items` 列表 |
+| 13 | Node Exec filter | `curl -x "" "http://localhost:8000/api/execs?node_name=responder"` | 仅返回该 node 记录 |
+| 14 | poll round-trip | 创建 node(accept_tags="test_in", output_tag="test_out", interval=5) → POST prompt(tag="test_in") → 5s 后 GET execs 有新记录 | 自动执行并生成 output prompt |
 - `html/prompt.html` — Prompt 管理页
 - `html/node.html` — Node 管理页（可接受多tag、输出tag、{[tag]}替换、间隔）
 - `create_db.py` — 独立数据库初始化脚本（`python create_db.py --seed`）

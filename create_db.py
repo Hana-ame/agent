@@ -109,7 +109,8 @@ def init_db():
             prev_id     INTEGER,
             tag         TEXT NOT NULL DEFAULT '',
             prompt      TEXT NOT NULL DEFAULT '',
-            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            processed   INTEGER NOT NULL DEFAULT 0
         )""")
 
         # —— Node 表 ——
@@ -122,6 +123,22 @@ def init_db():
             prompt      TEXT NOT NULL DEFAULT '',
             interval    INTEGER NOT NULL DEFAULT 5,
             created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""")
+
+        # —— Node Exec 日志表 ——
+        conn.execute("""CREATE TABLE IF NOT EXISTS node_exec (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            input_ids       TEXT NOT NULL DEFAULT '',
+            output_id       INTEGER,
+            node_name       TEXT NOT NULL,
+            model           TEXT NOT NULL DEFAULT '',
+            status          TEXT NOT NULL DEFAULT 'success',
+            error           TEXT NOT NULL DEFAULT '',
+            elapsed         REAL NOT NULL DEFAULT 0,
+            input_tokens    INTEGER NOT NULL DEFAULT 0,
+            output_tokens   INTEGER NOT NULL DEFAULT 0,
+            total_tokens    INTEGER NOT NULL DEFAULT 0,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
         )""")
 
         conn.commit()
