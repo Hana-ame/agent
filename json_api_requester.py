@@ -96,6 +96,7 @@ class JsonApiRequester:
     def __init__(
         self,
         json_file_path: str,
+        endpoint_name: Optional[str] = None,
         sse_hook: Optional[Callable[[Dict[str, Any]], None]] = None,
         request_hook: Optional[Callable[[Dict[str, Any]], None]] = None,
         response_summary_hook: Optional[Callable[[ResponseSummary], None]] = None,
@@ -104,23 +105,27 @@ class JsonApiRequester:
         【调用效果】
         加载配置文件，初始化所有 Hook，打印初始化信息
         
-        【调用上下文】
-        通常在应用启动时执行一次，创建全局或作用域内的 Requester 实例
-        
         【参数说明】
             json_file_path: API 配置文件路径
-            sse_hook: 流式响应回调，为 None 时禁用流式处理（即使请求声明 stream=True）
-            request_hook: 请求预处理回调
-            response_summary_hook: 响应完成后的摘要回调，用于 metrics 上报
-        
-        【其他内容】
-        配置文件中必须包含 "endpoint" 和 "api_key" 字段
+            endpoint_name: 指定使用哪个 endpoint 标识符，若为 None 则使用配置中的 default
+            sse_hook: 流式响应回调
+            ...
         """
         with open(json_file_path, "r", encoding="utf-8") as f:
             config = json.load(f)
-
-        self._endpoint: str = config["endpoint"]  # 必须存在，缺失则 KeyError
-        self._auth_token: str = config["api_key"]  # 必须存在
+        
+        # 支持单配置对象或多配置映射
+        if "endpoints" in config:
+            name = endpoint_name or config.get("default", "default")
+            endpoint_cfg = config["endpoints"].get(name)
+            if not endpoint_cfg:
+                raise KeyError(f"配置文件中未找到 endpoint 标识符: {name}")
+            self._endpoint = endpoint_cfg["endpoint"]
+            self._auth_token = endpoint_cfg.get("api_key", "")
+        else:
+            # 向后兼容单配置格式
+            self._endpoint = config["endpoint"]
+            self._auth_token = config["api_key"]
         
         # Hook 绑定：实例生命周期内固定，确保行为一致性
         self._sse_hook: Optional[Callable[[Dict[str, Any]], None]] = sse_hook
