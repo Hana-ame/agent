@@ -37,4 +37,5 @@
 | 5 | pagination older | `curl -x "" "http://localhost:8000/api/prompts?id_lt=8&limit=3"` | 按 id < 查询 |
 | 6 | pagination newer | `curl -x "" "http://localhost:8000/api/prompts?id_gt=5&limit=3"` | 按 id > 查询 |
 - `html/prompt.html` — Prompt 管理页
+- `create_db.py` — 独立数据库初始化脚本（`python create_db.py --seed`）
 
