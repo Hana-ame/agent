@@ -112,6 +112,18 @@ def init_db():
             created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
         )""")
 
+        # —— Node 表 ——
+        conn.execute("""CREATE TABLE IF NOT EXISTS node (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            accept_tags TEXT NOT NULL DEFAULT '',
+            output_tag  TEXT NOT NULL DEFAULT '',
+            model       TEXT NOT NULL DEFAULT '',
+            prompt      TEXT NOT NULL DEFAULT '',
+            interval    INTEGER NOT NULL DEFAULT 5,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""")
+
         conn.commit()
         print(f"[create_db] 数据库已初始化: {os.path.abspath(DB_PATH)}")
     finally:

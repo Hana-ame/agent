@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Node Manager</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #f0f6fc; padding: 20px; }
+  h1 { font-size: 1.4rem; margin-bottom: 16px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 1rem; margin-bottom: 8px; color: #58a6ff; }
+  .flex { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+  input, textarea, select { background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 8px 10px; color: #f0f6fc; font-size: 0.9rem; }
+  input:focus, textarea:focus { outline: none; border-color: #58a6ff; }
+  textarea { resize: vertical; min-height: 60px; font-family: inherit; width: 100%; }
+  button { background: #238636; color: #fff; border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer; font-size: 0.9rem; }
+  button:hover { background: #2ea043; }
+  button.ghost { background: transparent; border: 1px solid #30363d; color: #8b949e; }
+  button.ghost:hover { background: #21262d; color: #f0f6fc; }
+  button.danger { background: #da3633; }
+  button.danger:hover { background: #f85149; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { border: 1px solid #30363d; padding: 8px 10px; text-align: left; }
+  th { background: #21262d; color: #8b949e; font-weight: 500; }
+  td { color: #f0f6fc; }
+  .tag-badge { display: inline-block; background: #1f6feb33; color: #58a6ff; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin:1px; }
+  .msg { font-size: 0.8rem; margin-top: 6px; }
+  .msg.ok { color: #3fb950; }
+  .msg.err { color: #f85149; }
+  .toggle { background: #21262d; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 0.85rem; color: #8b949e; display: inline-flex; align-items: center; gap: 6px; user-select: none; margin-bottom:8px; }
+  .toggle:hover { background: #30363d; }
+  .toggle .arrow { transition: transform .2s; display: inline-block; }
+  .toggle.open .arrow { transform: rotate(90deg); }
+  .api-body { display: none; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom:12px; }
+  .api-body.show { display: flex; }
+  .api-body input { flex: 1; min-width: 200px; }
+  .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
+  .modal.show { display: flex; }
+  .modal-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
+  .modal-box h3 { margin-bottom: 12px; color: #f0f6fc; }
+  .modal-close { float: right; cursor: pointer; color: #8b949e; font-size: 1.3rem; }
+  .modal-close:hover { color: #f0f6fc; }
+</style>
+</head>
+<body>
+
+<h1>⚙️ Node Manager</h1>
+
+<div>
+  <div class="toggle" onclick="this.classList.toggle('open');document.getElementById('apiBody').classList.toggle('show')">
+    <span class="arrow">▶</span> API Endpoint
+  </div>
+  <div class="api-body" id="apiBody">
+    <input id="apiBase" value="https://wsl-8000.moonchan.xyz" placeholder="API 地址">
+    <button onclick="applyApi()">应用</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>添加 / 编辑 Node</h2>
+  <div class="flex" style="margin-bottom:8px">
+    <input id="fName" placeholder="节点名称" style="flex:1">
+    <input id="fModel" placeholder="模型 (如 opencode/deepseek...)" style="flex:1">
+    <input id="fOutput" placeholder="输出 tag" style="flex:0 0 120px">
+    <input id="fInterval" type="number" value="5" min="1" style="flex:0 0 70px">
+    <span style="font-size:0.8rem;color:#8b949e">秒</span>
+  </div>
+  <div class="flex" style="margin-bottom:8px">
+    <input id="fAcceptTags" placeholder="接受 tag（逗号分隔, 如 user_input, config）" style="flex:1">
+  </div>
+  <label style="display:block;font-size:0.8rem;color:#8b949e;margin-bottom:4px">
+    Prompt 模板：用 <code>{tag_name}</code> 引用 tag 的值作为变量替换
+  </label>
+  <textarea id="fPrompt" placeholder="例如：用户说：{user_input}，请回复。"></textarea>
+  <input type="hidden" id="fEditId" value="">
+  <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+    <button onclick="saveNode()">保存</button>
+    <button class="ghost" onclick="resetForm()">重置</button>
+    <span id="submitMsg" class="msg"></span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Node 列表</h2>
+  <table>
+    <thead><tr><th style="width:40px">ID</th><th>名称</th><th>模型</th><th>接受 Tag</th><th>输出</th><th>间隔</th><th>Prompt</th><th style="width:100px">操作</th></tr></thead>
+    <tbody id="nodeTable"></tbody>
+  </table>
+</div>
+
+<div class="modal" id="deleteModal">
+  <div class="modal-box">
+    <span class="modal-close" onclick="closeDelModal()">&times;</span>
+    <h3>确认删除</h3>
+    <p style="margin-bottom:12px;color:#8b949e">确定删除节点 "<span id="delName"></span>"？</p>
+    <button class="danger" onclick="confirmDelete()">删除</button>
+    <button class="ghost" onclick="closeDelModal()">取消</button>
+  </div>
+</div>
+
+<div class="modal" id="detailModal">
+  <div class="modal-box">
+    <span class="modal-close" onclick="document.getElementById('detailModal').classList.remove('show')">&times;</span>
+    <h3 id="detailTitle">Node 详情</h3>
+    <div style="margin-bottom:8px;font-size:0.85rem;color:#8b949e">
+      <span>ID: <b id="detailId" style="color:#f0f6fc"></b></span>
+      <span style="margin-left:16px">模型: <b id="detailModel" style="color:#d2a8ff"></b></span>
+      <span style="margin-left:16px">接受: <b id="detailAccept" style="color:#58a6ff"></b></span>
+      <span style="margin-left:16px">输出: <b id="detailOutput" style="color:#3fb950"></b></span>
+      <span style="margin-left:16px">间隔: <b id="detailInterval" style="color:#f0f6fc"></b>s</span>
+    </div>
+    <label style="font-size:0.8rem;color:#8b949e;margin-bottom:4px;display:block">Prompt 模板：</label>
+    <pre id="detailPrompt" style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:12px;white-space:pre-wrap;word-break:break-word;font-size:0.85rem;color:#f0f6fc;max-height:300px;overflow-y:auto"></pre>
+  </div>
+</div>
+
+<script>
+var BASE = localStorage.getItem('api_base') || 'https://wsl-8000.moonchan.xyz';
+var deleteTarget = null;
+
+function applyApi() {
+  BASE = document.getElementById('apiBase').value.trim();
+  localStorage.setItem('api_base', BASE);
+}
+
+function api(path, opts) {
+  opts = opts || {};
+  var url = (BASE + '/api' + path).replace(/([^:]\/)\/+/g, '$1/');
+  return fetch(url, opts).then(function(r) {
+    if (!r.ok) throw Error(r.statusText);
+    return r.json();
+  });
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function resetForm() {
+  document.getElementById('fEditId').value = '';
+  document.getElementById('fName').value = '';
+  document.getElementById('fModel').value = '';
+  document.getElementById('fAcceptTags').value = '';
+  document.getElementById('fOutput').value = '';
+  document.getElementById('fPrompt').value = '';
+  document.getElementById('fInterval').value = '5';
+  document.getElementById('submitMsg').textContent = '';
+}
+
+// ── Save ────────────────────────────────────────
+
+function saveNode() {
+  var id = document.getElementById('fEditId').value;
+  var name = document.getElementById('fName').value.trim();
+  var acceptTags = document.getElementById('fAcceptTags').value.trim();
+  var outputTag = document.getElementById('fOutput').value.trim();
+  var prompt = document.getElementById('fPrompt').value.trim();
+  var interval = parseInt(document.getElementById('fInterval').value, 10) || 5;
+  var msg = document.getElementById('submitMsg');
+
+  var model = document.getElementById('fModel').value.trim();
+  if (!name) { msg.className = 'msg err'; msg.textContent = '名称不能为空'; return; }
+
+  var body = { name: name, model: model, accept_tags: acceptTags, output_tag: outputTag, prompt: prompt, interval: interval };
+  var method = id ? 'PUT' : 'POST';
+  var url = id ? '/nodes/' + id : '/nodes';
+
+  api(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function() {
+      msg.className = 'msg ok'; msg.textContent = '✅ 已保存';
+      resetForm();
+      loadNodes();
+    })
+    .catch(function(e) {
+      msg.className = 'msg err'; msg.textContent = '❌ ' + e.message;
+    });
+}
+
+// ── List ────────────────────────────────────────
+
+function loadNodes() {
+  api('/nodes').then(function(rows) {
+    var tbody = document.getElementById('nodeTable');
+    tbody.innerHTML = '';
+    rows.forEach(function(r) {
+      var tags = r.accept_tags ? r.accept_tags.split(',').filter(Boolean).map(function(t) {
+        return '<span class="tag-badge">' + esc(t.trim()) + '</span>';
+      }).join('') : '-';
+      var promptPreview = r.prompt.length > 40 ? esc(r.prompt.slice(0, 40)) + '…' : esc(r.prompt);
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + r.id + '</td>' +
+        '<td style="font-weight:600">' + esc(r.name) + '</td>' +
+        '<td style="font-size:0.75rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.model || '-') + '</td>' +
+        '<td>' + tags + '</td>' +
+        '<td><span class="tag-badge">' + esc(r.output_tag || '-') + '</span></td>' +
+        '<td>' + r.interval + 's</td>' +
+        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="showNodeDetail(' + r.id + ')" title="点击查看完整内容">' + promptPreview + '</td>' +
+        '<td><button class="ghost" onclick="editNode(' + r.id + ')">编辑</button> ' +
+        '<button class="danger" onclick="askDelete(' + r.id + ',\'' + esc(r.name) + '\')">删除</button></td>';
+      tbody.appendChild(tr);
+    });
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#8b949e;padding:20px">暂无节点</td></tr>';
+    }
+  }).catch(function(e) {
+    document.getElementById('nodeTable').innerHTML = '<tr><td colspan="7" style="color:#f85149;text-align:center">加载失败: ' + e.message + '</td></tr>';
+  });
+}
+
+// ── Edit / Delete ───────────────────────────────
+
+function editNode(id) {
+  api('/nodes/' + id).then(function(r) {
+    document.getElementById('fEditId').value = r.id;
+    document.getElementById('fName').value = r.name;
+    document.getElementById('fModel').value = r.model || '';
+    document.getElementById('fAcceptTags').value = r.accept_tags;
+    document.getElementById('fOutput').value = r.output_tag;
+    document.getElementById('fPrompt').value = r.prompt;
+    document.getElementById('fInterval').value = r.interval;
+    document.getElementById('submitMsg').textContent = '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
+
+function askDelete(id, name) {
+  deleteTarget = id;
+  document.getElementById('delName').textContent = name;
+  document.getElementById('deleteModal').classList.add('show');
+}
+
+function showNodeDetail(id) {
+  api('/nodes/' + id).then(function(r) {
+    document.getElementById('detailTitle').textContent = 'Node: ' + esc(r.name);
+    document.getElementById('detailId').textContent = r.id;
+    document.getElementById('detailModel').textContent = r.model || '-';
+    document.getElementById('detailAccept').innerHTML = r.accept_tags ? r.accept_tags.split(',').map(function(t) {
+      return '<span class="tag-badge">' + esc(t.trim()) + '</span>';
+    }).join(' ') : '-';
+    document.getElementById('detailOutput').textContent = r.output_tag || '-';
+    document.getElementById('detailInterval').textContent = r.interval;
+    document.getElementById('detailPrompt').textContent = r.prompt || '(空)';
+    document.getElementById('detailModal').classList.add('show');
+  });
+}
+
+function closeDelModal() {
+  deleteTarget = null;
+  document.getElementById('deleteModal').classList.remove('show');
+}
+
+function confirmDelete() {
+  if (deleteTarget === null) return;
+  api('/nodes/' + deleteTarget, { method: 'DELETE' }).then(function() {
+    closeDelModal();
+    loadNodes();
+  }).catch(function(e) { alert('删除失败: ' + e.message); });
+}
+
+window.onload = loadNodes;
+</script>
+
+</body>
+</html>
