@@ -188,7 +188,10 @@ function closeModal() {
   document.getElementById('detailModal').classList.remove('show');
 }
 
-window.onload = function() { loadExecs(); };
+window.onload = function() {
+  loadExecs();
+  setInterval(loadExecs, 5000);
+};
 </script>
 
 </body>

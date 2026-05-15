@@ -268,7 +268,10 @@ function confirmDelete() {
   }).catch(function(e) { alert('删除失败: ' + e.message); });
 }
 
-window.onload = loadNodes;
+window.onload = function() {
+  loadNodes();
+  setInterval(loadNodes, 5000);
+};
 </script>
 
 </body>
