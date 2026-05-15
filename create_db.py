@@ -1,17 +1,16 @@
 """
 数据库初始化脚本
 
-独立于 FastAPI 运行，可直接执行初始化数据库。
+独立于 FastAPI 运行。
 用法：
-    python create_db.py              # 创建/重置 state.db
-    python create_db.py --seed        # 创建并写入默认节点
+    python create_db.py              # 初始化 state.db
+    python create_db.py --seed        # 初始化并写入默认节点（7 个免费模型）
     python create_db.py --path /tmp/test.db  # 指定路径
 """
 import os
 import sys
 import sqlite3
 
-# ── 配置 ───────────────────────────────────────────
 DB_PATH = "state.db"
 SEED_DEFAULTS = False
 for i, arg in enumerate(sys.argv[1:]):
@@ -26,84 +25,11 @@ def get_conn():
 
 
 def init_db():
-    """创建所有表结构"""
+    """创建当前系统的表结构"""
     conn = get_conn()
     try:
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
 
-        # —— 节点表 ——
-        conn.execute("""CREATE TABLE IF NOT EXISTS nodes (
-            id          TEXT PRIMARY KEY,
-            model       TEXT NOT NULL DEFAULT '',
-            prompt      TEXT NOT NULL DEFAULT '',
-            input_tags  TEXT NOT NULL DEFAULT '',
-            output_tags TEXT NOT NULL DEFAULT '',
-            active      INTEGER NOT NULL DEFAULT 1,
-            context_mode INTEGER NOT NULL DEFAULT 0,
-            interval    INTEGER NOT NULL DEFAULT 0
-        )""")
-
-        # —— 消息/KV 表 ——
-        conn.execute("""CREATE TABLE IF NOT EXISTS kv (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            tag         TEXT NOT NULL,
-            value       TEXT NOT NULL DEFAULT '',
-            parent_id   INTEGER,
-            trace_id    TEXT,
-            processed   INTEGER NOT NULL DEFAULT 0,
-            next_hop    TEXT,
-            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-        )""")
-
-        # —— 追踪节点记录 ——
-        conn.execute("""CREATE TABLE IF NOT EXISTS trace_node (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            trace_id    TEXT NOT NULL,
-            node_id     TEXT NOT NULL,
-            status      TEXT NOT NULL,
-            input_tags  TEXT,
-            output_tags TEXT,
-            elapsed     REAL,
-            total_tokens INTEGER DEFAULT 0,
-            timestamp   DATETIME DEFAULT CURRENT_TIMESTAMP
-        )""")
-
-        # —— 执行日志 ——
-        conn.execute("""CREATE TABLE IF NOT EXISTS node_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            node_id     TEXT NOT NULL,
-            model       TEXT,
-            status      TEXT NOT NULL,
-            input_tags  TEXT,
-            output_tags TEXT,
-            elapsed     REAL,
-            input_tokens  INTEGER DEFAULT 0,
-            output_tokens INTEGER DEFAULT 0,
-            total_tokens  INTEGER DEFAULT 0,
-            cost        REAL DEFAULT 0,
-            timestamp   DATETIME DEFAULT CURRENT_TIMESTAMP
-        )""")
-
-        # —— 游标表（旧系统遗留）——
-        conn.execute("""CREATE TABLE IF NOT EXISTS node_cursor (
-            node_id     TEXT NOT NULL,
-            tag         TEXT NOT NULL,
-            last_kv_id  INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (node_id, tag)
-        )""")
-
-        # —— Trace 评价表 ——
-        conn.execute("""CREATE TABLE IF NOT EXISTS trace_eval (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            trace_id    TEXT NOT NULL,
-            node_id     TEXT NOT NULL,
-            score       REAL NOT NULL DEFAULT 0,
-            comment     TEXT,
-            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-        )""")
-
-        # —— Prompt 表 ——
         conn.execute("""CREATE TABLE IF NOT EXISTS prompt (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             prev_id     INTEGER,
@@ -113,7 +39,6 @@ def init_db():
             processed   INTEGER NOT NULL DEFAULT 0
         )""")
 
-        # —— Node 表 ——
         conn.execute("""CREATE TABLE IF NOT EXISTS node (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             name        TEXT NOT NULL,
@@ -125,7 +50,6 @@ def init_db():
             created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
         )""")
 
-        # —— Node Exec 日志表 ——
         conn.execute("""CREATE TABLE IF NOT EXISTS node_exec (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             input_ids       TEXT NOT NULL DEFAULT '',
@@ -141,6 +65,16 @@ def init_db():
             created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
         )""")
 
+        # 兼容旧表添加列
+        for col, tbl in [("model", "node"), ("processed", "prompt")]:
+            try:
+                conn.execute(
+                    f"ALTER TABLE {tbl} ADD COLUMN {col} "
+                    f"{'INTEGER NOT NULL DEFAULT 0' if col == 'processed' else 'TEXT NOT NULL DEFAULT \"\"' }"
+                )
+            except Exception:
+                pass
+
         conn.commit()
         print(f"[create_db] 数据库已初始化: {os.path.abspath(DB_PATH)}")
     finally:
@@ -148,34 +82,41 @@ def init_db():
 
 
 def seed_defaults():
-    """写入默认节点"""
+    """写入默认节点（7 个免费模型）"""
     conn = get_conn()
     try:
-        existing = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+        existing = conn.execute("SELECT COUNT(*) FROM node").fetchone()[0]
         if existing > 0:
-            print("[create_db] nodes 表已有数据，跳过默认节点")
+            print("[create_db] node 表已有数据，跳过默认节点")
             return
 
         defaults = [
-            ("analyzer", "opencode/deepseek-v4-flash-free",
-             "分析以下用户输入的核心要点和需求：\n\n{user_input}\n\n请用中文回复。",
-             "user_input", "analysis", 1),
-            ("responder", "opencode/minimax-m2.5-free",
-             "基于以下分析结果，生成一段友好、完整的回复：\n\n{analysis}",
-             "analysis", "reply", 1),
+            ("analyzer",   "user_input",   "analysis",       "opencode/deepseek-v4-flash-free",
+             "分析以下用户输入的核心要点和需求：\n\n{user_input}\n\n请用中文回复。", 5),
+            ("responder",  "analysis",     "reply",          "opencode/minimax-m2.5-free",
+             "基于以下分析结果，生成一段友好、完整的回复：\n\n{analysis}", 5),
+            ("translator", "text,lang",    "translated",     "opencode/qwen3.6-plus-free",
+             "翻译。目标语言：{lang}\n\n原文：\n{text}", 10),
+            ("summarizer", "long_text",    "summary",        "google/gemma-4-31b-it",
+             "用简洁的语言总结以下内容，提取关键信息：\n\n{long_text}", 5),
+            ("coder",      "coding_task",  "code",           "opencode/big-pickle",
+             "你是编程助手。请完成以下任务，输出代码：\n\n{coding_task}", 10),
+            ("creative",   "creative_prompt", "creative_output", "siliconflow-cn/Qwen/Qwen3-8B",
+             "你是一位创意作家。请根据以下提示进行创作：\n\n{creative_prompt}", 10),
+            ("general",    "general_input","general_output", "opencode/nemotron-3-super-free",
+             "{general_input}", 5),
         ]
-        for n in defaults:
+        for name, accept, out, model, prompt, interval in defaults:
             conn.execute(
-                "INSERT INTO nodes (id, model, prompt, input_tags, output_tags, active) "
-                "VALUES (?, ?, ?, ?, ?, ?)", n
+                "INSERT INTO node (name, accept_tags, output_tag, model, prompt, interval) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (name, accept, out, model, prompt, interval),
             )
         conn.commit()
         print(f"[create_db] 已写入 {len(defaults)} 个默认节点")
     finally:
         conn.close()
 
-
-# ── 主入口 ─────────────────────────────────────────
 
 if __name__ == "__main__":
     init_db()
