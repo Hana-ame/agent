@@ -61,7 +61,16 @@
   <h2>添加 / 编辑 Node</h2>
   <div class="flex" style="margin-bottom:8px">
     <input id="fName" placeholder="节点名称" style="flex:1">
-    <input id="fModel" placeholder="模型 (如 opencode/deepseek...)" style="flex:1">
+    <input id="fModel" list="modelList" placeholder="模型 (可选，自由填写)" style="flex:1">
+    <datalist id="modelList">
+      <option value="opencode/big-pickle">
+      <option value="opencode/deepseek-v4-flash-free">
+      <option value="opencode/minimax-m2.5-free">
+      <option value="opencode/nemotron-3-super-free">
+      <option value="opencode/qwen3.6-plus-free">
+      <option value="google/gemma-4-31b-it">
+      <option value="siliconflow-cn/Qwen/Qwen3-8B">
+    </datalist>
     <input id="fOutput" placeholder="输出 tag" style="flex:0 0 120px">
     <input id="fInterval" type="number" value="5" min="1" style="flex:0 0 70px">
     <span style="font-size:0.8rem;color:#8b949e">秒</span>
