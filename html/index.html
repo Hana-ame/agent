@@ -7,36 +7,62 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #f0f6fc; padding: 20px; min-height: 100vh; }
-  .api-config { margin-bottom: 16px; }
-  .api-toggle { background: #21262d; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 0.85rem; color: #8b949e; display: inline-flex; align-items: center; gap: 6px; user-select: none; }
-  .api-toggle:hover { background: #30363d; }
-  .api-toggle .arrow { transition: transform .2s; display: inline-block; }
-  .api-toggle.open .arrow { transform: rotate(90deg); }
-  .api-body { display: none; margin-top: 8px; padding: 12px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; }
-  .api-body.show { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .subtitle { color: #8b949e; font-size: 0.85rem; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; cursor: pointer; transition: border-color .2s, background .2s; text-decoration: none; color: inherit; display: block; }
+  .card:hover { border-color: #58a6ff; background: #1a2230; }
+  .card .icon { font-size: 1.6rem; margin-bottom: 8px; }
+  .card h2 { font-size: 1rem; margin-bottom: 6px; color: #f0f6fc; }
+  .card p { font-size: 0.8rem; color: #8b949e; line-height: 1.5; }
+  .toggle { background: #21262d; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 0.85rem; color: #8b949e; display: inline-flex; align-items: center; gap: 6px; user-select: none; margin-bottom: 16px; }
+  .toggle:hover { background: #30363d; }
+  .toggle .arrow { transition: transform .2s; display: inline-block; }
+  .toggle.open .arrow { transform: rotate(90deg); }
+  .api-body { display: none; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .api-body.show { display: flex; }
   .api-body input { flex: 1; min-width: 200px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 6px 10px; color: #f0f6fc; font-size: 0.85rem; }
   .api-body input:focus { outline: none; border-color: #58a6ff; }
   .api-body button { background: #238636; color: #fff; border: none; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 0.85rem; }
   .api-body button:hover { background: #2ea043; }
-  h1 { font-size: 1.5rem; margin-bottom: 4px; }
-  .subtitle { color: #8b949e; font-size: 0.85rem; margin-bottom: 20px; }
-  .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 16px; margin-bottom: 12px; }
-  .card h2 { font-size: 1rem; margin-bottom: 8px; color: #f0f6fc; }
 </style>
 </head>
 <body>
 
 <h1>Node Worker</h1>
-<p class="subtitle">编辑节点 → 提交数据 → 自动执行 → 查看日志</p>
+<p class="subtitle">投喂数据 → 节点自动消费 → 输出结果 → 查看日志</p>
 
-<div class="api-config">
-  <div class="api-toggle" onclick="this.classList.toggle('open'); document.getElementById('apiBody').classList.toggle('show')">
+<div>
+  <div class="toggle" onclick="this.classList.toggle('open');document.getElementById('apiBody').classList.toggle('show')">
     <span class="arrow">▶</span> API Endpoint 设置
   </div>
   <div class="api-body" id="apiBody">
     <input id="apiBase" value="https://wsl-8000.moonchan.xyz" placeholder="API 地址">
     <button onclick="applyApi()">应用</button>
   </div>
+</div>
+
+<div class="grid">
+  <a href="prompt.html" class="card">
+    <div class="icon">📝</div>
+    <h2>Prompt 管理</h2>
+    <p>提交数据，打上 tag。支持 tag 筛选、游标分页，fork 已有 prompt 继续编写。</p>
+  </a>
+  <a href="node.html" class="card">
+    <div class="icon">⚙️</div>
+    <h2>Node 配置</h2>
+    <p>创建处理节点：设定输入 tag、输出 tag、模型、prompt 模板和轮询间隔。</p>
+  </a>
+  <a href="exec.html" class="card">
+    <div class="icon">📋</div>
+    <h2>执行日志</h2>
+    <p>查看每次 AI 调用的记录：节点名、输入输出 ID、耗时、token 用量、成功/失败。</p>
+  </a>
+  <a href="ping.html" class="card">
+    <div class="icon">🔌</div>
+    <h2>连接测试</h2>
+    <p>测试 API 服务器是否在线，确认网络连通性。</p>
+  </a>
 </div>
 
 <script>
