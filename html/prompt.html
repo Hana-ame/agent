@@ -81,7 +81,7 @@
     <span style="font-size:0.8rem;color:#8b949e" id="countInfo"></span>
   </div>
   <table>
-    <thead><tr><th style="width:50px">ID</th><th style="width:60px">上接</th><th style="width:100px">Tag</th><th>Prompt</th></tr></thead>
+    <thead><tr><th style="width:50px">ID</th><th style="width:60px">上接</th><th style="width:100px">Tag</th><th>Prompt</th><th style="width:120px">预留</th><th style="width:140px">时间</th></tr></thead>
     <tbody id="promptTable"></tbody>
   </table>
   <div class="pagination" id="pagination"></div>
@@ -166,11 +166,13 @@ function loadPrompts(dir) {
       tr.innerHTML = '<td>' + r.id + '</td>' +
         '<td>' + (r.prev_id || '-') + '</td>' +
         '<td><span class="tag-badge">' + esc(r.tag || '-') + '</span></td>' +
-        '<td class="truncate" style="max-width:400px" title="点击查看详情" onclick="showDetail(' + r.id + ')">' + esc(r.prompt) + '</td>';
+        '<td class="truncate" style="max-width:400px" title="点击查看详情" onclick="showDetail(' + r.id + ')">' + esc(r.prompt) + '</td>' +
+        '<td style="font-size:0.75rem;color:#8b949e;text-align:center">-</td>' +
+        '<td style="font-size:0.75rem;color:#8b949e">' + (r.created_at || '') + '</td>';
       tbody.appendChild(tr);
     });
     if (res.items.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#8b949e;padding:20px">暂无数据</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#8b949e;padding:20px">暂无数据</td></tr>';
     }
 
     cursorNext = res.max_id;
@@ -186,7 +188,7 @@ function loadPrompts(dir) {
     }
     document.getElementById('countInfo').textContent = '显示 ' + res.items.length + ' 条';
   }).catch(function(e) {
-    document.getElementById('promptTable').innerHTML = '<tr><td colspan="4" style="color:#f85149;text-align:center">加载失败: ' + e.message + '</td></tr>';
+    document.getElementById('promptTable').innerHTML = '<tr><td colspan="6" style="color:#f85149;text-align:center">加载失败: ' + e.message + '</td></tr>';
   });
 }
 

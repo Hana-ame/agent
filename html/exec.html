@@ -62,7 +62,7 @@
     <span style="font-size:0.8rem;color:#8b949e" id="countInfo"></span>
   </div>
   <table>
-    <thead><tr><th style="width:50px">ID</th><th>节点</th><th>模型</th><th>输入</th><th>输出ID</th><th style="width:60px">状态</th><th>耗时</th><th>Tokens</th><th style="width:50px"></th></tr></thead>
+    <thead><tr><th style="width:50px">ID</th><th>节点</th><th>模型</th><th>输入</th><th>输出ID</th><th style="width:60px">状态</th><th>耗时</th><th>Tokens</th><th style="width:140px">时间</th><th style="width:50px"></th></tr></thead>
     <tbody id="execTable"></tbody>
   </table>
   <div class="pagination" id="pagination"></div>
@@ -136,11 +136,12 @@ function loadExecs(dir) {
         '<td class="' + statusClass + '">' + statusText + '</td>' +
         '<td>' + (r.elapsed != null ? r.elapsed.toFixed(1) + 's' : '-') + '</td>' +
         '<td style="font-size:0.75rem">' + r.input_tokens + '/' + r.output_tokens + '/' + r.total_tokens + '</td>' +
+        '<td style="font-size:0.75rem;color:#8b949e">' + (r.created_at || '') + '</td>' +
         '<td><button class="ghost" onclick="showDetail(' + r.id + ')">详情</button></td>';
       tbody.appendChild(tr);
     });
     if (res.items.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#8b949e;padding:20px">暂无执行记录</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8b949e;padding:20px">暂无执行记录</td></tr>';
     }
 
     if (res.items.length > 0) {
@@ -155,7 +156,7 @@ function loadExecs(dir) {
     }
     document.getElementById('countInfo').textContent = '显示 ' + res.items.length + ' 条';
   }).catch(function(e) {
-    document.getElementById('execTable').innerHTML = '<tr><td colspan="9" style="color:#f85149;text-align:center">加载失败: ' + e.message + '</td></tr>';
+    document.getElementById('execTable').innerHTML = '<tr><td colspan="10" style="color:#f85149;text-align:center">加载失败: ' + e.message + '</td></tr>';
   });
 }
 
