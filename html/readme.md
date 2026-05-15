@@ -15,3 +15,7 @@
 | prompt.html | https://upload.moonchan.xyz/api/01LLWEUU7NLCRZ7XR7KBEK7PTA4PO6DHEN/prompt.html |
 | exec.html | https://upload.moonchan.xyz/api/01LLWEUUZJGJEO24ENGRFJPIA7NLLCZZO2/exec.html |
 | index.html | https://upload.moonchan.xyz/api/01LLWEUU47K2I7A6A4V5EYTJW5CWBUUNVF/index.html |
+| prompt.html | https://upload.moonchan.xyz/api/01LLWEUUY4PDZ7S7MH75FJOYHYQMSA7UMP/prompt.html |
+| node.html | https://upload.moonchan.xyz/api/01LLWEUU3VJQAB6MQV2REJBWK5TDBXG6CF/node.html |
+| exec.html | https://upload.moonchan.xyz/api/01LLWEUU6O7MYZNRTZ2FEJKK44M6SZ3UIR/exec.html |
+| index.html | https://upload.moonchan.xyz/api/01LLWEUUZO6VV74YG4CJHISWH4QY7SBTNW/index.html |
