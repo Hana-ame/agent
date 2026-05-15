@@ -19,9 +19,23 @@
 - `output_tag` 为单个输出 tag
 
 ## 文件结构
-- `html/index.html` — 前端页面（含可折叠 API 输入框，默认地址 https://wsl-8000.moonchan.xyz）
-- `html/ping.html` — 连接测试页，调用 `/ping` 端点
+- `app.py` — FastAPI 后端（纯 CRUD + API，不含轮询逻辑）
+- `runner.py` — 独立的 Node 轮询引擎，仅通过 `state.db` 与 FastAPI 通信
+- `html/index.html` — 导航入口
+- `html/prompt.html` — Prompt 管理页
+- `html/node.html` — Node 配置页
+- `html/exec.html` — 执行日志页
+- `html/ping.html` — 连接测试页
 - `html/readme.md` — 上传记录
+
+## 启动方式
+```bash
+# 1. 启动 API
+nohup uvicorn app:app --host 0.0.0.0 --port 8000 &
+
+# 2. 启动轮询引擎
+nohup python3 runner.py &
+```
 
 ## 注意事项
 - `ping.html` 报 `failed to fetch`：确保 FastAPI 正在运行，且 `app.py` 需包含 CORS 中间件（`allow_origins=["*"]`）
@@ -52,7 +66,7 @@
 | 8 | Node CRUD list | `curl -x "" http://localhost:8000/api/nodes` | JSON 列表含 model |
 | 9 | Node CRUD update | `curl -x "" -X PUT http://localhost:8000/api/nodes/1 -H "Content-Type: application/json" -d '{"name":"n2","accept_tags":"t1","output_tag":"o","model":"m2","prompt":"","interval":3}'` | `{"status":"ok"}` |
 | 10 | Node CRUD delete | `curl -x "" -X DELETE http://localhost:8000/api/nodes/1` | `{"status":"ok"}` |
-| 11 | call_opencode | `python3 -c "from app import call_opencode; r=call_opencode('hi','...'); print(r['success'])"` | `True` + usage |
+| 11 | call_opencode | `python3 -c "from runner import call_opencode; r=call_opencode('hi','...'); print(r['success'])"` | `True` + usage |
 | 12 | Node Exec list | `curl -x "" "http://localhost:8000/api/execs?limit=10"` | JSON `items` 列表 |
 | 13 | Node Exec filter | `curl -x "" "http://localhost:8000/api/execs?node_name=responder"` | 仅返回该 node 记录 |
 | 14 | poll round-trip | 创建 node(accept_tags="test_in", output_tag="test_out", interval=5) → POST prompt(tag="test_in") → 5s 后 GET execs 有新记录 | 自动执行并生成 output prompt |
