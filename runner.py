@@ -74,6 +74,24 @@ def call_opencode(prompt: str, model: str = None) -> dict:
     }
 
 
+# processed 三态: 0=待处理, -1=处理中, 1=已完成
+ST_PENDING    = 0
+ST_PROCESSING = -1
+ST_DONE       = 1
+
+
+def recover_stale_claims():
+    """启动时重置崩溃遗留的僵尸认领（processed=-1 → 0）"""
+    db = get_db()
+    try:
+        cur = db.execute("UPDATE prompt SET processed=? WHERE processed=?", (ST_PENDING, ST_PROCESSING))
+        if cur.rowcount > 0:
+            log("info", f"启动恢复: 重置 {cur.rowcount} 条僵尸认领 (processing → pending)")
+        db.commit()
+    finally:
+        db.close()
+
+
 def try_execute_node(node: dict) -> Optional[dict]:
     tags = [t.strip() for t in node["accept_tags"].split(",") if t.strip()]
     if not tags:
@@ -81,36 +99,54 @@ def try_execute_node(node: dict) -> Optional[dict]:
 
     db = get_db()
     try:
+        # 1. 查找各 tag 的未处理 prompt
         selected = {}
         selected_ids = []
         for tag in tags:
             row = db.execute(
-                "SELECT id, prompt FROM prompt WHERE tag=? AND processed=0 ORDER BY id ASC LIMIT 1",
-                (tag,),
+                "SELECT id, prompt FROM prompt WHERE tag=? AND processed=? ORDER BY id ASC LIMIT 1",
+                (tag, ST_PENDING),
             ).fetchone()
             if not row:
                 log("debug", f"  {node['name']}: 缺少 tag=\"{tag}\"，跳过")
                 return None
             selected[tag] = row[1]
-            selected_ids.append(str(row[0]))
+            selected_ids.append(int(row[0]))
             log("debug", f"  {node['name']}: tag=\"{tag}\" → prompt #{row[0]} ({row[1][:50]}...)")
 
+        # 2. 原子认领: UPDATE processed=0 → -1，通过 rowcount 防多实例竞争
+        for sid in selected_ids:
+            cur = db.execute(
+                "UPDATE prompt SET processed=? WHERE id=? AND processed=?",
+                (ST_PROCESSING, sid, ST_PENDING),
+            )
+            if cur.rowcount == 0:
+                db.rollback()
+                log("info", f"  {node['name']}: prompt #{sid} 已被其他进程认领，放弃本轮")
+                return None
+        db.commit()
+
+        log("debug", f"  {node['name']}: 已认领 {','.join(map(str,selected_ids))}")
+
+        # 3. 变量替换
         filled = node["prompt"]
         for tag, text in selected.items():
             filled = filled.replace(f"{{{tag}}}", text)
 
         model_str = node.get("model") or "default"
-        log("info", f"▶ {node['name']}  inputs={','.join(selected_ids)}  model={model_str}")
+        log("info", f"▶ {node['name']}  inputs={','.join(map(str,selected_ids))}  model={model_str}")
 
+        # 4. 调用 opencode
         t0 = time.time()
         result = call_opencode(filled, node.get("model") or None)
         elapsed = time.time() - t0
 
-        input_ids = ",".join(selected_ids)
+        # 5. 写回结果和日志，同时标记已完成
+        input_ids = ",".join(map(str, selected_ids))
         if result["success"]:
             cur = db.execute(
                 "INSERT INTO prompt (prev_id, tag, prompt) VALUES (?, ?, ?)",
-                (int(selected_ids[0]), node["output_tag"], result["output"]),
+                (selected_ids[0], node["output_tag"], result["output"]),
             )
             output_id = cur.lastrowid
             db.execute(
@@ -138,8 +174,9 @@ def try_execute_node(node: dict) -> Optional[dict]:
                 f"✗ {node['name']}  inputs={input_ids}  FAILED  "
                 f"error={result['error'][:100]}  elapsed={elapsed:.1f}s")
 
+        # 标记已完成的输入
         for sid in selected_ids:
-            db.execute("UPDATE prompt SET processed=1 WHERE id=?", (int(sid),))
+            db.execute("UPDATE prompt SET processed=? WHERE id=?", (ST_DONE, sid))
 
         db.commit()
         return {"node_name": node["name"], "status": "success" if result["success"] else "error"}
@@ -213,6 +250,7 @@ def main():
     signal.signal(signal.SIGTERM, on_signal)
 
     log("info", f"轮询引擎启动  DB={DB_PATH}  log_level={_log_level}")
+    recover_stale_claims()
     poll_loop()
     log("info", "已退出")
 
