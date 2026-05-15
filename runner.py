@@ -1,9 +1,9 @@
 """
-Node 轮询引擎 — 独立于 FastAPI 运行，仅通过 state.db 通信。
+Node 轮询引擎 — 每个 node 独立线程，各自按 interval 异步轮询。
 
 用法：
-    python3 runner.py              # 前台运行
-    python3 runner.py --log-level debug  # 详细日志
+    python3 runner.py
+    python3 runner.py --log-level debug
 """
 import sqlite3
 import os
@@ -12,18 +12,27 @@ import time
 import subprocess
 import signal
 import sys
+import threading
 from datetime import datetime
 from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.db")
 
 _running = True
-_last_checks: dict[int, float] = {}
 _log_level = "info"  # info | debug
+
+# processed 三态: 0=待处理, -1=处理中, 1=已完成
+ST_PENDING    = 0
+ST_PROCESSING = -1
+ST_DONE       = 1
+
+# 节点线程管理
+_node_threads: dict[int, threading.Thread] = {}
+_node_stops: dict[int, threading.Event] = {}
+_lock = threading.Lock()
 
 
 def log(level: str, msg: str):
-    """带时间戳和级别的日志输出"""
     if _log_level == "debug" or level != "debug":
         ts = datetime.now().strftime("%H:%M:%S")
         print(f"[{ts}][{level.upper()}] {msg}", flush=True)
@@ -74,14 +83,7 @@ def call_opencode(prompt: str, model: str = None) -> dict:
     }
 
 
-# processed 三态: 0=待处理, -1=处理中, 1=已完成
-ST_PENDING    = 0
-ST_PROCESSING = -1
-ST_DONE       = 1
-
-
 def recover_stale_claims():
-    """启动时重置崩溃遗留的僵尸认领（processed=-1 → 0）"""
     db = get_db()
     try:
         cur = db.execute("UPDATE prompt SET processed=? WHERE processed=?", (ST_PENDING, ST_PROCESSING))
@@ -99,7 +101,6 @@ def try_execute_node(node: dict) -> Optional[dict]:
 
     db = get_db()
     try:
-        # 1. 查找各 tag 的未处理 prompt
         selected = {}
         selected_ids = []
         for tag in tags:
@@ -108,13 +109,12 @@ def try_execute_node(node: dict) -> Optional[dict]:
                 (tag, ST_PENDING),
             ).fetchone()
             if not row:
-                log("debug", f"  {node['name']}: 缺少 tag=\"{tag}\"，跳过")
+                log("debug", f"  [{node['name']}] 缺少 tag=\"{tag}\"，跳过")
                 return None
             selected[tag] = row[1]
             selected_ids.append(int(row[0]))
-            log("debug", f"  {node['name']}: tag=\"{tag}\" → prompt #{row[0]} ({row[1][:50]}...)")
+            log("debug", f"  [{node['name']}] tag=\"{tag}\" → prompt #{row[0]} ({row[1][:50]}...)")
 
-        # 2. 原子认领: UPDATE processed=0 → -1，通过 rowcount 防多实例竞争
         for sid in selected_ids:
             cur = db.execute(
                 "UPDATE prompt SET processed=? WHERE id=? AND processed=?",
@@ -122,26 +122,23 @@ def try_execute_node(node: dict) -> Optional[dict]:
             )
             if cur.rowcount == 0:
                 db.rollback()
-                log("info", f"  {node['name']}: prompt #{sid} 已被其他进程认领，放弃本轮")
+                log("info", f"  [{node['name']}] prompt #{sid} 已被认领，跳过")
                 return None
         db.commit()
 
-        log("debug", f"  {node['name']}: 已认领 {','.join(map(str,selected_ids))}")
+        log("debug", f"  [{node['name']}] 已认领 {','.join(map(str,selected_ids))}")
 
-        # 3. 变量替换
         filled = node["prompt"]
         for tag, text in selected.items():
             filled = filled.replace(f"{{{tag}}}", text)
 
         model_str = node.get("model") or "default"
-        log("info", f"▶ {node['name']}  inputs={','.join(map(str,selected_ids))}  model={model_str}")
+        log("info", f"▶ [{node['name']}] inputs={','.join(map(str,selected_ids))}  model={model_str}")
 
-        # 4. 调用 opencode
         t0 = time.time()
         result = call_opencode(filled, node.get("model") or None)
         elapsed = time.time() - t0
 
-        # 5. 写回结果和日志，同时标记已完成
         input_ids = ",".join(map(str, selected_ids))
         if result["success"]:
             cur = db.execute(
@@ -158,7 +155,7 @@ def try_execute_node(node: dict) -> Optional[dict]:
                  result["usage"]["output"], result["usage"]["total"]),
             )
             log("info",
-                f"✓ {node['name']}  inputs={input_ids}  output=#{output_id}({node['output_tag']})  "
+                f"✓ [{node['name']}] inputs={input_ids}  output=#{output_id}({node['output_tag']})  "
                 f"tokens={result['usage']['total']}(in:{result['usage']['input']}/out:{result['usage']['output']})  "
                 f"elapsed={elapsed:.1f}s")
         else:
@@ -171,10 +168,9 @@ def try_execute_node(node: dict) -> Optional[dict]:
                  result["error"][:500], round(elapsed, 3)),
             )
             log("info",
-                f"✗ {node['name']}  inputs={input_ids}  FAILED  "
+                f"✗ [{node['name']}] inputs={input_ids}  FAILED  "
                 f"error={result['error'][:100]}  elapsed={elapsed:.1f}s")
 
-        # 标记已完成的输入
         for sid in selected_ids:
             db.execute("UPDATE prompt SET processed=? WHERE id=?", (ST_DONE, sid))
 
@@ -182,54 +178,81 @@ def try_execute_node(node: dict) -> Optional[dict]:
         return {"node_name": node["name"], "status": "success" if result["success"] else "error"}
     except Exception as e:
         db.rollback()
-        log("info", f"✗ {node['name']}  EXCEPTION: {e}")
+        log("info", f"✗ [{node['name']}]  EXCEPTION: {e}")
         return {"node_name": node["name"], "status": "error", "error": str(e)[:500]}
     finally:
         db.close()
 
 
-def poll_loop():
-    global _last_checks
-    tick = 0
+def _read_node(node_id: int) -> Optional[dict]:
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT id, name, accept_tags, output_tag, model, prompt, interval FROM node WHERE id=?",
+            (node_id,),
+        ).fetchone()
+    finally:
+        db.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "name": row[1], "accept_tags": row[2],
+        "output_tag": row[3], "model": row[4], "prompt": row[5],
+        "interval": row[6],
+    }
+
+
+def node_loop(node_id: int):
+    """单个 node 的独立轮询线程"""
+    stop = _node_stops[node_id]
+    log("debug", f"[node-{node_id}] 线程启动")
+
+    while _running and not stop.is_set():
+        node = _read_node(node_id)
+        if node is None:
+            log("info", f"[node-{node_id}] 节点已从 DB 删除，线程退出")
+            return
+
+        if node["accept_tags"]:
+            try_execute_node(node)
+
+        stop.wait(node["interval"])
+
+    log("debug", f"[node-{node_id}] 线程退出")
+
+
+def manager_loop():
+    """管理线程：定期同步 DB 中的 node 列表，增删工作线程"""
     while _running:
-        tick += 1
         db = get_db()
         try:
-            nodes = db.execute(
-                "SELECT id, name, accept_tags, output_tag, model, prompt, interval FROM node"
-            ).fetchall()
+            rows = db.execute("SELECT id FROM node").fetchall()
         finally:
             db.close()
 
-        log("debug", f"--- tick #{tick}, {len(nodes)} nodes ---")
+        db_ids = set(r[0] for r in rows)
 
-        now = time.time()
-        executed = 0
-        skipped_wait = 0
-        skipped_tag = 0
-        for n in nodes:
-            if not _running:
-                break
-            node_id = n[0]
-            interval = n[6]
-            if now - _last_checks.get(node_id, 0) < interval:
-                skipped_wait += 1
-                continue
-            _last_checks[node_id] = now
-            node_dict = {
-                "id": n[0], "name": n[1], "accept_tags": n[2],
-                "output_tag": n[3], "model": n[4], "prompt": n[5],
-                "interval": n[6],
-            }
-            res = try_execute_node(node_dict)
-            if res is None:
-                skipped_tag += 1
-            else:
-                executed += 1
+        with _lock:
+            live_ids = set(_node_threads.keys())
 
-        log("debug", f"  tick #{tick} done: {executed} exec, {skipped_tag} no-data, {skipped_wait} waiting")
+            # 新增 node → 启动线程
+            for nid in db_ids - live_ids:
+                _node_stops[nid] = threading.Event()
+                t = threading.Thread(target=node_loop, args=(nid,), daemon=True, name=f"node-{nid}")
+                _node_threads[nid] = t
+                t.start()
+                node = _read_node(nid)
+                name = node["name"] if node else str(nid)
+                log("info", f"+ [{name}] 新节点加入，线程已启动  interval={node['interval']}s" if node else f"+ [{nid}] 已启动")
 
-        time.sleep(1)
+            # 删除 node → 通知线程退出
+            for nid in live_ids - db_ids:
+                _node_stops[nid].set()
+                del _node_threads[nid]
+                del _node_stops[nid]
+                log("info", f"- [node-{nid}] 已标记退出")
+
+        time.sleep(5)
 
 
 def main():
@@ -241,17 +264,33 @@ def main():
             _log_level = sys.argv[idx + 1]
 
     def on_signal(sig, frame):
-        nonlocal on_signal
         global _running
         log("info", "收到退出信号，停止中...")
         _running = False
+        # 通知所有 node 线程退出
+        with _lock:
+            for ev in _node_stops.values():
+                ev.set()
 
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
 
     log("info", f"轮询引擎启动  DB={DB_PATH}  log_level={_log_level}")
     recover_stale_claims()
-    poll_loop()
+
+    # 启动管理线程
+    mgr = threading.Thread(target=manager_loop, daemon=True, name="manager")
+    mgr.start()
+
+    # 主线程等待退出信号
+    while _running:
+        time.sleep(0.5)
+
+    # 等待所有工作线程退出
+    with _lock:
+        threads = list(_node_threads.values())
+    for t in threads:
+        t.join(timeout=2)
     log("info", "已退出")
 
 
