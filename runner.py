@@ -2,7 +2,8 @@
 Node 轮询引擎 — 独立于 FastAPI 运行，仅通过 state.db 通信。
 
 用法：
-    python3 runner.py
+    python3 runner.py              # 前台运行
+    python3 runner.py --log-level debug  # 详细日志
 """
 import sqlite3
 import os
@@ -11,12 +12,21 @@ import time
 import subprocess
 import signal
 import sys
+from datetime import datetime
 from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.db")
 
 _running = True
 _last_checks: dict[int, float] = {}
+_log_level = "info"  # info | debug
+
+
+def log(level: str, msg: str):
+    """带时间戳和级别的日志输出"""
+    if _log_level == "debug" or level != "debug":
+        ts = datetime.now().strftime("%H:%M:%S")
+        print(f"[{ts}][{level.upper()}] {msg}", flush=True)
 
 
 def get_db():
@@ -79,13 +89,18 @@ def try_execute_node(node: dict) -> Optional[dict]:
                 (tag,),
             ).fetchone()
             if not row:
+                log("debug", f"  {node['name']}: 缺少 tag=\"{tag}\"，跳过")
                 return None
             selected[tag] = row[1]
             selected_ids.append(str(row[0]))
+            log("debug", f"  {node['name']}: tag=\"{tag}\" → prompt #{row[0]} ({row[1][:50]}...)")
 
         filled = node["prompt"]
         for tag, text in selected.items():
             filled = filled.replace(f"{{{tag}}}", text)
+
+        model_str = node.get("model") or "default"
+        log("info", f"▶ {node['name']}  inputs={','.join(selected_ids)}  model={model_str}")
 
         t0 = time.time()
         result = call_opencode(filled, node.get("model") or None)
@@ -106,6 +121,10 @@ def try_execute_node(node: dict) -> Optional[dict]:
                  round(elapsed, 3), result["usage"]["input"],
                  result["usage"]["output"], result["usage"]["total"]),
             )
+            log("info",
+                f"✓ {node['name']}  inputs={input_ids}  output=#{output_id}({node['output_tag']})  "
+                f"tokens={result['usage']['total']}(in:{result['usage']['input']}/out:{result['usage']['output']})  "
+                f"elapsed={elapsed:.1f}s")
         else:
             output_id = None
             db.execute(
@@ -115,17 +134,18 @@ def try_execute_node(node: dict) -> Optional[dict]:
                 (input_ids, output_id, node["name"], node.get("model") or "",
                  result["error"][:500], round(elapsed, 3)),
             )
+            log("info",
+                f"✗ {node['name']}  inputs={input_ids}  FAILED  "
+                f"error={result['error'][:100]}  elapsed={elapsed:.1f}s")
 
         for sid in selected_ids:
             db.execute("UPDATE prompt SET processed=1 WHERE id=?", (int(sid),))
 
         db.commit()
-        status = "success" if result["success"] else "error"
-        print(f"[runner] {node['name']} ({','.join(selected_ids)}) → {status}  {elapsed:.1f}s", flush=True)
-        return {"node_name": node["name"], "status": status}
+        return {"node_name": node["name"], "status": "success" if result["success"] else "error"}
     except Exception as e:
         db.rollback()
-        print(f"[runner] {node['name']} error: {e}", flush=True)
+        log("info", f"✗ {node['name']}  EXCEPTION: {e}")
         return {"node_name": node["name"], "status": "error", "error": str(e)[:500]}
     finally:
         db.close()
@@ -133,7 +153,9 @@ def try_execute_node(node: dict) -> Optional[dict]:
 
 def poll_loop():
     global _last_checks
+    tick = 0
     while _running:
+        tick += 1
         db = get_db()
         try:
             nodes = db.execute(
@@ -142,13 +164,19 @@ def poll_loop():
         finally:
             db.close()
 
+        log("debug", f"--- tick #{tick}, {len(nodes)} nodes ---")
+
         now = time.time()
+        executed = 0
+        skipped_wait = 0
+        skipped_tag = 0
         for n in nodes:
             if not _running:
                 break
             node_id = n[0]
             interval = n[6]
             if now - _last_checks.get(node_id, 0) < interval:
+                skipped_wait += 1
                 continue
             _last_checks[node_id] = now
             node_dict = {
@@ -156,25 +184,37 @@ def poll_loop():
                 "output_tag": n[3], "model": n[4], "prompt": n[5],
                 "interval": n[6],
             }
-            try_execute_node(node_dict)
+            res = try_execute_node(node_dict)
+            if res is None:
+                skipped_tag += 1
+            else:
+                executed += 1
+
+        log("debug", f"  tick #{tick} done: {executed} exec, {skipped_tag} no-data, {skipped_wait} waiting")
 
         time.sleep(1)
 
 
 def main():
-    global _running
+    global _running, _log_level
+
+    if "--log-level" in sys.argv:
+        idx = sys.argv.index("--log-level")
+        if idx + 1 < len(sys.argv):
+            _log_level = sys.argv[idx + 1]
 
     def on_signal(sig, frame):
+        nonlocal on_signal
         global _running
-        print("[runner] 收到退出信号，停止中...", flush=True)
+        log("info", "收到退出信号，停止中...")
         _running = False
 
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
 
-    print(f"[runner] 轮询引擎启动 (DB: {DB_PATH})", flush=True)
+    log("info", f"轮询引擎启动  DB={DB_PATH}  log_level={_log_level}")
     poll_loop()
-    print("[runner] 已退出", flush=True)
+    log("info", "已退出")
 
 
 if __name__ == "__main__":
