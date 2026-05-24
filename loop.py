@@ -462,9 +462,10 @@ async def run_loop_instance(db: DataBase, config: dict):
         except Exception as e:
             print(f"[{name}] 错误: {e}")
 
-        # 永远运行：如果 interval 为 0，则默认等待 1 秒防止 CPU 满载
-        sleep_time = interval if interval > 0 else 1
-        await asyncio.sleep(sleep_time)
+        # interval <= 0 为单次执行，interval > 0 为永久循环
+        if interval <= 0:
+            break
+        await asyncio.sleep(interval)
 
 
 # ── 主入口 ──────────────────────────────────────────────────────────
