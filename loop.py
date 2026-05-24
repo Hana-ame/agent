@@ -405,44 +405,40 @@ async def loop2_jielong(db: DataBase, count: int = 1, models: list|None = None) 
 
 async def loop666_auto666(db: DataBase, count: int = 1, models: list|None = None) -> list:
     results = []
+    print(f"[Loop666] 检查 Board 666 最新指令...")
 
-    rows = db.prompts.Read(order_by="id DESC")
+    prompt_text = "检查 Board 666 的最新帖子，获取其中的指令并执行。然后向 Board 666 回复执行结果。"
+    start_time = datetime.now().isoformat()
+    oc_result = await call_opencode(prompt_text, agent="Auto666")
+    end_time = datetime.now().isoformat()
 
-    if not rows:
-        print("[Loop666] 没有要处理的 prompt")
-        return results
+    prompt_id = db.prompts.Insert({
+        "prompt": prompt_text,
+        "agent": "Auto666",
+        "model": "",
+        "response": oc_result.get("output", "")[:500],
+        "abstract": "",
+        "should_end": 1,
+    })
 
-    selected = rows if count == -1 else rows[:count]
-    print(f"[Loop666] 找到 {len(rows)} 条，本次处理 {len(selected)} 条")
+    usage = oc_result.get("usage", {})
+    req_id = db.requests.Insert({
+        "prompt_id": prompt_id,
+        "agent_name": "Auto666",
+        "start_time": start_time,
+        "end_time": end_time,
+        "input_tokens": usage.get("input", 0),
+        "output_tokens": usage.get("output", 0),
+        "success": 1 if oc_result.get("success") else 0,
+        "include_history": 0,
+    })
 
-    for row in selected:
-        prompt_id = row[0]
-        prompt_text = row[2] or ""
-
-        print(f"  [Loop666] prompt_id={prompt_id}")
-
-        start_time = datetime.now().isoformat()
-        oc_result = await call_opencode(prompt_text, agent="Auto666")
-        end_time = datetime.now().isoformat()
-
-        usage = oc_result.get("usage", {})
-        req_id = db.requests.Insert({
-            "prompt_id": prompt_id,
-            "agent_name": "Auto666",
-            "start_time": start_time,
-            "end_time": end_time,
-            "input_tokens": usage.get("input", 0),
-            "output_tokens": usage.get("output", 0),
-            "success": 1 if oc_result.get("success") else 0,
-            "include_history": 0,
-        })
-
-        results.append({
-            "prompt_id": prompt_id,
-            "request_id": req_id,
-            "success": bool(oc_result.get("success")),
-        })
-        print(f"    → req_id={req_id}, success={oc_result.get('success', False)}")
+    results.append({
+        "prompt_id": prompt_id,
+        "request_id": req_id,
+        "success": bool(oc_result.get("success")),
+    })
+    print(f"  [Loop666] → prompt_id={prompt_id}, req_id={req_id}, success={oc_result.get('success', False)}")
 
     return results
 

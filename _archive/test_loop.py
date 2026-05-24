@@ -582,9 +582,8 @@ class TestCallOpencode:
 class TestLoop666Auto666:
     @pytest.mark.asyncio
     @patch("loop.call_opencode")
-    async def test_loop666_processes_latest_prompt(self, mock_call):
+    async def test_loop666_calls_auto666(self, mock_call):
         db = DataBase(TEST_DB)
-        ids = seed_test_data(db)
 
         mock_call.return_value = {
             "success": True,
@@ -592,50 +591,54 @@ class TestLoop666Auto666:
             "usage": {"input": 100, "output": 50, "total": 150},
         }
 
-        results = await loop666_auto666(db, count=1)
+        results = await loop666_auto666(db)
         assert len(results) == 1
-        assert results[0]["prompt_id"] == ids["id5"]  # latest
+        assert results[0]["prompt_id"] is not None
         assert results[0]["request_id"] is not None
         assert results[0]["success"] is True
+
+        mock_call.assert_awaited_once()
+        args, kwargs = mock_call.await_args
+        assert kwargs["agent"] == "Auto666"
+
         req_rows = db.requests.Read()
         assert len(req_rows) == 1
-        assert req_rows[0][2] == "Auto666"  # agent_name
+        assert req_rows[0][2] == "Auto666"
         db.close()
 
     @pytest.mark.asyncio
     @patch("loop.call_opencode")
     async def test_loop666_handles_failure(self, mock_call):
         db = DataBase(TEST_DB)
-        seed_test_data(db)
 
         mock_call.return_value = {"success": False, "error": "执行失败"}
 
-        results = await loop666_auto666(db, count=1)
+        results = await loop666_auto666(db)
         assert len(results) == 1
         assert results[0]["success"] is False
         db.close()
 
     @pytest.mark.asyncio
-    async def test_loop666_no_prompts(self):
-        db = DataBase(TEST_DB)
-        results = await loop666_auto666(db, count=1)
-        assert results == []
-        db.close()
-
-    @pytest.mark.asyncio
     @patch("loop.call_opencode")
-    async def test_loop666_count_negative_one(self, mock_call):
+    async def test_loop666_creates_prompt_and_request(self, mock_call):
         db = DataBase(TEST_DB)
-        seed_test_data(db)
 
         mock_call.return_value = {
             "success": True,
-            "output": "ok",
-            "usage": {},
+            "output": "已完成 Board 666 的任务",
+            "usage": {"input": 50, "output": 30, "total": 80},
         }
 
-        results = await loop666_auto666(db, count=-1)
-        assert len(results) == 5
+        results = await loop666_auto666(db)
+
+        prompt_rows = db.prompts.Read(condition=f"id={results[0]['prompt_id']}")
+        assert len(prompt_rows) == 1
+        assert prompt_rows[0][3] == "Auto666"
+
+        req_rows = db.requests.Read(condition=f"prompt_id={results[0]['prompt_id']}")
+        assert len(req_rows) == 1
+        assert req_rows[0][2] == "Auto666"
+        assert req_rows[0][7] == 1
         db.close()
 
 

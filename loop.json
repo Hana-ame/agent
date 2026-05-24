@@ -2,7 +2,7 @@
   {
     "name": "loop666",
     "type": "loop666",
-    "count": 1,
+    "count": -1,
     "interval_seconds": 60,
     "enabled": true,
     "models": null

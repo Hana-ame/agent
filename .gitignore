@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+simpleai.db
+test_loop.db
+.hypothesis/
+.pytest_cache/
