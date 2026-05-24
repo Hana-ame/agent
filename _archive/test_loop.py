@@ -495,16 +495,13 @@ class TestLoop2Jielong:
 
 class TestCallOpencode:
     @pytest.mark.asyncio
-    @patch("loop.asyncio.create_subprocess_exec")
-    async def test_call_opencode_success(self, mock_subproc):
-        mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(return_value=(
-            b'{"type": "text", "part": {"text": "Hello world"}}\n'
-            b'{"type": "step_finish", "part": {"tokens": {"input": 10, "output": 20, "total": 30}}}',
-            b'',
-        ))
-        mock_proc.returncode = 0
-        mock_subproc.return_value = mock_proc
+    @patch("loop._opencode_client.run_prompt_json")
+    async def test_call_opencode_success(self, mock_run):
+        mock_run.return_value = {
+            "success": True,
+            "output": "Hello world",
+            "usage": {"input": 10, "output": 20, "total": 30},
+        }
 
         result = await call_opencode("test prompt", model="test-model")
         assert result["success"] == True
@@ -512,63 +509,57 @@ class TestCallOpencode:
         assert result["usage"]["input"] == 10
         assert result["usage"]["output"] == 20
         assert result["usage"]["total"] == 30
+        mock_run.assert_called_once_with("test prompt", "test-model", "")
 
     @pytest.mark.asyncio
-    @patch("loop.asyncio.create_subprocess_exec")
-    async def test_call_opencode_no_json_output(self, mock_subproc):
-        mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(return_value=(b"plain text output", b""))
-        mock_proc.returncode = 0
-        mock_subproc.return_value = mock_proc
+    @patch("loop._opencode_client.run_prompt_json")
+    async def test_call_opencode_no_json_output(self, mock_run):
+        mock_run.return_value = {
+            "success": True,
+            "output": "plain text output",
+            "usage": {"input": 0, "output": 0, "total": 0},
+        }
 
         result = await call_opencode("test")
         assert result["success"] == True
         assert result["output"] == "plain text output"
 
     @pytest.mark.asyncio
-    @patch("loop.asyncio.create_subprocess_exec")
-    async def test_call_opencode_with_agent(self, mock_subproc):
-        mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(return_value=(
-            b'{"type": "text", "part": {"text": "Agent result"}}',
-            b'',
-        ))
-        mock_proc.returncode = 0
-        mock_subproc.return_value = mock_proc
+    @patch("loop._opencode_client.run_prompt_json")
+    async def test_call_opencode_with_agent(self, mock_run):
+        mock_run.return_value = {
+            "success": True,
+            "output": "Agent result",
+            "usage": {"input": 5, "output": 10, "total": 15},
+        }
 
         result = await call_opencode("prompt", agent="AbstractAgent")
-        args = mock_subproc.call_args[0]
-        assert "--agent" in args
-        assert "AbstractAgent" in args
+        mock_run.assert_called_once_with("prompt", "", "AbstractAgent")
         assert result["success"] == True
         assert result["output"] == "Agent result"
 
     @pytest.mark.asyncio
-    @patch("loop.asyncio.create_subprocess_exec")
-    async def test_call_opencode_failure(self, mock_subproc):
-        mock_subproc.side_effect = FileNotFoundError
+    @patch("loop._opencode_client.run_prompt_json")
+    async def test_call_opencode_failure(self, mock_run):
+        mock_run.return_value = {"success": False, "error": "找不到 opencode 命令，请确认已安装"}
+
         result = await call_opencode("test")
         assert result["success"] == False
         assert "找不到" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("loop.asyncio.create_subprocess_exec")
-    async def test_call_opencode_nonzero_returncode(self, mock_subproc):
-        mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error: something failed"))
-        mock_proc.returncode = 1
-        mock_subproc.return_value = mock_proc
+    @patch("loop._opencode_client.run_prompt_json")
+    async def test_call_opencode_nonzero_returncode(self, mock_run):
+        mock_run.return_value = {"success": False, "error": "opencode 调用失败: error: something failed"}
 
         result = await call_opencode("test")
         assert result["success"] == False
         assert "失败" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("loop.asyncio.create_subprocess_exec")
-    async def test_call_opencode_timeout(self, mock_subproc):
-        mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
-        mock_subproc.return_value = mock_proc
+    @patch("loop._opencode_client.run_prompt_json")
+    async def test_call_opencode_timeout(self, mock_run):
+        mock_run.return_value = {"success": False, "error": "opencode 超时 (3600s)"}
 
         result = await call_opencode("test")
         assert result["success"] == False

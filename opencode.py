@@ -50,6 +50,20 @@ class Opencode:
             raise RuntimeError(f"list_agents failed: {result.stderr}")
         return result.stdout
 
+    def run_prompt_json(self, prompt, agent="", model=""):
+        cmd = ["opencode", "run"]
+        if agent:
+            cmd.extend(["--agent", agent])
+        if model:
+            cmd.extend(["--model", model])
+        cmd.append(prompt)
+        result = self._run_command(cmd)
+        output = result.stdout.strip()
+        try:
+            return json.loads(output)
+        except json.JSONDecodeError:
+            return {"output": output, "success": result.returncode == 0}
+
     def run_prompt(self, prompt, agent="", model=""):
         """执行 opencode prompt，支持 @filename 语法自动读取文件内容。
 

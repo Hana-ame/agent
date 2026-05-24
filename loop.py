@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from database import DataBase
+from opencode import Opencode
 
 
 # ── 配置 ────────────────────────────────────────────────────────────
@@ -32,6 +33,9 @@ from database import DataBase
 BASE_DIR = Path(__file__).parent
 DB_PATH = os.environ.get("SIMPLEAI_DB", str(BASE_DIR / "simpleai.db"))
 DEFAULT_CONFIG = str(BASE_DIR / "loop.json")
+
+# 全局 Opencode 客户端，所有循环共用
+_opencode_client = Opencode()
 
 ABSTRACT_MODELS = [
     "siliconflow-cn/Qwen/Qwen3.5-4B",
@@ -85,60 +89,15 @@ def load_config(path: str|None = None) -> list:
     return configs
 
 
-# ── OpenCode 调用（async） ─────────────────────────────────────────
+# ── OpenCode 调用（async 委托） ────────────────────────────────────
 
 
 async def call_opencode(prompt: str, model: str|None = None, agent: str|None = None) -> dict:
-    cmd = ["opencode", "run", "--format", "json"]
-    if agent:
-        cmd.extend(["--agent", agent])
-    if model:
-        cmd.extend(["-m", model])
-    cmd.append(prompt)
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3600)
-    except asyncio.TimeoutError:
-        return {"success": False, "error": "opencode 超时 (3600s)"}
-    except FileNotFoundError:
-        return {"success": False, "error": "找不到 opencode 命令，请确认已安装"}
-
-    if proc.returncode != 0:
-        err = stderr.decode("utf-8", errors="replace")[:500]
-        return {"success": False, "error": f"opencode 调用失败: {err}"}
-
-    output_text = ""
-    usage = {"input": 0, "output": 0, "total": 0}
-    stdout_str = stdout.decode("utf-8", errors="replace")
-    for line in stdout_str.strip().split("\n"):
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            if event.get("type") == "text":
-                output_text += event["part"].get("text", "")
-            elif event.get("type") == "step_finish":
-                usage = {
-                    "input": event["part"].get("tokens", {}).get("input", 0),
-                    "output": event["part"].get("tokens", {}).get("output", 0),
-                    "total": event["part"].get("tokens", {}).get("total", 0),
-                }
-        except json.JSONDecodeError:
-            continue
-
-    if not output_text and stdout_str.strip():
-        output_text = stdout_str.strip()
-
-    return {
-        "success": True,
-        "output": output_text,
-        "usage": usage,
-    }
+    """异步委托给 Opencode.run_prompt_json。"""
+    return await asyncio.to_thread(
+        _opencode_client.run_prompt_json,
+        prompt, model or "", agent or "",
+    )
 
 
 # ── Loop 1: Abstract 生成 ──────────────────────────────────────────
