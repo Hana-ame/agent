@@ -86,6 +86,17 @@ def call_opencode(prompt: str, model: str = None) -> dict:
 def recover_stale_claims():
     db = get_db()
     try:
+        db.execute("""CREATE TABLE IF NOT EXISTS model_availability (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            model           TEXT NOT NULL UNIQUE,
+            total_calls     INTEGER NOT NULL DEFAULT 0,
+            success_calls   INTEGER NOT NULL DEFAULT 0,
+            failed_calls    INTEGER NOT NULL DEFAULT 0,
+            availability    REAL NOT NULL DEFAULT 100.0,
+            last_error      TEXT NOT NULL DEFAULT '',
+            last_checked    DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""")
         cur = db.execute("UPDATE prompt SET processed=? WHERE processed=?", (ST_PENDING, ST_PROCESSING))
         if cur.rowcount > 0:
             log("info", f"启动恢复: 重置 {cur.rowcount} 条僵尸认领 (processing → pending)")
@@ -140,6 +151,7 @@ def try_execute_node(node: dict) -> Optional[dict]:
         elapsed = time.time() - t0
 
         input_ids = ",".join(map(str, selected_ids))
+        model_name = node.get("model") or "default"
         if result["success"]:
             cur = db.execute(
                 "INSERT INTO prompt (prev_id, tag, prompt) VALUES (?, ?, ?)",
@@ -150,10 +162,20 @@ def try_execute_node(node: dict) -> Optional[dict]:
                 "INSERT INTO node_exec (input_ids, output_id, node_name, model, status,"
                 " elapsed, input_tokens, output_tokens, total_tokens)"
                 " VALUES (?, ?, ?, ?, 'success', ?, ?, ?, ?)",
-                (input_ids, output_id, node["name"], node.get("model") or "",
+                (input_ids, output_id, node["name"], model_name,
                  round(elapsed, 3), result["usage"]["input"],
                  result["usage"]["output"], result["usage"]["total"]),
             )
+            # Update availability
+            db.execute("""
+                INSERT INTO model_availability (model, total_calls, success_calls, failed_calls, availability, last_error)
+                VALUES (?, 1, 1, 0, 100.0, '')
+                ON CONFLICT(model) DO UPDATE SET
+                    total_calls = total_calls + 1,
+                    success_calls = success_calls + 1,
+                    availability = ((success_calls + 1) * 100.0) / (total_calls + 1),
+                    last_checked = CURRENT_TIMESTAMP
+            """, (model_name,))
             log("info",
                 f"✓ [{node['name']}] inputs={input_ids}  output=#{output_id}({node['output_tag']})  "
                 f"tokens={result['usage']['total']}(in:{result['usage']['input']}/out:{result['usage']['output']})  "
@@ -164,9 +186,20 @@ def try_execute_node(node: dict) -> Optional[dict]:
                 "INSERT INTO node_exec (input_ids, output_id, node_name, model, status,"
                 " error, elapsed, input_tokens, output_tokens, total_tokens)"
                 " VALUES (?, ?, ?, ?, 'error', ?, ?, 0, 0, 0)",
-                (input_ids, output_id, node["name"], node.get("model") or "",
+                (input_ids, output_id, node["name"], model_name,
                  result["error"][:500], round(elapsed, 3)),
             )
+            # Update availability
+            db.execute("""
+                INSERT INTO model_availability (model, total_calls, success_calls, failed_calls, availability, last_error)
+                VALUES (?, 1, 0, 1, 0.0, ?)
+                ON CONFLICT(model) DO UPDATE SET
+                    total_calls = total_calls + 1,
+                    failed_calls = failed_calls + 1,
+                    availability = (success_calls * 100.0) / (total_calls + 1),
+                    last_error = ?,
+                    last_checked = CURRENT_TIMESTAMP
+            """, (model_name, result["error"][:500], result["error"][:500]))
             log("info",
                 f"✗ [{node['name']}] inputs={input_ids}  FAILED  "
                 f"error={result['error'][:100]}  elapsed={elapsed:.1f}s")

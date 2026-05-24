@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 from typing import Optional
 from fastapi import FastAPI, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -46,6 +47,17 @@ def init_db():
             input_tokens    INTEGER NOT NULL DEFAULT 0,
             output_tokens   INTEGER NOT NULL DEFAULT 0,
             total_tokens    INTEGER NOT NULL DEFAULT 0,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS model_availability (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            model           TEXT NOT NULL UNIQUE,
+            total_calls     INTEGER NOT NULL DEFAULT 0,
+            success_calls   INTEGER NOT NULL DEFAULT 0,
+            failed_calls    INTEGER NOT NULL DEFAULT 0,
+            availability    REAL NOT NULL DEFAULT 100.0,
+            last_error      TEXT NOT NULL DEFAULT '',
+            last_checked    DATETIME DEFAULT CURRENT_TIMESTAMP,
             created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
         )""")
         # 兼容旧表
@@ -241,3 +253,144 @@ def list_execs(node_name: Optional[str] = Query(None),
     } for r in rows[:limit]]
     has_more = len(rows) > limit
     return {"items": result, "has_more": has_more}
+381: 
+382: 
+383: # ── Model Availability ─────────────────────────────
+384: 
+385: @app.get("/api/model-availability")
+386: def list_model_availability():
+387:     with get_db() as conn:
+388:         rows = conn.execute(
+389:             "SELECT model, total_calls, success_calls, failed_calls, availability, last_error, last_checked "
+390:             "FROM model_availability ORDER BY availability ASC, total_calls DESC"
+391:         ).fetchall()
+392:     return [{
+393:         "model": r[0], "total_calls": r[1], "success_calls": r[2],
+394:         "failed_calls": r[3], "availability": r[4], "last_error": r[5],
+395:         "last_checked": r[6],
+396:     } for r in rows]
+
+
+# ── Pipeline / Prompt Chain ─────────────────────────
+
+class PipelineForm(BaseModel):
+    name: str
+    definition: str
+
+
+class PipelineRunForm(BaseModel):
+    input_data: dict = {}
+
+
+@app.post("/api/pipelines")
+def create_pipeline(data: PipelineForm):
+    # validate JSON
+    try:
+        parsed = json.loads(data.definition)
+        from pipeline_exec import validate_definition
+        valid, msg = validate_definition(parsed)
+        if not valid:
+            return JSONResponse({"error": msg}, status_code=400)
+    except json.JSONDecodeError as e:
+        return JSONResponse({"error": f"invalid JSON: {e}"}, status_code=400)
+
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO pipeline (name, definition) VALUES (?, ?)",
+            (data.name, data.definition),
+        )
+    return {"status": "ok"}
+
+
+@app.get("/api/pipelines")
+def list_pipelines():
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, definition, created_at, updated_at FROM pipeline ORDER BY id DESC"
+        ).fetchall()
+    return [{
+        "id": r[0], "name": r[1], "definition": json.loads(r[2]),
+        "created_at": r[3], "updated_at": r[4],
+    } for r in rows]
+
+
+@app.get("/api/pipelines/{pipeline_id}")
+def get_pipeline(pipeline_id: int):
+    with get_db() as conn:
+        r = conn.execute(
+            "SELECT id, name, definition, created_at, updated_at FROM pipeline WHERE id=?",
+            (pipeline_id,),
+        ).fetchone()
+    if not r:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {
+        "id": r[0], "name": r[1], "definition": json.loads(r[2]),
+        "created_at": r[3], "updated_at": r[4],
+    }
+
+
+@app.put("/api/pipelines/{pipeline_id}")
+def update_pipeline(pipeline_id: int, data: PipelineForm):
+    try:
+        parsed = json.loads(data.definition)
+        from pipeline_exec import validate_definition
+        valid, msg = validate_definition(parsed)
+        if not valid:
+            return JSONResponse({"error": msg}, status_code=400)
+    except json.JSONDecodeError as e:
+        return JSONResponse({"error": f"invalid JSON: {e}"}, status_code=400)
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE pipeline SET name=?, definition=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (data.name, data.definition, pipeline_id),
+        )
+    return {"status": "ok"}
+
+
+@app.delete("/api/pipelines/{pipeline_id}")
+def delete_pipeline(pipeline_id: int):
+    with get_db() as conn:
+        conn.execute("DELETE FROM pipeline WHERE id=?", (pipeline_id,))
+    return {"status": "ok"}
+
+
+@app.post("/api/pipelines/{pipeline_id}/run")
+def run_pipeline(pipeline_id: int, data: PipelineRunForm):
+    from pipeline_exec import run_pipeline as exec_pipeline
+    result = exec_pipeline(pipeline_id, data.input_data)
+    if result["status"] == "error":
+        return JSONResponse(result, status_code=500)
+    return result
+
+
+@app.get("/api/pipelines/{pipeline_id}/execs")
+def list_pipeline_execs(pipeline_id: int, limit: int = Query(50, ge=1, le=200)):
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, pipeline_id, input_data, output_data, status, error, steps_log, created_at "
+            "FROM pipeline_exec WHERE pipeline_id=? ORDER BY id DESC LIMIT ?",
+            (pipeline_id, limit),
+        ).fetchall()
+    return [{
+        "id": r[0], "pipeline_id": r[1],
+        "input_data": json.loads(r[2]), "output_data": json.loads(r[3]),
+        "status": r[4], "error": r[5], "steps_log": json.loads(r[6]),
+        "created_at": r[7],
+    } for r in rows]
+
+
+@app.get("/api/pipeline-execs")
+def list_all_pipeline_execs(limit: int = Query(50, ge=1, le=200)):
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, pipeline_id, input_data, output_data, status, error, steps_log, created_at "
+            "FROM pipeline_exec ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [{
+        "id": r[0], "pipeline_id": r[1],
+        "input_data": json.loads(r[2]), "output_data": json.loads(r[3]),
+        "status": r[4], "error": r[5], "steps_log": json.loads(r[6]),
+        "created_at": r[7],
+    } for r in rows]

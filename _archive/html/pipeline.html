@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Chain</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #f0f6fc; padding: 20px; }
+  h1 { font-size: 1.4rem; margin-bottom: 16px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 1rem; margin-bottom: 8px; color: #58a6ff; }
+  .flex { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input, textarea, select { background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 8px 10px; color: #f0f6fc; font-size: 0.9rem; }
+  input:focus, textarea:focus { outline: none; border-color: #58a6ff; }
+  textarea { resize: vertical; min-height: 80px; font-family: monospace; width: 100%; }
+  button { background: #238636; color: #fff; border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer; font-size: 0.9rem; }
+  button:hover { background: #2ea043; }
+  button.danger { background: #da3633; }
+  button.danger:hover { background: #f85149; }
+  button.ghost { background: transparent; border: 1px solid #30363d; color: #8b949e; }
+  button.ghost:hover { background: #21262d; color: #f0f6fc; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { border: 1px solid #30363d; padding: 6px 10px; text-align: left; }
+  th { background: #21262d; color: #8b949e; font-weight: 500; }
+  td { color: #f0f6fc; }
+  .msg { font-size: 0.8rem; margin-top: 6px; }
+  .msg.ok { color: #3fb950; }
+  .msg.err { color: #f85149; }
+  .toggle { background: #21262d; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 0.85rem; color: #8b949e; display: inline-flex; align-items: center; gap: 6px; user-select: none; margin-bottom:8px; }
+  .toggle:hover { background: #30363d; }
+  .toggle .arrow { transition: transform .2s; display: inline-block; }
+  .toggle.open .arrow { transform: rotate(90deg); }
+  .api-body { display: none; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom:12px; }
+  .api-body.show { display: flex; }
+  .api-body input { flex: 1; min-width: 200px; }
+  .step-row { background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 12px; margin-bottom: 8px; }
+  .step-row .step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .step-row .step-header span { color: #58a6ff; font-weight: 500; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; }
+  .badge.ok { background: #3fb95033; color: #3fb950; }
+  .badge.err { background: #f8514933; color: #f85149; }
+  .badge.run { background: #58a6ff33; color: #58a6ff; }
+  .tab { display: flex; gap: 4px; margin-bottom: 12px; }
+  .tab button { background: transparent; border: 1px solid #30363d; color: #8b949e; border-radius: 4px 4px 0 0; }
+  .tab button.active { background: #161b22; border-bottom-color: #161b22; color: #f0f6fc; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+</style>
+</head>
+<body>
+
+<h1>Pipeline Chain (LangGraph 模拟)</h1>
+
+<div>
+  <div class="toggle" onclick="this.classList.toggle('open');document.getElementById('apiBody').classList.toggle('show')">
+    <span class="arrow">▶</span> API Endpoint
+  </div>
+  <div class="api-body" id="apiBody">
+    <input id="apiBase" value="https://wsl-8000.moonchan.xyz" placeholder="API 地址">
+    <button onclick="applyApi()">应用</button>
+  </div>
+</div>
+
+<div class="tab">
+  <button class="active" onclick="switchTab('list',this)">流水线列表</button>
+  <button onclick="switchTab('create',this)">新建流水线</button>
+  <button onclick="switchTab('run',this)">执行</button>
+  <button onclick="switchTab('history',this)">执行历史</button>
+</div>
+
+<!-- List -->
+<div id="tab-list" class="tab-content active">
+  <div class="card">
+    <div class="flex" style="margin-bottom:8px">
+      <h2 style="flex:1;margin:0">流水线</h2>
+      <button onclick="loadPipelines()" class="ghost">刷新</button>
+    </div>
+    <div id="pipelineList"></div>
+  </div>
+</div>
+
+<!-- Create -->
+<div id="tab-create" class="tab-content">
+  <div class="card">
+    <h2>新建流水线</h2>
+    <div class="flex" style="margin-bottom:8px">
+      <input id="plName" placeholder="流水线名称" style="flex:1">
+    </div>
+    <div id="stepEditor"></div>
+    <div class="flex" style="margin-top:8px">
+      <button onclick="addStep()">+ 添加步骤</button>
+      <span style="flex:1"></span>
+      <button onclick="submitPipeline()">提交</button>
+    </div>
+    <span id="createMsg" class="msg"></span>
+  </div>
+</div>
+
+<!-- Run -->
+<div id="tab-run" class="tab-content">
+  <div class="card">
+    <h2>执行流水线</h2>
+    <div class="flex" style="margin-bottom:8px">
+      <select id="runPlSelect" style="flex:1"><option value="">-- 请选择 --</option></select>
+    </div>
+    <textarea id="runInput" rows="4" placeholder='JSON 输入，如：{"user_input": "你好"}'></textarea>
+    <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+      <button onclick="runPipeline()">执行</button>
+      <span id="runMsg" class="msg"></span>
+    </div>
+  </div>
+  <div id="runResult" style="display:none">
+    <div class="card">
+      <h2>执行结果</h2>
+      <div id="runSteps"></div>
+      <div style="margin-top:8px">
+        <h3 style="color:#8b949e;font-size:0.9rem;margin-bottom:4px">最终状态:</h3>
+        <pre id="runState" style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:12px;white-space:pre-wrap;font-size:0.85rem;max-height:300px;overflow-y:auto"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- History -->
+<div id="tab-history" class="tab-content">
+  <div class="card">
+    <div class="flex" style="margin-bottom:8px">
+      <h2 style="flex:1;margin:0">执行历史</h2>
+      <button onclick="loadHistory()" class="ghost">刷新</button>
+    </div>
+    <div id="historyList"></div>
+  </div>
+</div>
+
+<script>
+let API = document.getElementById('apiBase').value;
+function applyApi() { API = document.getElementById('apiBase').value; document.getElementById('apiBody').classList.remove('show'); document.querySelector('.toggle').classList.remove('open'); }
+
+function api(path, method='GET', body=null) {
+  const opts = { method, headers: {} };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  return fetch(API + path, opts).then(r => r.json());
+}
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
+  document.querySelectorAll('.tab button').forEach(e => e.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+function msg(elem, text, type) {
+  elem.textContent = text;
+  elem.className = 'msg' + (type ? ' ' + type : '');
+}
+
+// ─── Pipeline Steps Editor ───
+let steps = [{id:'step1', name:'步骤1', model:'', prompt:'', output_key:'out1', next:''}];
+function renderStepEditor() {
+  const div = document.getElementById('stepEditor');
+  div.innerHTML = '';
+  const entrySel = document.createElement('div');
+  entrySel.style.cssText = 'margin-bottom:8px';
+  entrySel.innerHTML = `<label style="color:#8b949e;font-size:0.85rem">入口步骤: <select id="entryStep"></select></label>`;
+  div.appendChild(entrySel);
+
+  steps.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'step-row';
+    row.innerHTML = `
+      <div class="step-header">
+        <span>步骤 ${i+1}: <code>${s.id}</code></span>
+        <button class="danger" onclick="removeStep(${i})" style="padding:4px 10px;font-size:0.8rem">删除</button>
+      </div>
+      <div class="flex" style="margin-bottom:4px">
+        <input value="${s.id}" onchange="updateStep(${i},'id',this.value)" placeholder="ID" style="flex:1">
+        <input value="${s.name}" onchange="updateStep(${i},'name',this.value)" placeholder="名称" style="flex:1">
+        <input value="${s.model}" onchange="updateStep(${i},'model',this.value)" placeholder="模型（可选，空=随机）" style="flex:2">
+        <input value="${s.output_key}" onchange="updateStep(${i},'output_key',this.value)" placeholder="输出变量" style="flex:1">
+      </div>
+      <textarea rows="3" onchange="updateStep(${i},'prompt',this.value)" placeholder="Prompt模板，用 {变量名} 引用上一步输出">${s.prompt}</textarea>
+      <div style="margin-top:4px">
+        <input value="${s.next||''}" onchange="updateStep(${i},'next',this.value)" placeholder="下一步 ID（留空=结束）" style="width:100%">
+      </div>
+    `;
+    div.appendChild(row);
+  });
+
+  // populate entry selector
+  const sel = document.getElementById('entryStep');
+  sel.innerHTML = steps.map((s,i) => `<option value="${s.id}">${s.id} - ${s.name}</option>`).join('');
+}
+function updateStep(i, key, val) { steps[i][key] = val; }
+function addStep() {
+  const nid = 'step' + (steps.length + 1);
+  steps.push({id:nid, name:'步骤'+(steps.length+1), model:'', prompt:'', output_key:'out'+(steps.length+1), next:''});
+  renderStepEditor();
+}
+function removeStep(i) { steps.splice(i,1); renderStepEditor(); }
+
+function getPipelineDef() {
+  const entry = document.getElementById('entryStep').value;
+  return { entry, steps: steps.map(s => ({
+    id: s.id, name: s.name, model: s.model || undefined,
+    prompt: s.prompt, output_key: s.output_key,
+    next: s.next || null
+  }))};
+}
+
+function submitPipeline() {
+  const name = document.getElementById('plName').value.trim();
+  if (!name) return msg(document.getElementById('createMsg'), '请输入流水线名称', 'err');
+  const def = getPipelineDef();
+  api('/api/pipelines', 'POST', {name, definition: JSON.stringify(def)}).then(r => {
+    if (r.status === 'ok') {
+      msg(document.getElementById('createMsg'), '创建成功', 'ok');
+      document.getElementById('plName').value = '';
+      steps = [{id:'step1', name:'步骤1', model:'', prompt:'', output_key:'out1', next:''}];
+      renderStepEditor();
+      loadPipelines();
+    } else {
+      msg(document.getElementById('createMsg'), r.error || '创建失败', 'err');
+    }
+  });
+}
+
+// ─── List Pipelines ───
+function loadPipelines() {
+  api('/api/pipelines').then(list => {
+    const div = document.getElementById('pipelineList');
+    if (!list.length) { div.innerHTML = '<div style="color:#8b949e">暂无流水线</div>'; return; }
+    div.innerHTML = list.map(p => `
+      <div class="step-row" style="position:relative">
+        <div class="step-header">
+          <span>${p.name}</span>
+          <div class="flex">
+            <button onclick="deletePipeline(${p.id})" class="danger" style="padding:4px 10px;font-size:0.8rem">删除</button>
+          </div>
+        </div>
+        <div style="font-size:0.8rem;color:#8b949e;margin-bottom:4px">
+          步骤: ${(p.definition.steps||[]).map(s => s.name||s.id).join(' → ')} | 入口: ${p.definition.entry}
+        </div>
+        <pre style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;font-size:0.8rem;max-height:100px;overflow-y:auto">${JSON.stringify(p.definition, null, 2)}</pre>
+      </div>
+    `).join('');
+  });
+}
+function deletePipeline(id) {
+  if (!confirm('确认删除？')) return;
+  api('/api/pipelines/' + id, 'DELETE').then(r => { if (r.status === 'ok') loadPipelines(); });
+}
+
+// ─── Run Pipeline ───
+function loadRunSelect() {
+  api('/api/pipelines').then(list => {
+    const sel = document.getElementById('runPlSelect');
+    sel.innerHTML = '<option value="">-- 请选择 --</option>' + list.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  });
+}
+
+function runPipeline() {
+  const id = document.getElementById('runPlSelect').value;
+  if (!id) return msg(document.getElementById('runMsg'), '请选择流水线', 'err');
+  let input;
+  try { input = JSON.parse(document.getElementById('runInput').value || '{}'); } catch(e) { return msg(document.getElementById('runMsg'), 'JSON 格式错误', 'err'); }
+
+  msg(document.getElementById('runMsg'), '执行中...', '');
+  api('/api/pipelines/' + id + '/run', 'POST', {input_data: input}).then(r => {
+    const resultDiv = document.getElementById('runResult');
+    resultDiv.style.display = 'block';
+    const stepsDiv = document.getElementById('runSteps');
+    const stateDiv = document.getElementById('runState');
+
+    if (r.status === 'success') {
+      stepsDiv.innerHTML = (r.steps||[]).map(s => `
+        <div class="step-row">
+          <div class="step-header">
+            <span>${s.name||s.step_id} <code>${s.step_id}</code></span>
+            <span class="badge ${s.status}">${s.status}</span>
+          </div>
+          <div style="font-size:0.8rem;color:#8b949e;margin-bottom:4px">
+            模型: ${s.model} | 耗时: ${s.elapsed}s
+          </div>
+          <details>
+            <summary style="cursor:pointer;font-size:0.85rem;color:#58a6ff">查看输出</summary>
+            <pre style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;margin-top:4px;font-size:0.8rem;white-space:pre-wrap">${s.output_preview || s.error || '无输出'}</pre>
+          </details>
+        </div>
+      `).join('');
+      stateDiv.textContent = JSON.stringify(r.state, null, 2);
+      msg(document.getElementById('runMsg'), `完成 (${r.elapsed}s)`, 'ok');
+    } else {
+      stepsDiv.innerHTML = `<div class="step-row"><span style="color:#f85149">执行失败: ${r.error}</span></div>`;
+      stateDiv.textContent = JSON.stringify(r.state||{}, null, 2);
+      msg(document.getElementById('runMsg'), '失败', 'err');
+    }
+    loadHistory();
+  }).catch(e => {
+    msg(document.getElementById('runMsg'), '请求失败: ' + e.message, 'err');
+  });
+}
+
+// ─── History ───
+function loadHistory() {
+  api('/api/pipeline-execs').then(list => {
+    const div = document.getElementById('historyList');
+    if (!list.length) { div.innerHTML = '<div style="color:#8b949e">暂无执行记录</div>'; return; }
+    div.innerHTML = list.map(h => `
+      <div class="step-row">
+        <div class="step-header">
+          <span>#${h.id} Pipeline ${h.pipeline_id}</span>
+          <span class="badge ${h.status}">${h.status}</span>
+        </div>
+        <div style="font-size:0.8rem;color:#8b949e;margin-bottom:4px">${h.created_at}</div>
+        ${h.error ? '<div style="color:#f85149;font-size:0.85rem">' + h.error + '</div>' : ''}
+        <details>
+          <summary style="cursor:pointer;font-size:0.85rem;color:#58a6ff">查看详情</summary>
+          <div style="margin-top:4px">
+            <h4 style="color:#8b949e;font-size:0.8rem">输入:</h4>
+            <pre style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;font-size:0.8rem;white-space:pre-wrap">${JSON.stringify(h.input_data, null, 2)}</pre>
+            <h4 style="color:#8b949e;font-size:0.8rem;margin-top:4px">输出:</h4>
+            <pre style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;font-size:0.8rem;white-space:pre-wrap">${JSON.stringify(h.output_data, null, 2)}</pre>
+            ${h.steps_log && h.steps_log.length ? `
+              <h4 style="color:#8b949e;font-size:0.8rem;margin-top:4px">步骤日志:</h4>
+              ${h.steps_log.map(s => `<div style="font-size:0.8rem;padding:2px 0">${s.status==='success'?'✅':'❌'} ${s.name||s.step_id} (${s.elapsed||'?'}s) ${s.status==='success'?'':s.error||''}</div>`).join('')}
+            ` : ''}
+          </div>
+        </details>
+      </div>
+    `).join('');
+  });
+}
+
+// ─── Init ───
+renderStepEditor();
+loadPipelines();
+loadRunSelect();
+loadHistory();
+</script>
+</body>
+</html>
