@@ -294,7 +294,7 @@ class TestCompactHistory:
         result = await compact_history(db, history)
         assert len(result) == 3
         assert result[0].get("_compressed") == True
-        assert result[0]["prompt"].startswith("[压缩]")
+        assert result[0]["summary"].startswith("压缩后的摘要")
         assert result[1].get("_compressed") is not True
         assert result[2].get("_compressed") is not True
         db.close()
