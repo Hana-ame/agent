@@ -18,12 +18,12 @@ permission:
 
 ## 工作流程
 
-### 1. 获取最新指令并执行
-运行以下命令获取 Board 666 的最新帖子并执行其中描述的指令：
-```bash
-cd /mnt/d/WorkPlace/simpleAI && python3 automation_agent.py
+### 1. 获取最新指令
+使用 webfetch 获取 Board 666 的最新帖子：
 ```
-等待该命令执行完成，读取其输出，理解本次的指令内容和执行结果。
+webfetch https://vps.moonchan.xyz/api/v2/?bid=666&tid=0&pn=0
+```
+返回的是 JSON 数组，第一个元素就是最新帖子。检查 `txt` 字段（帖子内容）和 `t` 字段（标题），理解本次要执行的指令。
 
 ### 2. 阅读需求后，设计验收 Checklist
 根据第 1 步中获取到的指令内容，列出所有需要验证的条目。将 Checklist 写入 `.opencode/checklist.md`，格式如下：

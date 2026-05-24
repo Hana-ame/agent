@@ -23,6 +23,7 @@ from loop import (
     compact_history,
     loop1_abstract,
     loop2_jielong,
+    loop666_auto666,
     call_opencode,
     run_loop_instance,
     ABSTRACT_MODELS,
@@ -133,6 +134,15 @@ class TestLoadConfig:
         cfg.write_text(json.dumps({"type": "abstract"}), encoding="utf-8")
         with pytest.raises(ValueError, match="必须是 JSON 数组"):
             load_config(str(cfg))
+
+    def test_load_config_loop666_type(self, tmp_path):
+        cfg = tmp_path / "loop666.json"
+        cfg.write_text(json.dumps([
+            {"name": "loop666", "type": "loop666", "count": 1, "interval_seconds": 0},
+        ]), encoding="utf-8")
+        result = load_config(str(cfg))
+        assert len(result) == 1
+        assert result[0]["type"] == "loop666"
 
     def test_load_config_not_list_item(self, tmp_path):
         cfg = tmp_path / "bad_item.json"
@@ -566,6 +576,69 @@ class TestCallOpencode:
         assert "超时" in result["error"]
 
 
+# ── Loop 666: Auto666（async） ───────────────────────────────
+
+
+class TestLoop666Auto666:
+    @pytest.mark.asyncio
+    @patch("loop.call_opencode")
+    async def test_loop666_processes_latest_prompt(self, mock_call):
+        db = DataBase(TEST_DB)
+        ids = seed_test_data(db)
+
+        mock_call.return_value = {
+            "success": True,
+            "output": "任务完成",
+            "usage": {"input": 100, "output": 50, "total": 150},
+        }
+
+        results = await loop666_auto666(db, count=1)
+        assert len(results) == 1
+        assert results[0]["prompt_id"] == ids["id5"]  # latest
+        assert results[0]["request_id"] is not None
+        assert results[0]["success"] is True
+        req_rows = db.requests.Read()
+        assert len(req_rows) == 1
+        assert req_rows[0][2] == "Auto666"  # agent_name
+        db.close()
+
+    @pytest.mark.asyncio
+    @patch("loop.call_opencode")
+    async def test_loop666_handles_failure(self, mock_call):
+        db = DataBase(TEST_DB)
+        seed_test_data(db)
+
+        mock_call.return_value = {"success": False, "error": "执行失败"}
+
+        results = await loop666_auto666(db, count=1)
+        assert len(results) == 1
+        assert results[0]["success"] is False
+        db.close()
+
+    @pytest.mark.asyncio
+    async def test_loop666_no_prompts(self):
+        db = DataBase(TEST_DB)
+        results = await loop666_auto666(db, count=1)
+        assert results == []
+        db.close()
+
+    @pytest.mark.asyncio
+    @patch("loop.call_opencode")
+    async def test_loop666_count_negative_one(self, mock_call):
+        db = DataBase(TEST_DB)
+        seed_test_data(db)
+
+        mock_call.return_value = {
+            "success": True,
+            "output": "ok",
+            "usage": {},
+        }
+
+        results = await loop666_auto666(db, count=-1)
+        assert len(results) == 5
+        db.close()
+
+
 # ── 模型列表 ───────────────────────────────────────────────────
 
 
@@ -611,6 +684,20 @@ class TestRunLoopInstance:
         }
         await run_loop_instance(db, config)
         mock_loop2.assert_awaited_once_with(db, count=-1, models=["m1"])
+        db.close()
+
+    @pytest.mark.asyncio
+    @patch("loop.loop666_auto666")
+    async def test_run_loop_loop666_type(self, mock_loop666):
+        db = DataBase(TEST_DB)
+        mock_loop666.return_value = [{"prompt_id": 1, "success": True}]
+
+        config = {
+            "name": "test666", "type": "loop666",
+            "count": 1, "interval_seconds": 0, "enabled": True, "models": None,
+        }
+        await run_loop_instance(db, config)
+        mock_loop666.assert_awaited_once_with(db, count=1, models=None)
         db.close()
 
     @pytest.mark.asyncio

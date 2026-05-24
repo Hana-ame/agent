@@ -78,7 +78,7 @@ def load_config(path: str|None = None) -> list:
         if not isinstance(cfg, dict):
             raise ValueError(f"配置项 #{i} 必须是对象")
         typ = cfg.get("type")
-        if typ not in ("abstract", "jielong"):
+        if typ not in ("abstract", "jielong", "loop666"):
             raise ValueError(f"配置项 #{i} type='{typ}' 无效，必需是 abstract 或 jielong")
         cfg.setdefault("count", 1)
         cfg.setdefault("interval_seconds", 60)
@@ -400,13 +400,65 @@ async def loop2_jielong(db: DataBase, count: int = 1, models: list|None = None) 
     return results
 
 
+# ── Loop 666: Auto666 执行最新指令 ────────────────────────────────
+
+
+async def loop666_auto666(db: DataBase, count: int = 1, models: list|None = None) -> list:
+    results = []
+
+    rows = db.prompts.Read(order_by="id DESC")
+
+    if not rows:
+        print("[Loop666] 没有要处理的 prompt")
+        return results
+
+    selected = rows if count == -1 else rows[:count]
+    print(f"[Loop666] 找到 {len(rows)} 条，本次处理 {len(selected)} 条")
+
+    for row in selected:
+        prompt_id = row[0]
+        prompt_text = row[2] or ""
+
+        print(f"  [Loop666] prompt_id={prompt_id}")
+
+        start_time = datetime.now().isoformat()
+        oc_result = await call_opencode(prompt_text, agent="Auto666")
+        end_time = datetime.now().isoformat()
+
+        usage = oc_result.get("usage", {})
+        req_id = db.requests.Insert({
+            "prompt_id": prompt_id,
+            "agent_name": "Auto666",
+            "start_time": start_time,
+            "end_time": end_time,
+            "input_tokens": usage.get("input", 0),
+            "output_tokens": usage.get("output", 0),
+            "success": 1 if oc_result.get("success") else 0,
+            "include_history": 0,
+        })
+
+        results.append({
+            "prompt_id": prompt_id,
+            "request_id": req_id,
+            "success": bool(oc_result.get("success")),
+        })
+        print(f"    → req_id={req_id}, success={oc_result.get('success', False)}")
+
+    return results
+
+
 # ── 循环运行器 ─────────────────────────────────────────────────────
 
 
 async def run_loop_instance(db: DataBase, config: dict):
     name = config["name"]
     loop_type = config["type"]
-    fn = loop1_abstract if loop_type == "abstract" else loop2_jielong
+    if loop_type == "abstract":
+        fn = loop1_abstract
+    elif loop_type == "jielong":
+        fn = loop2_jielong
+    else:
+        fn = loop666_auto666
 
     count = config["count"]
     interval = config["interval_seconds"]
