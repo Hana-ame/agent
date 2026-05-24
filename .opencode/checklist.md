@@ -1,16 +1,16 @@
-# 验收 Checklist: 检查 Board 666 最新指令并执行
+# 验收 Checklist: 回答 which branch
 
 ## 默认条目
 - [x] 代码无语法错误，能正常运行
 - [x] 所有新增/修改文件已保存
 - [x] 已执行相关测试（如有）
 - [x] 停止前已 `git add` 并 `git commit`
-- ] 停止前已 `git push`（如有远程）
+- [ ] 停止前已 `git push`（如有远程）
 - [x] 已向 Board 666 回复执行结果
 
 ## 本次任务条目
-- [x] 已获取 Board 666 最新帖子并按 ts 降序排序
-- [x] 最新帖子 no.190130 指令已确认：「修改opencode agents auto 666，要求回复按照时间排序最新的」
-- [x] 已验证 Auto666.md 已包含完整的排序规则（重要原则、强制排序规则、排序验证步骤）
-- [x] 已验证所有嵌套回复列表也已按 ts 降序排列
-- [x] 确认无待处理的新指令
+- [x] 确认最新帖子 no.190138「which branch」已处理
+- [x] 向 Board 666 回复当前 git branch 信息
+- [x] 回复内容包含 branch 名称（cell-agent）
+- [x] 回复内容包含最近 commit 摘要
+- [x] 数据已按 ts 降序排序处理
