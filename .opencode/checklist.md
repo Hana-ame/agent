@@ -4,9 +4,9 @@
 - [x] 代码无语法错误，能正常运行
 - [x] 所有新增/修改文件已保存
 - [x] 已执行相关测试（语法检查）
-- [ ] 停止前已 `git add` 并 `git commit`
-- [ ] 停止前已 `git push`（如有远程）
-- [ ] 已向 Board 666 回复执行结果
+- [x] 停止前已 `git add` 并 `git commit`
+- [x] 停止前已 `git push`（有远程）
+- [x] 已向 Board 666 回复执行结果
 
 ## 本次任务条目
 - [x] loop666.py: 在 result reporting 后再次 fetch 保存最新状态（第 28-31 行）

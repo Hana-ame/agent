@@ -1,5 +1,7 @@
 import subprocess
 import json
+import sys
+import threading
 from pathlib import Path
 
 
@@ -18,11 +20,16 @@ class Opencode:
 
     def _run_command(self, cmd):
         # 使用 subprocess.run 替代 os.system，可以捕获 stdout/stderr 并返回结果
+        print(f"[Debug] 执行命令: {' '.join(cmd)}")
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
         )
+        if result.stdout:
+            print(f"[Debug] stdout: {result.stdout}")
+        if result.stderr:
+            print(f"[Debug] stderr: {result.stderr}")
         return result
 
     def list_models(self):
