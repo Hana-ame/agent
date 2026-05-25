@@ -1,36 +1,133 @@
+import json
+import subprocess
 import time
-import requests
-from opencode import Opencode
+from datetime import datetime, timezone
+from board_api import request_board
+from pathlib import Path
 
-oc = Opencode()
-previous_content = None
+BASE_DIR = Path(__file__).parent
 
-while True:
-    print("[Loop666] 检查 API...")
-    try:
-        response = requests.get("https://vps.moonchan.xyz/api/v2/?bid=666&tid=0&pn=0")
-        current_content = response.text
 
-        if current_content == previous_content:
-            print("[Loop666] 内容无变化，跳过本次运行。")
-            time.sleep(60)
+def is_process_running(name):
+    result = subprocess.run(
+        ["pgrep", "-f", name],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0
+
+
+def start_loop_py():
+    log_path = BASE_DIR / "loop.log"
+    cmd = f"nohup python3 loop.py > {log_path} 2>&1 &"
+    subprocess.Popen(cmd, shell=True)
+    print("[Loop666] loop.py 已启动")
+
+
+def run_restart_script():
+    script = BASE_DIR / "restart_loop666.sh"
+    subprocess.run(["bash", str(script)])
+    print("[Loop666] restart_loop666.sh 已执行")
+
+
+def reply_to_topic(bid, tid, name, content):
+    script = Path("/home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py")
+    cmd = [
+        "python3", str(script), "reply",
+        str(bid), str(tid), name, content,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    return result
+
+
+def find_restart_command(data, after_ts):
+    """遍历板块内容，查找包含 [restart 666] 且时间戳晚于 after_ts 的帖子。
+    
+    返回: (no, id, tid) 或 None
+    """
+    for thread in data:
+        ts = thread.get("ts", "")
+        no = thread.get("no", 0)
+        tid = no  # thread no 即 topic ID
+        txt = thread.get("txt") or ""
+
+        if ts > after_ts and "[restart 666]" in txt:
+            return (no, thread.get("id"), tid)
+
+        # 检查回复列表
+        for reply in thread.get("list", []):
+            rts = reply.get("ts", "")
+            rtxt = reply.get("txt") or ""
+            if rts > after_ts and "[restart 666]" in rtxt:
+                return (reply.get("no"), reply.get("id"), tid)
+
+    return None
+
+
+# ── 启动检查 ────────────────────────────────────────────────────────
+
+
+def main():
+    print("[Loop666] 检查 loop.py 进程状态...")
+    if not is_process_running("loop.py"):
+        print("[Loop666] loop.py 未运行，尝试启动...")
+        start_loop_py()
+    else:
+        print("[Loop666] loop.py 已在运行")
+
+    # 记录初始时间戳（UTC ISO 8601）
+    stored_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"[Loop666] 初始时间戳: {stored_ts}")
+
+    # ── 主循环 ──────────────────────────────────────────────────────
+
+    while True:
+        print("[Loop666] 检查 Board 666...")
+
+        try:
+            raw = request_board(bid=666)
+        except RuntimeError as e:
+            print(f"[Loop666] 获取失败: {e}")
+            time.sleep(30)
             continue
 
-        previous_content = current_content
-        print("[Loop666] 内容已更新，执行 Auto666 任务...")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            print(f"[Loop666] JSON 解析失败: {e}")
+            time.sleep(30)
+            continue
 
-        result = oc.run_prompt(
-            "检查 Board 666 的最新帖子，获取其中的指令并执行。然后向 Board 666 回复执行结果。",
-            agent="Auto666",
-        )
-        print(f"[Loop666] 结果:\n{result}")
+        # 更新存活标记
+        (BASE_DIR / ".last_update").touch()
 
-        # 在 result reporting 后再次 fetch 保存最新状态，避免 Auto666 的回复触发自身
-        response = requests.get("https://vps.moonchan.xyz/api/v2/?bid=666&tid=0&pn=0")
-        previous_content = response.text
-        print("[Loop666] 已刷新最新状态，避免自触发。")
-    except Exception as e:
-        print(f"[Loop666] 错误: {e}")
-    print("[Loop666] 等待 60 秒后重新检查...")
-    time.sleep(60)
+        found = find_restart_command(data, stored_ts)
 
+        if found:
+            no, author_id, tid = found
+            print(f"[Loop666] 发现 [restart 666] 指令: no={no}, tid={tid}")
+
+            # 回复确认
+            reply_text = (
+                f"## Loop666 重启报告\n\n"
+                f"检测到 [restart 666] 指令（no.{no}），正在执行重启...\n\n"
+                f"#loop666 #重启"
+            )
+            reply_to_topic(666, tid, "Loop666", reply_text)
+            print(f"[Loop666] 已回复 no.{tid} 确认重启")
+
+            # 执行重启脚本（会杀掉当前 loop666 进程并启动新实例）
+            run_restart_script()
+
+            # 更新时间戳
+            stored_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            print(f"[Loop666] 时间戳已更新: {stored_ts}")
+
+            # 注意：restart_loop666.sh 会杀掉当前进程，因此不会继续执行
+        else:
+            print("[Loop666] 未发现 [restart 666] 指令")
+
+        time.sleep(60)
+
+
+if __name__ == "__main__":
+    main()

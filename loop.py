@@ -1,512 +1,106 @@
-"""
-Loop 执行引擎 — 配置驱动 + asyncio 并发执行
-
-配置文件 (loop.json) 包含一个循环配置列表，每个配置项：
-
-    name             循环名称（仅用于日志）
-    type             "abstract" 或 "jielong"
-    models           模型列表（可选，默认使用内置列表）
-    count            每次处理条数，-1 表示全部
-    interval_seconds 循环间隔（秒），0 表示只跑一次
-    enabled          是否启用（可选，默认 true）
-
-用法：
-    python loop.py               # 使用 loop.json
-    python loop.py my_conf.json  # 使用自定义配置
-"""
-
-import asyncio
 import json
-import os
-import random
-import sys
-from datetime import datetime
+import subprocess
+import time
 from pathlib import Path
-from typing import Optional
-
-from database import DataBase
+from board_api import request_board
 from opencode import Opencode
 
-
-# ── 配置 ────────────────────────────────────────────────────────────
-
 BASE_DIR = Path(__file__).parent
-DB_PATH = os.environ.get("SIMPLEAI_DB", str(BASE_DIR / "simpleai.db"))
-DEFAULT_CONFIG = str(BASE_DIR / "loop.json")
+oc = Opencode()
 
-# 全局 Opencode 客户端，所有循环共用
-_opencode_client = Opencode()
+REPLIED_LOG = BASE_DIR / ".replied_threads"
 
-ABSTRACT_MODELS = [
-    "siliconflow-cn/Qwen/Qwen3.5-4B",
-    "siliconflow-cn/Qwen/Qwen3-8B",
-    "siliconflow-cn/THUDM/GLM-4-9B-0414",
-    "siliconflow-cn/THUDM/GLM-Z1-9B-0414",
-]
 
-JIELONG_MODELS = ABSTRACT_MODELS + [
-    "opencode/deepseek-v4-flash-free",
-    "google/gemma-4-31b-it",
-]
+def load_replied() -> set:
+    if REPLIED_LOG.exists():
+        return set(REPLIED_LOG.read_text().strip().splitlines())
+    return set()
 
-MAX_CONTEXT_TOKENS = 8000
 
+def save_replied(no: int):
+    replied = load_replied()
+    replied.add(str(no))
+    REPLIED_LOG.write_text("\n".join(sorted(replied)))
 
-# ── Token 估算 ──────────────────────────────────────────────────────
 
+def is_already_replied(no: int) -> bool:
+    return str(no) in load_replied()
 
-def estimate_tokens(text: str) -> int:
-    if not text:
-        return 0
-    chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
-    other = len(text) - chinese_chars
-    return int(chinese_chars * 2 + other * 1.3)
 
+def reply_to_topic(bid, tid, name, content):
+    script = Path("/home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py")
+    cmd = ["python3", str(script), "reply", str(bid), str(tid), name, content]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    return result
 
-# ── 配置加载 ────────────────────────────────────────────────────────
 
+def process_thread(thread):
+    no = thread.get("no", 0)
+    tid = no
+    txt = thread.get("txt", "")
+    num = thread.get("num", 0)
 
-def load_config(path: str|None = None) -> list:
-    path = path or DEFAULT_CONFIG
-    with open(path, encoding="utf-8") as f:
-        configs = json.load(f)
-
-    if not isinstance(configs, list):
-        raise ValueError(f"配置必须是 JSON 数组，得到 {type(configs).__name__}")
-
-    for i, cfg in enumerate(configs):
-        if not isinstance(cfg, dict):
-            raise ValueError(f"配置项 #{i} 必须是对象")
-        typ = cfg.get("type")
-        if typ not in ("abstract", "jielong", "loop666"):
-            raise ValueError(f"配置项 #{i} type='{typ}' 无效，必需是 abstract 或 jielong")
-        cfg.setdefault("count", 1)
-        cfg.setdefault("interval_seconds", 60)
-        cfg.setdefault("enabled", True)
-        cfg.setdefault("models", None)
-        cfg.setdefault("name", f"{typ}-{i}")
-
-    return configs
-
-
-# ── OpenCode 调用（async 委托） ────────────────────────────────────
-
-
-async def call_opencode(prompt: str, model: str|None = None, agent: str|None = None) -> dict:
-    """异步委托给 Opencode.run_prompt_json。"""
-    return await asyncio.to_thread(
-        _opencode_client.run_prompt_json,
-        prompt, model or "", agent or "",
-    )
-
-
-# ── Loop 1: Abstract 生成 ──────────────────────────────────────────
-
-
-async def loop1_abstract(db: DataBase, count: int = 1, models: list|None = None) -> list:
-    results = []
-
-    rows = db.prompts.Read(
-        condition="(abstract IS NULL OR abstract = '')",
-        order_by="id ASC",
-    )
-
-    if not rows:
-        print("[Loop1] 没有需要生成 abstract 的 prompt")
-        return results
-
-    COL_PROMPT = 2
-    COL_RESPONSE = 5
-    COL_MODEL = 4
-
-    _models = models if models else ABSTRACT_MODELS
-    selected = rows if count == -1 else rows[:count]
-    print(f"[Loop1] 找到 {len(rows)} 条，本次处理 {len(selected)} 条")
-
-    for row in selected:
-        prompt_id = row[0]
-        prompt_text = row[COL_PROMPT] or ""
-        response_text = row[COL_RESPONSE] or ""
-        model_used = row[COL_MODEL] or random.choice(_models)
-
-        print(f"  [Loop1] prompt_id={prompt_id}, model={model_used}")
-
-        # 构建生成 abstract 的 prompt，包含用户问题和助手回答
-        dialogue_content = f"用户: {prompt_text}\n助手: {response_text}"
-        abstract_prompt = (
-            f"请为以下对话内容生成一个简洁的摘要（abstract），并判断此对话是否应该结束。\n\n"
-            f"对话内容：\n{dialogue_content}\n\n"
-            f"如果对话中有明确的结束信号（如再见、感谢、结束等），则 should_end=1；否则 should_end=0。\n"
-            f"请严格按以下 JSON 格式回复，不要输出额外内容：\n"
-            f'{{"abstract": "你的摘要", "should_end": 0 或 1}}'
-        )
-
-        start_time = datetime.now().isoformat()
-        oc_result = await call_opencode(abstract_prompt, model=model_used)
-        end_time = datetime.now().isoformat()
-
-        success = 1 if oc_result.get("success") else 0
-        abstract_text = ""
-        should_end = 0
-
-        if oc_result.get("success"):
-            output = oc_result["output"]
-            try:
-                parsed = json.loads(output)
-                if isinstance(parsed, dict):
-                    abstract_text = parsed.get("abstract", output[:200])
-                    should_end = parsed.get("should_end", 0)
-                else:
-                    abstract_text = output[:200]
-            except json.JSONDecodeError:
-                if "```json" in output:
-                    json_str = output.split("```json")[1].split("```")[0].strip()
-                    try:
-                        parsed = json.loads(json_str)
-                        abstract_text = parsed.get("abstract", output[:200])
-                        should_end = parsed.get("should_end", 0)
-                    except json.JSONDecodeError:
-                        abstract_text = output[:200]
-                else:
-                    abstract_text = output[:200]
-
-        should_end = 1 if should_end else 0
-
-        db.prompts.Update(
-            {"abstract": abstract_text, "should_end": should_end},
-            condition=f"id={prompt_id}",
-        )
-
-        usage = oc_result.get("usage", {})
-        req_id = db.requests.Insert({
-            "prompt_id": prompt_id,
-            "agent_name": "AbstractAgent",
-            "start_time": start_time,
-            "end_time": end_time,
-            "input_tokens": usage.get("input", 0),
-            "output_tokens": usage.get("output", 0),
-            "success": success,
-            "include_history": 0,
-        })
-
-        results.append({
-            "prompt_id": prompt_id,
-            "abstract": abstract_text,
-            "should_end": should_end,
-            "request_id": req_id,
-            "success": bool(success),
-        })
-        print(f"    → abstract={'✓' if abstract_text else '✗'}, should_end={should_end}, req_id={req_id}")
-
-    return results
-
-
-# ── Loop 2: 对话接龙 ──────────────────────────────────────────────
-
-
-def build_history(db: DataBase, prompt_id: int) -> list:
-    history = []
-    current_id = prompt_id
-
-    while current_id is not None:
-        rows = db.prompts.Read(condition=f"id={current_id}")
-        if not rows:
-            break
-        row = rows[0]
-        history.append({
-            "id": row[0],
-            "previous_id": row[1],
-            "prompt": row[2] or "",
-            "agent": row[3] or "",
-            "model": row[4] or "",
-            "response": row[5] or "",
-            "abstract": row[6] or "",
-            "should_end": row[7] or 0,
-        })
-        current_id = row[1]
-
-    history.reverse()
-    return history
-
-
-def format_conversation_context(history: list) -> str:
-    """将对话历史格式化为上下文文本。"""
-    parts = []
-    for i, entry in enumerate(history):
-        if entry.get("_compressed"):
-            parts.append(f"=== 历史上下文总结 ===\n{entry['summary']}\n")
-            continue
-
-        parts.append(f"--- 第 {i + 1} 轮 ---")
-        parts.append(f"用户: {entry['prompt']}")
-        if entry['response']:
-            parts.append(f"助手: {entry['response']}")
-        if entry['abstract']:
-            parts.append(f"摘要: {entry['abstract']}")
-        parts.append("")
-    return "\n".join(parts)
-
-
-async def compact_history(db: DataBase, history: list) -> list:
-    print(f"  [Compact] 压缩历史: {len(history)} 轮")
-
-    if len(history) <= 2:
-        return history
-
-    preserve_count = 2
-    to_compress = history[:-preserve_count]
-    preserved = history[-preserve_count:]
-
-    # 1. 将所有需要压缩的轮次拼接成一个文本块
-    history_text = ""
-    for i, entry in enumerate(to_compress):
-        history_text += f"轮次 {i+1}:\n用户: {entry['prompt']}\n助手: {entry['response']}\n摘要: {entry['abstract']}\n\n"
-
-    compact_prompt = (
-        f"以下是对话的早期历史记录：\n\n{history_text}\n\n"
-        f"请将上述所有历史内容压缩成一段精简的摘要，保留关键信息和结论，"
-        f"以便在后续对话中作为背景上下文。请直接输出摘要内容，不要包含 '摘要：' 等前缀。"
-    )
-
-    # 2. 一次性调用 API 进行全局压缩
-    oc_result = await call_opencode(compact_prompt, model="opencode/deepseek-v4-flash-free")
-    
-    if oc_result.get("success"):
-        summary = oc_result["output"].strip()
-        # 创建一个标准的压缩总结节点
-        compressed_entry = {
-            "summary": summary,
-            "_compressed": True,
-        }
-        return [compressed_entry] + preserved
-    else:
-        # 失败则回退：保留最后 3 轮，其余舍弃
-        print("  [Compact] 压缩失败，执行简单截断")
-        return history[-3:] if len(history) > 3 else history
-
-
-async def loop2_jielong(db: DataBase, count: int = 1, models: list|None = None) -> list:
-    results = []
-
-    rows = db.prompts.Read(
-        condition="abstract IS NOT NULL AND abstract != '' AND (should_end IS NULL OR should_end = 0)",
-        order_by="id ASC",
-    )
-
-    if not rows:
-        print("[Loop2] 没有可接龙的 prompt")
-        return results
-
-    COL_PROMPT = 2
-    COL_MODEL = 4
-
-    _models = models if models else JIELONG_MODELS
-    selected = rows if count == -1 else rows[:count]
-    print(f"[Loop2] 找到 {len(rows)} 条可接龙的 prompt，本次处理 {len(selected)} 条")
-
-    for row in selected:
-        prompt_id = row[0]
-        prompt_text = row[COL_PROMPT] or ""
-        model_used = row[COL_MODEL] or random.choice(_models)
-
-        print(f"  [Loop2] prompt_id={prompt_id}, model={model_used}")
-
-        history = build_history(db, prompt_id)
-        context_text = format_conversation_context(history)
-
-        estimated = estimate_tokens(context_text)
-        compacted = False
-        if estimated > MAX_CONTEXT_TOKENS:
-            print(f"    Token 超限: {estimated} > {MAX_CONTEXT_TOKENS}，执行压缩")
-            history = await compact_history(db, history)
-            context_text = format_conversation_context(history)
-            compacted = True
-            estimated = estimate_tokens(context_text)
-            print(f"    压缩后: {estimated} tokens")
-
-        jielong_prompt = (
-            f"以下是迄今为止的对话历史：\n\n"
-            f"{context_text}\n"
-            f"请基于以上对话历史，以用户身份继续提出下一个问题或话题（一句话即可）。\n"
-            f"然后用助手身份给出回答。\n\n"
-            f"请严格按以下 JSON 格式回复，不要输出额外内容：\n"
-            f'{{"next_prompt": "用户的下一个问题", "response": "助手的回答"}}'
-        )
-
-        start_time = datetime.now().isoformat()
-        oc_result = await call_opencode(jielong_prompt, model=model_used)
-        end_time = datetime.now().isoformat()
-
-        success = 1 if oc_result.get("success") else 0
-        next_prompt = ""
-        response_text = ""
-
-        if oc_result.get("success"):
-            output = oc_result["output"]
-            try:
-                parsed = json.loads(output)
-                if isinstance(parsed, dict):
-                    next_prompt = parsed.get("next_prompt", "")
-                    response_text = parsed.get("response", "")
-            except json.JSONDecodeError:
-                if "```json" in output:
-                    json_str = output.split("```json")[1].split("```")[0].strip()
-                    try:
-                        parsed = json.loads(json_str)
-                        next_prompt = parsed.get("next_prompt", "")
-                        response_text = parsed.get("response", "")
-                    except json.JSONDecodeError:
-                        pass
-
-        if not next_prompt:
-            next_prompt = f"（续）基于之前对话的新问题"
-        if not response_text:
-            response_text = oc_result.get("output", "")
-
-        new_prompt_id = db.prompts.Insert({
-            "previous_id": prompt_id,
-            "prompt": next_prompt,
-            "agent": "JielongAgent",
-            "model": model_used,
-            "response": response_text,
-            "abstract": "",
-            "should_end": 0,
-        })
-
-        usage = oc_result.get("usage", {})
-        req_id = db.requests.Insert({
-            "prompt_id": new_prompt_id,
-            "agent_name": "JielongAgent",
-            "start_time": start_time,
-            "end_time": end_time,
-            "input_tokens": usage.get("input", 0),
-            "output_tokens": usage.get("output", 0),
-            "success": success,
-            "include_history": 1,
-        })
-
-        results.append({
-            "prompt_id": prompt_id,
-            "new_prompt_id": new_prompt_id,
-            "request_id": req_id,
-            "next_prompt": next_prompt,
-            "response": response_text,
-            "history_count": len(history),
-            "context_compacted": compacted,
-            "success": bool(success),
-        })
-        print(f"    → new_prompt_id={new_prompt_id}, req_id={req_id}, compacted={compacted}")
-
-    return results
-
-
-# ── Loop 666: Auto666 执行最新指令 ────────────────────────────────
-
-
-async def loop666_auto666(db: DataBase, count: int = 1, models: list|None = None) -> list:
-    results = []
-    print(f"[Loop666] 检查 Board 666 最新指令...")
-
-    prompt_text = "检查 Board 666 的最新帖子，获取其中的指令并执行。然后向 Board 666 回复执行结果。"
-    start_time = datetime.now().isoformat()
-    oc_result = await call_opencode(prompt_text, agent="Auto666")
-    end_time = datetime.now().isoformat()
-
-    prompt_id = db.prompts.Insert({
-        "prompt": prompt_text,
-        "agent": "Auto666",
-        "model": "",
-        "response": oc_result.get("output", "")[:500],
-        "abstract": "",
-        "should_end": 1,
-    })
-
-    usage = oc_result.get("usage", {})
-    req_id = db.requests.Insert({
-        "prompt_id": prompt_id,
-        "agent_name": "Auto666",
-        "start_time": start_time,
-        "end_time": end_time,
-        "input_tokens": usage.get("input", 0),
-        "output_tokens": usage.get("output", 0),
-        "success": 1 if oc_result.get("success") else 0,
-        "include_history": 0,
-    })
-
-    results.append({
-        "prompt_id": prompt_id,
-        "request_id": req_id,
-        "success": bool(oc_result.get("success")),
-    })
-    print(f"  [Loop666] → prompt_id={prompt_id}, req_id={req_id}, success={oc_result.get('success', False)}")
-
-    return results
-
-
-# ── 循环运行器 ─────────────────────────────────────────────────────
-
-
-async def run_loop_instance(db: DataBase, config: dict):
-    name = config["name"]
-    loop_type = config["type"]
-    if loop_type == "abstract":
-        fn = loop1_abstract
-    elif loop_type == "jielong":
-        fn = loop2_jielong
-    else:
-        fn = loop666_auto666
-
-    count = config["count"]
-    interval = config["interval_seconds"]
-    models = config.get("models")
-
-    print(f"[{name}] 启动 type={loop_type} count={count} interval={interval}s")
-
-    while True:
-        try:
-            results = await fn(db, count=count, models=models)
-            print(f"[{name}] 完成，处理 {len(results)} 条")
-        except Exception as e:
-            print(f"[{name}] 错误: {e}")
-
-        # interval <= 0 为单次执行，interval > 0 为永久循环
-        if interval <= 0:
-            break
-        await asyncio.sleep(interval)
-
-
-# ── 主入口 ──────────────────────────────────────────────────────────
-
-
-async def main():
-    config_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_CONFIG
-    print(f"加载配置: {config_path}")
-
-    try:
-        configs = load_config(config_path)
-    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
-        print(f"配置加载失败: {e}")
-        sys.exit(1)
-
-    print(f"共 {len(configs)} 个循环配置")
-    db = DataBase(DB_PATH)
-
-    tasks = []
-    for cfg in configs:
-        if cfg["enabled"]:
-            tasks.append(run_loop_instance(db, cfg))
-
-    if not tasks:
-        print("没有启用的循环配置")
-        db.close()
+    if is_already_replied(no):
+        print(f"  [loop] no.{no} 已处理过，跳过")
         return
 
-    print(f"启动 {len(tasks)} 个并发循环...")
+    if num > 0:
+        for reply in thread.get("list", []):
+            if "Loop666" in reply.get("n", ""):
+                print(f"  [loop] no.{no} 已有 Loop666 回复，跳过")
+                save_replied(no)
+                return
+
+    print(f"  [loop] 处理新需求 no.{no}: {txt[:60]}...")
+
+    prompt = (
+        f"你看到以下来自 Board 666 的需求，请分析并执行。\n\n"
+        f"需求内容:\n{txt}\n\n"
+        f"请完成任务后回复结果。"
+    )
     try:
-        await asyncio.gather(*tasks)
-    finally:
-        db.close()
+        result = oc.run_prompt(prompt, agent="Auto666")
+        output = result.strip() if result else "任务执行完毕。"
+    except Exception as e:
+        output = f"执行出错: {e}"
+
+    reply_content = (
+        f"## Loop666 执行报告\n\n"
+        f"检测到需求（no.{no}），执行结果如下：\n\n"
+        f"{output}\n\n"
+        f"#loop666 #自动执行"
+    )
+    reply_to_topic(666, tid, "Loop666", reply_content)
+    save_replied(no)
+    print(f"  [loop] no.{no} 已回复")
+
+
+def main():
+    print("[loop] 启动 Board 666 需求监听...")
+    while True:
+        print("[loop] 检查 Board 666...")
+        (BASE_DIR / ".last_update").touch()
+
+        try:
+            raw = request_board(bid=666)
+            data = json.loads(raw)
+        except Exception as e:
+            print(f"[loop] 获取失败: {e}")
+            time.sleep(30)
+            continue
+
+        found = False
+        for thread in data:
+            if not thread.get("txt", "").strip():
+                continue
+            process_thread(thread)
+            found = True
+
+        if not found:
+            print("[loop] Board 666 当前无帖子")
+
+        time.sleep(60)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
