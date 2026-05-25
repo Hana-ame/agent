@@ -239,6 +239,9 @@ async def proxy(request: Request, rest: str):
         # override max output to 256k
         body_json["max_tokens"] = 256000
         body_json.pop("max_completion_tokens", None)
+        # strip thinking params that Gemma models don't support
+        for k in ("reasoning_effort", "thinking", "thinking_level"):
+            body_json.pop(k, None)
         body = json.dumps(body_json, ensure_ascii=False).encode()
     except Exception:
         pass
