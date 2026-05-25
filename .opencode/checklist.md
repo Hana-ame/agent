@@ -1,18 +1,16 @@
-# 验收 Checklist: 检查 Board 666 最新指令并执行
+# 验收 Checklist: 修复 loop666.py 自触发问题 + 创建重启脚本
 
 ## 默认条目
 - [x] 代码无语法错误，能正常运行
 - [x] 所有新增/修改文件已保存
-- [x] 已执行相关测试（如有）
-- [x] 停止前已 `git add` 并 `git commit`
-- [x] 停止前已 `git push`（如有远程）
-- [x] 已向 Board 666 回复执行结果
+- [x] 已执行相关测试（语法检查）
+- [ ] 停止前已 `git add` 并 `git commit`
+- [ ] 停止前已 `git push`（如有远程）
+- [ ] 已向 Board 666 回复执行结果
 
 ## 本次任务条目
-- [x] 从 Board 666 获取最新帖子数据
-- [x] 主帖数组已按 ts 降序排列（最新在最前）
-- [x] 嵌套回复列表已按 ts 降序排列
-- [x] 排序已验证：第一条 ts 为所有记录中最大
-- [x] 分析最新帖子内容，确认是否有待执行指令
-- [x] 无待执行新指令，所有历史指令均已处理完毕
-- [x] 已向 Board 666 回复执行报告
+- [x] loop666.py: 在 result reporting 后再次 fetch 保存最新状态（第 28-31 行）
+- [x] loop666.py: 原逻辑保持不变，仅在 Auto666 执行后追加 fetch 刷新
+- [x] restart_loop666.sh: 正确 kill 旧 loop666 进程
+- [x] restart_loop666.sh: 以 nohup & 形式启动新 loop666
+- [x] restart_loop666.sh: 脚本有执行权限（chmod +x）

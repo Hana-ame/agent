@@ -24,6 +24,11 @@ while True:
             agent="Auto666",
         )
         print(f"[Loop666] 结果:\n{result}")
+
+        # 在 result reporting 后再次 fetch 保存最新状态，避免 Auto666 的回复触发自身
+        response = requests.get("https://vps.moonchan.xyz/api/v2/?bid=666&tid=0&pn=0")
+        previous_content = response.text
+        print("[Loop666] 已刷新最新状态，避免自触发。")
     except Exception as e:
         print(f"[Loop666] 错误: {e}")
     print("[Loop666] 等待 60 秒后重新检查...")
