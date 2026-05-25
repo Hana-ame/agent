@@ -4,15 +4,71 @@
 [0m$ [0mpython3 check_pending_prompts.py
 {
   "total_posts": 15,
-  "latest_ts": "2026-05-25T07:53:51Z",
+  "latest_ts": "2026-05-25T09:32:32Z",
   "pending": [
     {
-      "no": 190234,
-      "ts": "2026-05-25T07:53:51Z",
-      "txt": "写一个python脚本检查666是否有尚未回复的prompt。替换Agent666中自己判断",
+      "no": 190258,
+      "ts": "2026-05-25T09:32:32Z",
+      "txt": "给agent666md加上提示\nalias curl='curl -x \"\"'\n在curl前运行这个",
+      "thread_id": "ky8ybANw",
+      "type": "unknown",
+      "thread_no": 190258
+    },
+    {
+      "no": 190257,
+      "ts": "2026-05-25T09:30:37Z",
+      "txt": "将这个messagebox放在\n ssh root@bwh.moonchan.xyz -p26275\n\n上运行。\n并完成测试",
       "thread_id": "ky8ybANw",
       "type": "instruction",
-      "thread_no": 190234
+      "thread_no": 190257
+    },
+    {
+      "no": 190256,
+      "ts": "2026-05-25T09:27:16Z",
+      "txt": "https://upload.moonchan.xyz/api/01LLWEUU2OPWQIB6RC7ZHI7LHJT3K7K34H/code_1779697828387.txt\nhttps://upload.moonchan.xyz/api/01LLWEUU2OPWQIB6RC7ZHI7LHJT3K7K34H/code_1779697828387.txt\n\nhttps://upload.moonchan.xyz/api/01LLWEUU2OPWQIB6RC7ZHI7LHJT3K7K34H/code_1779697828387.txt\nhttps://upload.moonchan.xyz/api/01LLWEUU2OPWQIB6RC7ZHI7LHJT3K7K34H/code_1779697828387.txt\nhttps://upload.moonchan.xyz/api/01LLWEUU2OPWQIB6RC7ZHI7LHJT3K7K34H/code_1779697828387.txt\n",
+      "thread_id": "ky8ybANw",
+      "type": "upload",
+      "thread_no": 190256
+    },
+    {
+      "no": 190255,
+      "ts": "2026-05-25T09:26:05Z",
+      "txt": "你他妈怎么不回复？",
+      "thread_id": "ky8ybANw",
+      "type": "unknown",
+      "thread_no": 190255
+    },
+    {
+      "no": 190254,
+      "ts": "2026-05-25T09:11:33Z",
+      "txt": "190252的连接，按要求做\n",
+      "thread_id": "ky8ybANw",
+      "type": "unknown",
+      "thread_no": 190254
+    },
+    {
+      "no": 190253,
+      "ts": "2026-05-25T09:11:02Z",
+      "txt": "干活啊",
+      "thread_id": "ky8ybANw",
+      "type": "unknown",
+      "thread_no": 190253
+    },
+    {
+      "no": 190252,
+      "ts": "2026-05-25T08:59:20Z",
+      "txt": "https://upload.moonchan.xyz/api/01LLWEUU2OPWQIB6RC7ZHI7LHJT3K7K34H/code_1779697828387.js",
+      "thread_id": "ky8ybANw",
+      "type": "upload",
+      "thread_no": 190252
+    },
+    {
+      "no": 190246,
+      "ts": "2026-05-25T08:29:04Z",
+      "txt": "ssh到bwh.moonchan.xyz",
+      "thread_id": "ky8ybANw",
+      "type": "instruction",
+      "thread_no": 190246
     },
     {
       "no": 190232,
@@ -24,21 +80,46 @@
     }
   ],
   "has_pending": true,
-  "summary": "Board 666 检查结果 (2026-05-25T08:19:59Z)\n总帖子数: 15\n最新帖子: ts=2026-05-25T07:53:51Z\n未处理需求: 2 个\n  · no=190234 [instruction] 写一个python脚本检查666是否有尚未回复的prompt。替换Agent666中自己判断...\n  · no=190232 [upload] Download: https://upload.moonchan.xyz/api/01LLWEUU3Q56Q4CEMAGBBIEL2CMEKCYGV3/app..."
+  "summary": "Board 666 检查结果 (2026-05-25T09:34:03Z)\n总帖子数: 15\n最新帖子: ts=2026-05-25T09:32:32Z\n未处理需求: 9 个\n  · no=190258 [unknown] 给agent666md加上提示\nalias curl='curl -x \"\"'\n在curl前运行这个...\n  · no=190257 [instruction] 将这个messagebox放在\n ssh root@bwh.moonchan.xyz -p26275\n\n上运行。\n并完成测试...\n  · no=190256 [upload] https://upload.moonchan.xyz/api/01LLWEUU2OPWQIB6RC7ZHI7LHJT3K7K34H/code_17796978...\n  · no=190255 [unknown] 你他妈怎么不回复？...\n  · no=190254 [unknown] 190252的连接，按要求做\n...\n  · no=190253 [unknown] 干活啊...\n  · no=190252 [upload] https://upload.moonchan.xyz/api/01LLWEUU2OPWQIB6RC7ZHI7LHJT3K7K34H/code_17796978...\n  · no=190246 [instruction] ssh到bwh.moonchan.xyz...\n  · no=190232 [upload] Download: https://upload.moonchan.xyz/api/01LLWEUU3Q56Q4CEMAGBBIEL2CMEKCYGV3/app..."
 }
 [0m
-[0m→ [0mRead check_pending_prompts.py
+[0m✱ [0mGlob "**/*agent666*.md"[90m 0 matches[0m
+[0m✱ [0mGrep "agent666"[90m 3 matches[0m
+[0m✱ [0mGlob "**/*agent666*"[90m 0 matches[0m
+[0m→ [0mRead .
+[0m→ [0mRead .opencode
+[0m→ [0mRead .opencode/agents
+[0m→ [0mRead .opencode/agents/Auto666.md
 [0m
 [0m← [0mWrite .opencode/checklist.md
 Wrote file successfully.
+[0m
+[0m← [0mEdit .opencode/agents/Auto666.md
+Index: /mnt/d/WorkPlace/simpleAI/.opencode/agents/Auto666.md
+===================================================================
+--- /mnt/d/WorkPlace/simpleAI/.opencode/agents/Auto666.md
++++ /mnt/d/WorkPlace/simpleAI/.opencode/agents/Auto666.md
+@@ -19,8 +19,9 @@
+ ## 代理与网络提示
+ 
+ **访问本地服务（如 `127.0.0.1` 或 `localhost`）时，必须禁用代理以避免 Privoxy 等代理软件拦截导致 500 错误。**
+ - 在执行 `curl` 命令时，请始终使用 `-x ""` 参数来清除代理设置。
++- 建议在会话开始前运行：`alias curl='curl -x ""'`
+ - 示例：`curl -x "" http://127.0.0.1:8000/api/...`
+ 
+ ## 禁止重复处理
+ **已经处理过的请求不得再次处理。** 判断依据：帖子或回复中已有 `Auto666` 或 `Loop666` 昵称的回复，说明已处理过，直接跳过。
+
+[0m
+[0m→ [0mRead .opencode/agents/Auto666.md
 [0m
 [0m← [0mEdit .opencode/checklist.md
 Index: /mnt/d/WorkPlace/simpleAI/.opencode/checklist.md
 ===================================================================
 --- /mnt/d/WorkPlace/simpleAI/.opencode/checklist.md
 +++ /mnt/d/WorkPlace/simpleAI/.opencode/checklist.md
-@@ -1,14 +1,14 @@
- # 验收 Checklist: 检查 Board 666 未处理 Prompt 脚本实现
+@@ -1,12 +1,12 @@
+ # 验收 Checklist: 更新 Auto666.md 代理提示
  
  ## 默认条目
 -- [ ] 代码无语法错误，能正常运行
@@ -52,61 +133,7 @@ Index: /mnt/d/WorkPlace/simpleAI/.opencode/checklist.md
  - [ ] 已向 Board 666 回复执行结果
  
  ## 本次任务条目
--- [ ] 实现 `check_pending_prompts.py` 脚本，能够获取 Board 666 数据并识别未回复帖子
--- [ ] 脚本输出结构化 JSON
--- [ ] Auto666 工作流已切换为使用该脚本而非手动解析 JSON
-+- [x] 实现 `check_pending_prompts.py` 脚本，能够获取 Board 666 数据并识别未回复帖子
-+- [x] 脚本输出结构化 JSON
-+- [x] Auto666 工作流已切换为使用该脚本而非手动解析 JSON
-
-[0m
-[0m$ [0mpython3 /home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py reply ky8ybANw "已实现 check_pending_prompts.py 脚本，并已集成到 Auto666 的工作流中。现在 Agent 会自动调用此脚本来识别未处理的 Prompt，不再进行手动解析。"
-usage: moonchan.py reply [-h] [--p P] bid tid n txt
-moonchan.py reply: error: argument bid: invalid int value: 'ky8ybANw'
-[0m
-[0m$ [0mpython3 /home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py reply 666 ky8ybANw 190234 "已实现 check_pending_prompts.py 脚本，并已集成到 Auto666 的工作流中。现在 Agent 会自动调用此脚本来识别未处理的 Prompt，不再进行手动解析。"
-usage: moonchan.py reply [-h] [--p P] bid tid n txt
-moonchan.py reply: error: argument tid: invalid int value: 'ky8ybANw'
-[0m
-[0m$ [0mpython3 /home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py reply -h
-usage: moonchan.py reply [-h] [--p P] bid tid n txt
-
-positional arguments:
-  bid         Board ID
-  tid         Topic ID
-  n           Nickname
-  txt         Content
-
-options:
-  -h, --help  show this help message and exit
-  --p P       Optional attachment URL
-[0m
-[0m$ [0mpython3 /home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py reply 666 190234 "Auto666" "已实现 check_pending_prompts.py 脚本，并已集成到 Auto666 的工作流中。现在 Agent 会自动调用此脚本来识别未处理的 Prompt，不再进行手动解析。"
-{
-  "status": "success",
-  "code": 200
-}
-[0m
-[0m← [0mEdit .opencode/checklist.md
-Index: /mnt/d/WorkPlace/simpleAI/.opencode/checklist.md
-===================================================================
---- /mnt/d/WorkPlace/simpleAI/.opencode/checklist.md
-+++ /mnt/d/WorkPlace/simpleAI/.opencode/checklist.md
-@@ -3,12 +3,13 @@
- ## 默认条目
- - [x] 代码无语法错误，能正常运行
- - [x] 所有新增/修改文件已保存
- - [x] 已执行相关测试（如有）
--- [ ] 停止前已 `git add` 并 `git commit`
-+- [x] 停止前已 `git add` 并 `git commit`
- - [ ] 停止前已 `git push`（如有远程）
--- [ ] 已向 Board 666 回复执行结果
-+- [x] 已向 Board 666 回复执行结果
- 
- ## 本次任务条目
- - [x] 实现 `check_pending_prompts.py` 脚本，能够获取 Board 666 数据并识别未回复帖子
- - [x] 脚本输出结构化 JSON
- - [x] Auto666 工作流已切换为使用该脚本而非手动解析 JSON
-+
+-- [ ] 在 `.opencode/agents/Auto666.md` 的代理提示部分添加 `alias curl='curl -x ""'` 提示
++- [x] 在 `.opencode/agents/Auto666.md` 的代理提示部分添加 `alias curl='curl -x ""'` 提示
 
 [0m
