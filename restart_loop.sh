@@ -12,8 +12,8 @@ if [ -f "$LAST_UPDATE_FILE" ]; then
     now=$(date +%s)
     age=$((now - last_mtime))
 
-    if [ "$age" -lt 3600 ]; then
-        echo "[restart_loop] .last_update 距今 ${age}s，不足1小时，无需重启"
+    if [ "$age" -lt 1800 ]; then
+        echo "[restart_loop] .last_update 距今 ${age}s，不足半小时，无需重启"
         exit 0
     fi
     echo "[restart_loop] .last_update 距今 ${age}s，超过1小时，准备重启"
