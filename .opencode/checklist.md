@@ -1,4 +1,4 @@
-# 验收 Checklist: Board 666 - commit/push 当前文件夹
+# 验收 Checklist: commit/push 当前文件夹所有内容
 
 ## 默认条目
 - [ ] 代码无语法错误，能正常运行
@@ -9,10 +9,7 @@
 - [ ] 已向 Board 666 回复执行结果
 
 ## 本次任务条目
-- [x] 已按 ts 降序排列所有主帖（最新在最前）
-- [x] 已按 ts 降序排列所有回复（最新在最前）
-- [x] 已识别未处理需求：no=190229「commit/push当前文件夹」
-- [ ] 已执行 `git add -A`
-- [ ] 已执行 `git commit`
-- [ ] 已执行 `git push`
-- [ ] 已向 no=190229 回复执行结果
+- [ ] 已 git add 所有修改文件（checklist.md, loop.log, loop.py, test.py, watchdog.sh）
+- [ ] 已 git commit 并附带描述信息
+- [ ] 已 git push 到 origin/cell-agent
+- [ ] push 成功后已向 Board 666 回复结果
