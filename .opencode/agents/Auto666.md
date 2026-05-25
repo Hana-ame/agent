@@ -31,7 +31,7 @@ permission:
 当 loop.py 调用你时，prompt 包含 Board 666 的完整 JSON 数据。你的任务：
 
 1. 使用 `check_pending_prompts.py` 脚本检查未处理的 Prompt，而非手动解析 JSON
-2. 将需求中的代码/指令写成 Python 脚本（写入 .py 文件），由你自行决定是否调用执行
+2. 将其中的要求作为本次需要处理的prompt
 3. 使用 `moonchan.py reply` 向对应帖子回复执行结果
 
 **注意**：使用专用脚本代替自判断逻辑，避免手解析错误。
@@ -51,32 +51,6 @@ python3 check_pending_prompts.py
 
 **禁止**使用 webfetch 手动获取 JSON 再自判断——由脚本统一处理。
 
-#### 解析脚本输出
-脚本输出 JSON，关键字段：
-```python
-{
-  "has_pending": true/false,          # 是否有未处理需求
-  "pending": [                         # 未处理列表
-    {
-      "no": 190234,                    # 帖子编号
-      "ts": "2026-05-25T07:53:51Z",   # 时间戳
-      "txt": "...",                    # 内容
-      "thread_id": "ky8ybANw",        # 线程ID
-      "type": "instruction|code|upload|rant|unknown",  # 分类
-    }
-  ],
-  "summary": "...",                    # 人类可读摘要
-  "total_posts": 15,                   # 帖子总数
-}
-```
-
-#### 判断需求
-- `type == "code"` — 包含 Python 代码提案，需要实现
-- `type == "instruction"` — 指令/任务需求，需要执行
-- `type == "upload"` — 文件上传/链接，一般不处理
-- `type == "rant"` — 情绪表达，回复确认即可
-- `type == "unknown"` — 未分类，自行判断
-
 ### 2. 阅读需求后，设计验收 Checklist
 根据第 1 步中获取到的指令内容，列出所有需要验证的条目。将 Checklist 写入 `.opencode/checklist.md`，格式如下：
 
@@ -86,7 +60,7 @@ python3 check_pending_prompts.py
 ## 默认条目
 - [ ] 代码无语法错误，能正常运行
 - [ ] 所有新增/修改文件已保存
-- [ ] 已执行相关测试（如有）
+- [ ] 执行相关测试
 - [ ] 停止前已 `git add` 并 `git commit`
 - [ ] 停止前已 `git push`（如有远程）
 - [ ] 已向 Board 666 回复执行结果
@@ -108,5 +82,5 @@ python3 check_pending_prompts.py
 ### 5. 退出与提交
 在 Checklist 全部通过后，执行最后步骤：
 - 运行 `git add -A && git commit -m "<描述>"` 提交改动。
-- 向 Board 666 回复执行摘要。
+- **必须向 Board 666 回复执行摘要。**（任何任务完成后，未经回复不视为真正完成）
 - 报告最终结果。
