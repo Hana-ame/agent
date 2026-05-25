@@ -1,7 +1,7 @@
 #!/bin/bash
-# watchdog.sh — 每隔10分钟跑一次 restart_loop.sh
+# watchdog.sh — 每隔1分钟跑一次 restart_loop.sh
 
 while true; do
     bash "$(dirname "$0")/restart_loop.sh"
-    sleep 600
+    sleep 60
 done
