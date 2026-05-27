@@ -55,8 +55,10 @@ class Card:
 
     def __repr__(self) -> str:
         suit_symbol = {0: '♠', 1: '♥', 2: '♣', 3: '♦'}
-        if self.is_joker:
-            return '🃏' if self.is_small_joker else '🃏'
+        if self.is_small_joker:
+            return '🃏S'  # Small Joker
+        if self.is_big_joker:
+            return '🃏B'  # Big Joker
         return f"{suit_symbol.get(self.suit, '?')}{self.rank_name}"
 
     def __str__(self) -> str:

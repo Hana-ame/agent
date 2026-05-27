@@ -168,18 +168,9 @@ class Game:
         player = self.players[position]
         hand = player.hand
 
-        # 获取要出的牌
+        # 验证有出牌
         if not card_indices:
-            return {'error': '必须出牌（不能空出）'}
-
-        # 如果是过牌（选择的牌为空）
-        if len(card_indices) == 0:
-            # 如果自己是上次出牌的人，不能过
-            if position == self.last_play_position:
-                return {'error': '必须出牌，不能过'}
-            self.pass_count += 1
-            self._check_round_end()
-            return self._state()
+            return {'error': '必须出牌（不能空出）；想过牌请使用 player_pass'}
 
         # 验证索引
         try:
