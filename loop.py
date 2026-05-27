@@ -8,6 +8,7 @@ from opencode import Opencode
 
 BASE_DIR = Path(__file__).parent
 oc = Opencode()
+RETRY_FILE = BASE_DIR / ".task_retries"
 
 # --- 日志配置 ---
 logging.basicConfig(
@@ -49,13 +50,27 @@ def get_actionable():
         return []
 
 
+def _load_retries():
+    if RETRY_FILE.is_file():
+        try:
+            return set(json.loads(RETRY_FILE.read_text()))
+        except Exception:
+            return set()
+    return set()
+
+
+def _save_retries(retries):
+    RETRY_FILE.write_text(json.dumps(list(retries)))
+
+
 def run_once(task):
     """处理单个任务。task 是 check_pending_prompts 输出的 dict。"""
-    logger.info("处理任务 no=%s: %s", task["no"], task["txt"][:80])
+    no = task["no"]
+    logger.info("处理任务 no=%s: %s", no, task["txt"][:80])
     (BASE_DIR / ".last_update").touch()
 
     prompt = (
-        f"你的任务：处理 Board 666 帖子 no={task['no']}。\n\n"
+        f"你的任务：处理 Board 666 帖子 no={no}。\n\n"
         f"帖子内容：\n\"\"\"\n{task['txt']}\n\"\"\"\n\n"
         f"线程ID: {task['thread_id']}\n"
         f"类型: {task['type']}\n\n"
@@ -64,7 +79,9 @@ def run_once(task):
         "2. 不需要运行 check_pending_prompts.py——任务已明确指定\n"
         "3. 严格遵循工作流：读需求 → Checklist → 执行 → 验证Checklist → commit → push → 回复帖子\n"
         "4. 每条Checklist通过后立即标记 [x]，不得留 [ ]\n"
-        "5. 回复帖子使用 moonchan.py reply 命令"
+        "5. 必须回复帖子才算任务完成，否则视为失败\n"
+        "6. 遇到权限不足或无法完成的情况，回复帖子说明原因后标记为完成\n"
+        "7. 回复使用 moonchan.py reply 命令，昵称用 Auto666"
     )
     logger.debug(f"发送 Prompt: {prompt}")
 
@@ -86,10 +103,23 @@ def main():
     while True:
         try:
             tasks = get_actionable()
-            if tasks:
-                # 每轮只处理第一个（最新的）actionable 任务
-                run_once(tasks[0])
-            else:
+            retries = _load_retries()
+
+            # 过滤掉已重试过的任务
+            fresh = [t for t in tasks if t["no"] not in retries]
+            if tasks and not fresh:
+                skipped = [t["no"] for t in tasks]
+                logger.info("所有 %d 个任务均已尝试过，跳过: %s", len(tasks), skipped)
+            elif fresh:
+                task = fresh[0]
+                run_once(task)
+                retries.add(task["no"])
+                _save_retries(retries)
+
+            if not tasks:
+                # 无任务时清空重试记录，准备下一波
+                if retries:
+                    _save_retries(set())
                 logger.info("无未处理任务，跳过 opencode 调用")
         except Exception:
             pass
