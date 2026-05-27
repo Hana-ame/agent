@@ -6,3 +6,4 @@ test_loop.db
 .hypothesis/
 .pytest_cache/
 loop.log
+.env

@@ -37,9 +37,9 @@ class MessageBoxStorage:
                 msg_id += 1
 
     def create(self, content: str) -> dict:
-        msg_id = self._generate_id()
         timestamp = int(time.time())
         with self._write_lock:
+            msg_id = self._generate_id()
             with self._get_conn() as conn:
                 conn.execute(
                     "INSERT INTO messages (id, content, timestamp) VALUES (?, ?, ?)",

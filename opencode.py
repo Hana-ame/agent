@@ -52,7 +52,15 @@ class Opencode:
         t2 = threading.Thread(target=read_stream, args=(process.stderr, True))
         t1.start()
         t2.start()
-        process.wait()
+        try:
+            process.wait(timeout=600)  # 10 分钟超时
+        except subprocess.TimeoutExpired:
+            process.kill()
+            t1.join(timeout=5)
+            t2.join(timeout=5)
+            raise RuntimeError(
+                f"命令执行超时 (600s): {' '.join(cmd)}"
+            )
         t1.join()
         t2.join()
         stdout_str = ''.join(stdout_lines)

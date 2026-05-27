@@ -1,7 +1,7 @@
 ---
 description: 从 Board 666 获取指令，执行任务，用 Checklist 验证后提交
 mode: all
-model: google/gemma-4-31b-it
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   read: allow
@@ -60,7 +60,7 @@ python3 check_pending_prompts.py
 ## 默认条目
 - [ ] 代码无语法错误，能正常运行
 - [ ] 所有新增/修改文件已保存
-- [ ] 执行相关测试
+- [ ] 执行相关测试，已经全部通过。
 - [ ] 停止前已 `git add` 并 `git commit`
 - [ ] 停止前已 `git push`（如有远程）
 - [ ] 已向 Board 666 回复执行结果

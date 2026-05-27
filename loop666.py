@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -30,7 +31,7 @@ def run_restart_script():
 
 
 def reply_to_topic(bid, tid, name, content):
-    script = Path("/home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py")
+    script = Path(os.environ.get("MOONCHAN_SCRIPT", "/home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py"))
     cmd = [
         "python3", str(script), "reply",
         str(bid), str(tid), name, content,
@@ -39,25 +40,39 @@ def reply_to_topic(bid, tid, name, content):
     return result
 
 
+def _parse_ts(ts_str):
+    """解析 ISO 8601 时间戳字符串，兼容 Z 和 +00:00 后缀。
+    返回 datetime 对象，解析失败返回 datetime.min。"""
+    if not ts_str:
+        return datetime.min
+    try:
+        # Python 3.11+ fromisoformat 支持 Z
+        ts_str = ts_str.replace("Z", "+00:00")
+        return datetime.fromisoformat(ts_str)
+    except (ValueError, TypeError):
+        return datetime.min
+
+
 def find_restart_command(data, after_ts):
     """遍历板块内容，查找包含 [restart 666] 且时间戳晚于 after_ts 的帖子。
-    
+
     返回: (no, id, tid) 或 None
     """
+    after_dt = _parse_ts(after_ts)
     for thread in data:
-        ts = thread.get("ts", "")
+        ts = _parse_ts(thread.get("ts", ""))
         no = thread.get("no", 0)
         tid = no  # thread no 即 topic ID
         txt = thread.get("txt") or ""
 
-        if ts > after_ts and "[restart 666]" in txt:
+        if ts > after_dt and "[restart 666]" in txt:
             return (no, thread.get("id"), tid)
 
         # 检查回复列表
         for reply in thread.get("list", []):
-            rts = reply.get("ts", "")
+            rts = _parse_ts(reply.get("ts", ""))
             rtxt = reply.get("txt") or ""
-            if rts > after_ts and "[restart 666]" in rtxt:
+            if rts > after_dt and "[restart 666]" in rtxt:
                 return (reply.get("no"), reply.get("id"), tid)
 
     return None

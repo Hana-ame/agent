@@ -77,18 +77,21 @@ class Table():
 
         Args:
             columns: Columns to select (default: "*").
-            condition: Optional WHERE clause (e.g. "age > 25").
+            condition: Optional (where_clause, params) tuple,
+                       e.g. ("age > ?", (25,)).
             order_by: Optional ORDER BY clause (e.g. "age DESC").
 
         Returns:
             List of rows (tuples).
         """
         query = f"SELECT {columns} FROM {self.table_name}"
+        params = ()
         if condition:
-            query += f" WHERE {condition}"
+            query += f" WHERE {condition[0]}"
+            params = condition[1]
         if order_by:
             query += f" ORDER BY {order_by}"
-        self.db.cursor.execute(query)
+        self.db.cursor.execute(query, params)
         return self.db.cursor.fetchall()
 
     def Update(self, values_dict, condition):
@@ -97,15 +100,16 @@ class Table():
 
         Args:
             values_dict: Dict mapping column names to new values.
-            condition: WHERE clause (e.g. "id=1").
+            condition: (where_clause, params) tuple,
+                       e.g. ("id=?", (1,)).
 
         Returns:
             Number of rows affected.
         """
         set_clause = ", ".join(f"{col}=?" for col in values_dict.keys())
-        values = tuple(values_dict.values())
+        values = tuple(values_dict.values()) + condition[1]
         self.db.cursor.execute(
-            f"UPDATE {self.table_name} SET {set_clause} WHERE {condition}",
+            f"UPDATE {self.table_name} SET {set_clause} WHERE {condition[0]}",
             values,
         )
         self.db.conn.commit()
@@ -170,13 +174,13 @@ if __name__ == "__main__":
     print(f"Inserted prompt (should_end=1) row id: {row_id2}")
 
     # 按条件读取
-    rows2 = db.prompts.Read(condition="agent='assistant'")
+    rows2 = db.prompts.Read(condition=("agent=?", ("assistant",)))
     print(f"Prompts where agent='assistant': {rows2}")
 
     # 按 should_end 筛选
-    rows_should_end = db.prompts.Read(condition="should_end=1")
+    rows_should_end = db.prompts.Read(condition=("should_end=?", (1,)))
     print(f"Prompts with should_end=1: {rows_should_end}")
-    rows_continue = db.prompts.Read(condition="should_end=0")
+    rows_continue = db.prompts.Read(condition=("should_end=?", (0,)))
     print(f"Prompts with should_end=0: {rows_continue}")
 
     # 插入测试数据 - Requests (include_history=0: 单独这段对话)
@@ -210,13 +214,13 @@ if __name__ == "__main__":
     print(f"All requests: {req_rows}")
 
     # 按条件读取请求
-    req_rows2 = db.requests.Read(condition="agent_name='assistant'")
+    req_rows2 = db.requests.Read(condition=("agent_name=?", ("assistant",)))
     print(f"Requests where agent_name='assistant': {req_rows2}")
 
     # 按 include_history 筛选
-    req_history = db.requests.Read(condition="include_history=1")
+    req_history = db.requests.Read(condition=("include_history=?", (1,)))
     print(f"Requests with include_history=1: {req_history}")
-    req_no_history = db.requests.Read(condition="include_history=0")
+    req_no_history = db.requests.Read(condition=("include_history=?", (0,)))
     print(f"Requests with include_history=0: {req_no_history}")
 
     db.close()

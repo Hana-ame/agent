@@ -10,11 +10,22 @@ import os
 import re
 import sys
 import traceback
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+
+# 加载 .env 文件（如存在）
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+if _ENV_FILE.is_file():
+    with open(_ENV_FILE) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
 
 # ── logging ──────────────────────────────────────────────────────────
 LOG = logging.getLogger("gemini-proxy")
@@ -25,12 +36,12 @@ LOG.addHandler(_h)
 
 API_KEY = os.environ.get(
     "GEMINI_API_KEY",
-    "AIzaSyAi_QKOU0VBSfF1SR6GRz6V_k8_Hd7RNQ4",
+    "AIzaSyCdoEmNPRDQ-Gul29JNDJ9TyBCLzw2uFaM",
 )
 GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 STREAM_TIMEOUT = httpx.Timeout(600.0, connect=10.0, read=None)
 NO_STREAM_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
-BUFFERED_MODE = os.environ.get("BUFFERED_MODE", "").strip() == "1"
+BUFFERED_MODE = os.environ.get("BUFFERED_MODE", "1").strip() == "1"
 
 app = FastAPI(title="Gemini Proxy")
 
@@ -262,19 +273,23 @@ async def proxy(request: Request, rest: str):
     }
 
     timeout = STREAM_TIMEOUT if is_stream else NO_STREAM_TIMEOUT
+
+    # 流式场景下不进入 async with，避免 client 在 StreamingResponse
+    # 消费 r.aiter_bytes() 之前就被关闭。
+    client = httpx.AsyncClient(timeout=timeout)
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.send(
-                client.build_request(
-                    method=request.method,
-                    url=target_url,
-                    headers=headers,
-                    content=body,
-                ),
-                stream=is_stream,
-            )
+        r = await client.send(
+            client.build_request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                content=body,
+            ),
+            stream=is_stream,
+        )
     except Exception as exc:
         LOG.error("GOOGLE REQUEST FAILED: %s", exc)
+        await client.aclose()
         return Response(
             content=json.dumps({"error": {"message": str(exc), "type": type(exc).__name__}}),
             status_code=502,
@@ -335,14 +350,23 @@ async def proxy(request: Request, rest: str):
                 not in ("transfer-encoding", "content-encoding", "content-length")
             }
             resp_headers["content-type"] = "text/event-stream"
+
+            async def sse_with_cleanup():
+                try:
+                    async for chunk in sse_transform(r, {"in_thought": False}):
+                        yield chunk
+                finally:
+                    await client.aclose()
+
             return StreamingResponse(
-                sse_transform(r, {"in_thought": False}),
+                sse_with_cleanup(),
                 status_code=200,
                 headers=resp_headers,
             )
         else:
             await r.aread()
             raw = r.content
+            await client.aclose()
             LOG.info(">>> Google → %d (stream err)  len=%d", r.status_code, len(raw))
             LOG.error(">>> ERROR: %s", raw[:1000].decode(errors="replace"))
             return Response(
@@ -353,6 +377,7 @@ async def proxy(request: Request, rest: str):
 
     # ── non-streaming response ───────────────────────────────────────
     raw = r.content
+    await client.aclose()
     LOG.info(">>> Google → %d  len=%d", r.status_code, len(raw))
 
     if r.status_code == 200 and b"<thought>" in raw:

@@ -33,7 +33,10 @@ from pathlib import Path
 # ── 配置 ──────────────────────────────────────────────────────────
 BOARD_ID = 666
 MOONCHAN_SCRIPT = Path(
-    "/home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py"
+    os.environ.get(
+        "MOONCHAN_SCRIPT",
+        "/home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py",
+    )
 )
 
 # 视为"已处理"的昵称列表
