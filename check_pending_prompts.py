@@ -120,10 +120,15 @@ def has_reply_from(nickname: str, post: dict) -> bool:
 
 
 def classify_txt(txt: str) -> str:
-    """粗分类：code / instruction / upload / rant / unknown"""
+    """粗分类：code / instruction / info / upload / rant / unknown"""
     txt = txt.strip()
     if not txt:
         return "empty"
+
+    # info: 长文信息分享/文档摘要，不是任务请求
+    if len(txt) > 600 and any(h in txt for h in ("## 摘要", "# 核心", "## 详细", "来源：")):
+        return "info"
+
     code_indicators = [
         "```python",
         "```py",
