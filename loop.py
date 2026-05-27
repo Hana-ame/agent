@@ -21,41 +21,51 @@ logging.basicConfig(
 logger = logging.getLogger("loop")
 
 
-def has_pending_tasks():
-    """运行 check_pending_prompts.py，只关注 code / instruction 类型的未处理帖子。"""
+def get_actionable():
+    """返回 (code/instruction) 类型的未处理帖子列表，无任务时返回 []。"""
     try:
         result = subprocess.run(
             [sys.executable, str(BASE_DIR / "check_pending_prompts.py")],
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode not in (0, 1):
-            logger.warning("check_pending_prompts exited with %d: %s",
+            logger.warning("check_pending_prompts exited %d: %s",
                            result.returncode, result.stderr[:200])
-            return False
+            return []
         data = json.loads(result.stdout)
         actionable = [
             p for p in data.get("pending", [])
             if p.get("type") in ("code", "instruction")
         ]
-        has = len(actionable) > 0
-        logger.info("预检查: total=%s pending=%s actionable=%s → trigger=%s",
+        logger.info("预检查: total=%s pending=%s actionable=%s",
                     data.get("total_posts", "?"),
                     len(data.get("pending", [])),
-                    len(actionable), has)
-        if has:
-            for p in actionable:
-                logger.info("  · no=%s [%s] %s", p["no"], p["type"], p["txt"][:80])
-        return has
+                    len(actionable))
+        for p in actionable:
+            logger.info("  · no=%s [%s] %s", p["no"], p["type"], p["txt"][:80])
+        return actionable
     except Exception as e:
         logger.exception("预检查失败: %s", e)
-        return False
+        return []
 
 
-def run_once():
-    logger.info("触发 Auto666 检查 Board 666...")
+def run_once(task):
+    """处理单个任务。task 是 check_pending_prompts 输出的 dict。"""
+    logger.info("处理任务 no=%s: %s", task["no"], task["txt"][:80])
     (BASE_DIR / ".last_update").touch()
 
-    prompt = "检查 Board 666 的最新帖子，找出未处理的需求，按照帖子要求处理，回复结果。"
+    prompt = (
+        f"你的任务：处理 Board 666 帖子 no={task['no']}。\n\n"
+        f"帖子内容：\n\"\"\"\n{task['txt']}\n\"\"\"\n\n"
+        f"线程ID: {task['thread_id']}\n"
+        f"类型: {task['type']}\n\n"
+        "重要规则：\n"
+        "1. 只处理这一个帖子，其他帖子一律忽略\n"
+        "2. 不需要运行 check_pending_prompts.py——任务已明确指定\n"
+        "3. 严格遵循工作流：读需求 → Checklist → 执行 → 验证Checklist → commit → push → 回复帖子\n"
+        "4. 每条Checklist通过后立即标记 [x]，不得留 [ ]\n"
+        "5. 回复帖子使用 moonchan.py reply 命令"
+    )
     logger.debug(f"发送 Prompt: {prompt}")
 
     try:
@@ -75,12 +85,14 @@ def main():
     logger.info("启动 Board 666 监听服务...")
     while True:
         try:
-            if has_pending_tasks():
-                run_once()
+            tasks = get_actionable()
+            if tasks:
+                # 每轮只处理第一个（最新的）actionable 任务
+                run_once(tasks[0])
             else:
                 logger.info("无未处理任务，跳过 opencode 调用")
         except Exception:
-            pass  # 异常已在 run_once 中记录
+            pass
         time.sleep(60)
 
 
