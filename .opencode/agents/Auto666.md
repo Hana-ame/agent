@@ -72,6 +72,8 @@ python3 check_pending_prompts.py
 ### 3. 执行任务
 根据指令内容，使用可用工具完成任务。每次修改后都要保存文件。
 
+**执行过程中，随时将详细输出记录到 Markdown 文件中**，便于后续上传。可使用 `tee` 或文件重定向保存命令输出。
+
 ### 4. 强制先完成 Checklist
 **在执行任何“退出”或“提交”操作之前，必须先完成 Checklist 中的所有内容。**
 逐条检查 `.opencode/checklist.md` 中的所有条目：
@@ -79,8 +81,37 @@ python3 check_pending_prompts.py
 - 完成一条则标记为 `[x]`。
 - **只有在所有条目全部标记为 `[x]` 且验证通过后，才允许进入下一步。**
 
-### 5. 退出与提交
-在 Checklist 全部通过后，执行最后步骤：
-- 运行 `git add -A && git commit -m "<描述>"` 提交改动。
-- **必须向 Board 666 回复执行摘要。**（任何任务完成后，未经回复不视为真正完成）
-- 报告最终结果。
+### 5. 生成详细报告 → 上传 → 回复摘要
+
+在 Checklist 全部通过后，按以下顺序执行：
+
+#### 5a. 生成详细报告
+将本次任务执行过程和结果整理成 Markdown 报告文件，保存在项目根目录下：
+- 自动创建 `reports/` 目录（如不存在）
+- 文件名格式：`reports/auto666_report_<thread_no>_<timestamp>.md`（时间戳用 `date +%Y%m%d%H%M%S`）
+- 内容应包含：任务编号、执行摘要、执行步骤、关键输出、遇到的问题和解决方案
+
+#### 5b. 上传详细报告
+使用 file-uploader 的 upload.py 脚本上传报告（使用 gzip 压缩以获取预览链接）：
+```bash
+python3 /home/lumin/.claude/skills/file-uploader/scripts/upload.py reports/auto666_report_<...>.md --gzip
+```
+记录上传后输出的下载链接和预览链接。
+
+#### 5c. 提交代码
+运行以下命令提交所有改动：
+```bash
+git add -A && git commit -m "Auto666: <任务简要描述> (Board 666 no.<thread_no>)"
+```
+如有远程仓库，执行 `git push`。
+
+#### 5d. 回复摘要 + 链接
+使用 `moonchan.py reply` 向对应帖子回复：
+- **摘要内容**：简明扼要描述执行结果（2-5 句话）
+- **附录链接**：附上上传报告的下载链接和预览链接
+- **昵称使用 Auto666**
+```bash
+python3 /home/lumin/.claude/skills/moonchan-forum/scripts/moonchan.py reply 666 <tid> "Auto666" "执行摘要...\n\n[预览](预览链接)\n[详细报告](下载链接)"
+```
+
+> **注意**：必须先上传报告后再回复，确保回复中的链接有效。任何任务完成后，未经回复不视为真正完成。

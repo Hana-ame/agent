@@ -1,5 +1,5 @@
 #!/bin/bash
-# restart_loop.sh — 检查 .last_update，超1小时则 kill 并重启 loop.py
+# restart_loop.sh — 检查 .last_update，超30分钟则 kill 并重启 loop.py
 # Usage: bash restart_loop.sh
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -13,10 +13,10 @@ if [ -f "$LAST_UPDATE_FILE" ]; then
     age=$((now - last_mtime))
 
     if [ "$age" -lt 1800 ]; then
-        echo "[restart_loop] .last_update 距今 ${age}s，不足半小时，无需重启"
+        echo "[restart_loop] .last_update 距今 ${age}s，不足30分钟，无需重启"
         exit 0
     fi
-    echo "[restart_loop] .last_update 距今 ${age}s，超过1小时，准备重启"
+    echo "[restart_loop] .last_update 距今 ${age}s，超过30分钟，准备重启"
 else
     echo "[restart_loop] .last_update 不存在，准备重启"
 fi
@@ -38,7 +38,7 @@ else
 fi
 
 echo "[restart_loop] 启动新 loop.py (nohup)..."
-nohup python3 loop.py > loop.log 2>&1 &
+nohup python3 loop.py >> loop.log 2>&1 &
 
 echo "[restart_loop] 新 loop.py 已启动，PID: $!"
 echo "[restart_loop] 日志输出: loop.log"

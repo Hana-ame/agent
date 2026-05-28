@@ -19,7 +19,7 @@ def is_process_running(name):
 
 def start_loop_py():
     log_path = BASE_DIR / "loop.log"
-    cmd = f"nohup python3 loop.py > {log_path} 2>&1 &"
+    cmd = f"nohup python3 loop.py >> {log_path} 2>&1 &"
     subprocess.Popen(cmd, shell=True)
     print("[Loop666] loop.py 已启动")
 

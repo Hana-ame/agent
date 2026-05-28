@@ -26,7 +26,7 @@ fi
 
 echo "[restart_loop666] 启动新 loop666 (nohup)..."
 
-nohup python3 loop666.py > loop666.log 2>&1 &
+nohup python3 loop666.py >> loop666.log 2>&1 &
 
 echo "[restart_loop666] 新 loop666 已启动，PID: $!"
 echo "[restart_loop666] 日志输出: loop666.log"
