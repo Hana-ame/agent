@@ -1,4 +1,5 @@
 import model_tracker as fm
+import db
 from pathlib import Path
 import subprocess
 
@@ -8,9 +9,9 @@ real_models = [m.strip() for m in result.stdout.strip().split("\n") if m.strip()
 print(f"共 {len(real_models)} 个模型，取前 3 个演示\n")
 
 # 临时 DB
-fm.DB_PATH = Path("/tmp/test_demo_real.db")
-if fm.DB_PATH.exists():
-    fm.DB_PATH.unlink()
+db.DB_PATH = Path("/tmp/test_demo_real.db")
+if db.DB_PATH.exists():
+    db.DB_PATH.unlink()
 
 m1, m2, m3 = real_models[0], real_models[1], real_models[2]
 
