@@ -1,7 +1,7 @@
 ---
 description: 无System Prompt
 mode: all
-model: google/gemma-4-31b-it
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   read: allow
