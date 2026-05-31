@@ -4,9 +4,10 @@ import opencode
 
 
 def test_real_call_qwen3_success():
-    """真实调用 Qwen3-8B 运行 1+1=?，记录 success/fail 并查询计数"""
+    """真实调用 Qwen3-8B 运行 {prompt}，记录 success/fail 并查询计数"""
     model = "siliconflow-cn/Qwen/Qwen3-8B"
-    print(f"\n测试: 真实调用 {model} 运行 '1+1=?'")
+    prompt = "1+1=?"
+    print(f"\n测试: 真实调用 {model} 运行 {prompt}")
 
     # 1. 拉取 models 列表，确认模型存在
     models = opencode.models(filter_free=True)
@@ -14,9 +15,10 @@ def test_real_call_qwen3_success():
     assert model in models, f"{model} 不在 models 列表中"
 
     # 2. 运行提问
-    print(f"  执行 opencode.run('1+1=?', model={model})")
-    result = opencode.run("1+1=?", model=model, timeout=60)
+    print(f"  执行 opencode.run({prompt}, model={model})")
+    result = opencode.run(prompt, model=model, timeout=60)
     print(f"  返回: {result}")
+    print(f"  输出: {result.get('output')}")
 
     # 3. 根据返回记录 success 或 fail
     if result.get("success"):

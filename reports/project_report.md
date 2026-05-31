@@ -2,7 +2,8 @@
 
 **日期**: 2026-05-31
 **分支**: main-new
-**测试结果**: 16/16 通过 ✅
+**测试结果**: 17/17 通过 ✅
+**代码检查**: ruff 0 警告，pyright 0 错误 ✅
 
 ---
 
@@ -20,14 +21,14 @@ simpleAI 是一个免费模型调用追踪系统，核心功能：
 | 文件 | 类型 | 行数 | 说明 |
 |------|------|------|------|
 | `db.py` | 核心 | 11 | SQLite 统一入口，WAL 模式，外键开启 |
-| `model_tracker.py` | 核心 | 192 | 模型发现 + 调用统计 CRUD |
+| `model_tracker.py` | 核心 | 195 | 模型发现 + 调用统计 CRUD，含类型注解 |
 | `opencode.py` | 核心 | 38 | opencode CLI 封装（run / models） |
 | `test.py` | 测试 | 82 | opencode.py 单元测试（8 个，mock） |
-| `test_model_tracker.py` | 测试 | 193 | model_tracker.py 单元测试（8 个，真 DB） |
-| `test_flow.py` | 集成 | 36 | 真实调用 opencode 运行模型 |
+| `test_model_tracker.py` | 测试 | 188 | model_tracker.py 单元测试（8 个，真 DB） |
+| `test_flow.py` | 集成 | 34 | 真实调用 opencode 运行模型（1 个） |
 | `_demo_model_tracker.py` | 脚本 | 47 | model_tracker 功能演示 |
 | `.gitignore` | 配置 | 6 | 排除 __pycache__ / .opencode / *.db |
-| `reports/test_report.md` | 文档 | 64 | 旧版测试报告（已过时） |
+| `reports/project_report.md` | 文档 | 本文件 | 项目报告 |
 
 ---
 
@@ -46,12 +47,13 @@ db.get_conn()  # 返回 sqlite3 连接，WAL + 外键
 - `usage`: model(PK/FK), calls, successes, failures, good, bad
 
 **API:**
-| 函数 | 说明 |
-|------|------|
-| `sync_models()` | 从 API 拉取模型列表，写入 DB |
-| `list_free_models()` | 返回所有模型，自动补全 usage(0,0,0,0,0) |
-| `record_call(model, success, good, bad)` | 记录一次调用，自动累加 |
-| `get_stats(model=None)` | 查询统计，None 返回全部 |
+| 函数 | 返回类型 | 说明 |
+|------|----------|------|
+| `sync_models()` | `list[str]` | 从 API 拉取模型列表，写入 DB |
+| `list_free_models()` | `list[str]` | 返回所有模型，自动补全 usage(0,0,0,0,0) |
+| `record_call(model, success, good, bad)` | `None` | 记录一次调用，自动累加 |
+| `get_stats(model: str)` | `dict \| None` | 查询指定模型统计 |
+| `get_stats()` | `list[dict]` | 查询全部模型统计 |
 
 **数据源:**
 - OpenCode Zen API: `https://opencode.ai/zen/v1/models`
@@ -95,11 +97,26 @@ db.get_conn()  # 返回 sqlite3 连接，WAL + 外键
 | test_get_stats_all | 查询全部模型 | ✅ |
 | test_record_call_auto_insert | 自动插入新模型 | ✅ |
 
+### test_flow.py — 集成测试 (1/1 ✅)
+
+| 测试 | 内容 | 结果 |
+|------|------|------|
+| test_real_call_qwen3_success | 真实调用 Qwen3-8B，记录并查询统计 | ✅ |
+
 ---
 
-## 五、已知问题 & 待办
+## 五、本次会话变更
 
-1. `test_flow.py` 为集成测试，需真实网络 + opencode CLI，未纳入常规测试
+1. **类型注解**: `model_tracker.py` 全函数添加类型注解 + `@overload`，pyright 零错误
+2. **ruff 修复**: 清理 18 个警告（未使用导入、无占位符 f-string、多导入同行）
+3. **DB_PATH 修复**: `_demo_model_tracker.py` 中 `fm.DB_PATH` → `db.DB_PATH`
+4. **opencode 配置**: 启用 LSP (`lsp: true`)，所有权限默认允许 (`permission: "allow"`)
+5. **项目报告**: 新增 `reports/project_report.md`
+
+---
+
+## 六、已知问题 & 待办
+
+1. `test_flow.py` 为集成测试，需真实网络 + opencode CLI
 2. `_demo_model_tracker.py` 使用临时 DB `/tmp/test_demo_real.db`，仅为演示
-3. `.last_update` 和 `.last_upload_url` 为运行时产物，已在 .gitignore 中排除 *.db 但未排除这两个
-4. `.opencode/agents/` 目录下仅剩 `Null.md`，已删除的 agent 文件已清理
+3. `.last_update` 和 `.last_upload_url` 为运行时产物，未在 .gitignore 中排除
