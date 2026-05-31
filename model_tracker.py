@@ -1,6 +1,8 @@
 """Free models tracker with dynamic discovery for opencode and nvidia."""
+from __future__ import annotations
 import sqlite3
 from pathlib import Path
+from typing import Any, Literal, overload
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 import json
@@ -48,7 +50,7 @@ def _get_conn():
     return conn
 
 
-def _fetch_json(url, timeout=10):
+def _fetch_json(url: str, timeout: int = 10) -> dict[str, Any] | None:
     try:
         req = Request(url, headers={"User-Agent": "free-models-tracker/1.0"})
         with urlopen(req, timeout=timeout) as resp:
@@ -57,7 +59,7 @@ def _fetch_json(url, timeout=10):
         return None
 
 
-def fetch_opencode_models():
+def fetch_opencode_models() -> list[str]:
     """Fetch free models from OpenCode Zen API."""
     data = _fetch_json(OPENCODE_API)
     if not data or "data" not in data:
@@ -70,7 +72,7 @@ def fetch_opencode_models():
     return models
 
 
-def fetch_nvidia_models():
+def fetch_nvidia_models() -> list[str]:
     """Fetch free models from NVIDIA NIM API."""
     data = _fetch_json(NVIDIA_API)
     if not data or "data" not in data:
@@ -82,7 +84,7 @@ def fetch_nvidia_models():
     return models
 
 
-def sync_models():
+def sync_models() -> list[str]:
     """Fetch dynamic models and update database. Returns all free models."""
     conn = _get_conn()
     now = time.time()
@@ -111,7 +113,7 @@ def sync_models():
     return all_models
 
 
-def list_free_models():
+def list_free_models() -> list[str]:
     """Return all known free models from database."""
     conn = _get_conn()
     rows = conn.execute("SELECT model FROM models").fetchall()
@@ -125,7 +127,7 @@ def list_free_models():
     conn.close()
     return models
 
-def record_call(model, success=True, good=0, bad=0):
+def record_call(model: str, success: bool = True, good: int = 0, bad: int = 0) -> None:
     """Record a call for a model.
     success: 调用是否成功（网络/API 层面）
     good: 好的回答数量（内容质量好）
@@ -158,7 +160,13 @@ def record_call(model, success=True, good=0, bad=0):
     conn.close()
 
 
-def get_stats(model=None):
+@overload
+def get_stats(model: str) -> dict[str, Any] | None: ...
+
+@overload
+def get_stats(model: None = ...) -> list[dict[str, Any]]: ...
+
+def get_stats(model: str | None = None) -> dict[str, Any] | list[dict[str, Any]] | None:
     """Get usage stats. If model is None, return all."""
     conn = _get_conn()
     if model:
