@@ -1,6 +1,4 @@
 """集成测试 — 真实调用 opencode 运行模型，记录 success/fail 并查询计数"""
-import pytest
-import db
 import model_tracker as fm
 import opencode
 
@@ -23,10 +21,10 @@ def test_real_call_qwen3_success():
     # 3. 根据返回记录 success 或 fail
     if result.get("success"):
         fm.record_call(model, success=True)
-        print(f"  记录: success=True")
+        print("  记录: success=True")
     else:
         fm.record_call(model, success=False)
-        print(f"  记录: success=False")
+        print("  记录: success=False")
 
     # 4. 查询计数
     stats = fm.get_stats(model)

@@ -1,8 +1,6 @@
 """Free models tracker with dynamic discovery for opencode and nvidia."""
 from __future__ import annotations
-import sqlite3
-from pathlib import Path
-from typing import Any, Literal, overload
+from typing import Any, overload
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 import json

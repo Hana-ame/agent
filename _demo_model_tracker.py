@@ -1,6 +1,6 @@
 import model_tracker as fm
 from pathlib import Path
-import subprocess, json
+import subprocess
 
 # 从 opencode 模型列表抓真实 model 名（取前几个做演示）
 result = subprocess.run(["opencode", "models"], capture_output=True, text=True, timeout=15)
@@ -28,7 +28,7 @@ print(fm.get_stats())
 print(f"\n=== get_stats('{m1}') 指定模型 ===")
 print(fm.get_stats(m1))
 
-print(f"\n=== get_stats('noop') 不存在 ===")
+print("\n=== get_stats('noop') 不存在 ===")
 print(fm.get_stats("noop"))
 
 print(f"\n=== record_call('{m2}', success=True) ===")

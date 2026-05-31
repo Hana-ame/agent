@@ -1,5 +1,4 @@
 """model_tracker 模块测试 — 用 opencode.models() 真实模型列表测试"""
-import time
 import pytest
 import db
 import model_tracker as fm
@@ -31,7 +30,7 @@ def setup_teardown():
 
 def test_list_free_models_adds_usage_record():
     """list_free_models() 应为每个没有 usage 记录的模型自动添加 (0,0,0,0,0)"""
-    print(f"\n测试: list_free_models 自动补全 usage 记录")
+    print("\n测试: list_free_models 自动补全 usage 记录")
     print(f"  测试模型: {M_OPEN}")
 
     conn = fm._get_conn()
@@ -64,7 +63,7 @@ def test_list_free_models_adds_usage_record():
 
 def test_list_free_models_does_not_overwrite_existing():
     """已有 usage 记录时 list_free_models 不覆盖"""
-    print(f"\n测试: 已有 usage 时不覆盖")
+    print("\n测试: 已有 usage 时不覆盖")
     print(f"  测试模型: {M_NVIDIA}")
 
     conn = fm._get_conn()
@@ -88,7 +87,7 @@ def test_list_free_models_does_not_overwrite_existing():
 
 def test_record_call_updates_usage():
     """record_call 应正确累加调用统计"""
-    print(f"\n测试: record_call 累加统计")
+    print("\n测试: record_call 累加统计")
     print(f"  测试模型: {M_OPEN}")
 
     conn = fm._get_conn()
@@ -108,7 +107,7 @@ def test_record_call_updates_usage():
 
 def test_record_call_good_bad():
     """record_call 的 good/bad 参数独立于 success"""
-    print(f"\n测试: record_call good/bad 计数")
+    print("\n测试: record_call good/bad 计数")
     print(f"  测试模型: {M_NVIDIA}")
 
     conn = fm._get_conn()
@@ -152,7 +151,7 @@ def test_get_stats_specific_model():
 
 def test_get_stats_nonexistent():
     """查询不存在的模型 → None"""
-    print(f"\n测试: 查询不存在的模型")
+    print("\n测试: 查询不存在的模型")
     result = fm.get_stats("xyz_999_nonexistent")
     print(f"  结果: {result}")
     assert result is None
@@ -160,7 +159,7 @@ def test_get_stats_nonexistent():
 
 def test_get_stats_all():
     """get_stats() 返回全部模型列表，插入的模型应在其中"""
-    print(f"\n测试: 查询全部模型统计")
+    print("\n测试: 查询全部模型统计")
 
     conn = fm._get_conn()
     conn.execute("INSERT INTO models (model, provider) VALUES (?, ?)", (M_OPEN, "opencode"))
@@ -184,7 +183,7 @@ def test_get_stats_all():
 
 def test_record_call_auto_insert():
     """record_call 对不存在的模型自动插入到 models 表"""
-    print(f"\n测试: record_call 自动插入新模型")
+    print("\n测试: record_call 自动插入新模型")
     print(f"  测试模型: {M_OPEN}")
     fm.record_call(M_OPEN, success=True, good=1, bad=0)
     stats = fm.get_stats(M_OPEN)
