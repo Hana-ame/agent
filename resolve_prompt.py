@@ -40,7 +40,7 @@ def _serialize(prompt: Any) -> str:
     return json.dumps({"a": prompt.get("agent", ""), "c": ctx_key}, ensure_ascii=False)
 
 
-def _resolve_int(pid: int, db: PromptDB) -> str:
+def _resolve_int(pid: int, db: PromptDB, model: str = "", timeout: int = 600) -> str:
     """
     解析 int 引用（SQL 缓存）：
     - 有 response → 直接返回（已缓存）
@@ -62,8 +62,11 @@ def _resolve_int(pid: int, db: PromptDB) -> str:
     try:
         ctx_list = json.loads(context)
     except (json.JSONDecodeError, TypeError):
-        # 纯文本，直接返回
-        return context
+        # 纯文本，运行 opencode
+        result = opencode_run(context, agent=row["agent"], model=model or row["model"], timeout=timeout)
+        text = _to_text(result["output"])
+        db.done(pid, text, {"source": "opencode_run"})
+        return text
 
     if not isinstance(ctx_list, list):
         return str(ctx_list)
@@ -73,7 +76,7 @@ def _resolve_int(pid: int, db: PromptDB) -> str:
         if isinstance(item, str):
             parts.append(item)
         elif isinstance(item, int):
-            parts.append(_resolve_int(item, db))
+            parts.append(_resolve_int(item, db, model=model, timeout=timeout))
     text = "\n\n".join(parts)
 
     # 写回 DB，下次引用同一 id 直接命中缓存

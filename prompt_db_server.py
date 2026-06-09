@@ -27,11 +27,24 @@ db = PromptDB()
 # ── 查询 ─────────────────────────────────────────────────────────────────
 
 @app.get("/prompts")
-def list_prompts(status: str = ""):
-    """列出所有记录，可按 status 过滤。"""
+def list_prompts(status: str = "", max_id: int = 0, min_id: int = 0, size: int = Query(50, ge=1, le=200)):
+    """列出记录，支持游标分页（max_id/min_id）和状态过滤。"""
     if status:
-        return db.list_by_status(status)
-    return db.list_all()
+        rows = db.list_by_status(status)
+    else:
+        rows = db.list_all()
+
+    if max_id:
+        rows = [r for r in rows if r["id"] < max_id]
+    if min_id:
+        rows = [r for r in rows if r["id"] > min_id]
+
+    rows = rows[:size]
+    return {
+        "items": rows,
+        "min_id": rows[0]["id"] if rows else 0,
+        "max_id": rows[-1]["id"] if rows else 0,
+    }
 
 
 @app.get("/prompts/{pid}")
