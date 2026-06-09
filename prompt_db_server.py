@@ -5,12 +5,22 @@
 """
 
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
 from prompt_db import PromptDB, parse_log
 
 app = FastAPI(title="Prompt DB", version="1.0")
+
+# CORS: 最大权限，允许所有
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 db = PromptDB()
 
 
