@@ -84,7 +84,7 @@ pid1 = db.add('你最喜欢什么颜色？', agent='Null', model='mimo-v2.5-free
 db.done(pid1, '蓝色是我最喜欢的颜色。')
 pid2 = db.add('你最喜欢什么食物？', agent='Null', model='mimo-v2.5-free')
 db.done(pid2, '面条是我最喜欢的食物。')
-pid3 = db.add('总结上面两个回答', agent='Null', model='mimo-v2.5-free', context=[pid1, pid2])
+pid3 = db.add([pid1, pid2], agent='Null', model='mimo-v2.5-free')
 print(f'{pid1} {pid2} {pid3}')
 " > /tmp/pid5.txt
 PID5_1=$(awk '{print $1}' /tmp/pid5.txt)
@@ -100,7 +100,7 @@ python3 -c "
 import sys; sys.path.insert(0,'.')
 from prompt_db import PromptDB
 db = PromptDB()
-pid = db.add('空记录', agent='Null', model='mimo-v2.5-free')
+pid = db.add('', agent='Null', model='mimo-v2.5-free')
 print(pid)
 " > /tmp/pid6.txt
 PID6=$(cat /tmp/pid6.txt)

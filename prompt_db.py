@@ -3,21 +3,19 @@ Prompt 执行数据库。
 
 表结构 prompts:
   id        INTEGER PK  自增
-  context   TEXT         JSON 数组，包含其他行的 id（可为空）
+  context   TEXT         输入（文本 / JSON 数组 / 混合）
   agent     TEXT         agent 名称
   model     TEXT         模型名
-  prompt    TEXT         输入 prompt 文本
   response  TEXT         运行结果
   log       TEXT         JSON {input_tokens, output_tokens, elapsed_ms, timestamp}
   status    TEXT         pending / done / failed
-  score     REAL         质量评分 0.0~1.0（由 judge 给出）
+  score     REAL         质量评分 0.0~1.0
   elo       REAL         ELO 分数（初始 1500）
 """
 
 import json
 import sqlite3
 import threading
-import time
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "prompts.db"
@@ -25,10 +23,9 @@ DB_PATH = Path(__file__).parent / "prompts.db"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS prompts (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    context   TEXT    NOT NULL DEFAULT '[]',
+    context   TEXT    NOT NULL DEFAULT '',
     agent     TEXT    NOT NULL DEFAULT '',
     model     TEXT    NOT NULL DEFAULT '',
-    prompt    TEXT    NOT NULL DEFAULT '',
     response  TEXT    NOT NULL DEFAULT '',
     log       TEXT    NOT NULL DEFAULT '{}',
     status    TEXT    NOT NULL DEFAULT 'pending',
@@ -53,24 +50,54 @@ class PromptDB:
     def _init_db(self):
         with self._conn() as conn:
             conn.execute(SCHEMA)
+            # 迁移：确保 score 和 elo 列存在
+            for col, typ, default in [
+                ("score", "REAL", "0.0"),
+                ("elo", "REAL", "1500.0"),
+            ]:
+                try:
+                    conn.execute(f"SELECT {col} FROM prompts LIMIT 1")
+                except sqlite3.OperationalError:
+                    conn.execute(
+                        f"ALTER TABLE prompts ADD COLUMN {col} {typ} NOT NULL DEFAULT {default}"
+                    )
+            # 迁移：如果 prompt 列存在，迁移到 context 并删除
+            try:
+                conn.execute("SELECT prompt FROM prompts LIMIT 1")
+                # prompt 列存在，将 prompt 内容复制到 context（如果 context 为空）
+                conn.execute(
+                    "UPDATE prompts SET context = prompt WHERE context = '[]' OR context = ''"
+                )
+                conn.execute("ALTER TABLE prompts DROP COLUMN prompt")
+            except sqlite3.OperationalError:
+                pass  # prompt 列不存在，无需迁移
             conn.commit()
 
-    def add(self, prompt, agent="", model="", context=None):
-        """插入一条 pending 记录，返回 id。"""
-        ctx = json.dumps(context or [])
+    def add(self, context, agent="", model=""):
+        """
+        插入一条 pending 记录，返回 id。
+
+        context 可以是:
+          - str: 直接作为 prompt 文本
+          - list: JSON 数组，包含 id 引用或混合文本
+        """
+        if isinstance(context, list):
+            ctx = json.dumps(context, ensure_ascii=False)
+        else:
+            ctx = str(context)
         with self._lock:
             with self._conn() as conn:
                 cur = conn.execute(
-                    "INSERT INTO prompts (context, agent, model, prompt, response, log, status) "
-                    "VALUES (?, ?, ?, ?, '', '{}', 'pending')",
-                    (ctx, agent, model, prompt),
+                    "INSERT INTO prompts (context, agent, model, response, log, status) "
+                    "VALUES (?, ?, ?, '', '{}', 'pending')",
+                    (ctx, agent, model),
                 )
                 conn.commit()
                 return cur.lastrowid
 
     def done(self, pid, response, log=None):
         """标记为 done，写入 response 和 log。"""
-        log_json = json.dumps(log or {})
+        log_json = json.dumps(log or {}, ensure_ascii=False)
         with self._lock:
             with self._conn() as conn:
                 conn.execute(
@@ -81,7 +108,7 @@ class PromptDB:
 
     def failed(self, pid, error=""):
         """标记为 failed。"""
-        log = json.dumps({"error": error})
+        log = json.dumps({"error": error}, ensure_ascii=False)
         with self._lock:
             with self._conn() as conn:
                 conn.execute(
@@ -174,10 +201,10 @@ if __name__ == "__main__":
     db.done(pid2, "床前明月光...", {"input_tokens": 12, "output_tokens": 20, "elapsed_ms": 3000})
     print(f"  插入 #{pid2} 并标记 done")
 
-    pid3 = db.add("总结上面两首诗", agent="Null", model="mimo-v2.5-free", context=[pid1, pid2])
+    pid3 = db.add([pid1, pid2], agent="Null", model="mimo-v2.5-free")
     print(f"  插入 #{pid3}（引用 #{pid1}, #{pid2}），status=pending")
 
-    pid4 = db.add("这个 prompt 会失败", agent="Null", model="mimo-v2.5-free")
+    pid4 = db.add("这个会失败", agent="Null", model="mimo-v2.5-free")
     db.failed(pid4, "timeout")
     print(f"  插入 #{pid4} 并标记 failed")
 
@@ -185,7 +212,7 @@ if __name__ == "__main__":
     print("\n所有记录:")
     for r in db.list_all():
         log = parse_log(r["log"])
-        print(f"  #{r['id']} | {r['status']:<8} | ctx={r['context'][:30]} | {r['prompt'][:30]} | log={log}")
+        print(f"  #{r['id']} | {r['status']:<8} | ctx={r['context'][:40]} | log={log}")
 
     print(f"\npending: {len(db.list_by_status('pending'))}")
     print(f"done:    {len(db.list_by_status('done'))}")

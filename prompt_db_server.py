@@ -1,7 +1,7 @@
 """Prompt DB 查看服务 — FastAPI
 
 启动:  python3 prompt_db_server.py
-端口:  8320
+端口:  8000
 """
 
 from fastapi import FastAPI, Query
@@ -107,7 +107,7 @@ def delete_prompt(pid: int):
 # ── 启动 ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("Prompt DB Server: http://localhost:8320")
+    print("Prompt DB Server: http://localhost:8000")
     print("  GET  /prompts           - 列出所有记录")
     print("  GET  /prompts?status=done - 按状态过滤")
     print("  GET  /prompts/{id}      - 获取单条记录")
@@ -117,4 +117,4 @@ if __name__ == "__main__":
     print("  POST /prompts/{id}/elo?elo=1550   - 设置 ELO")
     print("  POST /prompts/match?winner_id=1&loser_id=2 - ELO 对战")
     print("  DELETE /prompts/{id}    - 删除记录")
-    uvicorn.run(app, host="0.0.0.0", port=8320)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

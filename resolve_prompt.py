@@ -54,12 +54,22 @@ def _resolve_int(pid: int, db: PromptDB) -> str:
     if row["response"]:
         return row["response"]
 
-    context = json.loads(row["context"])
+    context = row["context"]
     if not context:
         return ""
 
+    # context 可能是 JSON 数组或纯文本
+    try:
+        ctx_list = json.loads(context)
+    except (json.JSONDecodeError, TypeError):
+        # 纯文本，直接返回
+        return context
+
+    if not isinstance(ctx_list, list):
+        return str(ctx_list)
+
     parts = []
-    for item in context:
+    for item in ctx_list:
         if isinstance(item, str):
             parts.append(item)
         elif isinstance(item, int):
@@ -213,7 +223,7 @@ if __name__ == "__main__":
     db.done(pid2, "面条是我最喜欢的食物。")
     print(f"  [DB] 写入 #{pid2}（有 response）")
 
-    pid3 = db.add("总结上面两个回答", agent="Null", model="mimo-v2.5-free", context=[pid1, pid2])
+    pid3 = db.add([pid1, pid2], agent="Null", model="mimo-v2.5-free")
     print(f"  [DB] 写入 #{pid3}（无 response，context=[{pid1},{pid2}]）")
 
     pid4 = db.add("无 context 无 response", agent="Null", model="mimo-v2.5-free")
