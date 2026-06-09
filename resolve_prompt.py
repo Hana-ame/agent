@@ -52,10 +52,14 @@ def _resolve_int(pid: int, db: PromptDB, model: str = "", timeout: int = 600) ->
         return ""
 
     if row["response"]:
+        # 如果有 response 但 status 不是 done，修正状态
+        if row["status"] != "done":
+            db.done(pid, row["response"], row["log"])
         return row["response"]
 
     context = row["context"]
     if not context:
+        db.done(pid, "", {"source": "empty_context"})
         return ""
 
     # context 可能是 JSON 数组或纯文本
