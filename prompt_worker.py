@@ -66,13 +66,8 @@ def main():
 
         if processed > 0:
             print(f"\n  [周期 {cycle}] 处理了 {processed} 条记录")
-        else:
-            # 没有待处理的，等待
-            time.sleep(5)
-            continue
 
-        # 有处理的，短暂等待后继续
-        time.sleep(1)
+        time.sleep(2)
 
     print("Worker 已退出")
 

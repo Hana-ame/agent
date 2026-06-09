@@ -1,9 +1,6 @@
-"""Context 变异守护进程
+"""Context 变异守护进程（LLM 驱动）
 
-读取已有记录的 context，对其进行变异：
-- 数字 (ID): 替换为其他 ID
-- 文本: 随机修改（添加、删除、替换字符）
-- 列表: 添加、删除、换位
+使用 LLM 生成新的 context，并验证 JSON 合法性。
 
 用法:  python3 prompt_mutator.py
 """
@@ -17,6 +14,7 @@ import signal
 sys.path.insert(0, ".")
 
 from prompt_db import PromptDB
+from opencode import run as opencode_run
 
 db = PromptDB()
 running = True
@@ -45,115 +43,104 @@ def parse_context(ctx_str):
         return []
 
 
-def get_all_ids():
-    """获取所有记录的 id。"""
-    rows = db.list_all()
-    return [r["id"] for r in rows]
+def validate_context(ctx):
+    """验证 context 是否为合法的 JSON 列表。"""
+    if isinstance(ctx, list):
+        return True
+    if isinstance(ctx, (str, int)):
+        return True
+    return False
 
 
-def mutate_id(item, all_ids):
-    """变异一个 ID：替换为其他 ID。"""
-    if not all_ids:
-        return item
-    # 排除自身，随机选一个
-    others = [i for i in all_ids if i != item]
-    if not others:
-        return item
-    return random.choice(others)
+def call_llm(prompt_text, timeout=120):
+    """调用 opencode 生成内容。"""
+    try:
+        result = opencode_run(prompt_text, timeout=timeout)
+        return result.get("stdout", "").strip()
+    except Exception as e:
+        print(f"    LLM 调用失败: {e}")
+        return ""
 
 
-def mutate_text(text):
-    """变异一段文本。"""
-    if not text:
-        return text
+def extract_json_from_response(text):
+    """从 LLM 响应中提取 JSON。"""
+    # 尝试直接解析
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
 
-    mutation = random.choice(["insert", "delete", "replace", "swap"])
+    # 尝试提取 ```json ... ``` 块
+    import re
+    json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
 
-    if mutation == "insert":
-        # 随机插入一个字符
-        pos = random.randint(0, len(text))
-        char = random.choice(" abcdefg一三五七九")
-        return text[:pos] + char + text[pos:]
+    # 尝试提取 [ ... ] 或 { ... }
+    for pattern in [r'\[[\s\S]*\]', r'\{[\s\S]*\}']:
+        match = re.search(pattern, text)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
 
-    elif mutation == "delete":
-        # 随机删除一个字符
-        if len(text) <= 1:
-            return text
-        pos = random.randint(0, len(text) - 1)
-        return text[:pos] + text[pos + 1:]
-
-    elif mutation == "replace":
-        # 随机替换一个字符
-        if not text:
-            return text
-        pos = random.randint(0, len(text) - 1)
-        char = random.choice("0123456789一二三")
-        return text[:pos] + char + text[pos + 1:]
-
-    elif mutation == "swap":
-        # 随机交换两个字符
-        if len(text) < 2:
-            return text
-        i, j = random.sample(range(len(text)), 2)
-        lst = list(text)
-        lst[i], lst[j] = lst[j], lst[i]
-        return "".join(lst)
-
-    return text
+    return None
 
 
-def mutate_item(item, all_ids):
-    """变异一个元素。"""
-    if isinstance(item, int):
-        return mutate_id(item, all_ids)
-    elif isinstance(item, str):
-        return mutate_text(item)
-    return item
+def generate_mutated_context(base_context, all_ids):
+    """使用 LLM 生成新的 context。"""
+    system_prompt = f"""你是一个 prompt 变异器。根据给定的 context，生成一个新的、不同的 context。
 
+规则：
+1. 输出必须是一个 JSON 数组，例如: [1, 2, 3] 或 ["hello", 1]
+2. 数组元素可以是：
+   - 整数（ID）：从 {all_ids} 中选择
+   - 字符串：有意义的文本
+3. 只输出 JSON 数组，不要有其他内容
+4. 生成的 context 应该和原 context 相似但有变化
+5. 保持数组长度大致相同（±2）"""
 
-def mutate_list(items, all_ids):
-    """对列表进行结构变异。"""
-    mutation = random.choice(["add", "remove", "swap", "reverse"])
+    user_prompt = f"""基于这个 context 生成一个新的：
 
-    if mutation == "add":
-        new_id = random.choice(all_ids) if all_ids else None
-        if new_id is not None:
-            pos = random.randint(0, len(items))
-            return items[:pos] + [new_id] + items[pos:]
+原始 context: {json.dumps(base_context, ensure_ascii=False)}
 
-    elif mutation == "remove":
-        if len(items) > 1:
-            pos = random.randint(0, len(items) - 1)
-            return items[:pos] + items[pos + 1:]
+直接输出 JSON 数组："""
 
-    elif mutation == "swap":
-        if len(items) >= 2:
-            i, j = random.sample(range(len(items)), 2)
-            items = items[:]
-            items[i], items[j] = items[j], items[i]
-            return items
+    response = call_llm(f"{system_prompt}\n\n{user_prompt}")
+    if not response:
+        return None
 
-    elif mutation == "reverse":
-        return items[::-1]
+    result = extract_json_from_response(response)
+    if result is None:
+        print(f"    JSON 解析失败: {response[:100]}...")
+        return None
 
-    return items
+    if not validate_context(result):
+        print(f"    context 不合法: {result}")
+        return None
+
+    return result
 
 
 def process_mutations():
-    """对数据库中的 context 进行变异。"""
+    """使用 LLM 生成新的 context。"""
     rows = db.list_all()
-    all_ids = get_all_ids()
+    all_ids = [r["id"] for r in rows]
 
     if len(rows) < 2:
         return 0
 
     mutated = 0
-    # 随机选择一些记录进行变异
     candidates = [r for r in rows if r["context"] and r["context"] != "[]"]
     if not candidates:
         return 0
 
-    sample_size = min(3, len(candidates))
+    # 每次处理 2 条
+    sample_size = min(2, len(candidates))
     sampled = random.sample(candidates, sample_size)
 
     for row in sampled:
@@ -161,28 +148,22 @@ def process_mutations():
         if not items:
             continue
 
-        # 先对列表结构变异
-        new_items = mutate_list(items, all_ids)
+        print(f"\n  处理 #{row['id']}: {items}")
+        new_items = generate_mutated_context(items, all_ids)
 
-        # 再对每个元素变异
-        final_items = []
-        for item in new_items:
-            if random.random() < 0.3:  # 30% 概率变异每个元素
-                final_items.append(mutate_item(item, all_ids))
-            else:
-                final_items.append(item)
-
-        # 跳过和原来一样的
-        if final_items == items:
+        if new_items is None:
             continue
 
-        # 添加新记录
+        if new_items == items:
+            print(f"    生成的 context 相同，跳过")
+            continue
+
         pid = db.add(
-            final_items,
+            new_items,
             agent=row["agent"],
             model=row["model"],
         )
-        print(f"  #{row['id']} → #{pid}: {items} → {final_items}")
+        print(f"    → #{pid}: {new_items}")
         mutated += 1
 
     return mutated
@@ -190,7 +171,7 @@ def process_mutations():
 
 def main():
     print("=" * 50)
-    print("  Prompt Mutator 守护进程")
+    print("  Prompt Mutator (LLM) 守护进程")
     print("  按 Ctrl+C 退出")
     print("=" * 50)
 
@@ -200,9 +181,9 @@ def main():
         mutated = process_mutations()
 
         if mutated > 0:
-            print(f"\n  [周期 {cycle}] 变异了 {mutated} 条记录")
+            print(f"\n  [周期 {cycle}] 生成了 {mutated} 条新记录")
 
-        time.sleep(10)
+        time.sleep(30)
 
     print("Mutator 已退出")
 
