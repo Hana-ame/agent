@@ -65,6 +65,13 @@ def leaderboard(limit: int = Query(20, ge=1, le=100)):
 
 # ── 操作 ─────────────────────────────────────────────────────────────────
 
+@app.post("/prompts")
+def add_prompt(text: str = Query(...), agent: str = "", model: str = ""):
+    """添加一条新记录（纯文本输入）。"""
+    pid = db.add(text, agent=agent, model=model)
+    return {"ok": True, "id": pid}
+
+
 @app.post("/prompts/{pid}/score")
 def set_score(pid: int, score: float = Query(..., ge=0.0, le=1.0)):
     """设置质量评分。"""
