@@ -1,6 +1,7 @@
-"""Context 变异守护进程（LLM 驱动）
+"""Context 变异守护进程（纯 Python 算法驱动）
 
-使用 LLM 生成新的 context，并验证 JSON 合法性。
+使用遗传算法（交叉 + 变异）自动生成新的 context，无需调用 LLM。
+只对数组类型的 context 进行变异，新生成的 context 插入数据库后由 Worker 执行。
 
 用法:  python3 prompt_mutator.py
 """
@@ -14,7 +15,6 @@ import signal
 sys.path.insert(0, ".")
 
 from prompt_db import PromptDB
-from opencode import run as opencode_run
 
 db = PromptDB()
 running = True
@@ -30,8 +30,10 @@ signal.signal(signal.SIGINT, handle_signal)
 signal.signal(signal.SIGTERM, handle_signal)
 
 
+# ── 辅助函数 ──────────────────────────────────────────────
+
 def parse_context(ctx_str):
-    """解析 context 字符串为列表。"""
+    """安全解析 context 为列表，若解析失败则包装为单元素列表。"""
     try:
         ctx = json.loads(ctx_str)
         if isinstance(ctx, list):
@@ -45,134 +47,159 @@ def parse_context(ctx_str):
 
 def validate_context(ctx):
     """验证 context 是否为合法的 JSON 列表，且元素只能是 str 或 int。"""
-    if not isinstance(ctx, list):
+    if not isinstance(ctx, list) or len(ctx) == 0:
         return False
     return all(isinstance(x, (str, int)) for x in ctx)
 
 
-def call_llm(prompt_text, model="", timeout=120):
-    """调用 opencode 生成内容，明确传入 model。"""
-    try:
-        result = opencode_run(prompt_text, model=model, timeout=timeout)
-        output = result.get("output", "")
-        if isinstance(output, dict):
-            return output.get("text", str(output))
-        return str(output).strip()
-    except Exception as e:
-        print(f"    LLM 调用失败: {e}")
-        return ""
+# ── 变异策略参数 ──────────────────────────────────────────
+
+# 预置的"基因片段"——变异时可能插入的新字符串
+SEED_STRINGS = [
+    "请总结以下内容",
+    "用一句话回答",
+    "用三个要点解释",
+    "用代码示例说明",
+    "翻译成英文",
+    "解释为什么会这样",
+    "请详细说明原因",
+    "用简单的语言回答",
+]
+
+# 交叉概率
+CROSSOVER_RATE = 0.8
+# 每个元素发生变异的概率
+MUTATION_RATE = 0.3
+# 每次运行生成的新个体数量（可配置）
+MUTANTS_PER_CYCLE = 2
 
 
-def extract_json_from_response(text):
-    """从 LLM 响应中提取 JSON。"""
-    import re
+# ── 遗传算法核心 ─────────────────────────────────────────
 
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-    if json_match:
-        try:
-            return json.loads(json_match.group(1))
-        except json.JSONDecodeError:
-            pass
-
-    for pattern in [r'\[[\s\S]*\]', r'\{[\s\S]*\}']:
-        match = re.search(pattern, text)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                try:
-                    json_str = match.group().replace("'", '"')
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    pass
-
-    return None
+def _select_parents(population):
+    """从种群中随机选择两个不同的父个体。"""
+    return random.sample(population, 2)
 
 
-def generate_mutated_context(base_context, all_ids, model=""):
-    """使用 LLM 生成新的 context，限制候选 ID 数量，防止命令行参数过长。"""
-    # 限制传入 LLM 的 ID 数量，避免参数列表过长导致 OSError
-    if len(all_ids) > 50:
-        sample_ids = random.sample(all_ids, 50)
-    else:
-        sample_ids = all_ids
+def _crossover(parent1, parent2):
+    """单点交叉：随机选择一个切割点，交换两个列表的片段。"""
+    if random.random() > CROSSOVER_RATE:
+        return parent1[:], parent2[:]
 
-    prompt = f"""请根据下面的 context 生成一个新的 context。
+    if len(parent1) < 2 or len(parent2) < 2:
+        return parent1[:], parent2[:]
 
-原始 context: {json.dumps(base_context, ensure_ascii=False)}
+    point1 = random.randint(1, len(parent1) - 1)
+    point2 = random.randint(1, len(parent2) - 1)
 
-可用的候选 ID: {sample_ids}
+    child1 = parent1[:point1] + parent2[point2:]
+    child2 = parent2[:point2] + parent1[point1:]
 
-规则：
-1. 输出一个 JSON 数组
-2. 数组元素必须是整数（ID）或字符串（文本）
-3. 只输出 JSON 数组，例如 [1, 2, 3] 或 ["你好", 1]
-4. 不要输出任何其他内容
+    return child1, child2
 
-新的 context:"""
 
-    response = call_llm(prompt, model=model)
-    if not response:
+def _mutate(individual, valid_ids):
+    """
+    对个体进行随机变异：
+    - 替换某个元素为随机 id 或随机字符串
+    - 插入一个新元素
+    - 删除一个元素
+    保证变异后个体非空且元素类型合法。
+    """
+    if not individual:
+        return individual
+
+    mutated = individual[:]
+    action = random.choice(["replace", "insert", "delete"])
+
+    if action == "replace" and len(mutated) > 0:
+        idx = random.randrange(len(mutated))
+        if random.random() < 0.5 and valid_ids:
+            mutated[idx] = random.choice(valid_ids)
+        else:
+            mutated[idx] = random.choice(SEED_STRINGS)
+
+    elif action == "insert":
+        pos = random.randint(0, len(mutated))
+        if random.random() < 0.5 and valid_ids:
+            element = random.choice(valid_ids)
+        else:
+            element = random.choice(SEED_STRINGS)
+        mutated.insert(pos, element)
+
+    elif action == "delete" and len(mutated) > 1:
+        idx = random.randrange(len(mutated))
+        del mutated[idx]
+
+    return mutated
+
+
+def generate_mutant(parent1, parent2, valid_ids):
+    """
+    通过交叉+变异生成一个新个体。
+    如果交叉/变异后非法，返回 None。
+    """
+    child1, child2 = _crossover(parent1, parent2)
+    child = random.choice([child1, child2])
+
+    for i in range(len(child)):
+        if random.random() < MUTATION_RATE:
+            if random.random() < 0.5 and valid_ids:
+                child[i] = random.choice(valid_ids)
+            else:
+                child[i] = random.choice(SEED_STRINGS)
+
+    if random.random() < 0.5:
+        child = _mutate(child, valid_ids)
+
+    child = [x for x in child if x != ""]
+
+    if not validate_context(child):
         return None
 
-    result = extract_json_from_response(response)
-    if result is None:
-        print(f"    JSON 解析失败: {response[:100]}...")
-        return None
+    return child
 
-    if not validate_context(result):
-        print(f"    context 不合法（含非法类型）: {result}")
-        return None
 
-    return result
-
+# ── 主循环 ────────────────────────────────────────────────
 
 def process_mutations():
-    """使用 LLM 生成新的 context，仅使用已完成(done)的记录 ID 避免引用未就绪数据。"""
+    """
+    从数据库中选取数组类型的 done 记录作为种群，
+    通过遗传算法生成新 context，插入数据库（状态 pending）。
+    """
     rows = db.list_all()
+    done_rows = [r for r in rows if r["status"] == "done"]
+    all_ids = [r["id"] for r in done_rows]
 
-    # 优先使用状态为 done 的 ID，防止引用 pending/failed 造成死循环
-    all_ids = [r["id"] for r in rows if r["status"] == "done"]
-    if not all_ids:
-        all_ids = [r["id"] for r in rows]
+    population = []
+    for row in done_rows:
+        ctx_list = parse_context(row["context"])
+        if isinstance(ctx_list, list) and len(ctx_list) > 0:
+            population.append(ctx_list)
 
-    if len(rows) < 2:
+    if len(population) < 2:
         return 0
 
     mutated = 0
-    candidates = [r for r in rows if r["context"] and r["context"] != "[]"]
-    if not candidates:
-        return 0
+    for _ in range(MUTANTS_PER_CYCLE):
+        if len(population) < 2:
+            break
 
-    sample_size = min(2, len(candidates))
-    sampled = random.sample(candidates, sample_size)
+        parent1, parent2 = _select_parents(population)
+        new_context = generate_mutant(parent1, parent2, all_ids)
 
-    for row in sampled:
-        items = parse_context(row["context"])
-        if not items:
+        if new_context is None:
             continue
 
-        print(f"\n  处理 #{row['id']}: {items}")
-        new_items = generate_mutated_context(items, all_ids, model=row["model"])
-
-        if new_items is None:
+        if new_context in (parent1, parent2):
             continue
 
-        if new_items == items:
-            print(f"    生成的 context 相同，跳过")
-            continue
+        sample_row = random.choice([r for r in done_rows if parse_context(r["context"]) in (parent1, parent2)])
+        agent = sample_row["agent"] if sample_row else ""
+        model = sample_row["model"] if sample_row else ""
 
-        pid = db.add(
-            new_items,
-            agent=row["agent"],
-            model=row["model"],
-        )
-        print(f"    → #{pid}: {new_items}")
+        pid = db.add(new_context, agent=agent, model=model)
+        print(f"  → 新增变异体 #{pid}: {new_context}")
         mutated += 1
 
     return mutated
@@ -180,7 +207,7 @@ def process_mutations():
 
 def main():
     print("=" * 50)
-    print("  Prompt Mutator (LLM) 守护进程")
+    print("  Prompt Mutator (遗传算法版)")
     print("  按 Ctrl+C 退出")
     print("=" * 50)
 
