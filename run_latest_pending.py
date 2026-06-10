@@ -33,7 +33,7 @@ def main():
     print("正在调用 LLM ...")
 
     try:
-        result = resolve_prompt(pid, db=db, model=model, timeout=300)
+        result = resolve_prompt(pid, db=db, timeout=300)
         print(f"\n✅ 执行成功，结果已保存。")
         print("=" * 60)
         print(result[:500])
