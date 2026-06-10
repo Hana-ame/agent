@@ -102,10 +102,11 @@ def add_prompt(
     """
     添加一条新记录。
 
-    三种模式:
+    四种模式:
       - text: 纯文本输入（context 为文本）
       - context + prompt: 同时写入 context 和 prompt
       - context: 只写 context（数组或文本）
+      - response: 直接写入空的 context 并指定 response 内容
 
     如果提供 response，状态自动设为 done。
     """
@@ -141,8 +142,15 @@ def add_prompt(
         if response:
             db.done(pid, response, {"source": "api_upload"})
         return {"ok": True, "id": pid}
+
+    # --- 新增分支: 直接指定 Response，空 Context ---
+    elif response is not None:
+        pid = db.add("", agent=agent, model=model)
+        db.done(pid, response, {"source": "api_upload_direct_response"})
+        return {"ok": True, "id": pid}
+
     else:
-        return JSONResponse({"error": "需要 text 或 context 参数"}, 400)
+        return JSONResponse({"error": "需要 text、context 或 response 参数"}, 400)
 
 
 @app.post("/prompts/{pid}/score")

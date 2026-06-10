@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt DB 交互终端</title>
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --primary-hover: #4338CA;
+            --bg: #F3F4F6;
+            --surface: #FFFFFF;
+            --text: #1F2937;
+            --text-light: #6B7280;
+            --border: #E5E7EB;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        
+        .card { background: var(--surface); border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
+        
+        .config-bar { display: flex; align-items: center; gap: 10px; background: #1F2937; color: white; padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; }
+        .config-bar input { flex: 1; padding: 8px; border-radius: 4px; border: none; font-size: 14px; }
+        button { padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; transition: 0.2s; font-weight: 500; }
+        button:hover { background: var(--primary-hover); }
+        button:disabled { background: #9CA3AF; cursor: not-allowed; }
+
+        .stats-grid { display: flex; gap: 15px; margin-bottom: 20px; }
+        .stat-box { flex: 1; text-align: center; padding: 15px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); }
+        .stat-box .value { font-size: 24px; font-weight: bold; color: var(--text); }
+        .stat-box .label { font-size: 12px; color: var(--text-light); margin-top: 5px; text-transform: uppercase; }
+
+        .add-section { margin-bottom: 20px; border-bottom: 1px dashed var(--border); padding-bottom: 20px; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+        input[type="text"], select, textarea { padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; outline: none; font-family: Consolas, monospace; }
+        input[type="text"]:focus, select:focus, textarea:focus { border-color: var(--primary); }
+        textarea { width: 100%; resize: vertical; }
+
+        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { padding: 16px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+        th { background: #F9FAFB; font-weight: 600; color: var(--text-light); }
+        tr:hover { background: #F9FAFB; }
+        
+        th:nth-child(1) { width: 70px; }
+        th:nth-child(2) { width: 40%; }
+        th:nth-child(3) { width: 40%; }
+        th:nth-child(4) { width: 100px; }
+
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: bold; text-transform: capitalize; }
+        .badge.done { background: #D1FAE5; color: #065F46; }
+        .badge.pending { background: #FEF3C7; color: #92400E; }
+        .badge.failed { background: #FEE2E2; color: #991B1B; }
+
+        .content-box { 
+            background: #F9FAFB; border: 1px solid var(--border); border-radius: 6px; 
+            padding: 12px; max-height: 400px; overflow-y: auto; font-size: 13px; line-height: 1.5;
+            white-space: pre-wrap; word-break: break-word; font-family: Consolas, Monaco, monospace;
+        }
+        .prompt-box { background: #EEF2FF; border-color: #A5B4FC; margin-top: 8px; }
+        .msg-role { font-weight: bold; color: var(--primary); margin-bottom: 4px; display: inline-block; text-transform: uppercase; font-size: 11px;}
+        .msg-block { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed #D1D5DB; }
+        .msg-block:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+
+        .pagination { display: flex; justify-content: center; gap: 15px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
+        
+        #toast { position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 4px; display: none; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="config-bar">
+        <label for="api-url">API 节点:</label>
+        <input type="text" id="api-url" value="https://wsl-8000.moonchan.xyz">
+        <button onclick="initApp()">重新连接</button>
+    </div>
+
+    <div class="stats-grid" id="stats-container">
+        <div class="stat-box"><div class="value">-</div><div class="label">Total</div></div>
+        <div class="stat-box"><div class="value">-</div><div class="label">Done</div></div>
+        <div class="stat-box"><div class="value">-</div><div class="label">Pending</div></div>
+        <div class="stat-box"><div class="value">-</div><div class="label">Failed</div></div>
+    </div>
+
+    <div class="card">
+        
+        <div class="add-section">
+            <h3 style="margin-bottom: 15px; font-size: 16px;">➕ 添加新任务</h3>
+            
+            <div class="input-group">
+                <select id="add-mode" onchange="toggleAddMode()" style="font-weight: bold;">
+                    <option value="text">📝 模式 1: 纯文本输入 (Text)</option>
+                    <option value="context">🔗 模式 2/3: 关联 Context & Prompt</option>
+                    <option value="response">📥 模式 4: 直接写入 Response (空 Context)</option>
+                </select>
+                <input type="text" id="add-agent" placeholder="Agent (可选)" style="width: 150px;">
+                <input type="text" id="add-model" placeholder="Model (可选)" style="width: 150px;">
+            </div>
+
+            <div id="mode-text-container">
+                <textarea id="add-text" rows="3" placeholder="在这里输入纯文本 Context (支持 JSON)..."></textarea>
+            </div>
+
+            <div id="mode-context-container" style="display: none; flex-direction: column; gap: 10px;">
+                <input type="text" id="add-context" placeholder="输入 Context 关联数组，例如: [1, 2] 或 [1, 2, 3]">
+                <textarea id="add-prompt" rows="2" placeholder="输入附加的 Prompt... (如果是纯数组引用的 模式3，这里留空)"></textarea>
+            </div>
+
+            <div id="mode-response-container" style="display: none; flex-direction: column; gap: 10px;">
+                <textarea id="add-response-only" rows="3" placeholder="直接在此输入 Response 内容... (提交后状态为 Done，Context 为空)"></textarea>
+            </div>
+
+            <div style="text-align: right; margin-top: 10px;">
+                <button onclick="submitPrompt()" style="background: #10B981;">🚀 提交任务</button>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <div>
+                <label style="font-weight: 500; margin-right: 10px;">过滤状态:</label>
+                <select id="filter-status" onchange="loadPrompts()">
+                    <option value="">全部 (All)</option>
+                    <option value="pending">等待中 (Pending)</option>
+                    <option value="done">已完成 (Done)</option>
+                    <option value="failed">失败 (Failed)</option>
+                </select>
+                <span id="list-info" style="margin-left: 15px; font-size: 13px; color: var(--text-light);"></span>
+            </div>
+            <button onclick="loadPrompts()">🔄 刷新列表 (回首页)</button>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Context & Prompt</th>
+                    <th>Response</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="prompts-tbody">
+            </tbody>
+        </table>
+
+        <div class="pagination">
+            <button id="btn-newer" onclick="loadPrompts('newer')">« 加载更新的 (Newer)</button>
+            <button id="btn-older" onclick="loadPrompts('older')">加载更旧的 (Older) »</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+    let currentMinId = null;
+    let currentMaxId = null;
+
+    function toggleAddMode() {
+        const mode = document.getElementById('add-mode').value;
+        document.getElementById('mode-text-container').style.display = (mode === 'text') ? 'block' : 'none';
+        document.getElementById('mode-context-container').style.display = (mode === 'context') ? 'flex' : 'none';
+        document.getElementById('mode-response-container').style.display = (mode === 'response') ? 'flex' : 'none';
+    }
+
+    async function apiRequest(method, path, queryParams = {}) {
+        const baseUrl = document.getElementById('api-url').value.replace(/\/$/, '');
+        const url = new URL(baseUrl + path);
+        
+        Object.keys(queryParams).forEach(key => {
+            if (queryParams[key] !== undefined && queryParams[key] !== '' && queryParams[key] !== null) {
+                url.searchParams.append(key, queryParams[key]);
+            }
+        });
+
+        try {
+            const response = await fetch(url.toString(), { method, headers: { 'Accept': 'application/json' } });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+            return data;
+        } catch (error) {
+            showToast(`请求失败: ${error.message}`, true);
+            throw error;
+        }
+    }
+
+    function showToast(message, isError = false) {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.style.background = isError ? '#EF4444' : '#333';
+        toast.style.display = 'block';
+        setTimeout(() => toast.style.display = 'none', 3000);
+    }
+
+    function getStatusBadge(status) {
+        const s = (status || 'unknown').toLowerCase();
+        return `<span class="badge ${s}">${s}</span>`;
+    }
+
+    function parseAndFormatText(rawText) {
+        if (!rawText) return '<span style="color:#9CA3AF">无内容</span>';
+        try {
+            const parsed = JSON.parse(rawText);
+            if (Array.isArray(parsed)) {
+                return parsed.map(msg => {
+                    const role = msg.role ? `<span class="msg-role">${escapeHtml(msg.role)}</span><br>` : '';
+                    let content = typeof msg.content === 'string' ? escapeHtml(msg.content) : escapeHtml(JSON.stringify(msg.content || msg));
+                    return `<div class="msg-block">${role}${content}</div>`;
+                }).join('');
+            }
+            if (typeof parsed === 'object' && parsed !== null) {
+                return escapeHtml(JSON.stringify(parsed, null, 2));
+            }
+        } catch (e) {}
+        return escapeHtml(rawText);
+    }
+
+    function escapeHtml(unsafe) {
+        if (typeof unsafe !== 'string') return unsafe;
+        return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    async function initApp() {
+        showToast("正在加载数据...", false);
+        await loadStats();
+        await loadPrompts(); 
+    }
+
+    async function submitPrompt() {
+        const mode = document.getElementById('add-mode').value;
+        const agent = document.getElementById('add-agent').value.trim();
+        const model = document.getElementById('add-model').value.trim();
+        
+        let params = {};
+        if (agent) params.agent = agent;
+        if (model) params.model = model;
+
+        if (mode === 'text') {
+            const text = document.getElementById('add-text').value.trim();
+            if (!text) return showToast("纯文本不能为空！", true);
+            params.text = text;
+        } else if (mode === 'context') {
+            const context = document.getElementById('add-context').value.trim();
+            const prompt = document.getElementById('add-prompt').value.trim();
+            if (!context) return showToast("Context (数组/引用) 不能为空！", true);
+            params.context = context;
+            if (prompt) params.prompt = prompt;
+        } else if (mode === 'response') {
+            const responseText = document.getElementById('add-response-only').value.trim();
+            if (!responseText) return showToast("Response 不能为空！", true);
+            params.response = responseText;
+        }
+
+        try {
+            await apiRequest('POST', '/prompts', params);
+            showToast("✅ 任务添加成功！", false);
+            
+            document.getElementById('add-text').value = '';
+            document.getElementById('add-context').value = '';
+            document.getElementById('add-prompt').value = '';
+            document.getElementById('add-response-only').value = '';
+            
+            loadStats();
+            loadPrompts();
+        } catch (e) {}
+    }
+
+    async function loadStats() {
+        try {
+            const stats = await apiRequest('GET', '/stats');
+            document.getElementById('stats-container').innerHTML = `
+                <div class="stat-box"><div class="value">${stats.total || 0}</div><div class="label">总数</div></div>
+                <div class="stat-box"><div class="value" style="color:#10B981">${stats.done || 0}</div><div class="label">已完成 (Done)</div></div>
+                <div class="stat-box"><div class="value" style="color:#F59E0B">${stats.pending || 0}</div><div class="label">等待中 (Pending)</div></div>
+                <div class="stat-box"><div class="value" style="color:#EF4444">${stats.failed || 0}</div><div class="label">失败 (Failed)</div></div>
+            `;
+        } catch (e) { }
+    }
+
+    async function loadPrompts(direction = null) {
+        const status = document.getElementById('filter-status').value;
+        const tbody = document.getElementById('prompts-tbody');
+        
+        let params = { size: 20 };
+        if (status) params.status = status;
+
+        if (direction === 'newer' && currentMaxId !== null) params.min_id = currentMaxId;
+        else if (direction === 'older' && currentMinId !== null) params.max_id = currentMinId;
+        else { currentMinId = null; currentMaxId = null; }
+
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 30px; color:#6B7280;">加载中...</td></tr>`;
+        
+        try {
+            const payload = await apiRequest('GET', '/prompts', params);
+            const items = payload.items || [];
+            
+            if (items.length === 0) {
+                if (direction) showToast("没有更多数据了");
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color:#6B7280;">当前状态/页码下无数据</td></tr>';
+                return;
+            }
+
+            currentMinId = payload.min_id;
+            currentMaxId = payload.max_id;
+            document.getElementById('list-info').innerText = `当前区间: ID ${currentMinId} ~ ${currentMaxId}`;
+
+            items.sort((a, b) => b.id - a.id);
+            tbody.innerHTML = '';
+            
+            items.forEach(item => {
+                const tr = document.createElement('tr');
+                
+                let contextHTML = `<div class="content-box">${parseAndFormatText(item.context)}</div>`;
+                if (item.prompt) {
+                    contextHTML += `
+                        <div style="margin-top: 8px; font-weight: bold; font-size: 11px; color: var(--text-light); text-transform: uppercase;">附加 Prompt:</div>
+                        <div class="content-box prompt-box">${parseAndFormatText(item.prompt)}</div>
+                    `;
+                }
+                
+                let agentInfo = `<br><small style="color:var(--text-light); font-weight:normal;">${item.agent || 'null'} | ${item.model || 'null'}</small>`;
+
+                tr.innerHTML = `
+                    <td style="font-weight: 500; color: var(--text-light);">
+                        #${item.id}
+                        ${agentInfo}
+                    </td>
+                    <td>${contextHTML}</td>
+                    <td><div class="content-box" style="background: #FFF; border-color: #E5E7EB;">${parseAndFormatText(item.response)}</div></td>
+                    <td>${getStatusBadge(item.status)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color:red;">加载失败</td></tr>';
+        }
+    }
+
+    window.onload = initApp;
+</script>
+
+</body>
+</html>
