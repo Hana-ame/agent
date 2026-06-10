@@ -34,6 +34,8 @@ def list_prompts(status: str = "", max_id: int = 0, min_id: int = 0, size: int =
     else:
         rows = db.list_all()
 
+    rows = list(reversed(rows))
+
     if max_id:
         rows = [r for r in rows if r["id"] < max_id]
     if min_id:
@@ -93,6 +95,7 @@ def add_prompt(
     text: str = Query(None),
     context: str = Query(None),
     prompt: str = Query(None),
+    response: str = Query(None),
     agent: str = "",
     model: str = "",
 ):
@@ -103,22 +106,29 @@ def add_prompt(
       - text: 纯文本输入（context 为文本）
       - context + prompt: 同时写入 context 和 prompt
       - context: 只写 context（数组或文本）
+
+    如果提供 response，状态自动设为 done。
     """
     if context is not None and prompt is not None:
-        # 同时写入 context 和 prompt
         import json as _json
         try:
             ctx = _json.loads(context)
         except _json.JSONDecodeError:
             ctx = context
         pid = db.add(ctx, agent=agent, model=model)
-        # 把 prompt 存到 response 字段作为暂存（或者可以用 log）
+        # 把 prompt 存到 response 字段作为暂存
         with db._conn() as conn:
             conn.execute("UPDATE prompts SET response=? WHERE id=?", (prompt, pid))
             conn.commit()
+        # 如果提供了 response，标记为 done
+        if response:
+            db.done(pid, response, {"source": "api_upload"})
         return {"ok": True, "id": pid, "context": context, "prompt": prompt}
     elif text is not None:
         pid = db.add(text, agent=agent, model=model)
+        # 如果提供了 response，标记为 done
+        if response:
+            db.done(pid, response, {"source": "api_upload"})
         return {"ok": True, "id": pid}
     elif context is not None:
         import json as _json
@@ -127,6 +137,9 @@ def add_prompt(
         except _json.JSONDecodeError:
             ctx = context
         pid = db.add(ctx, agent=agent, model=model)
+        # 如果提供了 response，标记为 done
+        if response:
+            db.done(pid, response, {"source": "api_upload"})
         return {"ok": True, "id": pid}
     else:
         return JSONResponse({"error": "需要 text 或 context 参数"}, 400)

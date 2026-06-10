@@ -56,7 +56,11 @@ def call_llm(prompt_text, timeout=120):
     """调用 opencode 生成内容。"""
     try:
         result = opencode_run(prompt_text, timeout=timeout)
-        return result.get("stdout", "").strip()
+        output = result.get("output", "")
+        if isinstance(output, dict):
+            # JSON 格式的输出
+            return output.get("text", str(output))
+        return str(output).strip()
     except Exception as e:
         print(f"    LLM 调用失败: {e}")
         return ""
@@ -64,6 +68,8 @@ def call_llm(prompt_text, timeout=120):
 
 def extract_json_from_response(text):
     """从 LLM 响应中提取 JSON。"""
+    import re
+
     # 尝试直接解析
     try:
         return json.loads(text)
@@ -71,7 +77,6 @@ def extract_json_from_response(text):
         pass
 
     # 尝试提取 ```json ... ``` 块
-    import re
     json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
     if json_match:
         try:
@@ -86,31 +91,34 @@ def extract_json_from_response(text):
             try:
                 return json.loads(match.group())
             except json.JSONDecodeError:
-                pass
+                # 尝试将 Python 列表语法转换为 JSON
+                try:
+                    # 将单引号替换为双引号
+                    json_str = match.group().replace("'", '"')
+                    return json.loads(json_str)
+                except json.JSONDecodeError:
+                    pass
 
     return None
 
 
 def generate_mutated_context(base_context, all_ids):
     """使用 LLM 生成新的 context。"""
-    system_prompt = f"""你是一个 prompt 变异器。根据给定的 context，生成一个新的、不同的 context。
-
-规则：
-1. 输出必须是一个 JSON 数组，例如: [1, 2, 3] 或 ["hello", 1]
-2. 数组元素可以是：
-   - 整数（ID）：从 {all_ids} 中选择
-   - 字符串：有意义的文本
-3. 只输出 JSON 数组，不要有其他内容
-4. 生成的 context 应该和原 context 相似但有变化
-5. 保持数组长度大致相同（±2）"""
-
-    user_prompt = f"""基于这个 context 生成一个新的：
+    prompt = f"""请根据下面的 context 生成一个新的 context。
 
 原始 context: {json.dumps(base_context, ensure_ascii=False)}
 
-直接输出 JSON 数组："""
+可用的 ID: {all_ids}
 
-    response = call_llm(f"{system_prompt}\n\n{user_prompt}")
+规则：
+1. 输出一个 JSON 数组
+2. 数组元素可以是整数（ID）或字符串（文本）
+3. 只输出 JSON 数组，例如 [1, 2, 3] 或 ["你好", 1]
+4. 不要输出任何其他内容
+
+新的 context:"""
+
+    response = call_llm(prompt)
     if not response:
         return None
 

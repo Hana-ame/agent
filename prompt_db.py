@@ -143,6 +143,13 @@ class PromptDB:
                 conn.execute("DELETE FROM prompts WHERE id=?", (pid,))
                 conn.commit()
 
+    def update_agent(self, pid, agent):
+        """更新 agent。"""
+        with self._lock:
+            with self._conn() as conn:
+                conn.execute("UPDATE prompts SET agent=? WHERE id=?", (agent, pid))
+                conn.commit()
+
     def update_score(self, pid, score):
         """更新质量评分 0.0~1.0。"""
         with self._lock:
@@ -183,37 +190,4 @@ def parse_log(log_str):
         return {}
 
 
-if __name__ == "__main__":
-    db = PromptDB()
-    print(f"数据库: {DB_PATH}")
 
-    # 清理测试数据
-    with db._conn() as conn:
-        conn.execute("DELETE FROM prompts")
-        conn.commit()
-
-    # 插入几条测试记录
-    pid1 = db.add("1+1=?", agent="Null", model="mimo-v2.5-free")
-    db.done(pid1, "2", {"input_tokens": 10, "output_tokens": 5, "elapsed_ms": 1200})
-    print(f"  插入 #{pid1} 并标记 done")
-
-    pid2 = db.add("背一首古诗", agent="Null", model="mimo-v2.5-free")
-    db.done(pid2, "床前明月光...", {"input_tokens": 12, "output_tokens": 20, "elapsed_ms": 3000})
-    print(f"  插入 #{pid2} 并标记 done")
-
-    pid3 = db.add([pid1, pid2], agent="Null", model="mimo-v2.5-free")
-    print(f"  插入 #{pid3}（引用 #{pid1}, #{pid2}），status=pending")
-
-    pid4 = db.add("这个会失败", agent="Null", model="mimo-v2.5-free")
-    db.failed(pid4, "timeout")
-    print(f"  插入 #{pid4} 并标记 failed")
-
-    # 查询
-    print("\n所有记录:")
-    for r in db.list_all():
-        log = parse_log(r["log"])
-        print(f"  #{r['id']} | {r['status']:<8} | ctx={r['context'][:40]} | log={log}")
-
-    print(f"\npending: {len(db.list_by_status('pending'))}")
-    print(f"done:    {len(db.list_by_status('done'))}")
-    print(f"failed:  {len(db.list_by_status('failed'))}")
