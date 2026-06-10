@@ -69,7 +69,10 @@ def _resolve_int(pid: int, db: PromptDB, model: str = "", timeout: int = 600) ->
             context, agent=row["agent"], model=model or row["model"], timeout=timeout
         )
         text = _to_text(result["output"])
-        db.done(pid, text, {"source": "opencode_run"})
+        if result.get("success"):
+            db.done(pid, text, {"source": "opencode_run"})
+        else:
+            db.failed(pid, text or "opencode call failed")
         return text
 
     # 如果 context 不是列表（例如单个数字、字典），也当作整体文本处理
@@ -78,7 +81,10 @@ def _resolve_int(pid: int, db: PromptDB, model: str = "", timeout: int = 600) ->
             str(ctx_val), agent=row["agent"], model=model or row["model"], timeout=timeout
         )
         text = _to_text(result["output"])
-        db.done(pid, text, {"source": "opencode_run"})
+        if result.get("success"):
+            db.done(pid, text, {"source": "opencode_run"})
+        else:
+            db.failed(pid, text or "opencode call failed")
         return text
 
     # ✅ 核心修复：context 是 JSON 数组时，先递归解析每个元素，拼接后必须调用 opencode 获取最终回复
@@ -103,7 +109,10 @@ def _resolve_int(pid: int, db: PromptDB, model: str = "", timeout: int = 600) ->
         timeout=timeout,
     )
     final_text = _to_text(result["output"])
-    db.done(pid, final_text, {"source": "opencode_run_resolved"})
+    if result.get("success"):
+        db.done(pid, final_text, {"source": "opencode_run_resolved"})
+    else:
+        db.failed(pid, final_text or "opencode call failed")
     return final_text
 
 
@@ -141,7 +150,9 @@ def resolve_prompt(
         text = _to_text(result["output"])
         if use_cache:
             _cache[key] = text
-        return text
+        if result.get("success"):
+            return text
+        return ""
 
     agent = prompt.get("agent", "")
     context = prompt.get("context", "")
@@ -179,7 +190,9 @@ def resolve_prompt(
 
     if use_cache:
         _cache[key] = text
-    return text
+    if result.get("success"):
+        return text
+    return ""
 
 
 def _to_text(output) -> str:
