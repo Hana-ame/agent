@@ -36,6 +36,9 @@ def process_pending():
 
     processed = 0
     for row in rows:
+        if not running:
+            break
+
         pid = row["id"]
         context = row["context"]
         agent = row["agent"]
@@ -43,6 +46,8 @@ def process_pending():
 
         print(f"  处理 #{pid}: context={context[:50]}...")
         try:
+            # 直接传 pid，resolve_prompt 内部会调用 _resolve_int，
+            # 而 _resolve_int 已修复列表 context 时也会调用 opencode
             result = resolve_prompt(pid, db=db, model=model, timeout=300)
             print(f"  #{pid} 完成: {result[:80]}...")
             processed += 1

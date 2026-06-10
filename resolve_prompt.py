@@ -51,10 +51,8 @@ def _resolve_int(pid: int, db: PromptDB, model: str = "", timeout: int = 600) ->
     if row is None:
         return ""
 
-    if row["response"]:
-        # 如果有 response 但 status 不是 done，修正状态
-        if row["status"] != "done":
-            db.done(pid, row["response"], row["log"])
+    # 已有 response 且状态为 done，直接复用
+    if row["response"] and row["status"] == "done":
         return row["response"]
 
     context = row["context"]
@@ -62,30 +60,51 @@ def _resolve_int(pid: int, db: PromptDB, model: str = "", timeout: int = 600) ->
         db.done(pid, "", {"source": "empty_context"})
         return ""
 
-    # context 可能是 JSON 数组或纯文本
+    # 尝试解析 context 为 JSON
     try:
-        ctx_list = json.loads(context)
+        ctx_val = json.loads(context)
     except (json.JSONDecodeError, TypeError):
-        # 纯文本，运行 opencode
-        result = opencode_run(context, agent=row["agent"], model=model or row["model"], timeout=timeout)
+        # 纯文本 → 直接调用 opencode
+        result = opencode_run(
+            context, agent=row["agent"], model=model or row["model"], timeout=timeout
+        )
         text = _to_text(result["output"])
         db.done(pid, text, {"source": "opencode_run"})
         return text
 
-    if not isinstance(ctx_list, list):
-        return str(ctx_list)
+    # 如果 context 不是列表（例如单个数字、字典），也当作整体文本处理
+    if not isinstance(ctx_val, list):
+        result = opencode_run(
+            str(ctx_val), agent=row["agent"], model=model or row["model"], timeout=timeout
+        )
+        text = _to_text(result["output"])
+        db.done(pid, text, {"source": "opencode_run"})
+        return text
 
+    # ✅ 核心修复：context 是 JSON 数组时，先递归解析每个元素，拼接后必须调用 opencode 获取最终回复
     parts = []
-    for item in ctx_list:
+    for item in ctx_val:
         if isinstance(item, str):
             parts.append(item)
         elif isinstance(item, int):
             parts.append(_resolve_int(item, db, model=model, timeout=timeout))
-    text = "\n\n".join(parts)
+        else:
+            # 嵌套 dict（即 Prompt 结构），递归交给 resolve_prompt 处理
+            parts.append(
+                resolve_prompt(item, db=db, model=model, timeout=timeout)
+            )
+    resolved_prompt = "\n\n".join(parts)
 
-    # 写回 DB，下次引用同一 id 直接命中缓存
-    db.done(pid, text, {"source": "context_resolved"})
-    return text
+    # 用拼接后的文本作为 prompt，使用该记录自身的 agent 和 model 调用 opencode
+    result = opencode_run(
+        resolved_prompt,
+        agent=row["agent"],
+        model=model or row["model"],
+        timeout=timeout,
+    )
+    final_text = _to_text(result["output"])
+    db.done(pid, final_text, {"source": "opencode_run_resolved"})
+    return final_text
 
 
 def resolve_prompt(
@@ -99,17 +118,6 @@ def resolve_prompt(
 ) -> str:
     """
     递归解析 Prompt 并调用 opencode，返回 response 文本。
-
-    参数:
-      prompt  : str 或 int 或 {"agent": str, "context": ...}
-      db      : PromptDB 实例（int 引用必须提供）
-      model   : 传递给 opencode 的模型名
-      timeout : 超时秒数
-      use_cache: 是否启用缓存复用（相同结构只执行一次）
-      _cache  : 内部参数，勿手动传入
-
-    返回:
-      opencode 的 response 文本字符串
     """
     if _cache is None:
         _cache = {}
@@ -120,7 +128,7 @@ def resolve_prompt(
         key = _serialize(prompt) if use_cache else ""
         if use_cache and key in _cache:
             return _cache[key]
-        text = _resolve_int(prompt, db)
+        text = _resolve_int(prompt, db, model=model, timeout=timeout)
         if use_cache:
             _cache[key] = text
         return text
@@ -143,7 +151,7 @@ def resolve_prompt(
     elif isinstance(context, int):
         if db is None:
             raise ValueError("int 引用需要提供 db 参数")
-        resolved_text = _resolve_int(context, db)
+        resolved_text = _resolve_int(context, db, model=model, timeout=timeout)
     elif isinstance(context, list):
         parts: list[str] = []
         for item in context:
@@ -152,7 +160,7 @@ def resolve_prompt(
             elif isinstance(item, int):
                 if db is None:
                     raise ValueError("int 引用需要提供 db 参数")
-                parts.append(_resolve_int(item, db))
+                parts.append(_resolve_int(item, db, model=model, timeout=timeout))
             else:
                 parts.append(
                     resolve_prompt(item, db=db, model=model, timeout=timeout,
@@ -181,8 +189,7 @@ def _to_text(output) -> str:
     return str(output)
 
 
-# ── 测试 ──────────────────────────────────────────────────────────────────
-
+# ── 测试（保留原样，如需可运行）──────────────────────────────────
 if __name__ == "__main__":
     from prompt_db import PromptDB
 
@@ -191,7 +198,6 @@ if __name__ == "__main__":
     print("=" * 60)
 
     db = PromptDB()
-    # 清理旧数据
     with db._conn() as conn:
         conn.execute("DELETE FROM prompts")
         conn.commit()

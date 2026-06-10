@@ -44,21 +44,18 @@ def parse_context(ctx_str):
 
 
 def validate_context(ctx):
-    """验证 context 是否为合法的 JSON 列表。"""
-    if isinstance(ctx, list):
-        return True
-    if isinstance(ctx, (str, int)):
-        return True
-    return False
+    """验证 context 是否为合法的 JSON 列表，且元素只能是 str 或 int。"""
+    if not isinstance(ctx, list):
+        return False
+    return all(isinstance(x, (str, int)) for x in ctx)
 
 
-def call_llm(prompt_text, timeout=120):
-    """调用 opencode 生成内容。"""
+def call_llm(prompt_text, model="", timeout=120):
+    """调用 opencode 生成内容，明确传入 model。"""
     try:
-        result = opencode_run(prompt_text, timeout=timeout)
+        result = opencode_run(prompt_text, model=model, timeout=timeout)
         output = result.get("output", "")
         if isinstance(output, dict):
-            # JSON 格式的输出
             return output.get("text", str(output))
         return str(output).strip()
     except Exception as e:
@@ -70,13 +67,11 @@ def extract_json_from_response(text):
     """从 LLM 响应中提取 JSON。"""
     import re
 
-    # 尝试直接解析
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # 尝试提取 ```json ... ``` 块
     json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
     if json_match:
         try:
@@ -84,16 +79,13 @@ def extract_json_from_response(text):
         except json.JSONDecodeError:
             pass
 
-    # 尝试提取 [ ... ] 或 { ... }
     for pattern in [r'\[[\s\S]*\]', r'\{[\s\S]*\}']:
         match = re.search(pattern, text)
         if match:
             try:
                 return json.loads(match.group())
             except json.JSONDecodeError:
-                # 尝试将 Python 列表语法转换为 JSON
                 try:
-                    # 将单引号替换为双引号
                     json_str = match.group().replace("'", '"')
                     return json.loads(json_str)
                 except json.JSONDecodeError:
@@ -102,23 +94,29 @@ def extract_json_from_response(text):
     return None
 
 
-def generate_mutated_context(base_context, all_ids):
-    """使用 LLM 生成新的 context。"""
+def generate_mutated_context(base_context, all_ids, model=""):
+    """使用 LLM 生成新的 context，限制候选 ID 数量，防止命令行参数过长。"""
+    # 限制传入 LLM 的 ID 数量，避免参数列表过长导致 OSError
+    if len(all_ids) > 50:
+        sample_ids = random.sample(all_ids, 50)
+    else:
+        sample_ids = all_ids
+
     prompt = f"""请根据下面的 context 生成一个新的 context。
 
 原始 context: {json.dumps(base_context, ensure_ascii=False)}
 
-可用的 ID: {all_ids}
+可用的候选 ID: {sample_ids}
 
 规则：
 1. 输出一个 JSON 数组
-2. 数组元素可以是整数（ID）或字符串（文本）
+2. 数组元素必须是整数（ID）或字符串（文本）
 3. 只输出 JSON 数组，例如 [1, 2, 3] 或 ["你好", 1]
 4. 不要输出任何其他内容
 
 新的 context:"""
 
-    response = call_llm(prompt)
+    response = call_llm(prompt, model=model)
     if not response:
         return None
 
@@ -128,16 +126,20 @@ def generate_mutated_context(base_context, all_ids):
         return None
 
     if not validate_context(result):
-        print(f"    context 不合法: {result}")
+        print(f"    context 不合法（含非法类型）: {result}")
         return None
 
     return result
 
 
 def process_mutations():
-    """使用 LLM 生成新的 context。"""
+    """使用 LLM 生成新的 context，仅使用已完成(done)的记录 ID 避免引用未就绪数据。"""
     rows = db.list_all()
-    all_ids = [r["id"] for r in rows]
+
+    # 优先使用状态为 done 的 ID，防止引用 pending/failed 造成死循环
+    all_ids = [r["id"] for r in rows if r["status"] == "done"]
+    if not all_ids:
+        all_ids = [r["id"] for r in rows]
 
     if len(rows) < 2:
         return 0
@@ -147,7 +149,6 @@ def process_mutations():
     if not candidates:
         return 0
 
-    # 每次处理 2 条
     sample_size = min(2, len(candidates))
     sampled = random.sample(candidates, sample_size)
 
@@ -157,7 +158,7 @@ def process_mutations():
             continue
 
         print(f"\n  处理 #{row['id']}: {items}")
-        new_items = generate_mutated_context(items, all_ids)
+        new_items = generate_mutated_context(items, all_ids, model=row["model"])
 
         if new_items is None:
             continue
