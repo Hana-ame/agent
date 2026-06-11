@@ -11,10 +11,11 @@ def run(prompt, agent="", model="", timeout=600):
     cmd.extend(["run", prompt])
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     output = result.stdout.strip()
+    error = result.stderr.strip() if result.returncode != 0 else ""
     try:
-        return {"output": json.loads(output), "json": True, "success": result.returncode == 0}
+        return {"output": json.loads(output), "json": True, "success": result.returncode == 0, "error": error}
     except json.JSONDecodeError:
-        return {"output": output, "json":False, "success": result.returncode == 0}
+        return {"output": output, "json":False, "success": result.returncode == 0, "error": error}
 
 
 SILICONFLOW_MODELS = [
