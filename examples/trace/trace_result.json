@@ -1,0 +1,172 @@
+{
+  "metadata": {
+    "generated_at": "2026-08-27T04:48:00",
+    "success": true,
+    "execution_time_s": 0.001,
+    "agent": "Namespace(out=None, fast=True, real=False, proxy='1')",
+    "graph": "V=6, E=6",
+    "vertex_count": 6,
+    "edge_count": 6
+  },
+  "input_graph": {
+    "vertices": [
+      {
+        "id": "A",
+        "settings": {},
+        "script": null,
+        "initial_data": [
+          {
+            "data_id": "_",
+            "tags": [
+              "_"
+            ],
+            "value": "The vertex-edge framework lets you compose AI pipelines as a graph."
+          }
+        ]
+      },
+      {
+        "id": "B",
+        "settings": {},
+        "script": null,
+        "initial_data": []
+      },
+      {
+        "id": "C",
+        "settings": {},
+        "script": null,
+        "initial_data": []
+      },
+      {
+        "id": "D",
+        "settings": {},
+        "script": null,
+        "initial_data": []
+      },
+      {
+        "id": "E",
+        "settings": {},
+        "script": null,
+        "initial_data": []
+      },
+      {
+        "id": "F",
+        "settings": {},
+        "script": null,
+        "initial_data": []
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "A",
+        "destination": "B",
+        "prompt": "Summarize the text:",
+        "model": "sum",
+        "settings": {},
+        "script": null
+      },
+      {
+        "id": "e2",
+        "source": "B",
+        "destination": "C",
+        "prompt": "Translate to French:",
+        "model": "fr",
+        "settings": {},
+        "script": null
+      },
+      {
+        "id": "e3",
+        "source": "B",
+        "destination": "D",
+        "prompt": "Translate to Spanish:",
+        "model": "es",
+        "settings": {},
+        "script": null
+      },
+      {
+        "id": "e4",
+        "source": "C",
+        "destination": "E",
+        "prompt": "",
+        "model": "m",
+        "settings": {},
+        "script": null
+      },
+      {
+        "id": "e5",
+        "source": "D",
+        "destination": "E",
+        "prompt": "",
+        "model": "m",
+        "settings": {},
+        "script": null
+      },
+      {
+        "id": "e6",
+        "source": "E",
+        "destination": "F",
+        "prompt": "Produce final report:",
+        "model": "digest",
+        "settings": {},
+        "script": null
+      }
+    ]
+  },
+  "results": {
+    "vertex_results": {
+      "A": {
+        "state": "done",
+        "data": {
+          "__init__": "The vertex-edge framework lets you compose AI pipelines as a graph."
+        },
+        "error": null
+      },
+      "B": {
+        "state": "done",
+        "data": {
+          "e1": "[sum] The vertex-edge framework lets you compose AI pipelines as a graph."
+        },
+        "error": null
+      },
+      "C": {
+        "state": "done",
+        "data": {
+          "e2": "[法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
+        },
+        "error": null
+      },
+      "D": {
+        "state": "done",
+        "data": {
+          "e3": "[西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
+        },
+        "error": null
+      },
+      "E": {
+        "state": "done",
+        "data": {
+          "e4": "[m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
+          "e5": "[m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
+          "__self__": "[e4] [m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.\n[e5] [m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
+        },
+        "error": null
+      },
+      "F": {
+        "state": "done",
+        "data": {
+          "e6": "[报告] [e4] [m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.\n[e5] [m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
+        },
+        "error": null
+      }
+    },
+    "edge_results": {
+      "e1": "[sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
+      "e2": "[法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
+      "e3": "[西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
+      "e4": "[m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
+      "e5": "[m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
+      "e6": "[报告] [e4] [m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.\n[e5] [m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
+    },
+    "errors": []
+  }
+}
