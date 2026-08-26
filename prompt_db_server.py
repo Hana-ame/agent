@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
-from prompt_db import PromptDB, parse_log
+from prompt_db import PromptDB
 
 app = FastAPI(title="Prompt DB", version="1.0")
 

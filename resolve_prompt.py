@@ -157,6 +157,14 @@ def resolve_prompt(
     agent = prompt.get("agent", "")
     context = prompt.get("context", "")
 
+    # JSON string → parsed value (e.g. "[212, 213]" → [212, 213])
+    if isinstance(context, str):
+        try:
+            parsed = json.loads(context)
+            context = parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     if isinstance(context, str):
         resolved_text = context
     elif isinstance(context, int):

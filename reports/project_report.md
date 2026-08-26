@@ -1,122 +1,112 @@
-# simpleAI 项目报告
+# resolve_prompt — DAG 节点调度器
 
-**日期**: 2026-05-31
-**分支**: main-new
-**测试结果**: 17/17 通过 ✅
-**代码检查**: ruff 0 警告，pyright 0 错误 ✅
+**日期**: 2026-06-11
+**版本**: v2 (DAG 调度器架构)
+**唯一可用模块**: `resolve_prompt.py`（`resolve_with_db.py` 已废弃）
 
 ---
 
 ## 一、项目概述
 
-simpleAI 是一个免费模型调用追踪系统，核心功能：
-- 从 OpenCode Zen API 和 NVIDIA NIM API 动态发现免费模型
-- 记录每个模型的调用统计（成功/失败/质量好评/差评）
-- 通过 `opencode` CLI 封装调用，支持 agent/model 选择
+`resolve_prompt.py` 是一个**递归 Prompt 解析器 / DAG 节点调度器**，核心能力：
+
+- 将 Prompt 定义为由 `int`（数据库 ID 引用）、`str`、`dict`（Agent 任务块）、`list` 组成的嵌套结构
+- 自动解析依赖树：引用 `done` 节点时只提取 `response`（纯净结果），引用 `pending` 节点时自动补跑
+- 最终拼接解析后的上下文，调用 `opencode` API 获取结果
 
 ---
 
-## 二、文件清单
+## 二、架构设计
 
-| 文件 | 类型 | 行数 | 说明 |
-|------|------|------|------|
-| `db.py` | 核心 | 11 | SQLite 统一入口，WAL 模式，外键开启 |
-| `model_tracker.py` | 核心 | 195 | 模型发现 + 调用统计 CRUD，含类型注解 |
-| `opencode.py` | 核心 | 38 | opencode CLI 封装（run / models） |
-| `test.py` | 测试 | 82 | opencode.py 单元测试（8 个，mock） |
-| `test_model_tracker.py` | 测试 | 188 | model_tracker.py 单元测试（8 个，真 DB） |
-| `test_flow.py` | 集成 | 34 | 真实调用 opencode 运行模型（1 个） |
-| `_demo_model_tracker.py` | 脚本 | 47 | model_tracker 功能演示 |
-| `.gitignore` | 配置 | 6 | 排除 __pycache__ / .opencode / *.db |
-| `reports/project_report.md` | 文档 | 本文件 | 项目报告 |
-
----
-
-## 三、模块详解
-
-### db.py — 数据库入口
-```python
-db.get_conn()  # 返回 sqlite3 连接，WAL + 外键
 ```
-- 数据库文件: `simpleai.db`（同目录）
+resolve_prompt({"agent": "Null", "context": [pid1, "text", {...}]})
+       │
+       ▼
+  _resolve_element(context)     ← 统一递归引擎
+       │
+       ├─ int  → _resolve_int(pid)
+       │           ├─ done    → 只返回 response（纯净提取）
+       │           └─ pending → 递归跑完再返回
+       │
+       ├─ str  → 原样保留
+       │
+       ├─ list → 每个元素递归 _resolve_element，\n\n 拼接
+       │
+       └─ dict → 递归解析 context → API → 返回结果
+       │
+       ▼
+  opencode_run(resolved_text, agent=agent)
+       │
+       ▼
+  return output
+```
 
-### model_tracker.py — 模型追踪
+---
 
-**表结构:**
-- `models`: model(PK), provider, discovered_at, last_seen
-- `usage`: model(PK/FK), calls, successes, failures, good, bad
+## 三、文件清单
 
-**API:**
-| 函数 | 返回类型 | 说明 |
-|------|----------|------|
-| `sync_models()` | `list[str]` | 从 API 拉取模型列表，写入 DB |
-| `list_free_models()` | `list[str]` | 返回所有模型，自动补全 usage(0,0,0,0,0) |
-| `record_call(model, success, good, bad)` | `None` | 记录一次调用，自动累加 |
-| `get_stats(model: str)` | `dict \| None` | 查询指定模型统计 |
-| `get_stats()` | `list[dict]` | 查询全部模型统计 |
-
-**数据源:**
-- OpenCode Zen API: `https://opencode.ai/zen/v1/models`
-- NVIDIA NIM API: `https://integrate.api.nvidia.com/v1/models`
-- SiliconFlow: 3 个硬编码模型（Qwen3-8B, GLM-Z1-9B, GLM-4-9B）
-
-### opencode.py — CLI 封装
-
-| 函数 | 说明 |
+| 文件 | 说明 |
 |------|------|
-| `run(prompt, agent, model, timeout)` | 调用 `opencode run`，返回 `{output, json, success}` |
-| `models(filter_free=True)` | 调用 `opencode models`，filter_free 时只返回免费模型 |
+| `resolve_prompt.py` | **唯一可用模块**。DAG 调度器，入口收窄为只接受 dict/JSON str |
+| `prompt_db.py` | SQLite 持久层，prompts 表（id/context/agent/model/response/log/status/score/elo） |
+| `opencode.py` | opencode CLI 封装（`run` / `models`） |
+| `test_resolve_prompt.py` | 详细调试测试，三段式输出：【输入】→【API 调用】→【最终返回值】 |
 
 ---
 
-## 四、测试结果
+## 四、API 参考
 
-### test.py — opencode.py 单元测试 (8/8 ✅)
+### `resolve_prompt(prompt_input, *, db, model, timeout)`
 
-| 测试 | 内容 | 结果 |
+| 参数 | 类型 | 说明 |
 |------|------|------|
-| test_json_output | JSON 输出解析 | ✅ |
-| test_non_json_output | 非 JSON 返回原始文本 | ✅ |
-| test_failure | 命令失败 success=False | ✅ |
-| test_command_no_agent_no_model | 无参命令构造 | ✅ |
-| test_command_with_agent | 带 --agent 参数 | ✅ |
-| test_command_with_model | 带 --model 参数 | ✅ |
-| test_command_with_both | agent+model 同时传 | ✅ |
-| test_timeout_passthrough | timeout 透传 | ✅ |
+| `prompt_input` | `str \| dict` | **仅接受 JSON 字符串或 dict**。裸 int/str 报错。 |
+| `db` | `PromptDB` | 数据库实例 |
+| `model` | `str` | 默认模型名 |
+| `timeout` | `int` | API 超时秒数（默认 600） |
 
-### test_model_tracker.py — model_tracker 单元测试 (8/8 ✅)
+**返回值**: `str` — API 输出文本
 
-| 测试 | 内容 | 结果 |
-|------|------|------|
-| test_list_free_models_adds_usage_record | 自动补全 usage 记录 | ✅ |
-| test_list_free_models_does_not_overwrite_existing | 已有 usage 不覆盖 | ✅ |
-| test_record_call_updates_usage | 累加调用统计 | ✅ |
-| test_record_call_good_bad | good/bad 独立于 success | ✅ |
-| test_get_stats_specific_model | 查询指定模型 | ✅ |
-| test_get_stats_nonexistent | 不存在模型返回 None | ✅ |
-| test_get_stats_all | 查询全部模型 | ✅ |
-| test_record_call_auto_insert | 自动插入新模型 | ✅ |
+### `_resolve_int(pid, db, model, timeout)`
 
-### test_flow.py — 集成测试 (1/1 ✅)
+解析数据库 ID 引用。`done` 状态只返回 `response`；`pending` 状态先递归执行再返回结果。
 
-| 测试 | 内容 | 结果 |
-|------|------|------|
-| test_real_call_qwen3_success | 真实调用 Qwen3-8B，记录并查询统计 | ✅ |
+### `_resolve_element(element, db, model, timeout)`
+
+统一递归引擎。按 `int → _resolve_int` / `str → 原样` / `list → 逐个递归后拼接` / `dict → 解析 context 后调 API` 分发。
 
 ---
 
-## 五、本次会话变更
+## 五、测试结果
 
-1. **类型注解**: `model_tracker.py` 全函数添加类型注解 + `@overload`，pyright 零错误
-2. **ruff 修复**: 清理 18 个警告（未使用导入、无占位符 f-string、多导入同行）
-3. **DB_PATH 修复**: `_demo_model_tracker.py` 中 `fm.DB_PATH` → `db.DB_PATH`
-4. **opencode 配置**: 启用 LSP (`lsp: true`)，所有权限默认允许 (`permission: "allow"`)
-5. **项目报告**: 新增 `reports/project_report.md`
+### 测试场景（6/6 ✅ 真实 API）
+
+| # | 场景 | 输入 | 验证要点 |
+|---|------|------|----------|
+| 1 | dict + int（引用已有 resp） | `{"agent":"Null","context": pid1}` | resp 被纯净提取作为 API 输入 |
+| 2 | list 混合 str + int | `{"context":["水果",pid1,"蔬菜",pid2]}` | 正确拼接后送 API |
+| 3 | 嵌套 dict（pending 自动补跑） | `{"context":[pid3(pending),"请总结"]}` | pending 节点先执行再拼接 |
+| 4 | 纯文本 context | `{"context":"1+1等于几？"}` | 直送 API |
+| 5 | 嵌套 dict + int 引用 | `{"context":["开头",{"context":"嵌套问题"}]}` | 嵌套递归正确 |
+| 6 | 嵌套 dict 引用 int | `{"context":[{"context":pid1}]}` | dict 包 int 引用正确 |
 
 ---
 
-## 六、已知问题 & 待办
+## 六、核心设计决策
 
-1. `test_flow.py` 为集成测试，需真实网络 + opencode CLI
-2. `_demo_model_tracker.py` 使用临时 DB `/tmp/test_demo_real.db`，仅为演示
-3. `.last_update` 和 `.last_upload_url` 为运行时产物，未在 .gitignore 中排除
+1. **入口收紧** — 只接受 `dict` 或 JSON 字符串，裸 int/str 报错，强制结构化
+2. **纯净提取** — `_resolve_int` 对 done 条目只返回 `response`，不掺杂 `context`
+3. **Pending 自动补跑** — DAG 特性：依赖未就绪时自动递归先跑
+4. **统一 `_resolve_element`** — int/str/list/dict 统一分发，消除重复逻辑
+5. **废弃 class 版** — `resolve_with_db.py` (`PromptResolver`) 不再维护
+
+---
+
+## 七、已知问题
+
+- API 调用超时（`subprocess.TimeoutExpired`）未在 `opencode.run` 中捕获，会直接崩溃
+- `prompt_db.py` 中 `prompts` 表含 `score` / `elo` 字段，当前调度器未使用
+
+---
+
+*完整测试日志: 见 Board 666 no:193200*

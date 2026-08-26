@@ -9,7 +9,7 @@ def test_json_output():
     with patch("subprocess.run", return_value=mock) as p:
         result = opencode.run("hi", agent="Null", timeout=30)
     print(f"  结果: {result}")
-    assert result == {"output": {"key": "value"}, "json": True, "success": True}
+    assert result == {"output": {"key": "value"}, "json": True, "success": True, "error": ""}
     args, kwargs = p.call_args
     assert kwargs["timeout"] == 30
     assert args[0] == ["opencode", "--agent", "Null", "run", "hi"]
@@ -21,7 +21,7 @@ def test_non_json_output():
     with patch("subprocess.run", return_value=mock):
         result = opencode.run("hi", timeout=10)
     print(f"  结果: {result}")
-    assert result == {"output": "你好世界", "json": False, "success": True}
+    assert result == {"output": "你好世界", "json": False, "success": True, "error": ""}
 
 
 def test_failure():

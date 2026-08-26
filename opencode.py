@@ -20,8 +20,6 @@ def run(prompt, agent="", model="", timeout=600):
 
 SILICONFLOW_MODELS = [
     "siliconflow-cn/Qwen/Qwen3-8B",
-    "siliconflow-cn/THUDM/GLM-Z1-9B-0414",
-    "siliconflow-cn/THUDM/GLM-4-9B-0414",
 ]
 
 
@@ -36,4 +34,4 @@ def models(filter_free=True):
 
 
 if __name__ == '__main__':
-    result = run("自我介绍(about model)：", agent="Null", model="opencode/mimo-v2.5-free", timeout=30)
+    result = run("自我介绍(about model)：", agent="Null", model="siliconflow-cn/Qwen/Qwen3-8B", timeout=30)

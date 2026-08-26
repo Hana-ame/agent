@@ -167,10 +167,10 @@ class PromptDB:
     def elo_match(self, winner_id, loser_id, k=32):
         """ELO 对战：winner 击败 loser，更新双方分数。"""
         w = self.get(winner_id)
-        l = self.get(loser_id)
-        if not w or not l:
+        loser = self.get(loser_id)
+        if not w or not loser:
             return
-        ra, rb = w["elo"], l["elo"]
+        ra, rb = w["elo"], loser["elo"]
         ea = 1 / (1 + 10 ** ((rb - ra) / 400))
         eb = 1 - ea
         new_ra = ra + k * (1 - ea)
