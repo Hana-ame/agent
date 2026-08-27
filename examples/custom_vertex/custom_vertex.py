@@ -25,17 +25,7 @@ class SanitizeVertex(Vertex):
         # 自定义属性：data_id:tags -> 单词数
         self.word_counts = {}
 
-    async def _store(self, data, data_id="default", tags=None):
-        """直接写入数据存储，不推进状态机。
-
-        仅在 prepare_outputs 内部使用，避免把 PROCESSING 重置回 READY。
-        """
-        key = self._make_key(data_id, tags)
-        async with self._lock:
-            self._data_store[key] = data
-        return data
-
-    async def set(self, data, data_id="default", tags=None):
+    async def set(self, data, edge_id="default", tags=None):
         """写入前的自定义处理：压缩多余空白并统计词数。
 
         注意：只有经边(Edge)写入的数据才会走这里；
@@ -46,10 +36,10 @@ class SanitizeVertex(Vertex):
             # 1) 自定义转换：把 "  Hello   world!  " 压成 "Hello world!"
             data = " ".join(data.split())
             # 2) 记录统计信息到自定义属性
-            key = f"{data_id}:{','.join(sorted(tags or []))}"
+            key = f"{edge_id}:{','.join(sorted(tags or []))}"
             self.word_counts[key] = len(data.split())
         # 3) 调用父类完成真实写入、计数与状态推进
-        return await super().set(data, data_id, tags)
+        return await super().set(data, edge_id, tags)
 
     async def prepare_outputs(self):
         """出边触发前，把统计信息合入数据存储。"""

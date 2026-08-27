@@ -59,8 +59,8 @@ async def main():
     graph.vertices = {"input": src, "processor": processor, "output": output}
 
     # 3) 手动添加边
-    add_edge(graph, "e1", src, processor, data_id="text", tags=["en"], prompt="Process:", model="gemini-flash")
-    add_edge(graph, "e2", processor, output, data_id="stats", tags=["summary"], prompt="Summarize:", model="gemini-pro")
+    add_edge(graph, "e1", src, processor, tags=["en"], prompt="Process:", model="gemini-flash")
+    add_edge(graph, "e2", processor, output, tags=["summary"], prompt="Summarize:", model="gemini-pro")
 
     # 4) 校验 DAG(引用完整性 + 无环)
     graph.validate()
@@ -72,8 +72,8 @@ async def main():
 
     # 展示自定义顶点记录的词数统计(自定义属性)
     print("\n── 自定义属性 word_counts ──")
-    for vid in ["input", "processor"]:
-        print(f"  [{vid}] {graph.vertices[vid].word_counts}")
+    print(f"  [input] {src.word_counts}")
+    print(f"  [processor] {processor.word_counts}")
 
     return result
 

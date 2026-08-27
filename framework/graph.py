@@ -15,11 +15,86 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
+import jsonschema
 from .vertex import Vertex
 from .edge import Edge
 from .script_loader import load_script
 
 logger = logging.getLogger("vertex_edge_agent.graph")
+
+# JSON 配置的结构化 schema（用 jsonschema 做加载前的快速校验）。
+# 设计原则：顶层只允许 metadata / vertices / edges 三个键(写错键名会直接失败)，
+# vertices / edges 各自校验必填字段；其余业务字段(如 settings)保持开放，不限制。
+CONFIG_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "metadata": {"type": "object"},
+        "vertices": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "settings": {"type": "object"},
+                    "script": {"type": "string"},
+                    "initial_data": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["value"],
+                            "properties": {
+                                "data_id": {"type": "string"},
+                                "tags": {"type": "array", "items": {"type": "string"}},
+                                "value": {},
+                            },
+                        },
+                    },
+                },
+                "additionalProperties": True,
+            },
+        },
+        "edges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "source", "destination"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "source": {"type": "string"},
+                    "destination": {"type": "string"},
+                    "data_id": {"type": "string"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "read_tags": {"type": "array", "items": {"type": "string"}},
+                    "set_tags": {"type": "array", "items": {"type": "string"}},
+                    "prompt": {"type": "string"},
+                    "model": {"type": "string"},
+                    "settings": {"type": "object"},
+                    "script": {"type": "string"},
+                    "passthrough": {"type": "boolean"},
+                },
+                "additionalProperties": True,
+            },
+        },
+    },
+    "required": ["vertices", "edges"],
+    "additionalProperties": False,
+}
+
+
+def _validate_config_schema(config: Dict) -> None:
+    """用 jsonschema 校验原始配置字典，失败即抛清晰错误(快速失败)。
+
+    在构建任何 Vertex/Edge 之前调用，避免 KeyError 深埋在图构建逻辑里。
+    """
+    try:
+        jsonschema.validate(instance=config, schema=CONFIG_SCHEMA)
+    except jsonschema.ValidationError as exc:
+        # 把 jsonschema 的报错整理成用户可读信息：出错路径 + 原因
+        path = ".".join(str(p) for p in exc.absolute_path) or "<root>"
+        raise ValueError(
+            f"Invalid config.json at '{path}': {exc.message}"
+        ) from exc
 
 
 class Graph:
@@ -84,6 +159,9 @@ class Graph:
 
         从配置字典构建图。
         """
+        # 加载前先用 schema 快速校验，配置写错键名/缺字段时立即报错
+        _validate_config_schema(config)
+
         graph = cls()
         graph.metadata = config.get("metadata", {})
         base_dir = base_dir or os.getcwd()

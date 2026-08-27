@@ -216,6 +216,17 @@ class Vertex:
         成功返回 True；若顶点脚本的 ``on_receive`` 拒绝该数据，
         则抛出 ``DataRejectedError``。
         """
+        # 防御性检查：顶点进入 PROCESSING 后(即 prepare_outputs 运行期间)，
+        # 任何对 set() 的调用都会把状态重新推回 READY，导致执行器重复处理该顶点、
+        # 形成死循环。子类在 prepare_outputs 里应该用 _store() 直接写数据存储，
+        # 而不是 set()。这里用类型检查直接拦下，而不是依赖注释提醒。
+        if self._state == VertexState.PROCESSING:
+            raise RuntimeError(
+                "Cannot call set() during prepare_outputs; the vertex is already "
+                "in PROCESSING state. Write directly via _store() (or the data "
+                "store) instead of set() to avoid an infinite re-trigger loop."
+            )
+
         key = _key(edge_id, tags)
         logger.debug("[Vertex:%s] SET %s <- %s", self.id, key, repr(data)[:120])
 
@@ -252,6 +263,30 @@ class Vertex:
             ):
                 self.state = VertexState.READY
         return True
+
+    async def _store(
+        self,
+        data: Any,
+        edge_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> Any:
+        """直接写入数据存储，不触发状态机副作用。
+
+        与 :meth:`set` 不同，此方法：
+          * 不会调用 ``on_receive`` 钩子；
+          * 不会增加 ``_received_input_count``；
+          * 不会把顶点推进到 ``READY``。
+
+        用途：顶点进入 ``PROCESSING``(即 ``prepare_outputs`` 运行)期间，子类若想
+        往数据存储里写合并/派生结果，必须用它而不是 ``set()``，否则会把状态重新打回
+        ``READY``，导致执行器重复处理、形成死循环。对应评审建议「用 _store() 代替
+        在 prepare_outputs 里调用 set()」。
+        """
+        key = _key(edge_id, tags)
+        async with self._lock:
+            self._data_store[key] = data
+        logger.debug("[Vertex:%s] _store %s <- %s", self.id, key, repr(data)[:120])
+        return data
 
     async def get_all_data(self) -> Dict[Tuple[str, Tuple[str, ...]], Any]:
         """Return a copy of the entire data store ((edge_id, tags) -> data).
