@@ -170,6 +170,12 @@ class Vertex:
             logger.debug(f"[Vertex:{self.id}] FETCH channel='{channel}' -> {repr(val)[:120]}")
             return val
 
+    async def set_data(self, channel: str, value: Any) -> None:
+        """Command: Set data directly in the vertex's data store."""
+        async with self._lock:
+            self._data_store[str(channel)] = value
+            logger.debug(f"[Vertex:{self.id}] SET channel='{channel}' -> {repr(value)[:120]}")
+
     async def receive_signal(
         self,
         edge_id: str,

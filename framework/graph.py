@@ -83,13 +83,19 @@ class Graph:
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
-            vertex_cls = Vertex
+            v_type = vc.get("type", "vertex")
+            if v_type == "subgraph":
+                from .subgraph import SubgraphVertex
+                vertex_cls = SubgraphVertex
+            else:
+                vertex_cls = Vertex
+
             script_module = None
             if script:
                 try:
                     script_module = load_script(script)
                     for name, obj in inspect.getmembers(script_module, inspect.isclass):
-                        if issubclass(obj, Vertex) and obj is not Vertex:
+                        if issubclass(obj, Vertex) and obj not in (Vertex, SubgraphVertex):
                             vertex_cls = obj
                             break
                 except Exception as exc:

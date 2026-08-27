@@ -336,9 +336,66 @@ class Executor:
             await dst.receive_signal(edge.id, EdgeSignal.ABORTED, payload=edge.abort_reason)
 
     async def _process_vertex(self, vertex: Vertex):
-        """Fire all outgoing edges of *vertex*."""
+        """Execute compute/subgraph lifecycle for *vertex* and fire all outgoing edges."""
         logger.info("[Executor] Processing vertex '%s'", vertex.id)
         self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": vertex.state.value})
+
+        # --- Nested Sub-Graph Execution (Phase 2 & 3) ---
+        from .subgraph import SubgraphVertex
+        if isinstance(vertex, SubgraphVertex):
+            try:
+                inner_graph = vertex.initialize_inner_graph()
+                await vertex.stage_inner_inputs(inner_graph)
+                
+                # If parent executor is CheckpointedExecutor, create namespaced CheckpointedExecutor for subgraph
+                from .checkpoint import CheckpointedExecutor
+                if isinstance(self, CheckpointedExecutor):
+                    subgraph_run_id = f"{self.run_id}::{vertex.id}"
+                    inner_executor = CheckpointedExecutor(
+                        inner_graph,
+                        agents=self.agents,
+                        store=self.store,
+                        run_id=subgraph_run_id,
+                        graph_config=vertex.graph_config if isinstance(vertex.graph_config, dict) else None,
+                        max_concurrency=self.max_concurrency,
+                        scan_interval=self.scan_interval,
+                    )
+                else:
+                    inner_executor = Executor(
+                        inner_graph,
+                        agents=self.agents,
+                        max_concurrency=self.max_concurrency,
+                        scan_interval=self.scan_interval,
+                    )
+
+                # Bubble up events from inner executor stream to parent queue in real-time
+                async for inner_event in inner_executor.stream():
+                    namespaced_vid = f"{vertex.id}.{inner_event.vertex_id}" if inner_event.vertex_id else vertex.id
+                    namespaced_eid = f"{vertex.id}.{inner_event.edge_id}" if inner_event.edge_id else None
+                    self._emit(
+                        event_type=f"subgraph_{inner_event.event_type}",
+                        vertex_id=namespaced_vid,
+                        edge_id=namespaced_eid,
+                        payload=inner_event.payload,
+                    )
+
+                inner_result = inner_executor._result
+                if not inner_result.success:
+                    err_msg = f"Inner graph execution failed: {'; '.join(inner_result.errors)}"
+                    vertex.state = VertexState.ERROR
+                    vertex.error_message = err_msg
+                    self._result.errors.append(f"Vertex '{vertex.id}': {err_msg}")
+                    self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error", "error": err_msg})
+                    return
+
+                await vertex.collect_inner_outputs(inner_graph)
+            except Exception as exc:
+                logger.error("[Executor] Subgraph '%s' error: %s", vertex.id, exc, exc_info=True)
+                vertex.state = VertexState.ERROR
+                vertex.error_message = str(exc)
+                self._result.errors.append(f"Vertex '{vertex.id}': {exc}")
+                self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error", "error": str(exc)})
+                return
 
         outgoing = self.graph.get_outgoing_edges(vertex.id)
         if not outgoing:

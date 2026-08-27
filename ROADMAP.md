@@ -15,8 +15,8 @@
 4. **Real-Time Event Streaming**: Async generator `executor.stream()` producing standard `GraphEvent` instances over a non-blocking sidecar queue.
 5. **Stateful Loops & Cycles**: Controlled cycle validation with bounded `max_iterations`, loop-back edge routing, iteration state tracking, and re-entry scheduling.
 
-## 🌌 v3.0: Enterprise-Grade (Future Vision)
-1. **Nested Sub-Graphs**: Allow vertices to encapsulate entire independent graphs for scalable multi-agent teamwork.
+## 🌌 v3.0: Enterprise-Grade (In Progress)
+1. **✅ Nested Sub-Graphs (`SubgraphVertex`)**: Allow vertices to encapsulate entire independent graphs for scalable multi-agent teamwork, with boundary routing (`input_map`/`output_map`), event stream bubbling, and namespaced checkpoint persistence.
 2. **Global Memory & Context Management**: Implement a decoupled `MemoryStore` for long-term/short-term context, preventing token window bloat across sequential steps.
 3. **Telemetry & Tracing**: Integrate OpenTelemetry/LangSmith for granular tracking of token usage, API costs, and edge latency.
 4. **Distributed Execution**: Decouple `Executor` from `Graph` via message queues (e.g., Redis, RabbitMQ) to allow multi-node worker clusters for heavy workloads.
