@@ -35,13 +35,11 @@ class TestVertexState:
 # ── initial data ─────────────────────────────────────────────────
 class TestVertexInitialData:
     def test_initial_data_loaded(self, source_vertex):
-        loop = asyncio.get_event_loop()
         data = "Hello world"
         assert data == "Hello world"
 
     def test_missing_key_returns_none(self, source_vertex):
-        loop = asyncio.get_event_loop()
-        data = loop.run_until_complete(source_vertex.fetch_data(channel="missing"))
+        data = asyncio.run(source_vertex.fetch_data(channel="missing"))
         assert data is None
 
 
