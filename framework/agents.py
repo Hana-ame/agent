@@ -1,9 +1,9 @@
 """PI Agent module - Interface for AI / LLM processing.
 
-Provides an abstract base class ``PIAgent`` and two concrete implementations:
+Provides an abstract base class ``BaseAgent`` and two concrete implementations:
 
-* ``MockPIAgent``      – deterministic, for testing
-* ``ExternalPIAgent``  – delegates to an installed ``pi_agent`` package
+* ``MockAgent``      – deterministic, for testing
+* ``PiAgentRunner``  – delegates to an installed ``agents`` package
 """
 
 import abc
@@ -11,10 +11,10 @@ import json
 import logging
 from typing import Any, Callable, Dict, Optional
 
-logger = logging.getLogger("vertex_edge_agent.pi_agent")
+logger = logging.getLogger("vertex_edge_agent.agents")
 
 
-class PIAgent(abc.ABC):
+class BaseAgent(abc.ABC):
     """Abstract base class for PI Agent integration."""
 
     @abc.abstractmethod
@@ -38,7 +38,7 @@ class PIAgent(abc.ABC):
         """
 
 
-class MockPIAgent(PIAgent):
+class MockAgent(BaseAgent):
     """Deterministic mock agent for testing.
 
     By default it echoes data back with model metadata.  Supply a custom
@@ -55,9 +55,9 @@ class MockPIAgent(PIAgent):
         model: str,
         settings: Optional[Dict] = None,
     ) -> Any:
-        logger.info("[MockPIAgent] model=%s", model)
-        logger.debug("[MockPIAgent] data=%s", repr(data)[:200])
-        logger.debug("[MockPIAgent] prompt=%s", prompt[:200] if prompt else "")
+        logger.info("[MockAgent] model=%s", model)
+        logger.debug("[MockAgent] data=%s", repr(data)[:200])
+        logger.debug("[MockAgent] prompt=%s", prompt[:200] if prompt else "")
 
         if self._response_fn:
             result = self._response_fn(data, prompt, model, settings)
@@ -76,11 +76,11 @@ class MockPIAgent(PIAgent):
             else:
                 result = f"[{model}] {repr(data)}"
 
-        logger.debug("[MockPIAgent] result=%s", repr(result)[:200])
+        logger.debug("[MockAgent] result=%s", repr(result)[:200])
         return result
 
 
-class HttpPIAgent(PIAgent):
+class HttpLLMAgent(BaseAgent):
     """Production-grade HTTP Agent for OpenAI-compatible endpoints.
     
     Includes built-in connection pooling, timeouts, and exponential backoff 
@@ -134,7 +134,7 @@ class HttpPIAgent(PIAgent):
             reraise=True
         )
         async def _make_request():
-            logger.info(f"[HttpPIAgent] Requesting {target_model}...")
+            logger.info(f"[HttpLLMAgent] Requesting {target_model}...")
             response = await self.client.post(
                 f"{self.base_url}/chat/completions",
                 json=payload,
@@ -145,7 +145,7 @@ class HttpPIAgent(PIAgent):
                 response.raise_for_status()
             elif response.status_code >= 400:
                 # Fatal client errors (400, 401, 403, 404) should fail fast without retries
-                logger.error(f"[HttpPIAgent] Fatal HTTP Error: {response.status_code} - {response.text}")
+                logger.error(f"[HttpLLMAgent] Fatal HTTP Error: {response.status_code} - {response.text}")
                 response.raise_for_status()
                 
             return response.json()
@@ -154,7 +154,7 @@ class HttpPIAgent(PIAgent):
             response_data = await _make_request()
             return response_data['choices'][0]['message']['content']
         except Exception as exc:
-            logger.error(f"[HttpPIAgent] Exhausted retries or fatal error: {exc}", exc_info=True)
+            logger.error(f"[HttpLLMAgent] Exhausted retries or fatal error: {exc}", exc_info=True)
             raise
 
     async def close(self):
@@ -162,7 +162,7 @@ class HttpPIAgent(PIAgent):
         await self.client.aclose()
 
 
-class ExternalPIAgent(PIAgent):
+class PiAgentRunner(BaseAgent):
     """Delegates to the installed `pi-agent` open-source package.
     
     This allows the edge to leverage the true Pi Agent capabilities, 
@@ -176,7 +176,7 @@ class ExternalPIAgent(PIAgent):
         model: str,
         settings: Optional[Dict] = None,
     ) -> Any:
-        logger.info(f"[ExternalPIAgent] Handing off to real Pi Agent (model={model})")
+        logger.info(f"[PiAgentRunner] Handing off to real Pi Agent (model={model})")
         try:
             import pi_agent as pa  # type: ignore[import-untyped]
 
@@ -186,7 +186,7 @@ class ExternalPIAgent(PIAgent):
             return result
         except ImportError:
             logger.error(
-                "[ExternalPIAgent] 'pi_agent' package not installed. "
+                "[PiAgentRunner] 'pi_agent' package not installed. "
                 "Please install the real Pi Agent toolkit to use this engine."
             )
             raise

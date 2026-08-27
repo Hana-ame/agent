@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from framework.edge import Edge
 from framework.vertex import Vertex, DataRejectedError, EdgeSignal
-from framework.pi_agent import MockPIAgent
+from framework.agents import MockAgent
 
 
 # ── construction ─────────────────────────────────────────────────
@@ -85,7 +85,7 @@ class TestEdgeExecution:
 
         src = Vertex("src", initial_data=[{"data_id": "d", "value": "x"}])
         dst = Vertex("dst")
-        agent = MockPIAgent(response_fn=boom)
+        agent = MockAgent(response_fn=boom)
         e = Edge("e", "src", "dst", data_id="d", prompt="trigger")
 
         with pytest.raises(RuntimeError, match="agent error"):

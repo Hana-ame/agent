@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from .vertex import Vertex, VertexState, EdgeSignal
 from .edge import Edge
 from .graph import Graph
-from .pi_agent import PIAgent, MockPIAgent
+from .agents import BaseAgent, MockAgent
 
 logger = logging.getLogger("vertex_edge_agent.executor")
 
@@ -72,7 +72,7 @@ class Executor:
 
     Args:
         graph:            The Graph to execute.
-        pi_agent:         PI Agent instance (defaults to MockPIAgent).
+        agents:         PI Agent instance (defaults to MockAgent).
         max_concurrency:  Max concurrent edge executions.
         scan_interval:    Seconds between ready-vertex scans.
         timeout:          Overall execution timeout in seconds.
@@ -81,13 +81,13 @@ class Executor:
     def __init__(
         self,
         graph: Graph,
-        pi_agent: Optional[PIAgent] = None,
+        agents: Optional[BaseAgent] = None,
         max_concurrency: int = 10,
         scan_interval: float = 0.05,
         timeout: Optional[float] = None,
     ):
         self.graph = graph
-        self.pi_agent = pi_agent or MockPIAgent()
+        self.agents = agents or MockAgent()
         self.max_concurrency = max_concurrency
         self.scan_interval = scan_interval
         self.timeout = timeout or 300.0
@@ -254,7 +254,7 @@ class Executor:
         async with self._semaphore:
             src = self.graph.vertices[edge.source_id]
             dst = self.graph.vertices[edge.destination_id]
-            result = await edge.execute(src, dst, self.pi_agent)
+            result = await edge.execute(src, dst, self.agents)
             if edge.aborted:
                 self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
             else:

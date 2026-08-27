@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework import Graph, Executor, MockPIAgent
+from framework import Graph, Executor, MockAgent
 from framework.vertex import VertexState, DataRejectedError
 
 
@@ -30,7 +30,7 @@ class TestSimpleExample:
             pytest.skip("simple example config not found")
 
         g = Graph.from_json(config_path)
-        result = await Executor(g, MockPIAgent(), timeout=10).run()
+        result = await Executor(g, MockAgent(), timeout=10).run()
 
         assert result.success
         assert "e1" in result.edge_results
@@ -53,7 +53,7 @@ class TestComplexExample:
             pytest.skip("complex example config not found")
 
         g = Graph.from_json(config_path)
-        agent = MockPIAgent(
+        agent = MockAgent(
             response_fn=lambda d, p, m, s: f"[{m}] {d}" if isinstance(d, str) else d
         )
         result = await Executor(g, agent, timeout=15).run()
@@ -120,7 +120,7 @@ class TestScriptPipeline:
         }
 
         g = Graph.from_dict(config)
-        echo = MockPIAgent(response_fn=lambda d, p, m, s: d)
+        echo = MockAgent(response_fn=lambda d, p, m, s: d)
         result = await Executor(g, echo, timeout=10).run()
 
         assert result.success
@@ -157,7 +157,7 @@ class TestRejectionPipeline:
         }
 
         g = Graph.from_dict(config)
-        echo = MockPIAgent(response_fn=lambda d, p, m, s: d)
+        echo = MockAgent(response_fn=lambda d, p, m, s: d)
         result = await Executor(g, echo, timeout=10).run()
 
         assert not result.success
@@ -186,7 +186,7 @@ class TestMultiSourceFanIn:
         }
 
         g = Graph.from_dict(config)
-        result = await Executor(g, MockPIAgent(), timeout=10).run()
+        result = await Executor(g, MockAgent(), timeout=10).run()
 
         assert result.success
         sink_data = result.vertex_results["sink"]["data"]
@@ -217,7 +217,7 @@ class TestDeepChain:
             counter["n"] += 1
             return f"({d})"
 
-        result = await Executor(g, MockPIAgent(response_fn=counting_fn), timeout=10).run()
+        result = await Executor(g, MockAgent(response_fn=counting_fn), timeout=10).run()
 
         assert result.success
         assert counter["n"] == n - 1  # 9 edges

@@ -118,7 +118,7 @@ class Edge:
 
         return True  # If settings exist but no guard condition is specified, pass
 
-    async def execute(self, source_vertex, dest_vertex, pi_agent) -> Any:
+    async def execute(self, source_vertex, dest_vertex, agents) -> Any:
         """Execute the edge pipeline.
 
         Steps:
@@ -169,7 +169,7 @@ class Edge:
 
             # 3 — Compute (PI Agent or Pass-through)
             if self.prompt or (self.model and self.model != "default"):
-                result = await pi_agent.process(
+                result = await agents.process(
                     data=data,
                     prompt=self.prompt,
                     model=self.model,

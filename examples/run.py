@@ -13,7 +13,7 @@ import sys
 # Allow running from the project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from framework import Graph, Executor, MockPIAgent
+from framework import Graph, Executor, MockAgent
 
 def setup_logging():
     logging.basicConfig(
@@ -38,13 +38,13 @@ async def main():
     logger.info("Loading graph from %s", config_path)
     graph = Graph.from_json(config_path)
 
-    from framework import MockPIAgent, HttpPIAgent
+    from framework import MockAgent, HttpLLMAgent
     if "real_llm" in config_path:
-        agent = HttpPIAgent()
+        agent = HttpLLMAgent()
     else:
-        agent = MockPIAgent()
+        agent = MockAgent()
         
-    executor = Executor(graph, pi_agent=agent, max_concurrency=4, timeout=30)
+    executor = Executor(graph, agents=agent, max_concurrency=4, timeout=30)
 
     result = await executor.run()
     print("\n" + result.summary())
