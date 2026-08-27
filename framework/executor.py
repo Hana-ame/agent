@@ -134,6 +134,7 @@ class Executor:
         self.telemetry = telemetry or TelemetryTracker()
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._result = ExecutionResult()
+        self.active_edge_tasks = {}
         self._event_queue: asyncio.Queue[Optional[GraphEvent]] = asyncio.Queue()
 
     # ------------------------------------------------------------------
@@ -178,6 +179,17 @@ class Executor:
         t0 = time.monotonic()
 
         logger.info("=" * 60)
+        
+        # --- Wire up cancellation callbacks for Race mode ---
+        def cancel_edges_callback(edge_ids):
+            for eid in edge_ids:
+                if eid in self.active_edge_tasks:
+                    logger.info("[Executor] Race condition won. Cancelling pending edge '%s'", eid)
+                    self.active_edge_tasks[eid].cancel()
+
+        for v in self.graph.vertices.values():
+            v.on_cancel_edges = cancel_edges_callback
+
         logger.info("[Executor] ▶ Starting graph execution")
         logger.info("[Executor]   graph=%s", self.graph)
         logger.info("[Executor]   concurrency=%d  timeout=%ss", self.max_concurrency, self.timeout)
@@ -437,10 +449,12 @@ class Executor:
             return
 
         # Fire edges concurrently
-        edge_tasks = [
-            asyncio.create_task(self._fire_edge(e), name=f"edge_{e.id}")
-            for e in outgoing
-        ]
+        edge_tasks = []
+        for e in outgoing:
+            task = asyncio.create_task(self._fire_edge(e), name=f"edge_{e.id}")
+            self.active_edge_tasks[e.id] = task
+            edge_tasks.append(task)
+            
         results = await asyncio.gather(*edge_tasks, return_exceptions=True)
 
         ok = True

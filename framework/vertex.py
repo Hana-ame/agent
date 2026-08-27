@@ -286,7 +286,16 @@ class Vertex:
                 is_ready = False
                 if self.incoming_edges:
                     total_settled = len(self.completed_incoming_edges) + len(self.aborted_incoming_edges)
-                    is_ready = total_settled >= len(self.incoming_edges) and len(self.completed_incoming_edges) > 0
+                    
+                    wait_policy = self.settings.get("wait_policy", "all")
+                    if wait_policy == "any" and len(self.completed_incoming_edges) > 0:
+                        # RACE WON!
+                        is_ready = True
+                        pending = [eid for eid in self.incoming_edges if eid not in self.completed_incoming_edges and eid not in self.aborted_incoming_edges]
+                        if pending and hasattr(self, "on_cancel_edges") and callable(self.on_cancel_edges):
+                            self.on_cancel_edges(pending)
+                    else:
+                        is_ready = total_settled >= len(self.incoming_edges) and len(self.completed_incoming_edges) > 0
                 elif self.required_input_count > 0:
                     is_ready = self._received_input_count >= self.required_input_count
 
