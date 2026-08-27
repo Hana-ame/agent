@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "name": "Simple Pipeline",
+    "description": "Linear 3-vertex pipeline: input → processor → output"
+  },
+  "vertices": [
+    {
+      "id": "input",
+      "settings": {"type": "source"},
+      "initial_data": [
+        {
+          "data_id": "text",
+          "tags": ["en"],
+          "value": "Hello, this is a test message for the vertex-edge agent framework."
+        }
+      ]
+    },
+    {
+      "id": "processor",
+      "settings": {"type": "transform"}
+    },
+    {
+      "id": "output",
+      "settings": {"type": "sink"}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "input",
+      "destination": "processor",
+      "data_id": "text",
+      "tags": ["en"],
+      "prompt": "Summarize the following text in one sentence:",
+      "model": "gemini-pro",
+      "settings": {}
+    },
+    {
+      "id": "e2",
+      "source": "processor",
+      "destination": "output",
+      "data_id": "text",
+      "tags": ["en"],
+      "prompt": "Translate the following to French:",
+      "model": "gemini-flash",
+      "settings": {}
+    }
+  ]
+}

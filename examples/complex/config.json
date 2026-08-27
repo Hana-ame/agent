@@ -1,0 +1,98 @@
+{
+  "metadata": {
+    "name": "Complex DAG Pipeline",
+    "description": "Multi-path DAG with fan-out, fan-in, external scripts, and concurrent processing"
+  },
+  "vertices": [
+    {
+      "id": "input_a",
+      "settings": {"type": "source", "label": "Primary Input"},
+      "initial_data": [
+        {
+          "data_id": "text",
+          "tags": ["raw"],
+          "value": "The quick brown fox jumps over the lazy dog. AI is transforming every industry."
+        },
+        {
+          "data_id": "text",
+          "tags": ["original"],
+          "value": "The quick brown fox jumps over the lazy dog. AI is transforming every industry."
+        }
+      ]
+    },
+    {
+      "id": "input_b",
+      "settings": {"type": "source", "label": "Context Input"},
+      "initial_data": [
+        {
+          "data_id": "text",
+          "tags": ["context"],
+          "value": "Focus on technology and innovation themes."
+        }
+      ]
+    },
+    {
+      "id": "transform",
+      "settings": {"type": "process"},
+      "script": "../scripts/uppercase_handler.py"
+    },
+    {
+      "id": "merge",
+      "settings": {"type": "merge"},
+      "script": "../scripts/validator.py"
+    },
+    {
+      "id": "output",
+      "settings": {"type": "sink"}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "input_a",
+      "destination": "transform",
+      "data_id": "text",
+      "tags": ["raw"],
+      "prompt": "Analyze the following text for key themes:",
+      "model": "gemini-pro"
+    },
+    {
+      "id": "e2",
+      "source": "input_b",
+      "destination": "transform",
+      "data_id": "text",
+      "tags": ["context"],
+      "prompt": "Extract relevant context from:",
+      "model": "gemini-flash"
+    },
+    {
+      "id": "e3",
+      "source": "transform",
+      "destination": "merge",
+      "data_id": "result",
+      "tags": ["analysis"],
+      "prompt": "Combine analysis results into a coherent summary:",
+      "model": "gemini-pro",
+      "script": "../scripts/prefix_handler.py",
+      "settings": {"prefix": "[ANALYZED]", "suffix": "[/ANALYZED]"}
+    },
+    {
+      "id": "e4",
+      "source": "input_a",
+      "destination": "merge",
+      "data_id": "text",
+      "tags": ["original"],
+      "prompt": "Format the original text for reference:",
+      "model": "gemini-flash"
+    },
+    {
+      "id": "e5",
+      "source": "merge",
+      "destination": "output",
+      "data_id": "final",
+      "tags": ["report"],
+      "prompt": "Generate a final report combining all inputs:",
+      "model": "gemini-pro"
+    }
+  ]
+}

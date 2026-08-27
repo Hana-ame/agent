@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "name": "Custom Subclasses",
+    "description": "Demonstrates native Vertex and Edge subclasses loaded dynamically"
+  },
+  "vertices": [
+    {
+      "id": "source_node",
+      "settings": {"type": "source"},
+      "initial_data": [
+        {"data_id": "text", "value": "Initial raw data."}
+      ]
+    },
+    {
+      "id": "filter_node",
+      "script": "my_nodes.py",
+      "settings": {"strict_mode": true}
+    },
+    {
+      "id": "sink_node",
+      "settings": {"type": "sink"}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_smart",
+      "source": "source_node",
+      "destination": "filter_node",
+      "script": "my_nodes.py",
+      "prompt": "Analyze this data:",
+      "settings": {"prefix_tag": "[SMART]"}
+    },
+    {
+      "id": "e_normal",
+      "source": "filter_node",
+      "destination": "sink_node",
+      "prompt": "Finalize.",
+      "settings": {}
+    }
+  ]
+}
