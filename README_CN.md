@@ -283,23 +283,64 @@ print(result.summary())
 
 ---
 
-## 💻 实战演示案例 (Examples)
+## 💻 官方演示案例 (Examples)
 
-框架自带完整的开箱即用终端演示，位于 `examples/` 目录下：
+`examples/` 目录提供了框架核心特性的独立运行示例。其目的是展示如何在实际场景中组合配置节点与边，以及如何调用执行器 API。
 
-```bash
-# 1. 🌈 实时 ANSI 彩色事件流监控演示
-python examples/realtime_streaming/demo.py
+### 1. 案例说明与实现功能
 
-# 2. 🔁 大模型业务报错与 Prompt 自我纠错演示
-python examples/self_correction/demo.py
+| 案例目录 | 核心功能 | 运行命令 |
+| :--- | :--- | :--- |
+| **`realtime_streaming/`** | 展示非阻塞 `executor.stream()`，拦截底层 `GraphEvent` 并渲染 ANSI 颜色日志。 | `python examples/realtime_streaming/demo.py` |
+| **`self_correction/`** | 模拟 LLM 输出格式错误，触发 `retry_policy` 捕获异常，并带入错误堆栈引导 LLM 自我修复。 | `python examples/self_correction/demo.py` |
+| **`hitl_approval/`** | 演示敏感节点的 `require_approval` 挂起，生成 SQLite 快照后，人工调用 `approve()` 唤醒继续。 | `python examples/hitl_approval/demo.py` |
+| **`subgraph/`** | 演示层级嵌套。父图引用 `research_team.json`，通过边界映射连接父图数据与子智能体网络。 | `python examples/subgraph/demo.py` |
 
-# 3. 🛑 人类在回路（HITL）审批与 SQLite 快照恢复演示
-python examples/hitl_approval/demo.py
+### 2. 如何从零配置一个新案例 (From Scratch)
 
-# 4. 🏢 嵌套子图分层多智能体团队协作演示
-python examples/subgraph/demo.py
-```
+以配置一个简单的自定义应用为例：
+
+1. **建立目录结构**：
+   ```text
+   my_agent/
+   ├── config.json         # 必须：声明图拓扑
+   ├── run.py              # 必须：执行器入口
+   └── hooks.py            # 可选：自定义处理逻辑
+   ```
+
+2. **编写配置 (`config.json`)**：
+   声明最简的源节点、目的节点及连接它们的边。若需挂载脚本，配置 `"script": "hooks.py"`。
+
+3. **编写脚本 (`hooks.py`)**：
+   ```python
+   def pre_process(data, settings):
+       # 处理边的数据
+       return data
+   ```
+
+4. **编写入口 (`run.py`)**：
+   ```python
+   import asyncio
+   from framework import Graph, Executor, HttpLLMAgent
+   
+   async def main():
+       # 配置 LLM Agent (需设置 API Key 环境变量)
+       agent = HttpLLMAgent()
+       
+       # 加载与执行
+       graph = Graph.from_json_file("config.json")
+       executor = Executor(graph, agents=agent)
+       await executor.run()
+   
+   asyncio.run(main())
+   ```
+
+### 3. 注意事项 (Precautions)
+
+1. **绝对路径与相对路径**：JSON 配置文件中的 `"script"` 或 `"graph_config"` 路径，相对于**运行入口 (`run.py`) 所在的执行目录 (CWD)** 计算。推荐使用相对于当前工作目录的路径。
+2. **死锁防御**：如果一条边配置了条件守卫（`threshold`），该节点上**必须**有默认兜底边（或者所有边都被拒绝时能合法触发 `ABORTED` 级联取消），否则目标节点将永远处于等待状态（死锁）。
+3. **无限循环防护**：在设计具有回退重试（闭环）的拓扑时，产生回边的 Edge **必须**配置 `"max_iterations": N`。若不配置，系统将在启动前抛出 `GraphCycleError`。
+4. **LLM 模型配置**：示例中通常使用 `MockAgent`。实战中需替换为 `HttpLLMAgent`，并确保环境变量已配置（如 `OPENAI_API_KEY` 或 `GEMINI_API_KEY`）。
 
 ---
 

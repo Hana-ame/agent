@@ -172,25 +172,63 @@ A thread-safe key-value bus allowing distant nodes to read and write shared stat
 ### 3. Granular Telemetry & Cost Profiling (`TelemetryTracker`)
 Automatically tracks prompt tokens, completion tokens, execution latency, and estimated dollar costs per edge and workflow-wide with built-in model pricing catalogs (OpenAI, Gemini, Claude).
 
-## Examples
+## 💻 Official Examples
 
-```bash
-# Simple linear pipeline
-python examples/run.py examples/simple/config.json
+The `examples/` directory provides standalone, runnable demonstrations of the framework's core features. They serve as reference implementations for configuring Nodes, Edges, and the Execution API.
 
-# Complex DAG (Supports Fan-out, Fan-in, external scripts)
-python examples/run.py examples/complex/config.json
+### 1. Available Examples & Capabilities
 
-# Dynamic branch routing and conditional pruning (Guard & Routing)
-python examples/run.py examples/conditional_routing/config.json
+| Directory | Purpose / Feature Showcased | Command |
+| :--- | :--- | :--- |
+| **`realtime_streaming/`** | Demonstrates the non-blocking `executor.stream()`, capturing `GraphEvent` records and rendering ANSI colored logs. | `python examples/realtime_streaming/demo.py` |
+| **`self_correction/`** | Simulates LLM formatting errors to trigger `retry_policy`. Injects error stack traces back into the Prompt for LLM self-healing. | `python examples/self_correction/demo.py` |
+| **`hitl_approval/`** | Shows how `require_approval` pauses execution at sensitive nodes, saves SQLite state snapshots, and resumes via `approve()`. | `python examples/hitl_approval/demo.py` |
+| **`subgraph/`** | Demonstrates hierarchical nesting. A parent graph imports a `research_team.json` subgraph, routing inputs/outputs via boundary mapping. | `python examples/subgraph/demo.py` |
 
-# Advanced Object-Oriented usage (Custom subclass overrides)
-python examples/run.py examples/custom_classes/config.json
+### 2. Configuring an Example from Scratch
 
-# Nested Sub-Graph delegation
-python examples/subgraph/demo.py
-```
-*Each example folder contains a dedicated `README.md` tutorial.*
+To build a custom multi-agent workflow from zero:
+
+1. **Setup Directory Structure**:
+   ```text
+   my_agent/
+   ├── config.json         # Required: Topology definition
+   ├── run.py              # Required: Executor entrypoint
+   └── hooks.py            # Optional: Custom logic scripts
+   ```
+
+2. **Define Topology (`config.json`)**:
+   Declare source vertices, sink vertices, and connecting edges. To attach python hooks, set `"script": "hooks.py"`.
+
+3. **Write Scripts (`hooks.py`)**:
+   ```python
+   def pre_process(data, settings):
+       # Process edge data
+       return data
+   ```
+
+4. **Write Entrypoint (`run.py`)**:
+   ```python
+   import asyncio
+   from framework import Graph, Executor, HttpLLMAgent
+   
+   async def main():
+       # Setup Agent (Requires API Key ENV vars)
+       agent = HttpLLMAgent()
+       
+       graph = Graph.from_json_file("config.json")
+       executor = Executor(graph, agents=agent)
+       await executor.run()
+   
+   asyncio.run(main())
+   ```
+
+### 3. Precautions & Best Practices
+
+1. **Path Resolution**: Paths defined in JSON (`"script"` or `"graph_config"`) are resolved relative to the **Current Working Directory (CWD)** where the script is executed. 
+2. **Deadlock Prevention**: If an edge has a conditional guard (`threshold`), ensure there is a fallback edge, or that cascaded `ABORTED` signals are safely handled. Otherwise, downstream nodes may wait infinitely for data that will never arrive.
+3. **Infinite Loop Protection**: Any edge that creates a topological cycle (a back-edge) **must** explicitly configure `"max_iterations": N`. Failure to do so will result in a `GraphCycleError` during initialization.
+4. **LLM Agents**: Many examples use a `MockAgent` for predictable testing. For real-world usage, switch to `HttpLLMAgent` and provide necessary environment variables (e.g., `OPENAI_API_KEY`, `GEMINI_API_KEY`).
 
 ## Tests
 
