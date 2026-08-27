@@ -1,13 +1,12 @@
 """Edge module - Connection between vertices in the graph.
 
-An Edge reads data from a source vertex (via ``get``), processes it through
-a PI Agent, and writes the result to the destination vertex (via ``set``).
-External scripts can pre-process data before the PI Agent or post-process
-the result before delivery.
+An Edge represents a 5-stage pipeline: Guard -> Pre-process -> Compute -> Post-process -> Deliver.
+It communicates with vertices via the unified ``handle_edge_signal`` method using ``EdgeSignal``.
 """
 
 import logging
 from typing import Any, Dict, List, Optional
+from .vertex import VertexState, EdgeSignal
 
 logger = logging.getLogger("vertex_edge_agent.edge")
 
@@ -19,8 +18,8 @@ class Edge:
         id:              Unique edge identifier.
         source_id:       Source vertex ID.
         destination_id:  Destination vertex ID.
-        data_id:         Data key used for ``get`` / ``set``.
-        tags:            Tag list used for ``get`` / ``set``.
+        data_id:         Data key used for reading and writing data.
+        tags:            Tag list used for reading and writing data.
         prompt:          Prompt sent to the PI Agent.
         model:           Model identifier for the PI Agent.
         settings:        Arbitrary settings dict passed to agent & scripts.
@@ -52,6 +51,8 @@ class Edge:
 
         # Execution state
         self.completed: bool = False
+        self.aborted: bool = False
+        self.abort_reason: Optional[str] = None
         self.result: Any = None
         self.error: Optional[str] = None
 
@@ -65,15 +66,67 @@ class Edge:
         self._script_module = module
         logger.debug("[Edge:%s] Script module attached: %s", self.id, module)
 
+    def evaluate_condition(self, data: Any, settings: Dict) -> bool:
+        """Evaluate whether the guard condition is satisfied."""
+        # 1. Custom method on subclass or instance
+        if hasattr(self, "condition") and callable(getattr(self, "condition")):
+            return bool(self.condition(data, settings))
+
+        # 2. Script module hook
+        if self._script_module:
+            for hook in ("evaluate_condition", "condition", "on_gate", "guard"):
+                if hasattr(self._script_module, hook) and callable(getattr(self._script_module, hook)):
+                    return bool(getattr(self._script_module, hook)(data, settings))
+
+        # 3. Declarative settings
+        if not settings:
+            return True  # Default to True if no settings (no guard)
+
+        if "condition" in settings and callable(settings["condition"]):
+            return bool(settings["condition"](data))
+
+        if "match" in settings and isinstance(settings["match"], dict) and isinstance(data, dict):
+            return all(data.get(k) == v for k, v in settings["match"].items())
+
+        if "threshold" in settings:
+            threshold = settings["threshold"]
+            op = str(settings.get("operator", "==")).lower()
+            val = data
+            if isinstance(data, dict) and "field" in settings:
+                val = data.get(settings["field"])
+
+            try:
+                if op in (">", "gt"):
+                    return val > threshold
+                elif op in (">=", "gte", "ge"):
+                    return val >= threshold
+                elif op in ("<", "lt"):
+                    return val < threshold
+                elif op in ("<=", "lte", "le"):
+                    return val <= threshold
+                elif op in ("==", "eq"):
+                    return val == threshold
+                elif op in ("!=", "ne"):
+                    return val != threshold
+                elif op == "in":
+                    return val in threshold
+                elif op == "contains":
+                    return threshold in val
+            except Exception as exc:
+                logger.warning("[Edge:%s] Threshold comparison failed: %s", self.id, exc)
+                return False
+
+        return True  # If settings exist but no guard condition is specified, pass
+
     async def execute(self, source_vertex, dest_vertex, pi_agent) -> Any:
         """Execute the edge pipeline.
 
         Steps:
-            1. ``source_vertex.get(data_id, tags)``  → raw data
-            2. Script ``pre_process(data, settings)`` (optional)
-            3. ``pi_agent.process(data, prompt, model, settings)``
-            4. Script ``post_process(result, settings)`` (optional)
-            5. ``dest_vertex.set(result, data_id, tags)``
+            1. Guard (`evaluate_condition`) -> If false, Abort.
+            2. Pre-process (via script hook)
+            3. Compute (LLM process OR transparent pass-through)
+            4. Post-process (via script hook)
+            5. Deliver to destination vertex.
 
         Returns the final result written to the destination vertex.
         """
@@ -83,16 +136,30 @@ class Edge:
         )
 
         try:
-            # 1 — read from source
-            data = await source_vertex.get(self.data_id, self.tags)
-            logger.debug("[Edge:%s] Source data: %s", self.id, repr(data)[:200])
-            if data is None:
-                logger.warning(
-                    "[Edge:%s] Source vertex '%s' returned None for key=(%s, %s)",
-                    self.id, self.source_id, self.data_id, self.tags,
-                )
+            # 0 — Check source vertex abort state
+            if hasattr(source_vertex, "state") and source_vertex.state == VertexState.ABORTED:
+                self.aborted = True
+                self.abort_reason = f"Upstream source vertex '{self.source_id}' is ABORTED"
+                logger.info("[Edge:%s] Source '%s' is ABORTED -> Aborting edge and notifying '%s'", self.id, self.source_id, self.destination_id)
+                await dest_vertex.handle_edge_signal(self.id, EdgeSignal.ABORTED, payload=self.abort_reason)
+                return None
 
-            # 2 — pre-process
+            # 1 — Read from source
+            data = await source_vertex.handle_edge_signal(self.id, EdgeSignal.READ, data_id=self.data_id, tags=self.tags)
+            logger.debug("[Edge:%s] Source data: %s", self.id, repr(data)[:200])
+
+            # 1.5 — Guard (evaluate condition)
+            if not self.evaluate_condition(data, self.settings):
+                self.aborted = True
+                self.abort_reason = f"Guard condition not satisfied on edge '{self.id}'"
+                logger.info(
+                    "[Edge:%s] Guard condition NOT satisfied -> ABORTING (dest: '%s')",
+                    self.id, self.destination_id,
+                )
+                await dest_vertex.handle_edge_signal(self.id, EdgeSignal.ABORTED, payload=self.abort_reason)
+                return None
+
+            # 2 — Pre-process
             if hasattr(self, "pre_process") and callable(getattr(self, "pre_process")):
                 data = self.pre_process(data, self.settings)
                 logger.debug("[Edge:%s] After self.pre_process: %s", self.id, repr(data)[:200])
@@ -100,16 +167,20 @@ class Edge:
                 data = self._script_module.pre_process(data, self.settings)
                 logger.debug("[Edge:%s] After module pre_process: %s", self.id, repr(data)[:200])
 
-            # 3 — PI Agent
-            result = await pi_agent.process(
-                data=data,
-                prompt=self.prompt,
-                model=self.model,
-                settings=self.settings,
-            )
-            logger.debug("[Edge:%s] PI Agent result: %s", self.id, repr(result)[:200])
+            # 3 — Compute (PI Agent or Pass-through)
+            if self.prompt or (self.model and self.model != "default"):
+                result = await pi_agent.process(
+                    data=data,
+                    prompt=self.prompt,
+                    model=self.model,
+                    settings=self.settings,
+                )
+                logger.debug("[Edge:%s] PI Agent result: %s", self.id, repr(result)[:200])
+            else:
+                result = data
+                logger.debug("[Edge:%s] Pass-through result: %s", self.id, repr(result)[:200])
 
-            # 4 — post-process
+            # 4 — Post-process
             if hasattr(self, "post_process") and callable(getattr(self, "post_process")):
                 result = self.post_process(result, self.settings)
                 logger.debug("[Edge:%s] After self.post_process: %s", self.id, repr(result)[:200])
@@ -117,8 +188,8 @@ class Edge:
                 result = self._script_module.post_process(result, self.settings)
                 logger.debug("[Edge:%s] After module post_process: %s", self.id, repr(result)[:200])
 
-            # 5 — write to destination
-            await dest_vertex.set(result, self.data_id, self.tags, edge_id=self.id)
+            # 5 — Write to destination
+            await dest_vertex.handle_edge_signal(self.id, EdgeSignal.COMPLETED, payload=result, data_id=self.data_id, tags=self.tags)
             logger.info(
                 "[Edge:%s] Delivered to '%s' | key=(%s, %s)",
                 self.id, self.destination_id, self.data_id, self.tags,
@@ -132,15 +203,21 @@ class Edge:
             self.error = str(exc)
             logger.error("[Edge:%s] FAILED: %s", self.id, exc, exc_info=True)
             # Propagate error to destination vertex to prevent deadlocks
-            await dest_vertex.mark_edge_failed(self.id, str(exc))
+            await dest_vertex.handle_edge_signal(self.id, EdgeSignal.FAILED, payload=str(exc))
             raise
 
     def reset(self):
         """Reset edge state for re-execution."""
         self.completed = False
+        self.aborted = False
+        self.abort_reason = None
         self.result = None
         self.error = None
 
     def __repr__(self):
-        status = "✓" if self.completed else ("✗" if self.error else "·")
-        return f"Edge({self.id} {self.source_id}->{self.destination_id} [{status}])"
+        status = "✓" if self.completed else ("⊘" if self.aborted else ("✗" if self.error else "·"))
+        return f"{self.__class__.__name__}({self.id} {self.source_id}->{self.destination_id} [{status}])"
+
+
+
+

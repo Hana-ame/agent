@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from framework.edge import Edge
-from framework.vertex import Vertex, DataRejectedError
+from framework.vertex import Vertex, DataRejectedError, EdgeSignal
 from framework.pi_agent import MockPIAgent
 
 
@@ -49,7 +49,7 @@ class TestEdgeExecution:
 
         assert e.completed
         assert result is not None
-        assert await dst.get("d") is not None
+        assert await dst.handle_edge_signal("", EdgeSignal.READ, data_id="d") is not None
 
     @pytest.mark.asyncio
     async def test_none_data_propagates(self, mock_agent):
@@ -86,7 +86,7 @@ class TestEdgeExecution:
         src = Vertex("src", initial_data=[{"data_id": "d", "value": "x"}])
         dst = Vertex("dst")
         agent = MockPIAgent(response_fn=boom)
-        e = Edge("e", "src", "dst", data_id="d")
+        e = Edge("e", "src", "dst", data_id="d", prompt="trigger")
 
         with pytest.raises(RuntimeError, match="agent error"):
             await e.execute(src, dst, agent)
@@ -120,7 +120,7 @@ class TestEdgeScripts:
         result = await e.execute(src, dst, echo_agent)
         # echo_agent returns data unchanged, so result = post_process(pre_process("x"))
         assert result == "PRE:x:POST"
-        assert await dst.get("d") == "PRE:x:POST"
+        assert await dst.handle_edge_signal("", EdgeSignal.READ, data_id="d") == "PRE:x:POST"
 
 
 # ── reset ────────────────────────────────────────────────────────

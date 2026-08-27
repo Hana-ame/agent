@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework.vertex import Vertex, VertexState, DataRejectedError
+from framework.vertex import Vertex, VertexState, DataRejectedError, EdgeSignal
 
 
 # ── state machine ────────────────────────────────────────────────
@@ -36,12 +36,12 @@ class TestVertexState:
 class TestVertexInitialData:
     def test_initial_data_loaded(self, source_vertex):
         loop = asyncio.get_event_loop()
-        data = loop.run_until_complete(source_vertex.get("text", ["en"]))
+        data = loop.run_until_complete(source_vertex.handle_edge_signal("", EdgeSignal.READ, data_id="text", tags=["en"]))
         assert data == "Hello world"
 
     def test_missing_key_returns_none(self, source_vertex):
         loop = asyncio.get_event_loop()
-        data = loop.run_until_complete(source_vertex.get("missing"))
+        data = loop.run_until_complete(source_vertex.handle_edge_signal("", EdgeSignal.READ, data_id="missing"))
         assert data is None
 
 
@@ -49,26 +49,26 @@ class TestVertexInitialData:
 class TestVertexGetSet:
     @pytest.mark.asyncio
     async def test_set_and_get(self, empty_vertex):
-        await empty_vertex.set("value1", "key1", ["tag_a"])
-        result = await empty_vertex.get("key1", ["tag_a"])
+        await empty_vertex.handle_edge_signal("", EdgeSignal.COMPLETED, payload="value1", data_id="key1", tags=["tag_a"])
+        result = await empty_vertex.handle_edge_signal("", EdgeSignal.READ, data_id="key1", tags=["tag_a"])
         assert result == "value1"
 
     @pytest.mark.asyncio
     async def test_overwrite(self, empty_vertex):
-        await empty_vertex.set("old", "k")
-        await empty_vertex.set("new", "k")
-        assert await empty_vertex.get("k") == "new"
+        await empty_vertex.handle_edge_signal("", EdgeSignal.COMPLETED, payload="old", data_id="k")
+        await empty_vertex.handle_edge_signal("", EdgeSignal.COMPLETED, payload="new", data_id="k")
+        assert await empty_vertex.handle_edge_signal("", EdgeSignal.READ, data_id="k") == "new"
 
     @pytest.mark.asyncio
     async def test_tag_order_irrelevant(self, empty_vertex):
-        await empty_vertex.set("data", "id", ["b", "a"])
-        result = await empty_vertex.get("id", ["a", "b"])
+        await empty_vertex.handle_edge_signal("", EdgeSignal.COMPLETED, payload="data", data_id="id", tags=["b", "a"])
+        result = await empty_vertex.handle_edge_signal("", EdgeSignal.READ, data_id="id", tags=["a", "b"])
         assert result == "data"
 
     @pytest.mark.asyncio
     async def test_get_all_data(self, empty_vertex):
-        await empty_vertex.set("v1", "k1", ["t"])
-        await empty_vertex.set("v2", "k2", ["t"])
+        await empty_vertex.handle_edge_signal("", EdgeSignal.COMPLETED, payload="v1", data_id="k1", tags=["t"])
+        await empty_vertex.handle_edge_signal("", EdgeSignal.COMPLETED, payload="v2", data_id="k2", tags=["t"])
         all_data = await empty_vertex.get_all_data()
         assert len(all_data) == 2
 
@@ -81,10 +81,10 @@ class TestVertexReadiness:
         v.required_input_count = 2
         v.incoming_edges = ["e1", "e2"]
 
-        await v.set("a", "d1", edge_id="e1")
+        await v.handle_edge_signal("e1", EdgeSignal.COMPLETED, payload="a", data_id="d1")
         assert v.state == VertexState.IDLE  # only 1 of 2
 
-        await v.set("b", "d2", edge_id="e2")
+        await v.handle_edge_signal("e2", EdgeSignal.COMPLETED, payload="b", data_id="d2")
         assert v.state == VertexState.READY  # 2 of 2
 
     @pytest.mark.asyncio
@@ -105,8 +105,8 @@ class TestVertexScript:
         from framework.script_loader import load_script
         empty_vertex.set_script_module(load_script(str(script)))
 
-        await empty_vertex.set("hello", "k")
-        assert await empty_vertex.get("k") == "HELLO"
+        await empty_vertex.handle_edge_signal("", EdgeSignal.COMPLETED, payload="hello", data_id="k")
+        assert await empty_vertex.handle_edge_signal("", EdgeSignal.READ, data_id="k") == "HELLO"
 
     @pytest.mark.asyncio
     async def test_on_receive_rejects(self, empty_vertex, tmp_path):
@@ -119,7 +119,7 @@ class TestVertexScript:
         empty_vertex.set_script_module(load_script(str(script)))
 
         with pytest.raises(DataRejectedError, match="rejected"):
-            await empty_vertex.set("anything", "k")
+            await empty_vertex.handle_edge_signal("", EdgeSignal.COMPLETED, payload="anything", data_id="k")
 
     @pytest.mark.asyncio
     async def test_on_ready_hook(self, empty_vertex, tmp_path):
@@ -131,10 +131,10 @@ class TestVertexScript:
         from framework.script_loader import load_script
         empty_vertex.set_script_module(load_script(str(script)))
 
-        await empty_vertex.set("raw", "in")
+        await empty_vertex.handle_edge_signal("", EdgeSignal.COMPLETED, payload="raw", data_id="in")
         await empty_vertex.prepare_outputs()
 
-        assert await empty_vertex.get("out", ["merged"]) == "merged-data"
+        assert await empty_vertex.handle_edge_signal("", EdgeSignal.READ, data_id="out", tags=["merged"]) == "merged-data"
 
 
 # ── helpers ──────────────────────────────────────────────────────

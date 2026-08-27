@@ -1,35 +1,35 @@
-# Vertex-Edge Agent Framework
+# Vertex-Edge Agent Framework (顶点-边 智能体框架)
 
-A **non-interactive**, JSON-driven graph execution engine for orchestrating AI agent pipelines.
+一个**非交互式**、数据驱动、高度可扩展的 DAG（有向无环图）执行引擎，专为编排和调度 AI Agent 生产级流水线而设计。
 
-## Architecture
+## 核心架构 (Unified Architecture)
 
-```
-┌──────────┐    ┌──────┐    ┌──────────┐    ┌──────┐    ┌──────────┐
-│ Vertex A │───▶│Edge 1│───▶│ Vertex B │───▶│Edge 2│───▶│ Vertex C │
-│ (source) │    │PI Agt│    │(process) │    │PI Agt│    │  (sink)  │
-└──────────┘    └──────┘    └──────────┘    └──────┘    └──────────┘
-```
-
-### Core Concepts
-
-| Component    | Role |
-|-------------|------|
-| **Vertex**   | Stores data keyed by `(data_id, tags[])`. Has state machine: `IDLE → READY → PROCESSING → DONE`. Can reject data via scripts. |
-| **Edge**     | Connects source → destination. Reads from source via `get(id, tags)`, processes through PI Agent, writes to dest via `set(data, id, tags)`. |
-| **Executor** | Scans for READY vertices, fires outgoing edges concurrently (semaphore-bounded), detects deadlocks. |
-| **PI Agent** | Interface for AI/LLM processing. Mock included; plug in real agent when installed. |
-| **Scripts**  | External `.py` files for vertex hooks (`on_receive`, `on_ready`) and edge hooks (`pre_process`, `post_process`). |
-
-### Vertex States
+框架采用了高度统一的 **Actor / Message-Passing (消息传递)** 模型。Vertex（节点）和 Edge（边）之间没有任何零散的方法调用，所有的交互全部通过单一的信号管道 `handle_edge_signal` 完成。
 
 ```
-IDLE ──(all inputs received)──▶ READY ──(executor picks up)──▶ PROCESSING ──(edges done)──▶ DONE
-                                                                    │
-                                                                    └──(error)──▶ ERROR
+┌──────────┐    ┌───────────────────────────────────────────────┐    ┌──────────┐
+│ Vertex A │───▶│                     Edge 1                    │───▶│ Vertex B │
+│ (Source) │    │ Guard -> PreProcess -> Compute -> PostProcess │    │ (Sink)   │
+└──────────┘    └───────────────────────────────────────────────┘    └──────────┘
 ```
 
-## JSON Configuration Schema
+### 1. Edge: 统一的 5 阶段流水线 (5-Stage Pipeline)
+`Edge` 不再区分为普通边或条件边，而是统一为一个标准的 5 阶段流水线：
+1. **Guard (门限拦截)**: 调用 `evaluate_condition` 进行前置校验（支持 JSON 声明式规则或外部 Python 脚本）。若不满足条件，直接产生 `ABORTED` 信号，触发向下的雪崩级分支剪枝，避免死锁。
+2. **Pre-Process (预处理)**: 触发 `pre_process` 钩子处理原始数据。
+3. **Compute (计算)**: 如果配置了 Prompt 和 Model，则通过 LLM (PI Agent) 计算；若未配置，则化身为透明的 Pass-through edge 直接透传数据。
+4. **Post-Process (后处理)**: 触发 `post_process` 钩子进行解析或格式化。
+5. **Deliver (交付)**: 向目标 Vertex 发送 `COMPLETED` 信号并写入结果。
+
+### 2. Vertex: 统一的 3 阶段容器 (3-Stage Container)
+`Vertex` 作为一个纯粹的黑盒状态机容器，分为三个生命周期：
+1. **Ingest (摄入)**: 当收到边的 `COMPLETED` 信号时，触发 `on_receive` 拦截器/钩子。
+2. **Settle (沉淀/屏障)**: 采用动态结算屏障（Settlement Barrier Check）。实时统计 `COMPLETED` 与 `ABORTED` 信号。若所有入边皆有定论，只要有一条成功则进入 `READY`，若全军覆没则进入 `ABORTED`。
+3. **Fuse (融合)**: 结算完成后，引擎触发 `prepare_outputs()` (即 `on_ready` 钩子)，将零散的数据融合为出边所需的状态。
+
+## JSON 配置规范 (Configuration Schema)
+
+图的拓扑结构与执行规则完全由 JSON 驱动，支持声明式的阈值控制、脚本挂载与大模型配置：
 
 ```jsonc
 {
@@ -37,9 +37,9 @@ IDLE ──(all inputs received)──▶ READY ──(executor picks up)──�
   "vertices": [
     {
       "id": "v1",
-      "settings": { /* arbitrary */ },
-      "script": "path/to/vertex_script.py",      // optional
-      "initial_data": [                            // optional
+      "settings": { /* 任意配置字典 */ },
+      "script": "path/to/vertex_script.py",      // 可选：挂载外部扩展脚本
+      "initial_data": [                          // 可选：初始注入数据
         { "data_id": "text", "tags": ["en"], "value": "Hello" }
       ]
     }
@@ -53,108 +53,89 @@ IDLE ──(all inputs received)──▶ READY ──(executor picks up)──�
       "tags": ["en"],
       "prompt": "Summarize this:",
       "model": "gemini-pro",
-      "settings": {},                              // optional
-      "script": "path/to/edge_script.py"           // optional
+      "settings": {
+        "threshold": 80,                         // 可选：Guard 门限配置（声明式）
+        "operator": ">="
+      },
+      "script": "path/to/edge_script.py"         // 可选：挂载外部扩展脚本
     }
   ]
 }
 ```
 
-## External Scripts
+## 外部扩展脚本 (External Scripts)
 
-### Vertex Scripts
+通过配置 `script` 字段，可以将普通节点与边瞬间升级为具备复杂逻辑的组件，无需修改底层框架源码。
+
+### Vertex Scripts (节点脚本)
 
 ```python
 def on_receive(data, data_id, tags, settings):
-    """Called when data arrives. Return transformed data or raise to reject."""
+    """【Ingest 阶段】数据到达时触发。可转换数据，或抛出异常以拒绝接收该数据。"""
     if not valid(data):
         raise ValueError("rejected")
     return data.upper()
 
 def on_ready(all_data, settings):
-    """Called before outgoing edges fire. Merge inputs → outputs."""
+    """【Fuse 阶段】节点就绪，即将触发下游出边前调用。用于将多个输入融合为最终输出。"""
     return {("output_id", ("tag",)): merged_value}
 ```
 
-### Edge Scripts
+### Edge Scripts (边脚本)
 
 ```python
+def guard(data, settings):
+    """【Guard 阶段】条件门限，返回 False 则剪枝当前分支。也叫 evaluate_condition。"""
+    return data.get("score", 0) >= 80
+
 def pre_process(data, settings):
-    """Transform data BEFORE the PI Agent."""
-    return f"[PREFIX] {data}"
+    """【Pre-process 阶段】在进入 LLM 之前转换数据。"""
+    return f"【请分析以下内容】\n{data}"
 
 def post_process(data, settings):
-    """Transform result AFTER the PI Agent."""
-    return f"{data} [SUFFIX]"
+    """【Post-process 阶段】解析 LLM 的输出。"""
+    return data.strip()
 ```
 
-## Usage
+## 运行方式 (Usage)
 
 ```python
 import asyncio
 from framework import Graph, Executor, MockPIAgent
 
 async def main():
+    # 1. 解析 DAG 图配置
     graph = Graph.from_json("config.json")
+    # 2. 注入真实或 Mock 的 Agent，配置并发度并启动引擎
     result = await Executor(graph, MockPIAgent(), max_concurrency=8).run()
+    # 3. 打印执行摘要
     print(result.summary())
 
 asyncio.run(main())
 ```
 
-## Examples
+## 示例 (Examples)
 
 ```bash
-# Simple linear pipeline
+# 简单的线性流水线
 python examples/run.py examples/simple/config.json
 
-# Complex DAG with fan-out, fan-in, scripts
+# 复杂的 DAG（支持扇出 Fan-out、扇入 Fan-in、外部脚本）
 python examples/run.py examples/complex/config.json
 
-# Object-Oriented Subclassing (Dynamic classes)
+# 动态分支路由与条件剪枝 (Guard & Routing)
+python examples/run.py examples/conditional_routing/config.json
+
+# 面向对象的高级用法 (自定义子类重载)
 python examples/run.py examples/custom_classes/config.json
 ```
+*每个示例文件夹均包含专门的 `README.md` 教程。*
 
-Each example folder contains its own `README.md` tutorial detailing how the pipeline is constructed.
-
-## Tests
+## 单元测试 (Tests)
 
 ```bash
 pip install pytest pytest-asyncio
 python -m pytest tests/ -v
 ```
 
-**62 tests** covering: vertex state machine, get/set, tag ordering, readiness
-semaphore, script hooks (transform/reject/on_ready), edge execution, graph
-loading/validation/cycle detection, executor (linear/diamond/fan-out/fan-in),
-concurrency, timeout, error handling, deep chains, rejection pipelines.
-
-## Project Structure
-
-```
-vertex_edge_agent/
-├── framework/
-│   ├── __init__.py          # Package exports
-│   ├── vertex.py            # Vertex with state machine & data store
-│   ├── edge.py              # Edge: source → PI Agent → destination
-│   ├── graph.py             # JSON loader & DAG validator
-│   ├── executor.py          # Async executor with concurrency control
-│   ├── pi_agent.py          # PI Agent interface (Mock + External)
-│   └── script_loader.py     # Dynamic .py script loader
-├── examples/
-│   ├── run.py               # Unified runner for all examples
-│   ├── scripts/             # Reusable vertex/edge module hooks
-│   ├── simple/              # Linear pipeline (with README tutorial)
-│   ├── complex/             # Complex DAG pipeline (with README tutorial)
-│   └── custom_classes/      # Object-Oriented subclasses (with README tutorial)
-├── tests/                   # 62 tests
-│   ├── conftest.py
-│   ├── test_vertex.py
-│   ├── test_edge.py
-│   ├── test_graph.py
-│   ├── test_executor.py
-│   └── test_integration.py
-├── pyproject.toml
-├── requirements.txt
-└── README.md
-```
+当前包含 **72 个全覆盖测试**，涵盖：状态机、统一信号传递 (EdgeSignal)、标签排序、并发信号量、动态路由剪枝 (Diamond Routing)、死锁预防、脚本钩子拦截、图循环检测、超时与错误抛出。

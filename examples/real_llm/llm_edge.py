@@ -3,6 +3,7 @@ import urllib.request
 import asyncio
 import logging
 from framework.edge import Edge
+from framework.vertex import EdgeSignal
 
 logger = logging.getLogger("llm_edge")
 
@@ -12,7 +13,7 @@ class RealLLMEdge(Edge):
         logger.info(f"[RealLLMEdge:{self.id}] Intercepted execution to hit opencode.ai API")
         try:
             # 1. Read source data
-            data = await source_vertex.get(self.data_id, self.tags)
+            data = await source_vertex.handle_edge_signal(self.id, EdgeSignal.READ, data_id=self.data_id, tags=self.tags)
             if data is None:
                 raise ValueError(f"No data received from source vertex '{self.source_id}'.")
 
@@ -55,7 +56,7 @@ class RealLLMEdge(Edge):
             logger.info(f"[RealLLMEdge:{self.id}] Received response: {repr(result)[:50]}...")
 
             # 5. Write to destination
-            await dest_vertex.set(result, self.data_id, self.tags, edge_id=self.id)
+            await dest_vertex.handle_edge_signal(self.id, EdgeSignal.COMPLETED, payload=result, data_id=self.data_id, tags=self.tags)
             self.completed = True
             self.result = result
             return result
@@ -64,5 +65,5 @@ class RealLLMEdge(Edge):
             self.error = str(exc)
             logger.error(f"[RealLLMEdge:{self.id}] FAILED: {exc}", exc_info=True)
             # Propagate error to destination vertex to prevent deadlocks
-            await dest_vertex.mark_edge_failed(self.id, str(exc))
+            await dest_vertex.handle_edge_signal(self.id, EdgeSignal.FAILED, payload=str(exc))
             raise

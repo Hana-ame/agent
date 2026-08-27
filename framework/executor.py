@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from .vertex import Vertex, VertexState
+from .vertex import Vertex, VertexState, EdgeSignal
 from .edge import Edge
 from .graph import Graph
 from .pi_agent import PIAgent, MockPIAgent
@@ -56,7 +56,9 @@ class ExecutionResult:
         for vid, info in self.vertex_results.items():
             state = info.get("state", "?")
             data_keys = list(info.get("data", {}).keys())
-            lines.append(f"    [{vid}]  state={state}  keys={data_keys}")
+            abort_str = f" (aborted: {info.get('abort_reason')})" if state == "aborted" else ""
+            err_str = f" (error: {info.get('error')})" if state == "error" else ""
+            lines.append(f"    [{vid}]  state={state}{abort_str}{err_str}  keys={data_keys}")
         lines.append("")
         lines.append("  EDGE RESULTS:")
         for eid, val in self.edge_results.items():
@@ -108,8 +110,9 @@ class Executor:
         try:
             self._init_sources()
             await asyncio.wait_for(self._loop(), timeout=self.timeout)
-            self._result.success = all(
-                v.state == VertexState.DONE for v in self.graph.vertices.values()
+            self._result.success = (
+                len(self._result.errors) == 0
+                and all(v.state in (VertexState.DONE, VertexState.ABORTED) for v in self.graph.vertices.values())
             )
         except asyncio.TimeoutError:
             msg = f"Execution timed out after {self.timeout}s"
@@ -142,12 +145,14 @@ class Executor:
         iteration = 0
 
         async def wait_and_process(vertex: Vertex):
-            if vertex.state not in (VertexState.READY, VertexState.PROCESSING, VertexState.DONE, VertexState.ERROR):
+            if vertex.state not in (VertexState.READY, VertexState.PROCESSING, VertexState.DONE, VertexState.ABORTED, VertexState.ERROR):
                 await vertex.wait_ready()
             
             if vertex.state == VertexState.READY:
                 vertex.state = VertexState.PROCESSING
                 await self._process_vertex(vertex)
+            elif vertex.state == VertexState.ABORTED:
+                await self._abort_vertex(vertex)
 
         # Create a task for each vertex
         pending = {
@@ -174,7 +179,7 @@ class Executor:
 
             # 1. Terminal check
             states = {v.state for v in self.graph.vertices.values()}
-            if states <= {VertexState.DONE, VertexState.ERROR}:
+            if states <= {VertexState.DONE, VertexState.ABORTED, VertexState.ERROR}:
                 logger.info("[Executor] All vertices settled, exiting loop")
                 break
 
@@ -191,6 +196,17 @@ class Executor:
                 for t in pending:
                     t.cancel()
                 break
+
+    async def _abort_vertex(self, vertex: Vertex):
+        """Cascade abort to all outgoing edges of an aborted vertex."""
+        logger.info("[Executor] Vertex '%s' aborted → cascading to outgoing edges", vertex.id)
+        outgoing = self.graph.get_outgoing_edges(vertex.id)
+        for edge in outgoing:
+            edge.aborted = True
+            edge.abort_reason = f"Upstream vertex '{vertex.id}' was aborted"
+            self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
+            dst = self.graph.vertices[edge.destination_id]
+            await dst.handle_edge_signal(edge.id, EdgeSignal.ABORTED, payload=edge.abort_reason)
 
     async def _process_vertex(self, vertex: Vertex):
         """Fire all outgoing edges of *vertex*."""
@@ -239,7 +255,10 @@ class Executor:
             src = self.graph.vertices[edge.source_id]
             dst = self.graph.vertices[edge.destination_id]
             result = await edge.execute(src, dst, self.pi_agent)
-            self._result.edge_results[edge.id] = result
+            if edge.aborted:
+                self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
+            else:
+                self._result.edge_results[edge.id] = result
             return result
 
     async def _collect_results(self):
@@ -252,7 +271,14 @@ class Executor:
                     f"{k[0]}:{','.join(k[1])}": val for k, val in data.items()
                 },
                 "error": v.error_message,
+                "abort_reason": v.abort_reason,
             }
+        for edge in self.graph.edges.values():
+            if edge.id not in self._result.edge_results:
+                if edge.aborted:
+                    self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
+                elif edge.error:
+                    self._result.edge_results[edge.id] = f"<FAILED: {edge.error}>"
 
     def _log_state_dump(self):
         """Dump the state of every vertex for debugging."""

@@ -114,6 +114,7 @@ class Graph:
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
+            edge_type = str(ec.get("type", ec.get("edge_type", ""))).lower()
             edge_cls = Edge
             script_module = None
             if script:

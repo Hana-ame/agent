@@ -1,0 +1,76 @@
+{
+  "metadata": {
+    "name": "Conditional Routing / Intent Classifier Example",
+    "description": "Demonstrates Edge guard dynamic branching: routes drawing requests to ImageVertex and code requests to CodeVertex, converging into SinkVertex without deadlock."
+  },
+  "vertices": [
+    {
+      "id": "UserPromptVertex",
+      "initial_data": [
+        {
+          "data_id": "request",
+          "tags": ["user"],
+          "value": {
+            "intent": "code_generation",
+            "prompt": "Write a Python quicksort algorithm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ImageProcessingVertex"
+    },
+    {
+      "id": "CodeProcessingVertex"
+    },
+    {
+      "id": "ResponseCollectorVertex"
+    }
+  ],
+  "edges": [
+    {
+      "id": "gate_to_image",
+      "type": "gate",
+      "source": "UserPromptVertex",
+      "destination": "ImageProcessingVertex",
+      "data_id": "request",
+      "tags": ["user"],
+      "settings": {
+        "match": {
+          "intent": "image_generation"
+        }
+      }
+    },
+    {
+      "id": "gate_to_code",
+      "type": "gate",
+      "source": "UserPromptVertex",
+      "destination": "CodeProcessingVertex",
+      "data_id": "request",
+      "tags": ["user"],
+      "settings": {
+        "match": {
+          "intent": "code_generation"
+        }
+      }
+    },
+    {
+      "id": "image_to_sink",
+      "source": "ImageProcessingVertex",
+      "destination": "ResponseCollectorVertex",
+      "data_id": "request",
+      "tags": ["user"],
+      "prompt": "Generate image dalle prompt for: ",
+      "model": "image-model"
+    },
+    {
+      "id": "code_to_sink",
+      "source": "CodeProcessingVertex",
+      "destination": "ResponseCollectorVertex",
+      "data_id": "request",
+      "tags": ["user"],
+      "prompt": "Write high performance clean code: ",
+      "model": "code-model"
+    }
+  ]
+}

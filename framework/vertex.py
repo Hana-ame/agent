@@ -19,7 +19,17 @@ class VertexState(enum.Enum):
     READY = "ready"              # All inputs received, ready to process
     PROCESSING = "processing"    # Outgoing edges being fired
     DONE = "done"                # All processing complete
+    ABORTED = "aborted"          # Pruned or all inputs aborted
     ERROR = "error"              # Error occurred
+
+
+class EdgeSignal(str, enum.Enum):
+    """Signals exchanged between Edge and Vertex."""
+    READ = "read"
+    COMPLETED = "completed"
+    ABORTED = "aborted"
+    FAILED = "failed"
+
 
 
 class DataRejectedError(Exception):
@@ -35,8 +45,7 @@ class Vertex:
     Supports external scripts for data handling/validation/rejection.
 
     Methods:
-        get(data_id, tags) -> data
-        set(data, data_id, tags) -> bool
+        handle_edge_signal(edge_id, signal, payload, data_id, tags) -> data/bool
         prepare_outputs()  -- runs on_ready hook before outgoing edges fire
     """
 
@@ -65,10 +74,12 @@ class Vertex:
         self.outgoing_edges: List[str] = []   # edge IDs
         self.required_input_count: int = 0
         self.completed_incoming_edges: set = set()
+        self.aborted_incoming_edges: set = set()
         self._received_input_count: int = 0
 
-        # Error info
+        # Error / Abort info
         self.error_message: Optional[str] = None
+        self.abort_reason: Optional[str] = None
 
         # Load initial data
         if initial_data:
@@ -110,7 +121,7 @@ class Vertex:
         old = self._state
         self._state = new_state
         logger.info("[Vertex:%s] %s -> %s", self.id, old.value, new_state.value)
-        if new_state == VertexState.READY:
+        if new_state in (VertexState.READY, VertexState.ABORTED, VertexState.ERROR):
             self._ready_event.set()
         else:
             self._ready_event.clear()
@@ -124,86 +135,103 @@ class Vertex:
         logger.debug("[Vertex:%s] Script module attached: %s", self.id, module)
 
     # ------------------------------------------------------------------
-    # Data access
+    # Data access & Edge signaling
     # ------------------------------------------------------------------
-    async def get(
-        self, data_id: str = "default", tags: Optional[List[str]] = None
-    ) -> Any:
-        """Get data from this vertex by *data_id* and *tags*."""
-        key = self._make_key(data_id, tags)
-        async with self._lock:
-            data = self._data_store.get(key)
-        logger.debug("[Vertex:%s] GET %s -> %s", self.id, key, repr(data)[:120])
-        return data
-
-    async def mark_edge_failed(self, edge_id: str, error: str):
-        """Called when an incoming edge fails to provide data."""
-        async with self._lock:
-            self.error_message = f"Upstream edge {edge_id} failed: {error}"
-            self.state = VertexState.ERROR
-            logger.error("[Vertex:%s] Failed due to upstream edge '%s'", self.id, edge_id)
-
-    async def set(
+    async def handle_edge_signal(
         self,
-        data: Any,
+        edge_id: str,
+        signal: EdgeSignal,
+        payload: Any = None,
         data_id: str = "default",
         tags: Optional[List[str]] = None,
-        edge_id: Optional[str] = None,
-    ) -> bool:
-        """Set data on this vertex.
+    ) -> Any:
+        """Unified method for all edge-to-vertex and vertex-to-edge communication."""
+        if signal == EdgeSignal.READ:
+            key = self._make_key(data_id, tags)
+            async with self._lock:
+                data = self._data_store.get(key)
+            logger.debug("[Vertex:%s] READ by edge '%s' %s -> %s", self.id, edge_id, key, repr(data)[:120])
+            return data
 
-        Returns True on success.  Raises ``DataRejectedError`` if the
-        vertex script's ``on_receive`` rejects the data.
-        """
-        key = self._make_key(data_id, tags)
-        logger.debug("[Vertex:%s] SET %s <- %s", self.id, key, repr(data)[:120])
+        elif signal == EdgeSignal.FAILED:
+            async with self._lock:
+                self.error_message = f"Upstream edge {edge_id} failed: {payload}"
+                self.state = VertexState.ERROR
+                logger.error("[Vertex:%s] Failed due to upstream edge '%s'", self.id, edge_id)
 
-        # --- run vertex script on_receive hook ---
-        if hasattr(self, "on_receive") and callable(getattr(self, "on_receive")):
-            try:
-                data = self.on_receive(data, data_id, tags or [], self.settings)
-                logger.debug("[Vertex:%s] self.on_receive returned: %s", self.id, repr(data)[:120])
-            except Exception as exc:
-                logger.warning("[Vertex:%s] self.on_receive REJECTED data: %s", self.id, exc)
-                raise DataRejectedError(f"Vertex '{self.id}' rejected data: {exc}") from exc
-        elif self._script_module and hasattr(self._script_module, "on_receive"):
-            try:
-                data = self._script_module.on_receive(
-                    data, data_id, tags or [], self.settings
+        elif signal == EdgeSignal.ABORTED:
+            async with self._lock:
+                self.aborted_incoming_edges.add(edge_id)
+                total = len(self.incoming_edges) if self.incoming_edges else self.required_input_count
+                logger.info(
+                    "[Vertex:%s] Incoming edge '%s' aborted (completed: %d, aborted: %d, total: %d)",
+                    self.id, edge_id,
+                    len(self.completed_incoming_edges),
+                    len(self.aborted_incoming_edges),
+                    total,
                 )
-                logger.debug(
-                    "[Vertex:%s] on_receive returned: %s", self.id, repr(data)[:120]
-                )
-            except Exception as exc:
-                logger.warning(
-                    "[Vertex:%s] on_receive REJECTED data: %s", self.id, exc
-                )
-                raise DataRejectedError(
-                    f"Vertex '{self.id}' rejected data: {exc}"
-                ) from exc
 
-        async with self._lock:
-            self._data_store[key] = data
-            if edge_id:
-                self.completed_incoming_edges.add(edge_id)
-            else:
-                self._received_input_count += 1
-            
-            logger.info(
-                "[Vertex:%s] Input received (edges completed: %d/%d)",
-                self.id, len(self.completed_incoming_edges), len(self.incoming_edges) if self.incoming_edges else self.required_input_count
-            )
-            
-            # Check readiness based on incoming edge completion or raw count
-            is_ready = False
-            if self.incoming_edges:
-                is_ready = len(self.completed_incoming_edges) >= len(self.incoming_edges)
-            elif self.required_input_count > 0:
-                is_ready = self._received_input_count >= self.required_input_count
+                total_settled = len(self.completed_incoming_edges) + len(self.aborted_incoming_edges)
+                if total > 0 and total_settled >= total:
+                    if len(self.completed_incoming_edges) > 0:
+                        self.state = VertexState.READY
+                    else:
+                        self.abort_reason = payload or f"All {total} incoming edges aborted"
+                        self.state = VertexState.ABORTED
 
-            if is_ready:
-                self.state = VertexState.READY
-        return True
+        elif signal == EdgeSignal.COMPLETED:
+            data = payload
+            key = self._make_key(data_id, tags)
+            logger.debug("[Vertex:%s] COMPLETED %s <- %s", self.id, key, repr(data)[:120])
+
+            # --- run vertex script on_receive hook ---
+            if hasattr(self, "on_receive") and callable(getattr(self, "on_receive")):
+                try:
+                    data = self.on_receive(data, data_id, tags or [], self.settings)
+                    logger.debug("[Vertex:%s] self.on_receive returned: %s", self.id, repr(data)[:120])
+                except Exception as exc:
+                    logger.warning("[Vertex:%s] self.on_receive REJECTED data: %s", self.id, exc)
+                    raise DataRejectedError(f"Vertex '{self.id}' rejected data: {exc}") from exc
+            elif self._script_module and hasattr(self._script_module, "on_receive"):
+                try:
+                    data = self._script_module.on_receive(
+                        data, data_id, tags or [], self.settings
+                    )
+                    logger.debug(
+                        "[Vertex:%s] on_receive returned: %s", self.id, repr(data)[:120]
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[Vertex:%s] on_receive REJECTED data: %s", self.id, exc
+                    )
+                    raise DataRejectedError(
+                        f"Vertex '{self.id}' rejected data: {exc}"
+                    ) from exc
+
+            async with self._lock:
+                self._data_store[key] = data
+                if edge_id:
+                    self.completed_incoming_edges.add(edge_id)
+                else:
+                    self._received_input_count += 1
+                
+                total = len(self.incoming_edges) if self.incoming_edges else self.required_input_count
+                logger.info(
+                    "[Vertex:%s] Input received (completed: %d, aborted: %d, total: %d)",
+                    self.id, len(self.completed_incoming_edges), len(self.aborted_incoming_edges), total
+                )
+                
+                # Check readiness based on incoming edge settlement
+                is_ready = False
+                if self.incoming_edges:
+                    total_settled = len(self.completed_incoming_edges) + len(self.aborted_incoming_edges)
+                    is_ready = total_settled >= len(self.incoming_edges) and len(self.completed_incoming_edges) > 0
+                elif self.required_input_count > 0:
+                    is_ready = self._received_input_count >= self.required_input_count
+
+                if is_ready:
+                    self.state = VertexState.READY
+            return True
 
     async def get_all_data(self) -> Dict[Tuple[str, Tuple[str, ...]], Any]:
         """Return a copy of the entire data store."""
@@ -295,8 +323,11 @@ class Vertex:
         """Reset vertex to initial state (for re-runs)."""
         self._state = VertexState.IDLE
         self._ready_event.clear()
+        self.completed_incoming_edges.clear()
+        self.aborted_incoming_edges.clear()
         self._received_input_count = 0
         self.error_message = None
+        self.abort_reason = None
         logger.debug("[Vertex:%s] Reset to IDLE", self.id)
 
     def __repr__(self):
