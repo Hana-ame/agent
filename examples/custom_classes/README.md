@@ -1,17 +1,17 @@
-# 动态面向对象子类示例 (Native Subclassing)
+# Native Subclassing Example
 
-本示例展示了该框架真正的面向对象 (OOP) 威力。它并没有使用传统的外部模块级钩子（如挂载 `.py` 文件里的 `on_receive` 函数），而是直接在外部脚本中定义了 `Vertex` 和 `Edge` 的原生子类，由框架动态加载并实例化。
+This example demonstrates the true object-oriented programming (OOP) power of this framework. Instead of using traditional external module-level hooks (such as registering the `on_receive` function in a `.py` file), it directly defines native subclasses of `Vertex` and `Edge` in an external script, which are dynamically loaded and instantiated by the framework.
 
-## 运行原理 (How it works)
+## How it works
 
-1. 在 `config.json` 中，我们为 `filter_node` 和 `e_smart` 配置了 `"script": "my_nodes.py"`。
-2. 框架会利用 Python 原生的 `inspect` 模块自动扫描 `my_nodes.py`，智能识别出其中继承自 `Vertex` 和 `Edge` 的子类。
-3. 框架会原生构造 `SafeFilterVertex` 和 `PrefixEdge` 实例，并将 JSON 配置直接透传给它们的 `__init__` 构造函数。
-4. 子类可以直接定义或重写生命周期方法（例如在节点里定义原生方法 `on_receive()`，在边里重载 `pre_process()` 和 `post_process()`），这些类方法会完美融入 Executor 的事件循环机制。
+1. In `config.json`, we configure `"script": "my_nodes.py"` for `filter_node` and `e_smart`.
+2. The framework automatically scans `my_nodes.py` using Python's native `inspect` module to intelligently identify subclasses that inherit from `Vertex` and `Edge`.
+3. The framework natively constructs instances of `SafeFilterVertex` and `PrefixEdge`, passing the JSON configuration directly to their `__init__` constructors.
+4. Subclasses can directly define or override lifecycle methods (such as defining a native `on_receive()` method in the vertex, or overriding `pre_process()` and `post_process()` in the edge). These class methods seamlessly integrate into the Executor's event loop mechanism.
 
-## 运行示例 (Execution)
+## Execution
 
-使用统一运行脚本，指向本目录的 `config.json`：
+Use the unified execution script pointing to the `config.json` in this directory:
 
 ```bash
 python examples/run.py examples/custom_classes/config.json

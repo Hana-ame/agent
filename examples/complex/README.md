@@ -1,8 +1,8 @@
-# 复杂图拓扑与钩子示例 (Complex DAG & Hooks)
+# Complex DAG & Hooks Example
 
-本示例展示了一个高阶的有向无环图 (DAG)，涵盖了并发扇出 (Fan-out)、扇入/汇聚 (Fan-in)、以及外部扩展脚本的无缝集成。
+This example demonstrates a high-level Directed Acyclic Graph (DAG) covering concurrent fan-out, fan-in/convergence, and the seamless integration of external extension scripts.
 
-## 拓扑结构 (Architecture)
+## Architecture
 
 ```mermaid
 graph TD
@@ -13,18 +13,18 @@ graph TD
     merge -- e5 (gemini-pro) --> output((output))
 ```
 
-## 核心能力展示 (Key Features Showcased)
+## Key Features Showcased
 
-1. **多数据源 (Multiple Sources)**: `input_a` 和 `input_b` 作为双核驱动，同时并发提供初始数据。
-2. **并发扇出 (Fan-out)**: `input_a` 将它的数据同时派发给两条出边 (`e1` 和 `e4`)，展示了数据的完美并行复制与计算。
-3. **扇入汇聚/依赖同步 (Fan-in / Synchronization)**: `merge` 节点配置了依赖限制，它必须同时收到来自 `e3` 和 `e4` 的数据。在两条分支全部到达之前，它会安静地停留在 `IDLE` 状态，完美展示了无需锁机制的并发同步 (通过 EdgeSignal 屏障实现)。
-4. **外部脚本钩子 (Script Hooks)**:
-   - `transform` 节点外挂了 `uppercase_handler.py` 脚本，在接收数据 (on_receive) 时对大写进行拦截和转换。
-   - `e3` 边外挂了 `prefix_handler.py` 脚本，演示了在 LLM 处理前后如何清洗和解析数据 (pre_process & post_process)。
+1. **Multiple Sources**: `input_a` and `input_b` act as dual-cores, concurrently providing initial data.
+2. **Concurrent Fan-out**: `input_a` dispatches its data to two outgoing edges (`e1` and `e4`) simultaneously, demonstrating perfect parallel replication and computation of data.
+3. **Fan-in / Synchronization**: The `merge` node is configured with dependency constraints; it must receive data from both `e3` and `e4`. Before both branches arrive, it remains quietly in the `IDLE` state, perfectly showcasing lock-free concurrent synchronization (implemented via the EdgeSignal barrier).
+4. **Script Hooks**:
+   - The `transform` node is attached to the `uppercase_handler.py` script, which intercepts and converts data to uppercase when receiving data (`on_receive`).
+   - The `e3` edge is attached to the `prefix_handler.py` script, demonstrating how to clean and parse data before and after LLM processing (`pre_process` & `post_process`).
 
-## 运行方式 (Execution)
+## Execution
 
-使用统一运行脚本，指向本目录的 `config.json`：
+Use the unified execution script pointing to the `config.json` in this directory:
 
 ```bash
 python examples/run.py examples/complex/config.json

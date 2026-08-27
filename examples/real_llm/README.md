@@ -1,19 +1,19 @@
-# 接驳真实大模型接口示例 (Real LLM Endpoint)
+# Real LLM Endpoint Example
 
-本示例展示了如何通过覆写 `Edge` 的子类，完全架空框架自带的测试用 `MockPIAgent`，从而直接向真实的外部大模型服务商发起请求。
+This example demonstrates how to completely bypass the built-in test `MockPIAgent` by subclassing `Edge`, thereby sending requests directly to a real external LLM provider.
 
-不同于普通的 `pre_process`（修改 Prompt）或 `post_process`（修改返回结果），`RealLLMEdge` 彻底重构了内部的工作流。它通过内置的 `urllib` 库配合 `asyncio.to_thread` 向兼容 OpenAI 的端点（例如 `https://opencode.ai/zen/v1/chat/completions`）发起真实的 HTTP POST 异步网络请求，请求所使用的模型由 `config.json` 动态指定。
+Unlike standard `pre_process` (which modifies the prompt) or `post_process` (which modifies the returned result), `RealLLMEdge` completely reconstructs the internal workflow. It uses the built-in `urllib` library in conjunction with `asyncio.to_thread` to make real, asynchronous HTTP POST network requests to an OpenAI-compatible endpoint (such as `https://opencode.ai/zen/v1/chat/completions`). The model used for the request is dynamically specified in `config.json`.
 
-## 运行原理 (How it works)
+## How it works
 
-1. 在 `config.json` 中，边 `e_real_llm` 被配置为使用外部扩展 `"script": "llm_edge.py"`。
-2. 框架加载 `llm_edge.py` 并在构建图时，自动用 `RealLLMEdge` 子类替换默认的 `Edge` 类。
-3. 当调度器 (Executor) 激活这条边时，不仅不会使用自带的 PI Agent，反而会执行我们在子类中重写的定制化调用逻辑。
-4. 这个调用逻辑包括：从上游 Vertex 读取数据、拼接 JSON 请求体、发起非阻塞式 HTTP 请求、解析并提取大模型的回复、并通过 `handle_edge_signal` 完整写入到下游目标 Vertex。
+1. In `config.json`, the edge `e_real_llm` is configured to use the external extension `"script": "llm_edge.py"`.
+2. The framework loads `llm_edge.py` and, when building the graph, automatically replaces the default `Edge` class with the `RealLLMEdge` subclass.
+3. When the scheduler (Executor) activates this edge, it does not use the built-in PI Agent. Instead, it executes the custom invocation logic we overrode in the subclass.
+4. This invocation logic includes: reading data from the upstream Vertex, assembling the JSON request body, initiating a non-blocking HTTP request, parsing and extracting the LLM's response, and writing it fully to the downstream target Vertex via `handle_edge_signal`.
 
-## 运行示例 (Execution)
+## Execution
 
-使用统一运行脚本，指向本目录的 `config.json`：
+Use the unified execution script pointing to the `config.json` in this directory:
 
 ```bash
 python examples/run.py examples/real_llm/config.json
