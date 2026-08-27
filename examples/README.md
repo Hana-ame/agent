@@ -21,8 +21,9 @@ python examples/run.py examples/<example_directory>/config.json
 | **`realtime_streaming/`** | **v2.0 Real-Time Event Streaming** | Demonstrates live ANSI-colored event streaming via `executor.stream()`, observing vertex state transitions and edge firings non-blockingly as they occur. |
 | **`self_correction/`** | **v2.0 LLM Business Retry & Self-Correction** | Demonstrates `retry_policy` capturing post-process `KeyError`/`JSONDecodeError`, reflecting error context into the prompt (`[SYSTEM FEEDBACK: ...]`), and retrying with exponential backoff. |
 | **`hitl_approval/`** | **v2.0 Human-in-the-Loop (HITL) Checkpoints** | Demonstrates pausing sensitive operations (`require_approval`), persisting snapshots to SQLite, and resuming the workflow upon human intervention via `gate.approve()`. |
+| **`subgraph/`** | **v3.0 Hierarchical Nested Sub-Graphs** | Demonstrates modular multi-agent team delegation (`SubgraphVertex`) with input/output boundary mapping and real-time nested event bubbling. |
 
-### Running the v2.0 Demos
+### Running the Demos
 
 ```bash
 # 1. Real-time event streaming with colored terminal output
@@ -33,6 +34,9 @@ python examples/self_correction/demo.py
 
 # 3. Human-in-the-loop approval and SQLite state resumption
 python examples/hitl_approval/demo.py
+
+# 4. Nested Sub-Graph (Agent Team) delegation
+python examples/subgraph/demo.py
 ```
 
 > [!TIP]
