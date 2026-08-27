@@ -152,17 +152,25 @@ class EdgePipeline:
     # ------------------------------------------------------------------
     # Stage 3 — Pre-process helper
     # ------------------------------------------------------------------
-    def _run_pre_process(self, edge_id: str, data: Any) -> Any:
-        """Dispatch the pre-process hook (hook_provider → script_module)."""
+    async def _run_pre_process(self, edge_id: str, data: Any) -> Any:
+        """Dispatch the pre-process hook (hook_provider → script_module). Supports async."""
+        import asyncio
         if self._hook_provider is not None:
             hook = getattr(self._hook_provider, "pre_process", None)
             if callable(hook):
                 data = hook(data, self.settings)
-                logger.debug(
-                    "[Pipeline:%s] After hook_provider.pre_process: %s",
-                    edge_id, repr(data)[:200],
-                )
+                if asyncio.iscoroutine(data):
+                    data = await data
                 return data
+
+        if self._script_module is not None:
+            hook = getattr(self._script_module, "pre_process", None)
+            if callable(hook):
+                data = hook(data, self.settings)
+                if asyncio.iscoroutine(data):
+                    data = await data
+                return data
+        return data
 
         if self._script_module:
             hook = getattr(self._script_module, "pre_process", None)
@@ -178,17 +186,25 @@ class EdgePipeline:
     # ------------------------------------------------------------------
     # Stage 5 — Post-process helper
     # ------------------------------------------------------------------
-    def _run_post_process(self, edge_id: str, result: Any) -> Any:
-        """Dispatch the post-process hook (hook_provider → script_module)."""
+    async def _run_post_process(self, edge_id: str, result: Any) -> Any:
+        """Dispatch the post-process hook (hook_provider → script_module). Supports async."""
+        import asyncio
         if self._hook_provider is not None:
             hook = getattr(self._hook_provider, "post_process", None)
             if callable(hook):
                 result = hook(result, self.settings)
-                logger.debug(
-                    "[Pipeline:%s] After hook_provider.post_process: %s",
-                    edge_id, repr(result)[:200],
-                )
+                if asyncio.iscoroutine(result):
+                    result = await result
                 return result
+
+        if self._script_module is not None:
+            hook = getattr(self._script_module, "post_process", None)
+            if callable(hook):
+                result = hook(result, self.settings)
+                if asyncio.iscoroutine(result):
+                    result = await result
+                return result
+        return result
 
         if self._script_module:
             hook = getattr(self._script_module, "post_process", None)
@@ -270,7 +286,7 @@ class EdgePipeline:
                 return None
 
             # 3 — Pre-process
-            data = self._run_pre_process(edge_id, data)
+            data = await self._run_pre_process(edge_id, data)
             # --- Memory reads (Pillar A) ---
             memory = kwargs.get("memory")
             if memory and isinstance(self.settings, dict):
@@ -314,7 +330,7 @@ class EdgePipeline:
                         result = data  # Pass-through
 
                     # 5 — Post-process (can raise ValueError, KeyError, JSONDecodeError, etc.)
-                    result = self._run_post_process(edge_id, result)
+                    result = await self._run_post_process(edge_id, result)
                     
                     # ── Runtime Schema Validation (Pydantic) ────────────
                     out_schema_name = self.settings.get("output_schema") if isinstance(self.settings, dict) else None

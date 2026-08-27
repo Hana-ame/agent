@@ -419,14 +419,7 @@ class Executor:
                 self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error", "error": str(exc)})
                 return
 
-        outgoing = self.graph.get_outgoing_edges(vertex.id)
-        if not outgoing:
-            vertex.state = VertexState.DONE
-            logger.info("[Executor] Vertex '%s' is a sink → DONE", vertex.id)
-            self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "done"})
-            return
-
-        # Run on_ready hook to consolidate data for outgoing reads
+        # Run on_ready hook to consolidate data for outgoing reads (or for final sink output)
         try:
             await vertex.prepare_outputs()
         except Exception as exc:
@@ -434,6 +427,13 @@ class Executor:
             vertex.error_message = f"prepare_outputs failed: {exc}"
             self._result.errors.append(f"Vertex '{vertex.id}': {exc}")
             self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error", "error": str(exc)})
+            return
+
+        outgoing = self.graph.get_outgoing_edges(vertex.id)
+        if not outgoing:
+            vertex.state = VertexState.DONE
+            logger.info("[Executor] Vertex '%s' is a sink → DONE", vertex.id)
+            self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "done"})
             return
 
         # Fire edges concurrently
