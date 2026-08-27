@@ -150,6 +150,51 @@ Workflows support cyclic graph topologies for iterative refinement. Cycles are v
 ### 4. Real-Time Non-Blocking Event Streaming
 Observe graph execution live using `async for event in executor.stream()` emitting structured `GraphEvent` records without blocking core execution.
 
+
+---
+
+## ⚙️ Configuration Guide (Vertex & Edge)
+
+The framework is driven by JSON configurations. You can define the topology in a `.json` file and load it via `Graph.from_json_file()`.
+
+### 1. Vertex Configuration
+
+Vertices are the state machine containers. Defined in the `vertices` array:
+
+| Field | Type | Required | Default | Description & Options |
+| :--- | :--- | :---: | :--- | :--- |
+| **`id`** | `str` | **Yes** | - | Unique identifier (e.g., `"DataIngest"`). |
+| **`type`** | `str` | No | `"vertex"` | `"vertex"` (standard node) or `"subgraph"` (nested subgraph). |
+| **`initial_data`** | `list[dict]` | No | `[]` | Initial data injected into the node. Each dict must have `channel` and `value`. |
+| **`script`** | `str` | No | `null` | Path to a Python script to inject `on_receive` or `on_ready` hooks. |
+| **`settings`** | `dict` | No | `{}` | Advanced business logic settings. |
+
+**Advanced `settings`:**
+* `"require_approval"`: (`bool`) Set to `true` to enable Human-in-the-Loop (HITL), pausing execution and saving a snapshot.
+* `"graph_config"`: (`str` / `dict`) **Required for `type="subgraph"`**. Path to the subgraph's `.json` configuration file.
+* `"input_map"` / `"output_map"`: Port mapping redirects for nested subgraphs.
+
+### 2. Edge Configuration
+
+Edges are the 5-stage compute and routing pipelines. Defined in the `edges` array:
+
+| Field | Type | Required | Default | Description & Options |
+| :--- | :--- | :---: | :--- | :--- |
+| **`id`** | `str` | **Yes** | - | Unique identifier (e.g., `"e_analyze"`). |
+| **`source`** | `str` | **Yes** | - | Source Vertex ID. |
+| **`destination`** | `str` | **Yes** | - | Destination Vertex ID. |
+| **`channel`** | `str` | No | `"default"` | Channel name for data flow. |
+| **`prompt`** | `str` | No | `""` | The prompt for the LLM. If empty, the edge is a **transparent pass-through**. |
+| **`model`** | `str` | No | `"default"`| LLM model name (e.g., `"gemini-1.5-pro"`). |
+| **`max_iterations`** | `int` | No | `0` | **Cycle bound**: Set `> 0` to mark as a back-edge, allowing `N` iterations. |
+| **`script`** | `str` | No | `null` | Path to a Python script to inject `pre_process`/`post_process` hooks. |
+| **`settings`** | `dict` | No | `{}` | Settings for guards, self-correction, and global memory. |
+
+**Advanced `settings`:**
+* **Conditional Routing (Guard)**: `"threshold"`, `"operator"` (e.g., `">="`), `"field"`. Triggers an `ABORTED` prune if conditions fail.
+* **Self-Correction (`retry_policy`)**: E.g., `{"max_retries": 3, "retry_on": ["KeyError"]}`.
+* **Global Memory**: `"memory_read"` (array of keys to read), `"memory_write"` (dict mapping output fields to global keys).
+
 ## Enterprise-Grade Features (v3.0)
 
 ### 1. Hierarchical Nested Sub-Graphs (`SubgraphVertex`)
