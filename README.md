@@ -2,6 +2,44 @@
 
 A **non-interactive**, JSON-driven graph execution engine for orchestrating AI agent pipelines.
 
+## 运行项目 (Quickstart)
+
+### 1. 安装依赖
+```bash
+pip install -r requirements.txt        # 仅测试依赖: pytest, pytest-asyncio
+```
+
+### 2. 准备代理环境（真实模型必需）
+真实 LLM 后端（`opencode` / `pi`）通过本地代理出口访问 `opencode.ai`，需把 `HTTPS_PROXY`
+设为 6 个本地代理之一（端口均 `7890`，**必须带 `http://` scheme**）：
+```bash
+export HTTPS_PROXY=http://127.0.1.4:7890
+# 可选出口: 127.0.1.4 / 127.0.1.6 / 127.0.2.4 / 127.0.2.6 / 127.0.3.4 / 127.0.3.6
+```
+> 注意：缺 `http://` 前缀时 opencode/pi 启动会抛 `Invalid URL` 而崩溃（看起来像 key 失效，实为代理配置问题）。
+
+### 3. 运行
+```bash
+# Mock 后端：无网络、确定性输出，最快，用于验证框架本身
+python3 scripts/run_graph.py config.template.json --agent mock
+
+# opencode 后端（默认免费模型 opencode-zen/hy3-free，需第 2 步代理）
+python3 scripts/run_graph.py config.template.json --agent opencode --proxy 1
+
+# pi 后端：pi CLI 调真实 LLM
+python3 scripts/run_graph.py config.template.json --agent pi
+
+# 内置示例
+python examples/simple/run.py            # 线性链
+python examples/complex/run.py           # fan-out/fan-in DAG（真实 LLM）
+python examples/custom_vertex/run.py     # 自定义 Vertex 子类
+```
+
+### 4. 测试
+```bash
+python -m pytest tests/ -v
+```
+
 ## Architecture
 
 ```
