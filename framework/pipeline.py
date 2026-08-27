@@ -269,25 +269,66 @@ class EdgePipeline:
             # 3 — Pre-process
             data = self._run_pre_process(edge_id, data)
 
-            # 4 — Compute  (LLM agent or transparent pass-through)
-            if self.prompt or (self.model and self.model != "default"):
-                result = await agents.process(
-                    data=data,
-                    prompt=self.prompt,
-                    model=self.model,
-                    settings=self.settings,
-                )
-                logger.debug(
-                    "[Pipeline:%s] LLM result: %s", edge_id, repr(result)[:200]
-                )
-            else:
-                result = data
-                logger.debug(
-                    "[Pipeline:%s] Pass-through: %s", edge_id, repr(result)[:200]
-                )
+            # Retry configuration (business logic / self-correction retry)
+            retry_policy = self.settings.get("retry_policy", {}) if isinstance(self.settings, dict) else {}
+            max_retries = int(retry_policy.get("max_retries", 0))
+            backoff_factor = float(retry_policy.get("backoff_factor", 1.0))
+            retry_on = retry_policy.get("retry_on", None)  # list of exception class names or None (all)
 
-            # 5 — Post-process
-            result = self._run_post_process(edge_id, result)
+            attempt = 0
+            current_prompt = self.prompt
+            base_prompt = self.prompt
+
+            while True:
+                try:
+                    # 4 — Compute (LLM agent or transparent pass-through)
+                    if current_prompt or (self.model and self.model != "default"):
+                        result = await agents.process(
+                            data=data,
+                            prompt=current_prompt,
+                            model=self.model,
+                            settings=self.settings,
+                        )
+                        logger.debug(
+                            "[Pipeline:%s] LLM result (attempt %d/%d): %s",
+                            edge_id, attempt + 1, max_retries + 1, repr(result)[:200]
+                        )
+                    else:
+                        result = data
+                        logger.debug(
+                            "[Pipeline:%s] Pass-through: %s", edge_id, repr(result)[:200]
+                        )
+
+                    # 5 — Post-process
+                    result = self._run_post_process(edge_id, result)
+                    break  # Success! Exit retry loop
+
+                except Exception as compute_or_hook_exc:
+                    attempt += 1
+                    exc_name = compute_or_hook_exc.__class__.__name__
+                    should_retry = (
+                        attempt <= max_retries
+                        and (retry_on is None or exc_name in retry_on or any(issubclass(compute_or_hook_exc.__class__, base) for base in (Exception,) if base.__name__ in retry_on))
+                    )
+
+                    if should_retry:
+                        delay = backoff_factor * (2 ** (attempt - 1))
+                        logger.warning(
+                            "[Pipeline:%s] Business retry attempt %d/%d after %s: %s. Backing off for %.2fs...",
+                            edge_id, attempt, max_retries, exc_name, compute_or_hook_exc, delay,
+                        )
+                        # Construct self-correction prompt feedback
+                        feedback = (
+                            f"\n\n[SYSTEM FEEDBACK: Your previous output produced a {exc_name}: {compute_or_hook_exc}.\n"
+                            f"Please correct your response and provide a valid output format.]"
+                        )
+                        current_prompt = f"{base_prompt}{feedback}" if base_prompt else feedback.strip()
+                        if delay > 0:
+                            import asyncio
+                            await asyncio.sleep(delay)
+                    else:
+                        # Re-raise to trigger failure signaling
+                        raise compute_or_hook_exc
 
             # 6 — Deliver
             await dest_vertex.receive_signal(

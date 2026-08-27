@@ -12,9 +12,11 @@ cycles without changing the overall event-driven architecture.
 """
 
 import asyncio
+import datetime
 import logging
 import time
-from typing import Any, Dict, List, Optional, Set
+from dataclasses import dataclass, field
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 
 from .vertex import Vertex, VertexState, EdgeSignal
 from .edge import Edge
@@ -22,6 +24,16 @@ from .graph import Graph
 from .agents import BaseAgent, MockAgent
 
 logger = logging.getLogger("vertex_edge_agent.executor")
+
+
+@dataclass
+class GraphEvent:
+    """Standard event emitted during graph execution."""
+    event_type: str
+    timestamp: str = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"))
+    vertex_id: Optional[str] = None
+    edge_id: Optional[str] = None
+    payload: Optional[Any] = None
 
 
 class ExecutionResult:
@@ -75,7 +87,7 @@ class ExecutionResult:
 
 
 class Executor:
-    """Async executor that drives the graph to completion.
+    """Async executor that drives the graph to completion with streaming event observability.
 
     Args:
         graph:            The Graph to execute.
@@ -100,12 +112,47 @@ class Executor:
         self.timeout = timeout or 300.0
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._result = ExecutionResult()
+        self._event_queue: asyncio.Queue[Optional[GraphEvent]] = asyncio.Queue()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    def _emit(
+        self,
+        event_type: str,
+        vertex_id: Optional[str] = None,
+        edge_id: Optional[str] = None,
+        payload: Optional[Any] = None,
+    ) -> None:
+        """Non-blocking event emitter via internal sidecar queue."""
+        event = GraphEvent(
+            event_type=event_type,
+            vertex_id=vertex_id,
+            edge_id=edge_id,
+            payload=payload,
+        )
+        self._event_queue.put_nowait(event)
+
+    async def stream(self) -> AsyncGenerator[GraphEvent, None]:
+        """Stream execution events asynchronously as they occur without blocking execution."""
+        run_task = asyncio.create_task(self._run_internal())
+        try:
+            while True:
+                event = await self._event_queue.get()
+                if event is None:
+                    break
+                yield event
+        finally:
+            await run_task
+
     async def run(self) -> ExecutionResult:
         """Execute the graph and return an ``ExecutionResult``."""
+        async for _ in self.stream():
+            pass
+        return self._result
+
+    async def _run_internal(self) -> ExecutionResult:
+        """Internal runner that powers both run() and stream()."""
         t0 = time.monotonic()
 
         logger.info("=" * 60)
@@ -113,6 +160,7 @@ class Executor:
         logger.info("[Executor]   graph=%s", self.graph)
         logger.info("[Executor]   concurrency=%d  timeout=%ss", self.max_concurrency, self.timeout)
         logger.info("=" * 60)
+        self._emit("workflow_started", payload={"timeout": self.timeout, "concurrency": self.max_concurrency})
 
         try:
             self._init_sources()
@@ -125,12 +173,21 @@ class Executor:
             msg = f"Execution timed out after {self.timeout}s"
             logger.error("[Executor] %s", msg)
             self._result.errors.append(msg)
+            self._emit("workflow_error", payload={"error": msg})
         except Exception as exc:
             logger.error("[Executor] Fatal: %s", exc, exc_info=True)
             self._result.errors.append(str(exc))
+            self._emit("workflow_error", payload={"error": str(exc)})
 
         self._result.execution_time = time.monotonic() - t0
         await self._collect_results()
+
+        self._emit(
+            "workflow_finished",
+            payload={"success": self._result.success, "execution_time": self._result.execution_time}
+        )
+        # Put sentinel to close the event stream
+        self._event_queue.put_nowait(None)
 
         logger.info("=" * 60)
         logger.info("[Executor] ■ Finished: %s", self._result)
@@ -268,22 +325,26 @@ class Executor:
     async def _abort_vertex(self, vertex: Vertex):
         """Cascade abort to all outgoing edges of an aborted vertex."""
         logger.info("[Executor] Vertex '%s' aborted → cascading to outgoing edges", vertex.id)
+        self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "aborted", "reason": vertex.abort_reason})
         outgoing = self.graph.get_outgoing_edges(vertex.id)
         for edge in outgoing:
             edge.aborted = True
             edge.abort_reason = f"Upstream vertex '{vertex.id}' was aborted"
             self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
+            self._emit("edge_aborted", edge_id=edge.id, payload={"reason": edge.abort_reason})
             dst = self.graph.vertices[edge.destination_id]
             await dst.receive_signal(edge.id, EdgeSignal.ABORTED, payload=edge.abort_reason)
 
     async def _process_vertex(self, vertex: Vertex):
         """Fire all outgoing edges of *vertex*."""
         logger.info("[Executor] Processing vertex '%s'", vertex.id)
+        self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": vertex.state.value})
 
         outgoing = self.graph.get_outgoing_edges(vertex.id)
         if not outgoing:
             vertex.state = VertexState.DONE
             logger.info("[Executor] Vertex '%s' is a sink → DONE", vertex.id)
+            self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "done"})
             return
 
         # Run on_ready hook to consolidate data for outgoing reads
@@ -293,6 +354,7 @@ class Executor:
             vertex.state = VertexState.ERROR
             vertex.error_message = f"prepare_outputs failed: {exc}"
             self._result.errors.append(f"Vertex '{vertex.id}': {exc}")
+            self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error", "error": str(exc)})
             return
 
         # Fire edges concurrently
@@ -316,26 +378,32 @@ class Executor:
             if vertex.state == VertexState.AWAITING_EDGES:
                 vertex.state = VertexState.DONE
                 logger.info("[Executor] Vertex '%s' → DONE", vertex.id)
+                self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "done"})
             else:
                 logger.info(
                     "[Executor] Vertex '%s' gather done; state already=%s (loop re-entry detected)",
                     vertex.id, vertex.state.value,
                 )
+                self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": vertex.state.value})
         else:
             vertex.state = VertexState.ERROR
             vertex.error_message = "One or more outgoing edges failed"
             logger.error("[Executor] Vertex '%s' → ERROR", vertex.id)
+            self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error"})
 
     async def _fire_edge(self, edge: Edge) -> Any:
         """Execute one edge, bounded by the concurrency semaphore."""
         async with self._semaphore:
+            self._emit("edge_started", edge_id=edge.id, payload={"source": edge.source_id, "destination": edge.destination_id})
             src = self.graph.vertices[edge.source_id]
             dst = self.graph.vertices[edge.destination_id]
             result = await edge.execute(src, dst, self.agents)
             if edge.aborted:
                 self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
+                self._emit("edge_aborted", edge_id=edge.id, payload={"reason": edge.abort_reason})
             else:
                 self._result.edge_results[edge.id] = result
+                self._emit("edge_completed", edge_id=edge.id, payload={"result": repr(result)[:100]})
             return result
 
     async def _collect_results(self):

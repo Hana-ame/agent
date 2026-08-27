@@ -8,11 +8,12 @@
 - **Extensibility**: Native subclassing and script hooks (`on_receive`, `on_ready`, `pre_process`, `post_process`).
 - **Concurrency**: Semaphore-bounded asynchronous execution.
 
-## 🚀 v2.0: Application-Ready (Next Steps)
-1. **Retry Mechanism & Exponential Backoff**: Add resilience to LLM API rate limits and network instability.
-2. **State Persistence & Checkpointing**: Enable pausing workflows, saving state snapshots, and Human-in-the-Loop (HITL) interventions.
-3. **Real-Time Event Streaming**: Provide async generators for real-time observability, enabling SSE (Server-Sent Events) or WebSockets for frontend clients.
-4. **Stateful Loops & Cycles**: Evolve from a strict DAG to support stateful loops and self-correction cycles with bounded iteration limits and state resets.
+## ✅ v2.0: Application-Ready & Interactive Features (Completed)
+1. **Business-Logic Retry & Self-Correction**: `retry_policy` support in `EdgePipeline` with exponential backoff and error prompt reflection (`[SYSTEM FEEDBACK: ...]`).
+2. **State Persistence & Checkpointing**: `SQLiteStateStore` snapshot storage, `CheckpointedExecutor` with graph pause/resume lifecycle.
+3. **Human-in-the-Loop (HITL) & Native Approvals**: Native `VertexState.PAUSED`, `pause_for_approval()`, `approve(data)`, and JSON `"require_approval": true` settings.
+4. **Real-Time Event Streaming**: Async generator `executor.stream()` producing standard `GraphEvent` instances over a non-blocking sidecar queue.
+5. **Stateful Loops & Cycles**: Controlled cycle validation with bounded `max_iterations`, loop-back edge routing, iteration state tracking, and re-entry scheduling.
 
 ## 🌌 v3.0: Enterprise-Grade (Future Vision)
 1. **Nested Sub-Graphs**: Allow vertices to encapsulate entire independent graphs for scalable multi-agent teamwork.

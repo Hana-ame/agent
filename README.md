@@ -99,22 +99,54 @@ def post_process(data, settings):
     return data.strip()
 ```
 
-## Usage
-
 ```python
 import asyncio
-from framework import Graph, Executor, MockPIAgent
+from framework import Graph, Executor, MockAgent
 
 async def main():
-    # 1. Parse DAG graph configuration
+    # 1. Parse graph configuration (supports DAGs, loops, and conditional branches)
     graph = Graph.from_json("config.json")
-    # 2. Inject real or Mock Agent, set concurrency, and run the engine
-    result = await Executor(graph, MockPIAgent(), max_concurrency=8).run()
-    # 3. Print execution summary
+    
+    # 2. Option A: Standard run
+    result = await Executor(graph, MockAgent(), max_concurrency=8).run()
     print(result.summary())
+    
+    # 3. Option B: Real-time event streaming
+    # executor = Executor(graph, MockAgent())
+    # async for event in executor.stream():
+    #     print(f"[{event.timestamp}] {event.event_type} - vertex={event.vertex_id}")
 
 asyncio.run(main())
 ```
+
+## Advanced Features (v2.0)
+
+### 1. Business Logic Retry & Self-Correction
+Edges can automatically catch domain errors in `post_process`, inject corrective feedback into the LLM prompt, and retry with exponential backoff:
+```jsonc
+{
+  "id": "e_extract",
+  "source": "v1",
+  "destination": "v2",
+  "prompt": "Extract valid JSON",
+  "settings": {
+    "retry_policy": {
+      "max_retries": 3,
+      "backoff_factor": 1.0,
+      "retry_on": ["KeyError", "JSONDecodeError", "ValueError"]
+    }
+  }
+}
+```
+
+### 2. State Checkpointing & Human-in-the-Loop (HITL)
+Workflows can pause for approval either declaratively (`"require_approval": true`) or dynamically via `vertex.pause_for_approval()`. State can be snapshotted to SQLite via `SQLiteStateStore` and resumed via `CheckpointedExecutor.resume()`.
+
+### 3. Stateful Loops & Cycles
+Workflows support cyclic graph topologies for iterative refinement. Cycles are validated against back-edges configured with `max_iterations > 0` to prevent infinite loops.
+
+### 4. Real-Time Non-Blocking Event Streaming
+Observe graph execution live using `async for event in executor.stream()` emitting structured `GraphEvent` records without blocking core execution.
 
 ## Examples
 
@@ -140,4 +172,11 @@ pip install pytest pytest-asyncio
 python -m pytest tests/ -v
 ```
 
-Currently contains **72 fully covered tests**, covering: state machines, unified signal delivery (EdgeSignal), tag ordering, concurrency semaphores, dynamic routing pruning (Diamond Routing), deadlock prevention, script hook interception, graph cycle detection, timeouts, and error propagation.
+Currently contains **114 fully covered tests**, covering:
+- Actor state machines & `EdgeSignal` unified message passing
+- 5-stage `EdgePipeline` execution & error isolation
+- Declarative threshold control, custom guards, and diamond branch pruning
+- Bounded stateful cycles & loop-back iteration re-entry
+- SQLite snapshot persistence, crash recovery, and HITL approval resumes
+- Business-logic retry policies & self-correction prompt reflections
+- Real-time sidecar event streaming and concurrency semaphore limits
