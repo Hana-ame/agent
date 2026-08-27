@@ -315,6 +315,22 @@ class EdgePipeline:
 
                     # 5 — Post-process (can raise ValueError, KeyError, JSONDecodeError, etc.)
                     result = self._run_post_process(edge_id, result)
+                    
+                    # ── Runtime Schema Validation (Pydantic) ────────────
+                    out_schema_name = self.settings.get("output_schema") if isinstance(self.settings, dict) else None
+                    if out_schema_name:
+                        from .schema import SchemaRegistry
+                        schema_model = SchemaRegistry.get(out_schema_name)
+                        if schema_model:
+                            # Attempt to validate and parse the dictionary into the Pydantic model
+                            # If it fails, Pydantic throws a ValidationError which is caught by our retry logic!
+                            if hasattr(schema_model, "model_validate"):
+                                validated_obj = schema_model.model_validate(result) # Pydantic v2
+                            else:
+                                validated_obj = schema_model.parse_obj(result) # Pydantic v1
+                            # Convert back to dict for standard downstream transmission
+                            result = validated_obj.model_dump()
+                            
                     break
 
                 except Exception as compute_or_hook_exc:

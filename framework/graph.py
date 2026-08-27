@@ -203,6 +203,18 @@ class Graph:
                 errors.append(
                     f"Edge '{edge.id}': destination '{edge.destination_id}' not found"
                 )
+                
+            # ── Static Schema Validation (Compile-time) ────────────
+            if edge.destination_id in self.vertices:
+                dest = self.vertices[edge.destination_id]
+                out_schema_name = edge.settings.get("output_schema")
+                in_schema_name = dest.settings.get("input_schema")
+                
+                if out_schema_name and in_schema_name and out_schema_name != in_schema_name:
+                    errors.append(
+                        f"Schema Mismatch on edge '{edge.id}': Edge outputs '{out_schema_name}' "
+                        f"but destination vertex '{dest.id}' expects '{in_schema_name}'"
+                    )
 
         # ── Cycle detection (DFS) — collect all back-edges ────────────
         visited: Set[str] = set()
