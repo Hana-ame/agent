@@ -1,3 +1,5 @@
 pytest>=7.0
 pytest-asyncio>=0.21
-jsonschema>=4.0
+httpx>=0.24
+tenacity>=8.2
+pydantic>=2.0

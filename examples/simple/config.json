@@ -9,8 +9,7 @@
       "settings": {"type": "source"},
       "initial_data": [
         {
-          "data_id": "text",
-          "tags": ["en"],
+          "channel": "text",
           "value": "Hello, this is a test message for the vertex-edge agent framework."
         }
       ]
@@ -29,8 +28,7 @@
       "id": "e1",
       "source": "input",
       "destination": "processor",
-      "data_id": "text",
-      "tags": ["en"],
+      "channel": "text",
       "prompt": "Summarize the following text in one sentence:",
       "model": "gemini-pro",
       "settings": {}
@@ -39,8 +37,7 @@
       "id": "e2",
       "source": "processor",
       "destination": "output",
-      "data_id": "text",
-      "tags": ["en"],
+      "channel": "text",
       "prompt": "Translate the following to French:",
       "model": "gemini-flash",
       "settings": {}

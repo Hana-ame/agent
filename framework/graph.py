@@ -1,228 +1,158 @@
 """Graph module - Load and manage the computation graph from JSON.
 
-图(Graph)模块 —— 从 JSON 加载并管理计算图。
-
-A Graph is a DAG of Vertex nodes connected by Edge arrows.  It is loaded
-from a JSON configuration and validated for referential integrity and
-acyclicity before execution.
-
-计算图是由 Edge 连接的 Vertex 节点构成的有向无环图(DAG)。
-它从 JSON 配置加载，并在执行前校验引用完整性与无环性。
+A Graph is a network of Vertex nodes connected by Edge arrows.  It is loaded
+from a JSON configuration and validated for referential integrity.  Pure DAGs
+are enforced by default; cycles are permitted only when every back-edge carries
+``max_iterations > 0``, enabling stateful self-correction loops.
 """
 
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+import inspect
+from typing import Any, Dict, List, Optional, Set
 
-import jsonschema
 from .vertex import Vertex
 from .edge import Edge
 from .script_loader import load_script
 
 logger = logging.getLogger("vertex_edge_agent.graph")
 
-# JSON 配置的结构化 schema（用 jsonschema 做加载前的快速校验）。
-# 设计原则：顶层只允许 metadata / vertices / edges 三个键(写错键名会直接失败)，
-# vertices / edges 各自校验必填字段；其余业务字段(如 settings)保持开放，不限制。
-CONFIG_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "metadata": {"type": "object"},
-        "vertices": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["id"],
-                "properties": {
-                    "id": {"type": "string"},
-                    "settings": {"type": "object"},
-                    "script": {"type": "string"},
-                    "initial_data": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "required": ["value"],
-                            "properties": {
-                                "data_id": {"type": "string"},
-                                "tags": {"type": "array", "items": {"type": "string"}},
-                                "value": {},
-                            },
-                        },
-                    },
-                },
-                "additionalProperties": True,
-            },
-        },
-        "edges": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["id", "source", "destination"],
-                "properties": {
-                    "id": {"type": "string"},
-                    "source": {"type": "string"},
-                    "destination": {"type": "string"},
-                    "data_id": {"type": "string"},
-                    "tags": {"type": "array", "items": {"type": "string"}},
-                    "read_tags": {"type": "array", "items": {"type": "string"}},
-                    "set_tags": {"type": "array", "items": {"type": "string"}},
-                    "prompt": {"type": "string"},
-                    "model": {"type": "string"},
-                    "settings": {"type": "object"},
-                    "script": {"type": "string"},
-                    "passthrough": {"type": "boolean"},
-                },
-                "additionalProperties": True,
-            },
-        },
-    },
-    "required": ["vertices", "edges"],
-    "additionalProperties": False,
-}
-
-
-def _validate_config_schema(config: Dict) -> None:
-    """用 jsonschema 校验原始配置字典，失败即抛清晰错误(快速失败)。
-
-    在构建任何 Vertex/Edge 之前调用，避免 KeyError 深埋在图构建逻辑里。
-    """
-    try:
-        jsonschema.validate(instance=config, schema=CONFIG_SCHEMA)
-    except jsonschema.ValidationError as exc:
-        # 把 jsonschema 的报错整理成用户可读信息：出错路径 + 原因
-        path = ".".join(str(p) for p in exc.absolute_path) or "<root>"
-        raise ValueError(
-            f"Invalid config.json at '{path}': {exc.message}"
-        ) from exc
-
 
 class Graph:
-    """DAG of vertices and edges loaded from JSON configuration.
+    """Network of vertices and edges loaded from JSON configuration.
 
-    从 JSON 配置加载的顶点与边的 DAG。
-
-    JSON schema:   JSON 配置结构示意::
+    JSON schema::
 
         {
-          "metadata": { ... },                      // 元信息(名称、描述等)
+          "metadata": { ... },
           "vertices": [
             {
-              "id": "v1",                           // 顶点 ID
-              "settings": {},                       // 任意配置
-              "script": "path/to/script.py",        // 可选：顶点脚本
-              "initial_data": [                     // 可选：初始数据
+              "id": "v1",
+              "settings": {},
+              "script": "path/to/script.py",   // optional
+              "initial_data": [                 // optional
                 {"data_id": "text", "tags": ["en"], "value": "hello"}
               ]
             }
           ],
           "edges": [
             {
-              "id": "e1",                           // 边 ID
-              "source": "v1",                       // 源顶点
-              "destination": "v2",                  // 目标顶点
-              "data_id": "text",                    // 数据键
-              "tags": ["en"],                       // 标签
-              "prompt": "Summarise this:",          // 提示词
-              "model": "gemini-pro",                // 模型
-              "settings": {},                       // 可选：边配置
-              "script": "path/to/edge_script.py"    // 可选：边脚本
+              "id": "e1",
+              "source": "v1",
+              "destination": "v2",
+              "channel": "text",
+              "prompt": "Summarise this:",
+              "model": "gemini-pro",
+              "settings": {},
+              "max_iterations": 3,             // optional — enables loop back
+              "script": "path/to/edge_script.py"  // optional
             }
           ]
         }
     """
 
     def __init__(self):
-        self.vertices: Dict[str, Vertex] = {}  # 顶点 ID -> Vertex
-        self.edges: Dict[str, Edge] = {}       # 边 ID -> Edge
-        self.metadata: Dict[str, Any] = {}     # 图元信息
+        self.vertices: Dict[str, Vertex] = {}
+        self.edges: Dict[str, Edge] = {}
+        self.metadata: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
-    # Construction  构建
+    # Construction
     # ------------------------------------------------------------------
     @classmethod
     def from_json(cls, json_path: str) -> "Graph":
-        """Load graph from a JSON file.
-
-        从 JSON 文件加载图。
-        """
-        logger.debug("[Graph] Loading from %s", json_path)
+        """Load graph from a JSON file."""
+        logger.info("[Graph] Loading from %s", json_path)
         with open(json_path, "r") as fh:
             config = json.load(fh)
-        # 以 JSON 文件所在目录为基准解析脚本相对路径
+        # resolve script paths relative to the JSON file
         base_dir = os.path.dirname(os.path.abspath(json_path))
         return cls.from_dict(config, base_dir=base_dir)
 
     @classmethod
     def from_dict(cls, config: Dict, base_dir: Optional[str] = None) -> "Graph":
-        """Build a graph from a configuration dict.
-
-        从配置字典构建图。
-        """
-        # 加载前先用 schema 快速校验，配置写错键名/缺字段时立即报错
-        _validate_config_schema(config)
-
+        """Build a graph from a configuration dict."""
         graph = cls()
         graph.metadata = config.get("metadata", {})
         base_dir = base_dir or os.getcwd()
 
-        # --- 创建顶点 ---
+        # --- vertices ---
         for vc in config.get("vertices", []):
-            # 解析脚本路径：相对路径基于 base_dir
             script = vc.get("script")
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
-            vertex = Vertex(
+            v_type = vc.get("type", "vertex")
+            if v_type == "subgraph":
+                from .subgraph import SubgraphVertex
+                vertex_cls = SubgraphVertex
+            else:
+                vertex_cls = Vertex
+
+            script_module = None
+            if script:
+                try:
+                    script_module = load_script(script)
+                    for name, obj in inspect.getmembers(script_module, inspect.isclass):
+                        if issubclass(obj, Vertex) and obj not in (Vertex, SubgraphVertex):
+                            vertex_cls = obj
+                            break
+                except Exception as exc:
+                    logger.error(
+                        "[Graph] Script load failed for vertex '%s': %s", vc["id"], exc
+                    )
+
+            vertex = vertex_cls(
                 vertex_id=vc["id"],
                 settings=vc.get("settings", {}),
                 script_path=script,
                 initial_data=vc.get("initial_data"),
             )
 
-            # 若配置了脚本则加载并挂载
-            if script:
-                try:
-                    vertex.set_script_module(load_script(script))
-                except Exception as exc:
-                    logger.error(
-                        "[Graph] Script load failed for vertex '%s': %s", vertex.id, exc
-                    )
+            if script_module:
+                vertex.set_script_module(script_module)
 
             graph.vertices[vertex.id] = vertex
 
-        # --- 创建边 ---
+        # --- edges ---
         for ec in config.get("edges", []):
-            # 同样解析脚本相对路径
             script = ec.get("script")
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
-            edge = Edge(
+            edge_cls = Edge
+            script_module = None
+            if script:
+                try:
+                    script_module = load_script(script)
+                    for name, obj in inspect.getmembers(script_module, inspect.isclass):
+                        if issubclass(obj, Edge) and obj is not Edge:
+                            edge_cls = obj
+                            break
+                except Exception as exc:
+                    logger.error(
+                        "[Graph] Script load failed for edge '%s': %s", ec["id"], exc
+                    )
+
+            edge = edge_cls(
                 edge_id=ec["id"],
                 source_id=ec["source"],
                 destination_id=ec["destination"],
+                channel=ec.get("channel", ec.get("data_id", "default")),
                 prompt=ec.get("prompt", ""),
                 model=ec.get("model", "default"),
                 settings=ec.get("settings", {}),
                 script_path=script,
-                # 读/写 tag 与纯搬运：从 config 读取
-                read_tags=ec.get("read_tags") or ec.get("tags", []),
-                set_tags=ec.get("set_tags") or ec.get("tags", []),
-                passthrough=bool(ec.get("passthrough", False)),
+                max_iterations=int(ec.get("max_iterations", 0)),
             )
 
-            if script:
-                try:
-                    edge.set_script_module(load_script(script))
-                except Exception as exc:
-                    logger.error(
-                        "[Graph] Script load failed for edge '%s': %s", edge.id, exc
-                    )
+            if script_module:
+                edge.set_script_module(script_module)
 
             graph.edges[edge.id] = edge
 
-            # 在顶点上登记边的关联关系
+            # register on vertices
             if edge.source_id in graph.vertices:
                 graph.vertices[edge.source_id].outgoing_edges.append(edge.id)
             else:
@@ -234,7 +164,6 @@ class Graph:
             if edge.destination_id in graph.vertices:
                 dest = graph.vertices[edge.destination_id]
                 dest.incoming_edges.append(edge.id)
-                # 目标顶点所需输入数量 = 入边数量
                 dest.required_input_count = len(dest.incoming_edges)
             else:
                 logger.error(
@@ -242,26 +171,29 @@ class Graph:
                     edge.id, edge.destination_id,
                 )
 
-        # 构建完成后统一校验
         graph.validate()
-        logger.debug(
+        logger.info(
             "[Graph] Loaded %d vertices, %d edges",
             len(graph.vertices), len(graph.edges),
         )
         return graph
 
     # ------------------------------------------------------------------
-    # Validation  校验
+    # Validation
     # ------------------------------------------------------------------
     def validate(self):
-        """Validate referential integrity and acyclicity.
+        """Validate referential integrity and cycle policy.
 
-        校验引用完整性与无环性(DAG)。
-        任何不满足条件的错误都会以 ValueError 抛出。
+        Pure DAGs are always valid.  A cycle is permitted only when *every*
+        back-edge in the cycle carries ``max_iterations > 0``; the back-edge
+        limit is then propagated to the destination vertex's
+        ``loop_incoming_edges`` mapping so the executor can enforce it.
+
+        Raises:
+            ValueError: If any referential error or unguarded cycle is found.
         """
         errors: List[str] = []
 
-        # 校验每条边的源 / 目标顶点是否存在
         for edge in self.edges.values():
             if edge.source_id not in self.vertices:
                 errors.append(
@@ -271,66 +203,85 @@ class Graph:
                 errors.append(
                     f"Edge '{edge.id}': destination '{edge.destination_id}' not found"
                 )
+                
+            # ── Static Schema Validation (Compile-time) ────────────
+            if edge.destination_id in self.vertices:
+                dest = self.vertices[edge.destination_id]
+                out_schema_name = edge.settings.get("output_schema")
+                in_schema_name = dest.settings.get("input_schema")
+                
+                if out_schema_name and in_schema_name and out_schema_name != in_schema_name:
+                    errors.append(
+                        f"Schema Mismatch on edge '{edge.id}': Edge outputs '{out_schema_name}' "
+                        f"but destination vertex '{dest.id}' expects '{in_schema_name}'"
+                    )
 
-        # 环检测(DFS)：用 visited 记录已访问，stack 记录当前递归栈
-        visited: set = set()
-        stack: set = set()
+        # ── Cycle detection (DFS) — collect all back-edges ────────────
+        visited: Set[str] = set()
+        stack: Set[str] = set()
+        back_edges: Set[str] = set()
 
-        def _dfs(vid: str) -> bool:
-            """返回 True 表示发现环。"""
+        def _dfs(vid: str) -> None:
             visited.add(vid)
             stack.add(vid)
             for eid in self.vertices[vid].outgoing_edges:
+                if eid not in self.edges:
+                    continue
                 nxt = self.edges[eid].destination_id
                 if nxt not in self.vertices:
-                    continue  # 缺失顶点已在上面单独捕获
+                    continue  # referential error caught above
                 if nxt not in visited:
-                    if _dfs(nxt):
-                        return True
+                    _dfs(nxt)
                 elif nxt in stack:
-                    # 邻居在递归栈中 => 存在环
-                    return True
+                    back_edges.add(eid)  # this edge closes a cycle
             stack.discard(vid)
-            return False
 
-        # 从每个尚未访问的顶点出发做 DFS
         for vid in self.vertices:
             if vid not in visited:
-                if _dfs(vid):
-                    errors.append("Graph contains a cycle (must be a DAG)")
-                    break
+                _dfs(vid)
 
-        # 汇总所有错误并抛出
+        # ── Policy: back-edges must be guarded by max_iterations ───────
+        for eid in back_edges:
+            edge = self.edges[eid]
+            if edge.max_iterations <= 0:
+                errors.append(
+                    f"Graph contains an unguarded cycle via edge '{eid}' "
+                    f"({edge.source_id} -> {edge.destination_id}). "
+                    f"Add 'max_iterations' > 0 to this edge to enable stateful loops."
+                )
+
         if errors:
             for e in errors:
                 logger.error("[Graph] Validation: %s", e)
             raise ValueError(f"Graph validation failed: {'; '.join(errors)}")
 
-        logger.debug("[Graph] Validation passed ✓")
+        # ── Propagate loop metadata to destination vertices ────────────
+        for eid in back_edges:
+            edge = self.edges[eid]
+            dest = self.vertices[edge.destination_id]
+            dest.loop_incoming_edges[eid] = edge.max_iterations
+            logger.info(
+                "[Graph] Loop edge '%s' registered on vertex '%s' (max_iterations=%d)",
+                eid, dest.id, edge.max_iterations,
+            )
+
+        logger.info("[Graph] Validation passed ✓")
 
     # ------------------------------------------------------------------
-    # Queries  查询
+    # Queries
     # ------------------------------------------------------------------
     def get_source_vertices(self) -> List[Vertex]:
-        """Vertices with no incoming edges (entry points).
-
-        返回没有入边的顶点(入口点)。
-        """
+        """Vertices with no incoming edges (entry points)."""
         return [v for v in self.vertices.values() if v.is_source()]
 
     def get_sink_vertices(self) -> List[Vertex]:
-        """Vertices with no outgoing edges (exit points).
-
-        返回没有出边的顶点(出口点)。
-        """
+        """Vertices with no outgoing edges (exit points)."""
         return [v for v in self.vertices.values() if v.is_sink()]
 
     def get_outgoing_edges(self, vertex_id: str) -> List[Edge]:
-        """返回指定顶点的所有出边。"""
         return [self.edges[eid] for eid in self.vertices[vertex_id].outgoing_edges]
 
     def get_incoming_edges(self, vertex_id: str) -> List[Edge]:
-        """返回指定顶点的所有入边。"""
         return [self.edges[eid] for eid in self.vertices[vertex_id].incoming_edges]
 
     def __repr__(self):

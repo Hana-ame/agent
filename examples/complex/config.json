@@ -1,33 +1,30 @@
 {
   "metadata": {
-    "name": "Multi-Source Intelligence Digest",
-    "description": "Real-PI-Agent DAG: extract key themes from multiple inputs, merge into a structured weekly intelligence digest (fan-out / fan-in)"
+    "name": "Complex DAG Pipeline",
+    "description": "Multi-path DAG with fan-out, fan-in, external scripts, and concurrent processing"
   },
   "vertices": [
     {
       "id": "input_a",
-      "settings": {"type": "source", "label": "Primary News Article"},
+      "settings": {"type": "source", "label": "Primary Input"},
       "initial_data": [
         {
-          "data_id": "text",
-          "tags": ["raw"],
-          "value": "OpenAI has unveiled a new reasoning model that solves complex mathematics problems step by step. Trained with reinforcement learning, it 'thinks' before answering, cutting hallucinations by roughly 40%. The company plans a phased rollout to all subscribers next month at $20/month, with an API priced per token."
+          "channel": "text",
+          "value": "The quick brown fox jumps over the lazy dog. AI is transforming every industry."
         },
         {
-          "data_id": "text",
-          "tags": ["original"],
-          "value": "OpenAI has unveiled a new reasoning model that solves complex mathematics problems step by step. Trained with reinforcement learning, it 'thinks' before answering, cutting hallucinations by roughly 40%. The company plans a phased rollout to all subscribers next month at $20/month, with an API priced per token."
+          "channel": "text",
+          "value": "The quick brown fox jumps over the lazy dog. AI is transforming every industry."
         }
       ]
     },
     {
       "id": "input_b",
-      "settings": {"type": "source", "label": "Analysis Focus"},
+      "settings": {"type": "source", "label": "Context Input"},
       "initial_data": [
         {
-          "data_id": "text",
-          "tags": ["context"],
-          "value": "Focus the analysis on: (1) technical innovation, (2) business impact and pricing, (3) adoption risks and competition."
+          "channel": "text",
+          "value": "Focus on technology and innovation themes."
         }
       ]
     },
@@ -51,28 +48,25 @@
       "id": "e1",
       "source": "input_a",
       "destination": "transform",
-      "data_id": "text",
-      "tags": ["raw"],
-      "prompt": "You are a senior AI-industry analyst. From the article, extract the top 5 key themes and rank them by significance. Output as a numbered list.",
-      "model": "opencode-zen/hy3-free"
+      "channel": "text",
+      "prompt": "Analyze the following text for key themes:",
+      "model": "gemini-pro"
     },
     {
       "id": "e2",
       "source": "input_b",
       "destination": "transform",
-      "data_id": "text",
-      "tags": ["context"],
-      "prompt": "Below is an analyst's focus list. Based on it, list the specific questions an analyst should investigate about the OpenAI reasoning-model news. Output as a short bullet list.",
-      "model": "opencode-zen/hy3-free"
+      "channel": "text",
+      "prompt": "Extract relevant context from:",
+      "model": "gemini-flash"
     },
     {
       "id": "e3",
       "source": "transform",
       "destination": "merge",
-      "data_id": "result",
-      "tags": ["analysis"],
-      "prompt": "Combine the two analysis inputs into one coherent market-intelligence summary. Structure it with headings. Keep it under 250 words.",
-      "model": "opencode-zen/hy3-free",
+      "channel": "result",
+      "prompt": "Combine analysis results into a coherent summary:",
+      "model": "gemini-pro",
       "script": "../scripts/prefix_handler.py",
       "settings": {"prefix": "[ANALYZED]", "suffix": "[/ANALYZED]"}
     },
@@ -80,19 +74,17 @@
       "id": "e4",
       "source": "input_a",
       "destination": "merge",
-      "data_id": "text",
-      "tags": ["original"],
-      "prompt": "Restate the original news item in your own words as a one-paragraph reference digest.",
-      "model": "opencode-zen/hy3-free"
+      "channel": "text",
+      "prompt": "Format the original text for reference:",
+      "model": "gemini-flash"
     },
     {
       "id": "e5",
       "source": "merge",
       "destination": "output",
-      "data_id": "final",
-      "tags": ["report"],
-      "prompt": "Produce a final structured report titled 'Weekly Intelligence Digest'. Combine all inputs into sections: Executive Summary, Key Themes, Business Impact, Risks, Recommendation. Use markdown.",
-      "model": "opencode-zen/hy3-free"
+      "channel": "final",
+      "prompt": "Generate a final report combining all inputs:",
+      "model": "gemini-pro"
     }
   ]
 }

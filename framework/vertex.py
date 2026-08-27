@@ -1,66 +1,60 @@
 """Vertex module - Node in the computation graph.
 
-顶点(Vertex)模块 —— 计算图中的节点。
+A Vertex stores data keyed by channel strings, has a state machine
+for lifecycle management, and supports external Python scripts for data
+handling, validation, and rejection.
 
-数据存储键为 (edge_id, tags)：按「来源边 ID」+「标签」分槽。
-    每条边写入目标时带上自己的 ID，目标顶点按边 ID 分槽记录，fan-in 天然不覆盖；
-    tags 表达该数据的语义标签(读/写时区分)。
-    非边来源的数据用保留键 edge_id：
-        KEY_INIT  ("__init__")   初始数据(源顶点预置)
-        KEY_SELF  ("__self__")   顶点自产结果(on_ready / prepare_outputs 合并产物)
-
-具备生命周期状态机，并支持外部 Python 脚本进行数据处理、校验与拒绝。
+Stateful loop support: vertices that receive signals from loop-back edges
+(``loop_incoming_edges``) can re-enter READY state on successive iterations,
+bounded by ``max_iterations`` per loop edge.
 """
 
 import asyncio
 import enum
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger("vertex_edge_agent.vertex")
 
-# 保留键：非边来源的数据
-KEY_INIT = "__init__"   # 初始数据
-KEY_SELF = "__self__"   # 顶点自产(on_ready 合并产物)
-
-
-def _key(edge_id: Optional[str], tags: Optional[List[str]]) -> Tuple[str, Tuple[str, ...]]:
-    """规范化存储键：key = (edge_id, tuple(sorted(tags)))。"""
-    return (edge_id or KEY_SELF, tuple(sorted(tags or [])))
-
 
 class VertexState(enum.Enum):
-    """States for vertex lifecycle.  顶点的生命周期状态。"""
-    IDLE = "idle"                # 等待输入数据
-    READY = "ready"              # 所有输入已接收，可以开始处理
-    PROCESSING = "processing"    # 正在触发输出边
-    DONE = "done"                # 所有处理已完成
-    ERROR = "error"              # 发生错误
+    """States for vertex lifecycle."""
+    IDLE = "idle"                # Waiting for inputs
+    READY = "ready"              # All inputs received, ready to process
+    PAUSED = "paused"            # Intercepted waiting for human approval / intervention
+    AWAITING_EDGES = "awaiting_edges"    # Outgoing edges being fired
+    DONE = "done"                # All processing complete
+    ABORTED = "aborted"          # Pruned or all inputs aborted
+    ERROR = "error"              # Error occurred
+
+
+class EdgeSignal(str, enum.Enum):
+    """Signals exchanged between Edge and Vertex."""
+    COMPLETED = "completed"
+    ABORTED = "aborted"
+    FAILED = "failed"
+
 
 
 class DataRejectedError(Exception):
-    """Raised when a vertex rejects incoming data via its script.
-
-    当顶点通过脚本拒绝接收到的数据时抛出。
-    """
+    """Raised when a vertex rejects incoming data via its script."""
     pass
 
 
 class Vertex:
     """A vertex (node) in the computation graph.
 
-    计算图中的一个顶点(节点)。
-
-    Data is keyed by (source edge ID, tags).  数据以「来源边 ID + 标签」为键存储。
-    Has a state machine for lifecycle management.  拥有生命周期状态机。
+    Stores data keyed by channel strings.
+    Has a state machine for lifecycle management.
     Supports external scripts for data handling/validation/rejection.
-    支持外部脚本进行数据处理 / 校验 / 拒绝。
+    Supports stateful loop re-entry via ``loop_incoming_edges``.
+    Supports human approval and pause via ``PAUSED`` state and ``approve(data)``.
 
     Methods:
-        get(edge_id, tags) -> data               读取数据(参数可省)
-        set(data, edge_id, tags) -> bool         写入数据
-        get_all_data() -> {(edge_id, tags): data}
-        prepare_outputs()                        出边触发前运行 on_ready 钩子
+        handle_edge_signal(edge_id, signal, payload, data_id, tags) -> data/bool
+        prepare_outputs()  -- runs on_ready hook before outgoing edges fire
+        pause_for_approval() -- requests pausing for human review when ready
+        approve(approved_data) -- approves paused vertex, merging optional data and transitioning to READY
     """
 
     def __init__(
@@ -73,43 +67,76 @@ class Vertex:
         self.id = vertex_id
         self.settings = settings or {}
         self.script_path = script_path
-        self._script_module = None  # 加载后的外部脚本模块
+        self._script_module = None
 
-        # 数据存储：key = (edge_id, tags) -> data（非边来源数据用 KEY_INIT / KEY_SELF）
-        self._data_store: Dict[Tuple[str, Tuple[str, ...]], Any] = {}
-        self._lock = asyncio.Lock()  # 保护数据存储的异步锁
+        # Data store: key = channel string -> value
+        self._data_store: Dict[str, Any] = {}
+        self._lock = asyncio.Lock()
 
-        # 状态管理
+        # State management
         self._state = VertexState.IDLE
-        self._ready_event = asyncio.Event()  # 进入 READY 时置位，供等待方使用
-        self._on_ready_cb = None             # 进入 READY 时的通知回调(事件驱动调度用)
+        self._ready_event = asyncio.Event()
 
-        # 边(Edge)追踪
-        self.incoming_edges: List[str] = []   # 入边 ID 列表
-        self.outgoing_edges: List[str] = []   # 出边 ID 列表
-        self.required_input_count: int = 0    # 期望接收的输入数量(等于入边数)
-        self._received_input_count: int = 0   # 已实际接收的输入数量
+        # Approval / HITL support
+        self._require_approval: bool = bool(self.settings.get("require_approval", False))
+        self._approved: bool = False
 
-        # 错误信息
+        # Edge tracking
+        self.incoming_edges: List[str] = []   # edge IDs
+        self.outgoing_edges: List[str] = []   # edge IDs
+        self.required_input_count: int = 0
+        self.completed_incoming_edges: set = set()
+        self.aborted_incoming_edges: set = set()
+        self._received_input_count: int = 0
+
+        # Loop support
+        # Maps loop-back edge ID -> max_iterations (0 = unlimited).
+        # Populated by Graph.validate() for cyclic graphs.
+        self.loop_incoming_edges: Dict[str, int] = {}
+        # Total number of times this vertex has re-entered via a loop-back edge.
+        self.iteration_count: int = 0
+
+        # Error / Abort info
         self.error_message: Optional[str] = None
+        self.abort_reason: Optional[str] = None
 
-        # 加载初始数据(仅源顶点通常会有；按 (__init__, tags) 分槽，保留各份的 tag)
+        # Load initial data
         if initial_data:
             for item in initial_data:
-                key = _key(KEY_INIT, item.get("tags"))
+                key = str(item.get("channel", item.get("data_id", "default")))
                 self._data_store[key] = item.get("value")
                 logger.debug(
-                    "[Vertex:%s] Loaded initial data -> key=%s, value=%s",
+                    "[Vertex:%s] Loaded initial data: channel=%s, value=%s",
                     self.id, key, repr(item.get("value"))[:120],
                 )
 
-        logger.debug(
-            "[Vertex:%s] Created | settings=%s | script=%s | initial_keys=%s",
+        logger.info(
+            "[Vertex:%s] Created | settings=%s | script=%s | channels=%s",
             self.id, self.settings, self.script_path, list(self._data_store.keys()),
         )
 
     # ------------------------------------------------------------------
-    # State property  状态属性
+    # Approval & HITL API
+    # ------------------------------------------------------------------
+    def pause_for_approval(self) -> None:
+        """Mark this vertex as requiring approval before proceeding to READY."""
+        self._require_approval = True
+        self._approved = False
+        if self._state == VertexState.READY:
+            self.state = VertexState.PAUSED
+        logger.info("[Vertex:%s] Marked for approval (require_approval=True)", self.id)
+
+    def approve(self, approved_data: Optional[Dict] = None) -> None:
+        """Approve a PAUSED (or pending approval) vertex, inject data, and transition to READY."""
+        if approved_data:
+            for channel, value in approved_data.items():
+                self._data_store[str(channel)] = value
+        self._approved = True
+        self.state = VertexState.READY
+        logger.info("[Vertex:%s] ✓ Approved -> state transition to READY", self.id)
+
+    # ------------------------------------------------------------------
+    # State property
     # ------------------------------------------------------------------
     @property
     def state(self) -> VertexState:
@@ -119,220 +146,246 @@ class Vertex:
     def state(self, new_state: VertexState):
         old = self._state
         self._state = new_state
-        logger.debug("[Vertex:%s] %s -> %s", self.id, old.value, new_state.value)
-        # 进入 READY 时置位事件，否则清除，供 wait_ready 使用
-        if new_state == VertexState.READY:
+        logger.info("[Vertex:%s] %s -> %s", self.id, old.value, new_state.value)
+        if new_state in (VertexState.READY, VertexState.ABORTED, VertexState.ERROR):
             self._ready_event.set()
-            # 事件驱动调度：通知注册的回调(executor 用它唤醒主循环)
-            if self._on_ready_cb is not None:
-                self._on_ready_cb(self)
         else:
             self._ready_event.clear()
 
-    def set_ready_callback(self, cb):
-        """注册「进入 READY 状态」的通知回调。
-
-        Executor 用它做事件驱动调度：顶点 READY 时立即通知主循环，
-        取代轮询扫描。同一时刻通常只注册一个回调(由执行器注入)。
-        """
-        self._on_ready_cb = cb
-
     # ------------------------------------------------------------------
-    # Script  外部脚本
+    # Script
     # ------------------------------------------------------------------
     def set_script_module(self, module):
-        """Attach a loaded external script module.
-
-        挂载已加载的外部脚本模块。
-        """
+        """Attach a loaded external script module."""
         self._script_module = module
         logger.debug("[Vertex:%s] Script module attached: %s", self.id, module)
 
     # ------------------------------------------------------------------
-    # Data access  数据访问
+    # Data access & Edge signaling
     # ------------------------------------------------------------------
-    async def get(
+    async def fetch_data(self, channel: str = "default") -> Any:
+        """Command: Fetch data from the vertex's data store."""
+        async with self._lock:
+            val = self._data_store.get(channel)
+            logger.debug(f"[Vertex:{self.id}] FETCH channel='{channel}' -> {repr(val)[:120]}")
+            return val
+
+    async def set_data(self, channel: str, value: Any) -> None:
+        """Command: Set data directly in the vertex's data store."""
+        async with self._lock:
+            self._data_store[str(channel)] = value
+            logger.debug(f"[Vertex:{self.id}] SET channel='{channel}' -> {repr(value)[:120]}")
+
+    async def receive_signal(
         self,
-        edge_id: Optional[str] = None,
-        tags: Optional[List[str]] = None,
+        edge_id: str,
+        signal: EdgeSignal,
+        payload: Any = None,
+        channel: str = "default",
     ) -> Any:
-        """读取数据。
+        """Event: Receive state update or completed payload from an edge."""
+        if signal == EdgeSignal.COMPLETED:
+            data = payload
+            key = str(channel)
+            logger.debug("[Vertex:%s] COMPLETED %s <- %s", self.id, key, repr(data)[:120])
 
-        - edge_id + tags：读精确槽 (edge_id, tags)。
-        - 仅 edge_id：读该来源边写入的槽(任一 tag)。
-        - 仅 tags：读带这些 tag 的槽(任一边)。
-        - 都不给：读「主数据」—— 优先自产(__self__)，否则唯一槽，否则初始(__init__)。
-        """
-        async with self._lock:
-            if edge_id is not None and tags is not None:
-                data = self._data_store.get(_key(edge_id, tags))
-            elif edge_id is not None:
-                data = self._first_locked(lambda k: k[0] == edge_id)
-            elif tags is not None:
-                want = tuple(sorted(tags))
-                data = self._first_locked(lambda k: k[1] == want)
-            else:
-                data = self._main_data_locked()
-        logger.debug(
-            "[Vertex:%s] GET edge=%s tags=%s -> %s",
-            self.id, edge_id, tags, repr(data)[:120],
-        )
-        return data
+            # --- run vertex script on_receive hook ---
+            if hasattr(self, "on_receive") and callable(getattr(self, "on_receive")):
+                try:
+                    data = self.on_receive(data, channel, self.settings)
+                    logger.debug("[Vertex:%s] self.on_receive returned: %s", self.id, repr(data)[:120])
+                except Exception as exc:
+                    logger.warning("[Vertex:%s] self.on_receive REJECTED data: %s", self.id, exc)
+                    raise DataRejectedError(f"Vertex '{self.id}' rejected data: {exc}") from exc
+            elif self._script_module and hasattr(self._script_module, "on_receive"):
+                try:
+                    data = self._script_module.on_receive(
+                        data, channel, self.settings
+                    )
+                    logger.debug(
+                        "[Vertex:%s] on_receive returned: %s", self.id, repr(data)[:120]
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[Vertex:%s] on_receive REJECTED data: %s", self.id, exc
+                    )
+                    raise DataRejectedError(
+                        f"Vertex '{self.id}' rejected data: {exc}"
+                    ) from exc
 
-    def _first_locked(self, pred) -> Any:
-        """按条件取第一个匹配槽的值。"""
-        for k, v in self._data_store.items():
-            if pred(k):
-                return v
-        return None
+            async with self._lock:
+                # ── Loop re-entry ────────────────────────────────────────
+                # The loop-back edge may arrive while the vertex is either:
+                # • DONE       — normal case: previous iteration fully settled
+                # • AWAITING_EDGES — concurrent case: the back-edge was fired
+                #   from a downstream vertex while THIS vertex's own outgoing
+                #   gather is still running (both in-flight simultaneously).
+                # In both cases, treat it as a re-entry signal.
+                if (
+                    edge_id
+                    and edge_id in self.loop_incoming_edges
+                    and self._state in (VertexState.DONE, VertexState.AWAITING_EDGES)
+                ):
+                    max_iter = self.loop_incoming_edges[edge_id]
 
-    def _main_data_locked(self) -> Any:
-        """主数据：__self__ > 唯一槽 > 第一个 __init__ 槽。"""
-        if _key(KEY_SELF, None) in self._data_store:
-            return self._data_store[_key(KEY_SELF, None)]
-        if len(self._data_store) == 1:
-            return next(iter(self._data_store.values()))
-        # 多个槽时：返回第一个初始数据槽
-        for k, v in self._data_store.items():
-            if k[0] == KEY_INIT:
-                return v
-        return self._data_store.get(_key(KEY_INIT, None))
+                    # Check limit BEFORE incrementing — the blocked delivery
+                    # should not count as a re-entry in iteration_count.
+                    if max_iter > 0 and self.iteration_count >= max_iter:
+                        logger.info(
+                            "[Vertex:%s] Loop limit (%d) reached after %d re-entries "
+                            "via edge '%s' — staying %s.",
+                            self.id, max_iter, self.iteration_count, edge_id,
+                            self._state.value,
+                        )
+                        return True  # Stay in current state, loop is exhausted
 
-    async def set(
-        self,
-        data: Any,
-        edge_id: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-    ) -> bool:
-        """写入数据。
+                    self.iteration_count += 1
 
-        edge_id 提供：按来源边 ID 分槽记录(不同边各占一槽，不覆盖)。
-        edge_id 缺省：当作顶点自产，存到保留键 __self__。
-        tags：写入时打的标签(与 edge_id 一起组成 key = (edge_id, tags))。
+                    # Reset per-iteration tracking for the new round
+                    self.completed_incoming_edges.clear()
+                    self.aborted_incoming_edges.clear()
+                    self._received_input_count = 0
+                    self.completed_incoming_edges.add(edge_id)
+                    self._data_store[key] = data
 
-        Returns True on success.  Raises ``DataRejectedError`` if the
-        vertex script's ``on_receive`` rejects the data.
+                    logger.info(
+                        "[Vertex:%s] ↺ Loop re-entry (iteration %d/%s) via '%s'",
+                        self.id, self.iteration_count,
+                        max_iter if max_iter > 0 else "∞",
+                        edge_id,
+                    )
 
-        成功返回 True；若顶点脚本的 ``on_receive`` 拒绝该数据，
-        则抛出 ``DataRejectedError``。
-        """
-        # 防御性检查：顶点进入 PROCESSING 后(即 prepare_outputs 运行期间)，
-        # 任何对 set() 的调用都会把状态重新推回 READY，导致执行器重复处理该顶点、
-        # 形成死循环。子类在 prepare_outputs 里应该用 _store() 直接写数据存储，
-        # 而不是 set()。这里用类型检查直接拦下，而不是依赖注释提醒。
-        if self._state == VertexState.PROCESSING:
-            raise RuntimeError(
-                "Cannot call set() during prepare_outputs; the vertex is already "
-                "in PROCESSING state. Write directly via _store() (or the data "
-                "store) instead of set() to avoid an infinite re-trigger loop."
-            )
+                    # If this is the only incoming edge (simple cycle), go READY/PAUSED.
+                    # Otherwise fall to IDLE and wait for remaining inputs.
+                    total_settled = (
+                        len(self.completed_incoming_edges)
+                        + len(self.aborted_incoming_edges)
+                    )
+                    if total_settled >= len(self.incoming_edges):
+                        if self._require_approval and not self._approved:
+                            self.state = VertexState.PAUSED
+                        else:
+                            self.state = VertexState.READY
+                    # else: remain IDLE, other non-loop edges still pending
+                    return True
+                # ── End loop re-entry ─────────────────────────────────────
 
-        key = _key(edge_id, tags)
-        logger.debug("[Vertex:%s] SET %s <- %s", self.id, key, repr(data)[:120])
-
-        # --- 运行顶点脚本的 on_receive 钩子 ---
-        # 钩子可对数据做转换，或抛异常表示拒绝
-        if self._script_module and hasattr(self._script_module, "on_receive"):
-            try:
-                data = self._script_module.on_receive(
-                    data, edge_id or "", tags or [], self.settings
+                self._data_store[key] = data
+                if edge_id:
+                    self.completed_incoming_edges.add(edge_id)
+                else:
+                    self._received_input_count += 1
+                
+                total = len(self.incoming_edges) if self.incoming_edges else self.required_input_count
+                logger.info(
+                    "[Vertex:%s] Input received (completed: %d, aborted: %d, total: %d)",
+                    self.id, len(self.completed_incoming_edges), len(self.aborted_incoming_edges), total
                 )
-                logger.debug(
-                    "[Vertex:%s] on_receive returned: %s", self.id, repr(data)[:120]
-                )
-            except Exception as exc:
-                # 脚本抛异常 => 数据被拒绝（异常会作为 DataRejectedError 上抛）
-                logger.debug(
-                    "[Vertex:%s] on_receive REJECTED data: %s", self.id, exc
-                )
-                raise DataRejectedError(
-                    f"Vertex '{self.id}' rejected data: {exc}"
-                ) from exc
+                
+                # Check readiness based on incoming edge settlement
+                is_ready = False
+                if self.incoming_edges:
+                    total_settled = len(self.completed_incoming_edges) + len(self.aborted_incoming_edges)
+                    
+                    wait_policy = self.settings.get("wait_policy", "all")
+                    if wait_policy == "any" and len(self.completed_incoming_edges) > 0:
+                        # RACE WON!
+                        is_ready = True
+                        pending = [eid for eid in self.incoming_edges if eid not in self.completed_incoming_edges and eid not in self.aborted_incoming_edges]
+                        if pending and hasattr(self, "on_cancel_edges") and callable(self.on_cancel_edges):
+                            self.on_cancel_edges(pending)
+                    else:
+                        is_ready = total_settled >= len(self.incoming_edges) and len(self.completed_incoming_edges) > 0
+                elif self.required_input_count > 0:
+                    is_ready = self._received_input_count >= self.required_input_count
 
-        async with self._lock:
-            self._data_store[key] = data
-            self._received_input_count += 1
-            logger.debug(
-                "[Vertex:%s] Input %d/%d received",
-                self.id, self._received_input_count, self.required_input_count,
-            )
-            # 当所有要求的输入都到达时，顶点进入 READY 状态，等待执行器拾取
-            if (
-                self.required_input_count > 0
-                and self._received_input_count >= self.required_input_count
-            ):
-                self.state = VertexState.READY
-        return True
+                if is_ready:
+                    if self._require_approval and not self._approved:
+                        self.state = VertexState.PAUSED
+                    else:
+                        self.state = VertexState.READY
+            return True
 
-    async def _store(
-        self,
-        data: Any,
-        edge_id: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-    ) -> Any:
-        """直接写入数据存储，不触发状态机副作用。
+        elif signal == EdgeSignal.ABORTED:
+            logger.debug("[Vertex:%s] ABORTED signal from edge '%s'", self.id, edge_id)
+            async with self._lock:
+                # If already settled and this abort is from a loop-back edge,
+                # the loop simply terminated (guard failed or limit reached).
+                # Stay in current state — nothing more to do.
+                if (
+                    edge_id
+                    and edge_id in self.loop_incoming_edges
+                    and self._state in (VertexState.DONE, VertexState.AWAITING_EDGES)
+                ):
+                    logger.info(
+                        "[Vertex:%s] Loop-back edge '%s' aborted — loop terminates cleanly.",
+                        self.id, edge_id,
+                    )
+                    return True
 
-        与 :meth:`set` 不同，此方法：
-          * 不会调用 ``on_receive`` 钩子；
-          * 不会增加 ``_received_input_count``；
-          * 不会把顶点推进到 ``READY``。
+                self.aborted_incoming_edges.add(edge_id)
+                
+                total = len(self.incoming_edges) if self.incoming_edges else self.required_input_count
+                total_settled = len(self.completed_incoming_edges) + len(self.aborted_incoming_edges)
+                
+                if total > 0 and total_settled >= total:
+                    if len(self.completed_incoming_edges) > 0:
+                        self.state = VertexState.READY
+                    else:
+                        self.abort_reason = payload or f"All {total} incoming edges aborted"
+                        self.state = VertexState.ABORTED
+            return True
 
-        用途：顶点进入 ``PROCESSING``(即 ``prepare_outputs`` 运行)期间，子类若想
-        往数据存储里写合并/派生结果，必须用它而不是 ``set()``，否则会把状态重新打回
-        ``READY``，导致执行器重复处理、形成死循环。对应评审建议「用 _store() 代替
-        在 prepare_outputs 里调用 set()」。
-        """
-        key = _key(edge_id, tags)
-        async with self._lock:
-            self._data_store[key] = data
-        logger.debug("[Vertex:%s] _store %s <- %s", self.id, key, repr(data)[:120])
-        return data
+        elif signal == EdgeSignal.FAILED:
+            logger.error("[Vertex:%s] FAILED signal from edge '%s': %s", self.id, edge_id, payload)
+            async with self._lock:
+                self.error_message = str(payload)
+                self.state = VertexState.ERROR
+            return True
 
-    async def get_all_data(self) -> Dict[Tuple[str, Tuple[str, ...]], Any]:
-        """Return a copy of the entire data store ((edge_id, tags) -> data).
-
-        返回整个数据存储的副本((来源边 ID, 标签) -> 数据)。
-        """
+    async def get_all_data(self) -> Dict[str, Any]:
+        """Return a copy of the entire data store."""
         async with self._lock:
             return dict(self._data_store)
 
     async def prepare_outputs(self):
         """Run the script's ``on_ready`` hook to consolidate data.
 
-        运行脚本的 ``on_ready`` 钩子，把多个输入整合为输出(存到 __self__)。
-
-        The hook receives all stored data ((edge_id, tags) -> data) and the
-        vertex settings, and should return a single consolidated value that
-        will be stored under the reserved key __self__ (the "main data").
-
-        钩子接收所有已存数据({(edge_id, tags): data})与顶点配置，应返回一个
-        合并后的值，会被存到保留键 __self__(即主数据)。
+        Called by the executor right before outgoing edges fire.
+        The hook receives all stored data and the vertex settings, and
+        should return a dict of ``{channel: value}`` that will be merged
+        into the data store.
         """
-        if self._script_module and hasattr(self._script_module, "on_ready"):
-            logger.debug("[Vertex:%s] Running on_ready hook", self.id)
+        if hasattr(self, "on_ready") and callable(getattr(self, "on_ready")):
+            logger.debug("[Vertex:%s] Running self.on_ready hook", self.id)
+            all_data = dict(self._data_store)
+            try:
+                outputs = self.on_ready(all_data, self.settings)
+                if outputs and isinstance(outputs, dict):
+                    async with self._lock:
+                        for key, value in outputs.items():
+                            store_key = str(key)
+                            self._data_store[store_key] = value
+                            logger.debug(
+                                "[Vertex:%s] self.on_ready set %s = %s",
+                                self.id, store_key, repr(value)[:120],
+                            )
+            except Exception as exc:
+                logger.error("[Vertex:%s] self.on_ready hook failed: %s", self.id, exc, exc_info=True)
+                raise
+        elif self._script_module and hasattr(self._script_module, "on_ready"):
+            logger.debug("[Vertex:%s] Running module on_ready hook", self.id)
             all_data = dict(self._data_store)
             try:
                 outputs = self._script_module.on_ready(all_data, self.settings)
-                if outputs is not None:
-                    # 兼容旧脚本返回 {(key, (tags,)): value} 的 dict：按返回的
-                    # (data_id, tags) 分槽存储，使下游按 get-tags 能读到；
-                    # 同时额外存一份主数据(__self__)，保证无 tag 读取也能拿到。
+                if outputs and isinstance(outputs, dict):
                     async with self._lock:
-                        value = None
-                        if isinstance(outputs, dict) and outputs:
-                            for out_key, val in outputs.items():
-                                value = val
-                                edge_id = out_key[0] if isinstance(out_key, tuple) else KEY_SELF
-                                tags = out_key[1] if (isinstance(out_key, tuple)
-                                                       and len(out_key) > 1) else None
-                                self._data_store[_key(edge_id, tags)] = val
-                        else:
-                            value = outputs
-                        if value is not None and _key(KEY_SELF, None) not in self._data_store:
-                            self._data_store[_key(KEY_SELF, None)] = value
+                        for key, value in outputs.items():
+                            store_key = str(key)
+                            self._data_store[store_key] = value
                             logger.debug(
                                 "[Vertex:%s] on_ready set %s = %s",
-                                self.id, _key(KEY_SELF, None), repr(value)[:120],
+                                self.id, store_key, repr(value)[:120],
                             )
             except Exception as exc:
                 logger.error(
@@ -341,36 +394,36 @@ class Vertex:
                 raise
 
     # ------------------------------------------------------------------
-    # Helpers  辅助方法
+    # Helpers
     # ------------------------------------------------------------------
     async def wait_ready(self, timeout: Optional[float] = None):
-        """Block until the vertex reaches READY state.
-
-        阻塞直到顶点进入 READY 状态(可指定超时)。
-        """
+        """Block until the vertex reaches READY state."""
         await asyncio.wait_for(self._ready_event.wait(), timeout=timeout)
 
     def is_source(self) -> bool:
-        """True if this vertex has no incoming edges.  是否为源顶点(无入边)。"""
+        """True if this vertex has no incoming edges."""
         return len(self.incoming_edges) == 0
 
     def is_sink(self) -> bool:
-        """True if this vertex has no outgoing edges.  是否为汇顶点(无出边)。"""
+        """True if this vertex has no outgoing edges."""
         return len(self.outgoing_edges) == 0
 
     def reset(self):
-        """Reset vertex to initial state (for re-runs).
-
-        重置顶点到初始状态(用于重新执行)。
-        """
+        """Reset vertex to initial state (for re-runs)."""
         self._state = VertexState.IDLE
         self._ready_event.clear()
+        self._approved = False
+        self.completed_incoming_edges.clear()
+        self.aborted_incoming_edges.clear()
         self._received_input_count = 0
+        self.iteration_count = 0
         self.error_message = None
+        self.abort_reason = None
         logger.debug("[Vertex:%s] Reset to IDLE", self.id)
 
     def __repr__(self):
+        loop_str = f" loop={self.iteration_count}" if self.loop_incoming_edges else ""
         return (
             f"Vertex(id={self.id!r}, state={self._state.value}, "
-            f"in={len(self.incoming_edges)}, out={len(self.outgoing_edges)})"
+            f"in={len(self.incoming_edges)}, out={len(self.outgoing_edges)}{loop_str})"
         )

@@ -12,7 +12,7 @@ import pytest
 # Ensure the project root is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework import Vertex, Edge, Graph, Executor, MockPIAgent
+from framework import Vertex, Edge, Graph, Executor, MockAgent
 from framework.vertex import VertexState
 
 
@@ -26,7 +26,7 @@ def source_vertex():
         vertex_id="src",
         settings={"type": "source"},
         initial_data=[
-            {"data_id": "text", "tags": ["en"], "value": "Hello world"},
+            {"channel": "text", "value": "Hello world"},
         ],
     )
 
@@ -48,19 +48,19 @@ def sink_vertex():
 # ------------------------------------------------------------------
 @pytest.fixture
 def mock_agent():
-    return MockPIAgent()
+    return MockAgent()
 
 
 @pytest.fixture
 def echo_agent():
     """Agent that returns data unchanged."""
-    return MockPIAgent(response_fn=lambda d, p, m, s: d)
+    return MockAgent(response_fn=lambda d, p, m, s: d)
 
 
 @pytest.fixture
 def upper_agent():
     """Agent that uppercases string data."""
-    return MockPIAgent(
+    return MockAgent(
         response_fn=lambda d, p, m, s: d.upper() if isinstance(d, str) else d
     )
 
@@ -115,8 +115,8 @@ def diamond_config() -> Dict:
             {
                 "id": "A",
                 "initial_data": [
-                    {"data_id": "v", "tags": ["t1"], "value": "start"},
-                    {"data_id": "v", "tags": ["t2"], "value": "start"},
+                    {"channel": "v1", "value": "start"},
+                    {"channel": "v2", "value": "start"},
                 ],
             },
             {"id": "B"},

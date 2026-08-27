@@ -1,41 +1,54 @@
 """Executor module - Runs the computation graph with concurrency control.
 
-执行器(Executor)模块 —— 带并发控制地运行计算图。
+The executor repeatedly scans for READY vertices, fires their outgoing
+edges concurrently (bounded by a semaphore), and advances vertex states
+until the entire graph is DONE or a deadlock / timeout is detected.
 
-The executor drives the graph to completion using EVENT-DRIVEN scheduling:
-vertices signal the executor as soon as they become READY (via a callback),
-so there is no polling. It still bounds concurrency with a semaphore and
-still detects deadlocks (no new READY events but graph not settled).
-
-执行器用「事件驱动」调度把图跑到完成：顶点一旦 READY 立即通过回调唤醒
-主循环(不再轮询扫描)，并用信号量限制并发，仍能检测死锁/超时。
+Stateful loop support: when a loop-back edge delivers to a destination
+vertex that is already DONE, ``Vertex.receive_signal`` resets that vertex
+to READY.  The executor detects newly-READY vertices on each scan and
+spawns fresh processing tasks for them, enabling bounded self-correction
+cycles without changing the overall event-driven architecture.
 """
 
 import asyncio
+import datetime
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 
-from .vertex import Vertex, VertexState
+from .vertex import Vertex, VertexState, EdgeSignal
 from .edge import Edge
 from .graph import Graph
-from .pi_agent import PIAgent, MockPIAgent
+from .agents import BaseAgent, MockAgent
+from .memory import MemoryStore
+from .telemetry import TelemetryTracker, UsageMetrics
 
 logger = logging.getLogger("vertex_edge_agent.executor")
 
 
-class ExecutionResult:
-    """Collects the outcome of a graph execution.
+@dataclass
+class GraphEvent:
+    """Standard event emitted during graph execution."""
+    event_type: str
+    timestamp: str = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"))
+    vertex_id: Optional[str] = None
+    edge_id: Optional[str] = None
+    payload: Optional[Any] = None
 
-    收集一次图执行的最终结果。
-    """
+
+class ExecutionResult:
+    """Collects the outcome of a graph execution."""
 
     def __init__(self):
-        self.success: bool = False  # 是否成功
-        self.vertex_results: Dict[str, Dict] = {}  # 顶点 ID -> 状态快照
-        self.edge_results: Dict[str, Any] = {}     # 边 ID -> 结果
-        self.errors: List[str] = []                # 错误信息列表
-        self.execution_time: float = 0.0           # 执行耗时(秒)
+        self.success: bool = False
+        self.vertex_results: Dict[str, Dict] = {}
+        self.edge_results: Dict[str, Any] = {}
+        self.errors: List[str] = []
+        self.execution_time: float = 0.0
+        self.metrics: Optional[UsageMetrics] = None
+        self.memory_snapshot: Dict[str, Any] = {}
 
     def __repr__(self):
         status = "SUCCESS" if self.success else "FAILED"
@@ -46,10 +59,7 @@ class ExecutionResult:
         )
 
     def summary(self) -> str:
-        """Human-readable summary.
-
-        生成人类可读的执行结果摘要。
-        """
+        """Human-readable summary."""
         lines = [
             "=" * 60,
             f"  Execution Result: {'SUCCESS ✓' if self.success else 'FAILED ✗'}",
@@ -57,8 +67,15 @@ class ExecutionResult:
             f"  Vertices processed: {len(self.vertex_results)}",
             f"  Edges completed: {len(self.edge_results)}",
             f"  Errors: {len(self.errors)}",
-            "=" * 60,
         ]
+        if self.metrics:
+            lines.extend([
+                f"  Prompt Tokens: {self.metrics.prompt_tokens}",
+                f"  Completion Tokens: {self.metrics.completion_tokens}",
+                f"  Total Tokens: {self.metrics.total_tokens}",
+                f"  Estimated Cost: ${self.metrics.cost_usd:.6f}",
+            ])
+        lines.append("=" * 60)
         if self.errors:
             lines.append("  ERRORS:")
             for err in self.errors:
@@ -68,187 +85,378 @@ class ExecutionResult:
         for vid, info in self.vertex_results.items():
             state = info.get("state", "?")
             data_keys = list(info.get("data", {}).keys())
-            lines.append(f"    [{vid}]  state={state}  keys={data_keys}")
+            abort_str = f" (aborted: {info.get('abort_reason')})" if state == "aborted" else ""
+            err_str = f" (error: {info.get('error')})" if state == "error" else ""
+            iter_str = f" (iterations: {info.get('iterations', 0)})" if info.get("iterations") else ""
+            lines.append(f"    [{vid}]  state={state}{abort_str}{err_str}{iter_str}  keys={data_keys}")
         lines.append("")
         lines.append("  EDGE RESULTS:")
         for eid, val in self.edge_results.items():
             lines.append(f"    [{eid}]  {repr(val)[:100]}")
+        if self.memory_snapshot:
+            lines.append("")
+            lines.append("  GLOBAL MEMORY SNAPSHOT:")
+            for mk, mv in self.memory_snapshot.items():
+                lines.append(f"    • {mk}: {repr(mv)[:100]}")
         lines.append("=" * 60)
         return "\n".join(lines)
 
 
 class Executor:
-    """Async executor that drives the graph to completion.
-
-    驱动图运行至完成的异步执行器。
+    """Async executor that drives the graph to completion with streaming event observability.
 
     Args:
-        graph:            The Graph to execute.          要执行的图。
-        pi_agent:         PI Agent instance (defaults to MockPIAgent).
-                          PI Agent 实例(默认 MockPIAgent)。
-        max_concurrency:  Max concurrent edge executions. 最大并发执行的边数。
-        scan_interval:    Deprecated(事件驱动下已不再轮询，保留仅为兼容旧签名)。
+        graph:            The Graph to execute.
+        agents:           PI Agent instance (defaults to MockAgent).
+        max_concurrency:  Max concurrent edge executions.
+        scan_interval:    Seconds between ready-vertex scans.
         timeout:          Overall execution timeout in seconds.
-                          整体执行超时(秒)。
+        memory:           Optional MemoryStore instance for shared cross-vertex context.
+        telemetry:        Optional TelemetryTracker instance for token/cost tracking.
     """
 
     def __init__(
         self,
         graph: Graph,
-        pi_agent: Optional[PIAgent] = None,
+        agents: Optional[BaseAgent] = None,
         max_concurrency: int = 10,
         scan_interval: float = 0.05,
         timeout: Optional[float] = None,
+        memory: Optional[MemoryStore] = None,
+        telemetry: Optional[TelemetryTracker] = None,
     ):
         self.graph = graph
-        self.pi_agent = pi_agent or MockPIAgent()
+        self.agents = agents or MockAgent()
         self.max_concurrency = max_concurrency
         self.scan_interval = scan_interval
         self.timeout = timeout or 300.0
-        self._semaphore = asyncio.Semaphore(max_concurrency)  # 并发限流信号量
+        self.memory = memory or MemoryStore()
+        self.telemetry = telemetry or TelemetryTracker()
+        self._semaphore = asyncio.Semaphore(max_concurrency)
         self._result = ExecutionResult()
-        # 事件驱动调度：顶点进入 READY 时置位，唤醒主循环(取代轮询扫描)
-        self._ready_signal = asyncio.Event()
-        for v in self.graph.vertices.values():
-            v.set_ready_callback(self._on_vertex_ready)
+        self.active_edge_tasks = {}
+        self._event_queue: asyncio.Queue[Optional[GraphEvent]] = asyncio.Queue()
 
     # ------------------------------------------------------------------
-    # Public API  公共接口
+    # Public API
     # ------------------------------------------------------------------
+    def _emit(
+        self,
+        event_type: str,
+        vertex_id: Optional[str] = None,
+        edge_id: Optional[str] = None,
+        payload: Optional[Any] = None,
+    ) -> None:
+        """Non-blocking event emitter via internal sidecar queue."""
+        event = GraphEvent(
+            event_type=event_type,
+            vertex_id=vertex_id,
+            edge_id=edge_id,
+            payload=payload,
+        )
+        self._event_queue.put_nowait(event)
+
+    async def stream(self) -> AsyncGenerator[GraphEvent, None]:
+        """Stream execution events asynchronously as they occur without blocking execution."""
+        run_task = asyncio.create_task(self._run_internal())
+        try:
+            while True:
+                event = await self._event_queue.get()
+                if event is None:
+                    break
+                yield event
+        finally:
+            await run_task
+
     async def run(self) -> ExecutionResult:
-        """Execute the graph and return an ``ExecutionResult``.
+        """Execute the graph and return an ``ExecutionResult``."""
+        async for _ in self.stream():
+            pass
+        return self._result
 
-        执行整张图并返回 ``ExecutionResult``。
-        """
-        t0 = time.monotonic()  # 记录开始时间
+    async def _run_internal(self) -> ExecutionResult:
+        """Internal runner that powers both run() and stream()."""
+        t0 = time.monotonic()
 
-        logger.debug("=" * 60)
-        logger.debug("[Executor] ▶ Starting graph execution")
-        logger.debug("[Executor]   graph=%s", self.graph)
-        logger.debug("[Executor]   concurrency=%d  timeout=%ss", self.max_concurrency, self.timeout)
-        logger.debug("=" * 60)
+        logger.info("=" * 60)
+        
+        # --- Wire up cancellation callbacks for Race mode ---
+        def cancel_edges_callback(edge_ids):
+            for eid in edge_ids:
+                if eid in self.active_edge_tasks:
+                    logger.info("[Executor] Race condition won. Cancelling pending edge '%s'", eid)
+                    self.active_edge_tasks[eid].cancel()
+
+        for v in self.graph.vertices.values():
+            v.on_cancel_edges = cancel_edges_callback
+
+        logger.info("[Executor] ▶ Starting graph execution")
+        logger.info("[Executor]   graph=%s", self.graph)
+        logger.info("[Executor]   concurrency=%d  timeout=%ss", self.max_concurrency, self.timeout)
+        logger.info("=" * 60)
+        self._emit("workflow_started", payload={"timeout": self.timeout, "concurrency": self.max_concurrency})
 
         try:
-            self._init_sources()  # 先把所有源顶点置为 READY
+            self._init_sources()
             await asyncio.wait_for(self._loop(), timeout=self.timeout)
-            # 全部顶点都进入 DONE 才算整体成功
-            self._result.success = all(
-                v.state == VertexState.DONE for v in self.graph.vertices.values()
+            self._result.success = (
+                len(self._result.errors) == 0
+                and all(v.state in (VertexState.DONE, VertexState.ABORTED) for v in self.graph.vertices.values())
             )
         except asyncio.TimeoutError:
-            # 超时
             msg = f"Execution timed out after {self.timeout}s"
             logger.error("[Executor] %s", msg)
             self._result.errors.append(msg)
+            self._emit("workflow_error", payload={"error": msg})
         except Exception as exc:
-            # 其他致命错误
             logger.error("[Executor] Fatal: %s", exc, exc_info=True)
             self._result.errors.append(str(exc))
+            self._emit("workflow_error", payload={"error": str(exc)})
 
         self._result.execution_time = time.monotonic() - t0
-        await self._collect_results()  # 汇总各顶点最终状态与数据
+        await self._collect_results()
 
-        logger.debug("=" * 60)
-        logger.debug("[Executor] ■ Finished: %s", self._result)
-        logger.debug("=" * 60)
+        self._emit(
+            "workflow_finished",
+            payload={"success": self._result.success, "execution_time": self._result.execution_time}
+        )
+        # Put sentinel to close the event stream
+        self._event_queue.put_nowait(None)
+
+        logger.info("=" * 60)
+        logger.info("[Executor] ■ Finished: %s", self._result)
+        logger.info("=" * 60)
 
         return self._result
 
-    def _on_vertex_ready(self, vertex):
-        """顶点进入 READY 时被回调：置位事件，通知主循环立即处理(幂等)。"""
-        if not self._ready_signal.is_set():
-            self._ready_signal.set()
-
     # ------------------------------------------------------------------
-    # Internal  内部实现
+    # Internal
     # ------------------------------------------------------------------
     def _init_sources(self):
-        """Mark source vertices (no incoming edges) as READY.
+        """Mark source vertices (no incoming edges) as READY (or PAUSED if approval required).
 
-        将所有源顶点(无入边)标记为 READY。
+        In a cyclic graph, vertices whose *only* incoming edges are loop-back
+        edges (``edge_id in vertex.loop_incoming_edges``) are treated as
+        logical sources for the first iteration boot — the loop-back edge
+        hasn't fired yet, so they must self-start.
         """
-        for v in self.graph.get_source_vertices():
-            v.state = VertexState.READY
-            logger.debug("[Executor] Source vertex '%s' → READY", v.id)
+        for v in self.graph.vertices.values():
+            non_loop_incoming = [
+                eid for eid in v.incoming_edges
+                if eid not in v.loop_incoming_edges
+            ]
+            if not non_loop_incoming:
+                # Pure source OR loop-destination with no other inputs
+                if v._require_approval and not v._approved:
+                    v.state = VertexState.PAUSED
+                    logger.info("[Executor] Source/loop-boot vertex '%s' → PAUSED (requires approval)", v.id)
+                else:
+                    v.state = VertexState.READY
+                    logger.info("[Executor] Source/loop-boot vertex '%s' → READY", v.id)
 
     async def _loop(self):
-        """Main event-driven loop.
+        """Event-driven main loop with stateful-loop and PAUSED support.
 
-        事件驱动主循环：不再轮询扫描，而是等待顶点进入 READY 的事件。
-        每轮：唤醒 → 收集当前所有 READY 顶点 → 并发处理 → 终止/死锁检查。
+        Strategy:
+        1. Spawn one ``wait_and_process`` task per vertex for the first round.
+        2. After each ``asyncio.wait`` iteration, scan for any vertex that has
+           become READY again (loop re-entry or approval) and spawn a fresh
+           ``_process_ready_vertex`` task for it.
+        3. Exit when all vertices are settled, paused, or a deadlock is detected.
         """
-        while True:
-            # 1. 等待有顶点进入 READY(事件驱动，无轮询)
-            await self._ready_signal.wait()
-            self._ready_signal.clear()
+        iteration = 0
 
-            # 2. 收集当前所有 READY 顶点
-            ready = [
-                v for v in self.graph.vertices.values()
-                if v.state == VertexState.READY
-            ]
+        async def wait_and_process(vertex: Vertex):
+            """First-round task: wait for READY then process once."""
+            if vertex.state not in (
+                VertexState.READY, VertexState.AWAITING_EDGES,
+                VertexState.DONE, VertexState.ABORTED, VertexState.ERROR,
+            ):
+                await vertex.wait_ready()
 
-            if ready:
-                logger.debug(
-                    "[Executor] READY vertices: %s", [v.id for v in ready]
-                )
-                tasks = []
-                for v in ready:
-                    # 置为 PROCESSING 后并发处理
-                    v.state = VertexState.PROCESSING
-                    tasks.append(
-                        asyncio.create_task(
-                            self._process_vertex(v), name=f"proc_{v.id}"
-                        )
-                    )
-                await asyncio.gather(*tasks, return_exceptions=True)
+            if vertex.state == VertexState.READY:
+                vertex.state = VertexState.AWAITING_EDGES
+                await self._process_vertex(vertex)
+            elif vertex.state == VertexState.ABORTED:
+                await self._abort_vertex(vertex)
 
-            # 3. 终止检查：所有顶点都已 DONE 或 ERROR
+        # Maps vertex_id -> most-recently-spawned task for that vertex.
+        # Used to avoid double-scheduling when a vertex is already processing.
+        vertex_tasks: Dict[str, asyncio.Task] = {}
+
+        # Spawn initial tasks
+        for v in self.graph.vertices.values():
+            task = asyncio.create_task(
+                wait_and_process(v), name=f"task_{v.id}"
+            )
+            vertex_tasks[v.id] = task
+
+        pending: Set[asyncio.Task] = set(vertex_tasks.values())
+
+        while pending:
+            iteration += 1
+            logger.debug("[Executor] ── event wait #%d ──", iteration)
+
+            done, pending = await asyncio.wait(
+                pending,
+                timeout=self.scan_interval,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # Surface task exceptions
+            for task in done:
+                exc = task.exception()
+                if exc:
+                    logger.error("[Executor] Task failed: %s", exc)
+
+            # 1. Terminal check: all vertices are in terminal states or PAUSED
             states = {v.state for v in self.graph.vertices.values()}
-            if states <= {VertexState.DONE, VertexState.ERROR}:
-                logger.debug("[Executor] All vertices settled, exiting loop")
+            if states <= {VertexState.DONE, VertexState.ABORTED, VertexState.ERROR, VertexState.PAUSED}:
+                logger.info("[Executor] All active work settled or paused, exiting loop")
                 break
 
-            # 4. 死锁检测：本轮 gather 完成后，若没有产生新的 READY 事件，
-            #    而图又未结束，说明没有顶点能被推进 → 死锁
-            if not self._ready_signal.is_set():
+            # 2. Loop re-entry / Approval resume: schedule processing for any newly-READY vertex
+            #    that doesn't already have an active task.
+            for v in self.graph.vertices.values():
+                if v.state == VertexState.READY:
+                    vid = v.id
+                    existing = vertex_tasks.get(vid)
+                    if existing is None or existing.done():
+                        logger.info(
+                            "[Executor] Vertex '%s' READY (iter #%d) — spawning task",
+                            vid, v.iteration_count,
+                        )
+                        task = asyncio.create_task(
+                            self._process_ready_vertex(v),
+                            name=f"task_{vid}_iter{v.iteration_count}",
+                        )
+                        vertex_tasks[vid] = task
+                        pending.add(task)
+
+            # 3. Deadlock detection: no active tasks running/ready, but non-paused idle vertices remain
+            states = {v.state for v in self.graph.vertices.values()}
+            if not done and VertexState.READY not in states and VertexState.AWAITING_EDGES not in states:
+                # If there are PAUSED vertices waiting for external approval, it's a pause, not a deadlock
+                if VertexState.PAUSED in states:
+                    logger.info("[Executor] Graph paused at PAUSED vertex (waiting for external approval)")
+                    break
                 self._log_state_dump()
-                msg = "Deadlock – no new READY vertices but graph not settled"
+                msg = "Deadlock – no READY/PROCESSING vertices but graph not settled"
                 logger.error("[Executor] %s", msg)
                 self._result.errors.append(msg)
+                for t in pending:
+                    t.cancel()
                 break
 
-    async def _process_vertex(self, vertex: Vertex):
-        """Fire all outgoing edges of *vertex*.
+    async def _process_ready_vertex(self, vertex: Vertex):
+        """Process a vertex that is already in READY state (loop re-entry)."""
+        if vertex.state == VertexState.READY:
+            vertex.state = VertexState.AWAITING_EDGES
+            await self._process_vertex(vertex)
+        elif vertex.state == VertexState.ABORTED:
+            await self._abort_vertex(vertex)
 
-        触发 *vertex* 的所有出边。
-        """
-        logger.debug("[Executor] Processing vertex '%s'", vertex.id)
-
+    async def _abort_vertex(self, vertex: Vertex):
+        """Cascade abort to all outgoing edges of an aborted vertex."""
+        logger.info("[Executor] Vertex '%s' aborted → cascading to outgoing edges", vertex.id)
+        self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "aborted", "reason": vertex.abort_reason})
         outgoing = self.graph.get_outgoing_edges(vertex.id)
-        if not outgoing:
-            # 汇顶点没有出边，直接完成
-            vertex.state = VertexState.DONE
-            logger.debug("[Executor] Vertex '%s' is a sink → DONE", vertex.id)
-            return
+        for edge in outgoing:
+            edge.aborted = True
+            edge.abort_reason = f"Upstream vertex '{vertex.id}' was aborted"
+            self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
+            self._emit("edge_aborted", edge_id=edge.id, payload={"reason": edge.abort_reason})
+            dst = self.graph.vertices[edge.destination_id]
+            await dst.receive_signal(edge.id, EdgeSignal.ABORTED, payload=edge.abort_reason)
 
-        # 先运行 on_ready 钩子，把多个输入整合成输出供出边读取
+    async def _process_vertex(self, vertex: Vertex):
+        """Execute compute/subgraph lifecycle for *vertex* and fire all outgoing edges."""
+        logger.info("[Executor] Processing vertex '%s'", vertex.id)
+        self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": vertex.state.value})
+
+        # --- Nested Sub-Graph Execution (Phase 2 & 3) ---
+        from .subgraph import SubgraphVertex
+        if isinstance(vertex, SubgraphVertex):
+            try:
+                inner_graph = vertex.initialize_inner_graph()
+                await vertex.stage_inner_inputs(inner_graph)
+                
+                # If parent executor is CheckpointedExecutor, create namespaced CheckpointedExecutor for subgraph
+                from .checkpoint import CheckpointedExecutor
+                if isinstance(self, CheckpointedExecutor):
+                    subgraph_run_id = f"{self.run_id}::{vertex.id}"
+                    inner_executor = CheckpointedExecutor(
+                        inner_graph,
+                        agents=self.agents,
+                        store=self.store,
+                        run_id=subgraph_run_id,
+                        graph_config=vertex.graph_config if isinstance(vertex.graph_config, dict) else None,
+                        max_concurrency=self.max_concurrency,
+                        scan_interval=self.scan_interval,
+                    )
+                else:
+                    inner_executor = Executor(
+                        inner_graph,
+                        agents=self.agents,
+                        max_concurrency=self.max_concurrency,
+                        scan_interval=self.scan_interval,
+                    )
+
+                # Bubble up events from inner executor stream to parent queue in real-time
+                async for inner_event in inner_executor.stream():
+                    namespaced_vid = f"{vertex.id}.{inner_event.vertex_id}" if inner_event.vertex_id else vertex.id
+                    namespaced_eid = f"{vertex.id}.{inner_event.edge_id}" if inner_event.edge_id else None
+                    self._emit(
+                        event_type=f"subgraph_{inner_event.event_type}",
+                        vertex_id=namespaced_vid,
+                        edge_id=namespaced_eid,
+                        payload=inner_event.payload,
+                    )
+
+                inner_result = inner_executor._result
+                if not inner_result.success:
+                    err_msg = f"Inner graph execution failed: {'; '.join(inner_result.errors)}"
+                    vertex.state = VertexState.ERROR
+                    vertex.error_message = err_msg
+                    self._result.errors.append(f"Vertex '{vertex.id}': {err_msg}")
+                    self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error", "error": err_msg})
+                    return
+
+                await vertex.collect_inner_outputs(inner_graph)
+            except Exception as exc:
+                logger.error("[Executor] Subgraph '%s' error: %s", vertex.id, exc, exc_info=True)
+                vertex.state = VertexState.ERROR
+                vertex.error_message = str(exc)
+                self._result.errors.append(f"Vertex '{vertex.id}': {exc}")
+                self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error", "error": str(exc)})
+                return
+
+        # Run on_ready hook to consolidate data for outgoing reads (or for final sink output)
         try:
             await vertex.prepare_outputs()
         except Exception as exc:
             vertex.state = VertexState.ERROR
             vertex.error_message = f"prepare_outputs failed: {exc}"
             self._result.errors.append(f"Vertex '{vertex.id}': {exc}")
+            self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error", "error": str(exc)})
             return
 
-        # 并发触发所有出边
-        edge_tasks = [
-            asyncio.create_task(self._fire_edge(e), name=f"edge_{e.id}")
-            for e in outgoing
-        ]
+        outgoing = self.graph.get_outgoing_edges(vertex.id)
+        if not outgoing:
+            vertex.state = VertexState.DONE
+            logger.info("[Executor] Vertex '%s' is a sink → DONE", vertex.id)
+            self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "done"})
+            return
+
+        # Fire edges concurrently
+        edge_tasks = []
+        for e in outgoing:
+            task = asyncio.create_task(self._fire_edge(e), name=f"edge_{e.id}")
+            self.active_edge_tasks[e.id] = task
+            edge_tasks.append(task)
+            
         results = await asyncio.gather(*edge_tasks, return_exceptions=True)
 
-        # 汇总每条边的执行结果，判断是否有失败
         ok = True
         for edge, res in zip(outgoing, results):
             if isinstance(res, Exception):
@@ -257,53 +465,82 @@ class Executor:
                 ok = False
 
         if ok:
-            vertex.state = VertexState.DONE
-            logger.debug("[Executor] Vertex '%s' → DONE", vertex.id)
+            # A concurrent loop-back edge may have already reset this vertex
+            # to READY (re-entry) while we were in asyncio.gather.
+            # If so, honour the re-entry — do NOT overwrite with DONE.
+            if vertex.state == VertexState.AWAITING_EDGES:
+                vertex.state = VertexState.DONE
+                logger.info("[Executor] Vertex '%s' → DONE", vertex.id)
+                self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "done"})
+            else:
+                logger.info(
+                    "[Executor] Vertex '%s' gather done; state already=%s (loop re-entry detected)",
+                    vertex.id, vertex.state.value,
+                )
+                self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": vertex.state.value})
         else:
-            # 任一出边失败 => 顶点进入 ERROR
             vertex.state = VertexState.ERROR
             vertex.error_message = "One or more outgoing edges failed"
             logger.error("[Executor] Vertex '%s' → ERROR", vertex.id)
+            self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error"})
 
     async def _fire_edge(self, edge: Edge) -> Any:
-        """Execute one edge, bounded by the concurrency semaphore.
-
-        执行一条边，受并发信号量限流。
-        """
+        """Execute one edge, bounded by the concurrency semaphore."""
         async with self._semaphore:
+            self._emit("edge_started", edge_id=edge.id, payload={"source": edge.source_id, "destination": edge.destination_id})
             src = self.graph.vertices[edge.source_id]
             dst = self.graph.vertices[edge.destination_id]
-            result = await edge.execute(src, dst, self.pi_agent)
-            self._result.edge_results[edge.id] = result
+            result = await edge.execute(
+                src,
+                dst,
+                self.agents,
+                memory=self.memory,
+                telemetry=self.telemetry,
+            )
+            edge_metrics = self.telemetry.edge_metrics.get(edge.id)
+            metrics_payload = edge_metrics.to_dict() if edge_metrics else None
+
+            if edge.aborted:
+                self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
+                self._emit("edge_aborted", edge_id=edge.id, payload={"reason": edge.abort_reason})
+            else:
+                self._result.edge_results[edge.id] = result
+                self._emit("edge_completed", edge_id=edge.id, payload={
+                    "result": repr(result)[:100],
+                    "telemetry": metrics_payload,
+                })
             return result
 
     async def _collect_results(self):
-        """Snapshot every vertex's final state and data.
+        """Snapshot every vertex's final state, data, telemetry metrics, and memory state."""
+        self._result.metrics = self.telemetry.get_total_metrics()
+        self._result.memory_snapshot = await self.memory.get_all()
 
-        快照每个顶点的最终状态与数据。
-        """
         for v in self.graph.vertices.values():
             data = await v.get_all_data()
-            # 把 (data_id, (tags...)) 键转换为 "data_id:tag1,tag2" 便于阅读
             self._result.vertex_results[v.id] = {
                 "state": v.state.value,
                 "data": {
-                    f"{k[0]}:{','.join(k[1])}" if k[1] else str(k[0]): val
-                    for k, val in data.items()
+                    str(k): val for k, val in data.items()
                 },
                 "error": v.error_message,
+                "abort_reason": v.abort_reason,
+                "iterations": v.iteration_count,
             }
+        for edge in self.graph.edges.values():
+            if edge.id not in self._result.edge_results:
+                if edge.aborted:
+                    self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
+                elif edge.error:
+                    self._result.edge_results[edge.id] = f"<FAILED: {edge.error}>"
 
     def _log_state_dump(self):
-        """Dump the state of every vertex for debugging.
-
-        输出所有顶点的状态，便于死锁排查。
-        """
-        logger.debug("[Executor] ── state dump ──")
+        """Dump the state of every vertex for debugging."""
+        logger.warning("[Executor] ── state dump ──")
         for v in self.graph.vertices.values():
-            logger.debug(
-                "  [%s] state=%s  in=%d/%d  out=%s",
+            logger.warning(
+                "  [%s] state=%s  in=%d/%d  out=%s  iter=%d",
                 v.id, v.state.value,
                 v._received_input_count, v.required_input_count,
-                v.outgoing_edges,
+                v.outgoing_edges, v.iteration_count,
             )

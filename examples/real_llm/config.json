@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "name": "Real LLM Edge Pipeline",
+    "description": "Demonstrates overriding Edge.execute() to directly hit an OpenAI-compatible endpoint."
+  },
+  "vertices": [
+    {
+      "id": "user_input",
+      "settings": {"type": "source"},
+      "initial_data": [
+        {
+          "channel": "text",
+          "value": "Please write a short haiku about artificial intelligence."
+        }
+      ]
+    },
+    {
+      "id": "llm_output",
+      "settings": {"type": "sink"}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_real_llm",
+      "source": "user_input",
+      "destination": "llm_output",
+      "channel": "text",
+      "prompt": "You are a creative poet.",
+      "model": "hy3-free"
+    }
+  ]
+}

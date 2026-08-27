@@ -1,4 +1,4 @@
-"""Tests for framework.edge (data keyed by source edge ID)."""
+"""Tests for framework.edge."""
 
 import asyncio
 import os
@@ -9,8 +9,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from framework.edge import Edge
-from framework.vertex import Vertex, DataRejectedError
-from framework.pi_agent import MockPIAgent
+from framework.vertex import Vertex, DataRejectedError, EdgeSignal
+from framework.agents import MockAgent
 
 
 # ── construction ─────────────────────────────────────────────────
@@ -20,11 +20,14 @@ class TestEdgeConstruction:
         assert e.id == "e1"
         assert e.source_id == "src"
         assert e.destination_id == "dst"
+        assert e.channel == "default"
         assert e.completed is False
         assert e.error is None
 
     def test_custom_fields(self):
-        e = Edge("e2", "a", "b", prompt="do it", model="gpt-4", settings={"k": "v"})
+        e = Edge("e2", "a", "b", channel="msg", 
+                 prompt="do it", model="gpt-4", settings={"k": "v"})
+        assert e.channel == "msg"
         assert e.prompt == "do it"
         assert e.model == "gpt-4"
         assert e.settings == {"k": "v"}
@@ -34,18 +37,17 @@ class TestEdgeConstruction:
 class TestEdgeExecution:
     @pytest.mark.asyncio
     async def test_basic_execute(self, mock_agent):
-        src = Vertex("src", initial_data=[{"value": "hi"}])
+        src = Vertex("src", initial_data=[{"data_id": "d", "tags": [], "value": "hi"}])
         dst = Vertex("dst")
         dst.required_input_count = 1
         dst.incoming_edges = ["e1"]
 
-        e = Edge("e1", "src", "dst", prompt="process", model="mock")
+        e = Edge("e1", "src", "dst", channel="d", prompt="process", model="mock")
         result = await e.execute(src, dst, mock_agent)
 
         assert e.completed
         assert result is not None
-        # 结果以本边 ID "e1" 为键写入目标
-        assert await dst.get("e1") is not None
+        assert await dst.fetch_data(channel="d") is not None
 
     @pytest.mark.asyncio
     async def test_none_data_propagates(self, mock_agent):
@@ -55,18 +57,20 @@ class TestEdgeExecution:
         dst.required_input_count = 1
         dst.incoming_edges = ["e"]
 
-        e = Edge("e", "src", "dst")
+        e = Edge("e", "src", "dst", channel="missing")
         result = await e.execute(src, dst, mock_agent)
         assert e.completed
 
     @pytest.mark.asyncio
     async def test_execute_with_dict_data(self, mock_agent):
-        src = Vertex("src", initial_data=[{"value": {"key": "val"}}])
+        src = Vertex("src", initial_data=[
+            {"data_id": "j", "tags": [], "value": {"key": "val"}}
+        ])
         dst = Vertex("dst")
         dst.required_input_count = 1
         dst.incoming_edges = ["e"]
 
-        e = Edge("e", "src", "dst", prompt="p", model="m")
+        e = Edge("e", "src", "dst", channel="j", prompt="p", model="m")
         result = await e.execute(src, dst, mock_agent)
         assert e.completed
         assert isinstance(result, dict)
@@ -77,10 +81,10 @@ class TestEdgeExecution:
         def boom(d, p, m, s):
             raise RuntimeError("agent error")
 
-        src = Vertex("src", initial_data=[{"value": "x"}])
+        src = Vertex("src", initial_data=[{"data_id": "d", "value": "x"}])
         dst = Vertex("dst")
-        agent = MockPIAgent(response_fn=boom)
-        e = Edge("e", "src", "dst")
+        agent = MockAgent(response_fn=boom)
+        e = Edge("e", "src", "dst", channel="d", prompt="trigger")
 
         with pytest.raises(RuntimeError, match="agent error"):
             await e.execute(src, dst, agent)
@@ -103,18 +107,18 @@ class TestEdgeScripts:
         )
         from framework.script_loader import load_script
 
-        src = Vertex("src", initial_data=[{"value": "x"}])
+        src = Vertex("src", initial_data=[{"data_id": "d", "value": "x"}])
         dst = Vertex("dst")
         dst.required_input_count = 1
         dst.incoming_edges = ["e"]
 
-        e = Edge("e", "src", "dst")
+        e = Edge("e", "src", "dst", channel="d")
         e.set_script_module(load_script(str(script)))
 
         result = await e.execute(src, dst, echo_agent)
         # echo_agent returns data unchanged, so result = post_process(pre_process("x"))
         assert result == "PRE:x:POST"
-        assert await dst.get("e") == "PRE:x:POST"
+        assert await dst.fetch_data(channel="d") == "PRE:x:POST"
 
 
 # ── reset ────────────────────────────────────────────────────────
