@@ -69,6 +69,8 @@ def _snapshot_vertex(v: Vertex) -> Dict:
         "error":                     v.error_message,
         "abort_reason":              v.abort_reason,
         "iteration_count":           v.iteration_count,
+        "require_approval":          v._require_approval,
+        "approved":                  v._approved,
         "completed_incoming_edges":  list(v.completed_incoming_edges),
         "aborted_incoming_edges":    list(v.aborted_incoming_edges),
     }
@@ -89,55 +91,31 @@ def _snapshot_edge(e) -> Dict:
 # ---------------------------------------------------------------------------
 
 class HumanGateVertex(Vertex):
-    """A vertex that pauses execution and waits for human approval.
+    """A vertex that pauses execution in PAUSED state and waits for human approval.
 
-    The :class:`CheckpointedExecutor` detects this class and awaits
-    ``_approval_event`` before firing outgoing edges.
+    This is a convenience subclass of :class:`~framework.vertex.Vertex` with
+    ``require_approval=True`` enabled by default.
 
     Lifecycle:
-      1. Vertex becomes READY (all inputs received).
-      2. Executor saves a checkpoint and blocks on :attr:`_approval_event`.
+      1. Vertex receives all inputs and transitions to ``VertexState.PAUSED``.
+      2. Executor saves a checkpoint (e.g. status='awaiting_approval').
       3. External code calls :meth:`approve` (optionally supplying replacement data).
-      4. Executor resumes, fires outgoing edges, vertex settles DONE.
+      4. Vertex transitions to ``VertexState.READY``, executor fires outgoing edges, vertex settles DONE.
 
     Example::
 
         gate = g.vertices["quality_check"]
-        run_task = asyncio.create_task(executor.run())
-
-        # ... human reviews the data ...
+        # when paused:
         gate.approve()           # or gate.approve({"decision": "accept"})
-        result = await run_task
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Set when waiting for external approval
-        self._approval_event: asyncio.Event = asyncio.Event()
-        # Set to True once approved (so resume skips the gate)
-        self._approved: bool = False
-
-    def approve(self, approved_data: Optional[Dict] = None) -> None:
-        """Release the gate and allow execution to continue.
-
-        Args:
-            approved_data: Optional dict of ``{channel: value}`` to merge into
-                           the vertex's data store before outgoing edges fire.
-        """
-        if approved_data:
-            for channel, value in approved_data.items():
-                self._data_store[str(channel)] = value
-        self._approved = True
-        self._approval_event.set()
-        logger.info("[HumanGateVertex:%s] ✓ Approved", self.id)
-
-    def reset(self):
-        super().reset()
-        self._approved = False
-        self._approval_event.clear()
+        self._require_approval = True
 
     def __repr__(self):
-        status = "approved" if self._approved else "pending"
+        status = "approved" if self._approved else ("paused" if self._state == VertexState.PAUSED else "pending")
+        return f"HumanGateVertex(id={self.id!r}, state={self.state.value}, approval={status})"
         return f"HumanGateVertex(id={self.id!r}, state={self.state.value}, approval={status})"
 
 
@@ -195,8 +173,17 @@ class CheckpointedExecutor(Executor):
 
         result = await super().run()
 
-        final_status = "completed" if result.success else "failed"
-        self.store.update_run_status(self.run_id, final_status)
+        # Check if execution paused at any PAUSED vertex
+        paused_vertices = [v for v in self.graph.vertices.values() if v.state == VertexState.PAUSED]
+        if paused_vertices:
+            for v in paused_vertices:
+                await self._checkpoint(f"vertex:{v.id}:paused")
+            self.store.update_run_status(self.run_id, "awaiting_approval")
+            logger.info("[CheckpointedExecutor] ⏸ Run '%s' paused at %d vertex(es) awaiting approval",
+                        self.run_id, len(paused_vertices))
+        else:
+            final_status = "completed" if result.success else "failed"
+            self.store.update_run_status(self.run_id, final_status)
         return result
 
     # ------------------------------------------------------------------
@@ -250,11 +237,23 @@ class CheckpointedExecutor(Executor):
             if raw_state == VertexState.AWAITING_EDGES.value:
                 raw_state = VertexState.READY.value
 
+            # If external code pre-approved this vertex before resume, honour it
+            already_approved = getattr(v, "_approved", False)
+            if already_approved and raw_state == VertexState.PAUSED.value:
+                raw_state = VertexState.READY.value
+
             v._state = VertexState(raw_state)
-            v._data_store = dict(vs.get("data", {}))
+            # Restore snapshot data, but preserve any local updates injected via approve(data)
+            restored_data = dict(vs.get("data", {}))
+            restored_data.update(v._data_store)
+            v._data_store = restored_data
             v.error_message = vs.get("error")
             v.abort_reason = vs.get("abort_reason")
             v.iteration_count = vs.get("iteration_count", 0)
+            if "require_approval" in vs:
+                v._require_approval = vs["require_approval"]
+            if not already_approved and "approved" in vs:
+                v._approved = vs["approved"]
             v.completed_incoming_edges = set(vs.get("completed_incoming_edges", []))
             v.aborted_incoming_edges = set(vs.get("aborted_incoming_edges", []))
 
@@ -275,8 +274,11 @@ class CheckpointedExecutor(Executor):
                 )
                 if total > 0 and total_settled >= total:
                     if v.completed_incoming_edges:
-                        v._state = VertexState.READY
-                        v._ready_event.set()
+                        if v._require_approval and not v._approved:
+                            v._state = VertexState.PAUSED
+                        else:
+                            v._state = VertexState.READY
+                            v._ready_event.set()
                     else:
                         v._state = VertexState.ABORTED
                         v._ready_event.set()
@@ -320,34 +322,6 @@ class CheckpointedExecutor(Executor):
     # Override: checkpoint after each vertex
     # ------------------------------------------------------------------
     async def _process_vertex(self, vertex: Vertex):
-        # --- HITL gate detection ---
-        if isinstance(vertex, HumanGateVertex) and not vertex._approved:
-            await self._checkpoint(f"vertex:{vertex.id}:awaiting_approval")
-            self.store.update_run_status(self.run_id, "awaiting_approval")
-            logger.info(
-                "[CheckpointedExecutor] ⏸ HITL gate at '%s' — waiting for approval "
-                "(call vertex.approve() to continue)",
-                vertex.id,
-            )
-            try:
-                await asyncio.wait_for(
-                    vertex._approval_event.wait(),
-                    timeout=self.timeout,
-                )
-            except asyncio.TimeoutError:
-                vertex.state = VertexState.ERROR
-                vertex.error_message = (
-                    f"HITL gate '{vertex.id}' timed out after {self.timeout}s"
-                )
-                self._result.errors.append(vertex.error_message)
-                await self._checkpoint(f"vertex:{vertex.id}:approval_timeout")
-                return
-            self.store.update_run_status(self.run_id, "running")
-            logger.info(
-                "[CheckpointedExecutor] ▶ HITL gate '%s' approved — continuing",
-                vertex.id,
-            )
-
         await super()._process_vertex(vertex)
         await self._checkpoint(f"vertex:{vertex.id}:{vertex.state.value}")
 

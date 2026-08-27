@@ -21,6 +21,7 @@ class VertexState(enum.Enum):
     """States for vertex lifecycle."""
     IDLE = "idle"                # Waiting for inputs
     READY = "ready"              # All inputs received, ready to process
+    PAUSED = "paused"            # Intercepted waiting for human approval / intervention
     AWAITING_EDGES = "awaiting_edges"    # Outgoing edges being fired
     DONE = "done"                # All processing complete
     ABORTED = "aborted"          # Pruned or all inputs aborted
@@ -47,10 +48,13 @@ class Vertex:
     Has a state machine for lifecycle management.
     Supports external scripts for data handling/validation/rejection.
     Supports stateful loop re-entry via ``loop_incoming_edges``.
+    Supports human approval and pause via ``PAUSED`` state and ``approve(data)``.
 
     Methods:
         handle_edge_signal(edge_id, signal, payload, data_id, tags) -> data/bool
         prepare_outputs()  -- runs on_ready hook before outgoing edges fire
+        pause_for_approval() -- requests pausing for human review when ready
+        approve(approved_data) -- approves paused vertex, merging optional data and transitioning to READY
     """
 
     def __init__(
@@ -72,6 +76,10 @@ class Vertex:
         # State management
         self._state = VertexState.IDLE
         self._ready_event = asyncio.Event()
+
+        # Approval / HITL support
+        self._require_approval: bool = bool(self.settings.get("require_approval", False))
+        self._approved: bool = False
 
         # Edge tracking
         self.incoming_edges: List[str] = []   # edge IDs
@@ -106,6 +114,26 @@ class Vertex:
             "[Vertex:%s] Created | settings=%s | script=%s | channels=%s",
             self.id, self.settings, self.script_path, list(self._data_store.keys()),
         )
+
+    # ------------------------------------------------------------------
+    # Approval & HITL API
+    # ------------------------------------------------------------------
+    def pause_for_approval(self) -> None:
+        """Mark this vertex as requiring approval before proceeding to READY."""
+        self._require_approval = True
+        self._approved = False
+        if self._state == VertexState.READY:
+            self.state = VertexState.PAUSED
+        logger.info("[Vertex:%s] Marked for approval (require_approval=True)", self.id)
+
+    def approve(self, approved_data: Optional[Dict] = None) -> None:
+        """Approve a PAUSED (or pending approval) vertex, inject data, and transition to READY."""
+        if approved_data:
+            for channel, value in approved_data.items():
+                self._data_store[str(channel)] = value
+        self._approved = True
+        self.state = VertexState.READY
+        logger.info("[Vertex:%s] ✓ Approved -> state transition to READY", self.id)
 
     # ------------------------------------------------------------------
     # State property
@@ -221,14 +249,17 @@ class Vertex:
                         edge_id,
                     )
 
-                    # If this is the only incoming edge (simple cycle), go READY.
+                    # If this is the only incoming edge (simple cycle), go READY/PAUSED.
                     # Otherwise fall to IDLE and wait for remaining inputs.
                     total_settled = (
                         len(self.completed_incoming_edges)
                         + len(self.aborted_incoming_edges)
                     )
                     if total_settled >= len(self.incoming_edges):
-                        self.state = VertexState.READY
+                        if self._require_approval and not self._approved:
+                            self.state = VertexState.PAUSED
+                        else:
+                            self.state = VertexState.READY
                     # else: remain IDLE, other non-loop edges still pending
                     return True
                 # ── End loop re-entry ─────────────────────────────────────
@@ -254,7 +285,10 @@ class Vertex:
                     is_ready = self._received_input_count >= self.required_input_count
 
                 if is_ready:
-                    self.state = VertexState.READY
+                    if self._require_approval and not self._approved:
+                        self.state = VertexState.PAUSED
+                    else:
+                        self.state = VertexState.READY
             return True
 
         elif signal == EdgeSignal.ABORTED:
@@ -363,6 +397,7 @@ class Vertex:
         """Reset vertex to initial state (for re-runs)."""
         self._state = VertexState.IDLE
         self._ready_event.clear()
+        self._approved = False
         self.completed_incoming_edges.clear()
         self.aborted_incoming_edges.clear()
         self._received_input_count = 0

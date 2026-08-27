@@ -142,7 +142,7 @@ class Executor:
     # Internal
     # ------------------------------------------------------------------
     def _init_sources(self):
-        """Mark source vertices (no incoming edges) as READY.
+        """Mark source vertices (no incoming edges) as READY (or PAUSED if approval required).
 
         In a cyclic graph, vertices whose *only* incoming edges are loop-back
         edges (``edge_id in vertex.loop_incoming_edges``) are treated as
@@ -156,18 +156,22 @@ class Executor:
             ]
             if not non_loop_incoming:
                 # Pure source OR loop-destination with no other inputs
-                v.state = VertexState.READY
-                logger.info("[Executor] Source/loop-boot vertex '%s' → READY", v.id)
+                if v._require_approval and not v._approved:
+                    v.state = VertexState.PAUSED
+                    logger.info("[Executor] Source/loop-boot vertex '%s' → PAUSED (requires approval)", v.id)
+                else:
+                    v.state = VertexState.READY
+                    logger.info("[Executor] Source/loop-boot vertex '%s' → READY", v.id)
 
     async def _loop(self):
-        """Event-driven main loop with stateful-loop support.
+        """Event-driven main loop with stateful-loop and PAUSED support.
 
         Strategy:
         1. Spawn one ``wait_and_process`` task per vertex for the first round.
         2. After each ``asyncio.wait`` iteration, scan for any vertex that has
-           become READY again (loop re-entry) and spawn a fresh
+           become READY again (loop re-entry or approval) and spawn a fresh
            ``_process_ready_vertex`` task for it.
-        3. Exit when all vertices are settled or a deadlock is detected.
+        3. Exit when all vertices are settled, paused, or a deadlock is detected.
         """
         iteration = 0
 
@@ -214,13 +218,13 @@ class Executor:
                 if exc:
                     logger.error("[Executor] Task failed: %s", exc)
 
-            # 1. Terminal check
+            # 1. Terminal check: all vertices are in terminal states or PAUSED
             states = {v.state for v in self.graph.vertices.values()}
-            if states <= {VertexState.DONE, VertexState.ABORTED, VertexState.ERROR}:
-                logger.info("[Executor] All vertices settled, exiting loop")
+            if states <= {VertexState.DONE, VertexState.ABORTED, VertexState.ERROR, VertexState.PAUSED}:
+                logger.info("[Executor] All active work settled or paused, exiting loop")
                 break
 
-            # 2. Loop re-entry: schedule processing for any newly-READY vertex
+            # 2. Loop re-entry / Approval resume: schedule processing for any newly-READY vertex
             #    that doesn't already have an active task.
             for v in self.graph.vertices.values():
                 if v.state == VertexState.READY:
@@ -228,7 +232,7 @@ class Executor:
                     existing = vertex_tasks.get(vid)
                     if existing is None or existing.done():
                         logger.info(
-                            "[Executor] Vertex '%s' READY (loop re-entry #%d) — spawning task",
+                            "[Executor] Vertex '%s' READY (iter #%d) — spawning task",
                             vid, v.iteration_count,
                         )
                         task = asyncio.create_task(
@@ -238,9 +242,13 @@ class Executor:
                         vertex_tasks[vid] = task
                         pending.add(task)
 
-            # 3. Deadlock detection
+            # 3. Deadlock detection: no active tasks running/ready, but non-paused idle vertices remain
             states = {v.state for v in self.graph.vertices.values()}
             if not done and VertexState.READY not in states and VertexState.AWAITING_EDGES not in states:
+                # If there are PAUSED vertices waiting for external approval, it's a pause, not a deadlock
+                if VertexState.PAUSED in states:
+                    logger.info("[Executor] Graph paused at PAUSED vertex (waiting for external approval)")
+                    break
                 self._log_state_dump()
                 msg = "Deadlock – no READY/PROCESSING vertices but graph not settled"
                 logger.error("[Executor] %s", msg)

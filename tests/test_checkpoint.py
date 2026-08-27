@@ -350,11 +350,12 @@ def _make_hitl_graph(config=HITL_CONFIG) -> Graph:
 
 
 class TestHumanGateVertex:
-    def test_approve_sets_event(self):
+    def test_approve_sets_ready(self):
         gate = HumanGateVertex("gate")
-        assert not gate._approval_event.is_set()
+        gate.state = VertexState.PAUSED
+        assert gate.state == VertexState.PAUSED
         gate.approve()
-        assert gate._approval_event.is_set()
+        assert gate.state == VertexState.READY
         assert gate._approved is True
 
     def test_approve_with_data_updates_store(self):
@@ -367,105 +368,80 @@ class TestHumanGateVertex:
         gate.approve()
         gate.reset()
         assert not gate._approved
-        assert not gate._approval_event.is_set()
+        assert gate.state == VertexState.IDLE
+
+    def test_settings_require_approval_on_standard_vertex(self):
+        v = Vertex("v_review", settings={"require_approval": True})
+        assert v._require_approval is True
+        assert v._approved is False
+
+    def test_pause_for_approval_method(self):
+        v = Vertex("v_custom")
+        v.state = VertexState.READY
+        v.pause_for_approval()
+        assert v._require_approval is True
+        assert v.state == VertexState.PAUSED
 
     @pytest.mark.asyncio
-    async def test_hitl_blocks_until_approved(self):
+    async def test_hitl_pauses_execution_and_resumes_on_approve(self):
         """
-        Executor pauses at HumanGateVertex, then continues after approve().
+        Executor runs until HumanGateVertex becomes PAUSED, saves checkpoint, and exits cleanly.
+        Then calling approve() on a resumed executor finishes the pipeline.
         """
         g = _make_hitl_graph()
         gate = g.vertices["review"]
         store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="hitl-test")
+        run_id = "hitl-pause-resume"
 
-        async def approve_after_delay():
-            await asyncio.sleep(0.05)   # yield so executor reaches the gate
-            gate.approve()
+        # Step 1: Initial run -> processes source, then pauses at review
+        ex1 = CheckpointedExecutor(g, MockAgent(), store=store, run_id=run_id)
+        res1 = await ex1.run()
+        assert g.vertices["source"].state == VertexState.DONE
+        assert g.vertices["review"].state == VertexState.PAUSED
+        assert g.vertices["publish"].state == VertexState.IDLE
+        assert store.get_run(run_id)["status"] == "awaiting_approval"
 
-        approver = asyncio.create_task(approve_after_delay())
-        result = await ex.run()
-        await approver
-
-        assert result.success, result.summary()
-        assert g.vertices["source"].state  == VertexState.DONE
-        assert g.vertices["review"].state  == VertexState.DONE
-        assert g.vertices["publish"].state == VertexState.DONE
-
-    @pytest.mark.asyncio
-    async def test_hitl_saves_awaiting_approval_snapshot(self):
-        """
-        A checkpoint with trigger 'awaiting_approval' must be present.
-        """
-        g = _make_hitl_graph()
-        gate = g.vertices["review"]
-        store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="hitl-snap")
-
-        async def approve_later():
-            await asyncio.sleep(0.05)
-            gate.approve()
-
-        asyncio.create_task(approve_later())
-        await ex.run()
-
-        snaps = store.load_all_snapshots("hitl-snap")
+        # Verify paused checkpoint was saved
+        snaps = store.load_all_snapshots(run_id)
         triggers = [s.trigger for s in snaps]
-        assert any("awaiting_approval" in t for t in triggers), \
-            f"No awaiting_approval trigger found in: {triggers}"
+        assert any("paused" in t for t in triggers)
+
+        # Step 2: Human approves and resumes
+        g2 = _make_hitl_graph()
+        g2.vertices["review"].approve({"doc": "human_approved_content"})
+        res2 = await CheckpointedExecutor.resume(run_id, g2, MockAgent(), store=store)
+
+        assert res2.success, res2.summary()
+        assert g2.vertices["review"].state == VertexState.DONE
+        assert g2.vertices["publish"].state == VertexState.DONE
+        assert await g2.vertices["publish"].fetch_data("doc") == "human_approved_content"
+        assert store.get_run(run_id)["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_hitl_with_approved_data(self):
+    async def test_hitl_with_settings_require_approval(self):
         """
-        approve() with data merges into the vertex store before publish fires.
+        Test that a standard Vertex with {"require_approval": True} in settings
+        automatically pauses in PAUSED state when ready.
         """
-        g = _make_hitl_graph()
-        gate = g.vertices["review"]
+        config = {
+            "vertices": [
+                {"id": "A", "initial_data": [{"channel": "val", "value": "init"}]},
+                {"id": "B", "settings": {"require_approval": True}},
+                {"id": "C"},
+            ],
+            "edges": [
+                {"id": "ab", "source": "A", "destination": "B", "channel": "val"},
+                {"id": "bc", "source": "B", "destination": "C", "channel": "val"},
+            ],
+        }
+        g = Graph.from_dict(config)
         store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="hitl-data")
+        run_id = "run-settings-hitl"
 
-        async def approve_with_data():
-            await asyncio.sleep(0.05)
-            gate.approve(approved_data={"doc": "approved-final"})
-
-        asyncio.create_task(approve_with_data())
-        result = await ex.run()
-
-        assert result.success
-        publish_data = await g.vertices["publish"].fetch_data("doc")
-        assert publish_data == "approved-final"
-
-    @pytest.mark.asyncio
-    async def test_hitl_timeout_marks_error(self):
-        """
-        When approval never comes within timeout, vertex goes ERROR.
-        """
-        g = _make_hitl_graph()
-        store = _mem_store()
-        # Very short timeout so the test doesn't hang
-        ex = CheckpointedExecutor(
-            g, MockAgent(), store=store, run_id="hitl-timeout", timeout=0.1
-        )
-        result = await ex.run()
-
-        assert not result.success
-        assert g.vertices["review"].state == VertexState.AWAITING_EDGES
-
-    @pytest.mark.asyncio
-    async def test_hitl_status_set_to_awaiting_approval(self):
-        g = _make_hitl_graph()
-        gate = g.vertices["review"]
-        store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="hitl-status")
-
-        status_at_gate = {}
-
-        async def check_and_approve():
-            await asyncio.sleep(0.05)
-            status_at_gate["s"] = store.get_run("hitl-status")["status"]
-            gate.approve()
-
-        asyncio.create_task(check_and_approve())
+        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id=run_id)
         await ex.run()
 
-        assert status_at_gate.get("s") == "awaiting_approval"
+        assert g.vertices["A"].state == VertexState.DONE
+        assert g.vertices["B"].state == VertexState.PAUSED
+        assert g.vertices["C"].state == VertexState.IDLE
+        assert store.get_run(run_id)["status"] == "awaiting_approval"
