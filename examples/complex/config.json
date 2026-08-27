@@ -9,13 +9,11 @@
       "settings": {"type": "source", "label": "Primary Input"},
       "initial_data": [
         {
-          "data_id": "text",
-          "tags": ["raw"],
+          "channel": "text",
           "value": "The quick brown fox jumps over the lazy dog. AI is transforming every industry."
         },
         {
-          "data_id": "text",
-          "tags": ["original"],
+          "channel": "text",
           "value": "The quick brown fox jumps over the lazy dog. AI is transforming every industry."
         }
       ]
@@ -25,8 +23,7 @@
       "settings": {"type": "source", "label": "Context Input"},
       "initial_data": [
         {
-          "data_id": "text",
-          "tags": ["context"],
+          "channel": "text",
           "value": "Focus on technology and innovation themes."
         }
       ]
@@ -51,8 +48,7 @@
       "id": "e1",
       "source": "input_a",
       "destination": "transform",
-      "data_id": "text",
-      "tags": ["raw"],
+      "channel": "text",
       "prompt": "Analyze the following text for key themes:",
       "model": "gemini-pro"
     },
@@ -60,8 +56,7 @@
       "id": "e2",
       "source": "input_b",
       "destination": "transform",
-      "data_id": "text",
-      "tags": ["context"],
+      "channel": "text",
       "prompt": "Extract relevant context from:",
       "model": "gemini-flash"
     },
@@ -69,8 +64,7 @@
       "id": "e3",
       "source": "transform",
       "destination": "merge",
-      "data_id": "result",
-      "tags": ["analysis"],
+      "channel": "result",
       "prompt": "Combine analysis results into a coherent summary:",
       "model": "gemini-pro",
       "script": "../scripts/prefix_handler.py",
@@ -80,8 +74,7 @@
       "id": "e4",
       "source": "input_a",
       "destination": "merge",
-      "data_id": "text",
-      "tags": ["original"],
+      "channel": "text",
       "prompt": "Format the original text for reference:",
       "model": "gemini-flash"
     },
@@ -89,8 +82,7 @@
       "id": "e5",
       "source": "merge",
       "destination": "output",
-      "data_id": "final",
-      "tags": ["report"],
+      "channel": "final",
       "prompt": "Generate a final report combining all inputs:",
       "model": "gemini-pro"
     }

@@ -8,8 +8,7 @@
       "id": "UserPromptVertex",
       "initial_data": [
         {
-          "data_id": "request",
-          "tags": ["user"],
+          "channel": "request",
           "value": {
             "intent": "code_generation",
             "prompt": "Write a Python quicksort algorithm"
@@ -33,8 +32,7 @@
       "type": "gate",
       "source": "UserPromptVertex",
       "destination": "ImageProcessingVertex",
-      "data_id": "request",
-      "tags": ["user"],
+      "channel": "request",
       "settings": {
         "match": {
           "intent": "image_generation"
@@ -46,8 +44,7 @@
       "type": "gate",
       "source": "UserPromptVertex",
       "destination": "CodeProcessingVertex",
-      "data_id": "request",
-      "tags": ["user"],
+      "channel": "request",
       "settings": {
         "match": {
           "intent": "code_generation"
@@ -58,8 +55,7 @@
       "id": "image_to_sink",
       "source": "ImageProcessingVertex",
       "destination": "ResponseCollectorVertex",
-      "data_id": "request",
-      "tags": ["user"],
+      "channel": "request",
       "prompt": "Generate image dalle prompt for: ",
       "model": "image-model"
     },
@@ -67,8 +63,7 @@
       "id": "code_to_sink",
       "source": "CodeProcessingVertex",
       "destination": "ResponseCollectorVertex",
-      "data_id": "request",
-      "tags": ["user"],
+      "channel": "request",
       "prompt": "Write high performance clean code: ",
       "model": "code-model"
     }

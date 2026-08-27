@@ -26,7 +26,7 @@ def source_vertex():
         vertex_id="src",
         settings={"type": "source"},
         initial_data=[
-            {"data_id": "text", "tags": ["en"], "value": "Hello world"},
+            {"channel": "text", "value": "Hello world"},
         ],
     )
 
@@ -115,8 +115,8 @@ def diamond_config() -> Dict:
             {
                 "id": "A",
                 "initial_data": [
-                    {"data_id": "v", "tags": ["t1"], "value": "start"},
-                    {"data_id": "v", "tags": ["t2"], "value": "start"},
+                    {"channel": "v1", "value": "start"},
+                    {"channel": "v2", "value": "start"},
                 ],
             },
             {"id": "B"},

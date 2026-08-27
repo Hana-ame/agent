@@ -6,7 +6,7 @@ Hooks:
 """
 
 
-def on_receive(data, data_id, tags, settings):
+def on_receive(data, channel, settings):
     """Validate incoming data; reject if too short."""
     min_len = settings.get("min_length", 3)
     if isinstance(data, str) and len(data) < min_len:

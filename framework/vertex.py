@@ -142,12 +142,11 @@ class Vertex:
         edge_id: str,
         signal: EdgeSignal,
         payload: Any = None,
-        data_id: str = "default",
-        tags: Optional[List[str]] = None,
+        channel: str = "default",
     ) -> Any:
         """Unified method for all edge-to-vertex and vertex-to-edge communication."""
         if signal == EdgeSignal.READ:
-            key = self._make_key(data_id, tags)
+            key = self._make_key(channel)
             async with self._lock:
                 data = self._data_store.get(key)
             logger.debug("[Vertex:%s] READ by edge '%s' %s -> %s", self.id, edge_id, key, repr(data)[:120])
@@ -181,13 +180,13 @@ class Vertex:
 
         elif signal == EdgeSignal.COMPLETED:
             data = payload
-            key = self._make_key(data_id, tags)
+            key = self._make_key(channel)
             logger.debug("[Vertex:%s] COMPLETED %s <- %s", self.id, key, repr(data)[:120])
 
             # --- run vertex script on_receive hook ---
             if hasattr(self, "on_receive") and callable(getattr(self, "on_receive")):
                 try:
-                    data = self.on_receive(data, data_id, tags or [], self.settings)
+                    data = self.on_receive(data, channel, self.settings)
                     logger.debug("[Vertex:%s] self.on_receive returned: %s", self.id, repr(data)[:120])
                 except Exception as exc:
                     logger.warning("[Vertex:%s] self.on_receive REJECTED data: %s", self.id, exc)
@@ -195,7 +194,7 @@ class Vertex:
             elif self._script_module and hasattr(self._script_module, "on_receive"):
                 try:
                     data = self._script_module.on_receive(
-                        data, data_id, tags or [], self.settings
+                        data, channel, self.settings
                     )
                     logger.debug(
                         "[Vertex:%s] on_receive returned: %s", self.id, repr(data)[:120]
@@ -254,17 +253,7 @@ class Vertex:
                 if outputs and isinstance(outputs, dict):
                     async with self._lock:
                         for key, value in outputs.items():
-                            if isinstance(key, tuple) and len(key) == 2:
-                                data_id = key[0]
-                                raw_tags = key[1]
-                                tags = (
-                                    list(raw_tags)
-                                    if isinstance(raw_tags, (tuple, list))
-                                    else [raw_tags]
-                                )
-                                store_key = self._make_key(data_id, tags)
-                            else:
-                                store_key = self._make_key(str(key))
+                            store_key = self._make_key(str(key))
                             self._data_store[store_key] = value
                             logger.debug(
                                 "[Vertex:%s] self.on_ready set %s = %s",
@@ -281,18 +270,7 @@ class Vertex:
                 if outputs and isinstance(outputs, dict):
                     async with self._lock:
                         for key, value in outputs.items():
-                            if isinstance(key, tuple) and len(key) == 2:
-                                data_id = key[0]
-                                raw_tags = key[1]
-                                tags = (
-                                    list(raw_tags)
-                                    if isinstance(raw_tags, (tuple, list))
-                                    else [raw_tags]
-                                )
-                                store_key = self._make_key(data_id, tags)
-                            else:
-                                store_key = self._make_key(str(key))
-                                value = value
+                            store_key = self._make_key(str(key))
                             self._data_store[store_key] = value
                             logger.debug(
                                 "[Vertex:%s] on_ready set %s = %s",

@@ -9,7 +9,7 @@
       "settings": {"type": "source"},
       "initial_data": [
         {
-          "data_id": "text",
+          "channel": "text",
           "value": "请写一首关于人工智能的简短俳句。"
         }
       ]
@@ -24,7 +24,7 @@
       "id": "e_real_llm",
       "source": "user_input",
       "destination": "llm_output",
-      "data_id": "text",
+      "channel": "text",
       "prompt": "You are a creative poet.",
       "model": "hy3-free"
     }

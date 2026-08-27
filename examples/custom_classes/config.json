@@ -8,7 +8,7 @@
       "id": "source_node",
       "settings": {"type": "source"},
       "initial_data": [
-        {"data_id": "text", "value": "Initial raw data."}
+        {"channel": "text", "value": "Initial raw data."}
       ]
     },
     {

@@ -18,8 +18,7 @@ class Edge:
         id:              Unique edge identifier.
         source_id:       Source vertex ID.
         destination_id:  Destination vertex ID.
-        data_id:         Data key used for reading and writing data.
-        tags:            Tag list used for reading and writing data.
+        channel:         Data channel for reading and writing data.
         prompt:          Prompt sent to the PI Agent.
         model:           Model identifier for the PI Agent.
         settings:        Arbitrary settings dict passed to agent & scripts.
@@ -31,8 +30,7 @@ class Edge:
         edge_id: str,
         source_id: str,
         destination_id: str,
-        data_id: str = "default",
-        tags: Optional[List[str]] = None,
+        channel: str = "default",
         prompt: str = "",
         model: str = "default",
         settings: Optional[Dict] = None,
@@ -41,8 +39,7 @@ class Edge:
         self.id = edge_id
         self.source_id = source_id
         self.destination_id = destination_id
-        self.data_id = data_id
-        self.tags = tags or []
+        self.channel = channel
         self.prompt = prompt
         self.model = model
         self.settings = settings or {}
@@ -57,8 +54,8 @@ class Edge:
         self.error: Optional[str] = None
 
         logger.info(
-            "[Edge:%s] Created %s -> %s | data_id=%s tags=%s model=%s",
-            self.id, source_id, destination_id, data_id, self.tags, model,
+            "[Edge:%s] Created %s -> %s | channel=%s model=%s",
+            self.id, source_id, destination_id, self.channel, model,
         )
 
     def set_script_module(self, module):
@@ -132,7 +129,7 @@ class Edge:
         """
         logger.info(
             "[Edge:%s] EXECUTE  %s -[%s:%s]-> %s",
-            self.id, self.source_id, self.data_id, self.tags, self.destination_id,
+            self.id, self.source_id, self.channel, self.destination_id,
         )
 
         try:
@@ -145,7 +142,7 @@ class Edge:
                 return None
 
             # 1 — Read from source
-            data = await source_vertex.handle_edge_signal(self.id, EdgeSignal.READ, data_id=self.data_id, tags=self.tags)
+            data = await source_vertex.handle_edge_signal(self.id, EdgeSignal.READ, channel=self.channel)
             logger.debug("[Edge:%s] Source data: %s", self.id, repr(data)[:200])
 
             # 1.5 — Guard (evaluate condition)
@@ -189,10 +186,10 @@ class Edge:
                 logger.debug("[Edge:%s] After module post_process: %s", self.id, repr(result)[:200])
 
             # 5 — Write to destination
-            await dest_vertex.handle_edge_signal(self.id, EdgeSignal.COMPLETED, payload=result, data_id=self.data_id, tags=self.tags)
+            await dest_vertex.handle_edge_signal(self.id, EdgeSignal.COMPLETED, payload=result, channel=self.channel)
             logger.info(
                 "[Edge:%s] Delivered to '%s' | key=(%s, %s)",
-                self.id, self.destination_id, self.data_id, self.tags,
+                self.id, self.destination_id, self.channel,
             )
 
             self.completed = True

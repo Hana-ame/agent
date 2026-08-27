@@ -6,7 +6,7 @@ Hooks:
 """
 
 
-def on_receive(data, data_id, tags, settings):
+def on_receive(data, channel, settings):
     """Convert incoming string data to uppercase."""
     if isinstance(data, str):
         return data.upper()

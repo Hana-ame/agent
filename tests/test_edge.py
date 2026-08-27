@@ -20,16 +20,14 @@ class TestEdgeConstruction:
         assert e.id == "e1"
         assert e.source_id == "src"
         assert e.destination_id == "dst"
-        assert e.data_id == "default"
-        assert e.tags == []
+        assert e.channel == "default"
         assert e.completed is False
         assert e.error is None
 
     def test_custom_fields(self):
-        e = Edge("e2", "a", "b", data_id="msg", tags=["t1", "t2"],
+        e = Edge("e2", "a", "b", channel="msg", 
                  prompt="do it", model="gpt-4", settings={"k": "v"})
-        assert e.data_id == "msg"
-        assert e.tags == ["t1", "t2"]
+        assert e.channel == "msg"
         assert e.prompt == "do it"
         assert e.model == "gpt-4"
         assert e.settings == {"k": "v"}
@@ -44,12 +42,12 @@ class TestEdgeExecution:
         dst.required_input_count = 1
         dst.incoming_edges = ["e1"]
 
-        e = Edge("e1", "src", "dst", data_id="d", prompt="process", model="mock")
+        e = Edge("e1", "src", "dst", channel="d", prompt="process", model="mock")
         result = await e.execute(src, dst, mock_agent)
 
         assert e.completed
         assert result is not None
-        assert await dst.handle_edge_signal("", EdgeSignal.READ, data_id="d") is not None
+        assert await dst.handle_edge_signal("", EdgeSignal.READ, channel="d") is not None
 
     @pytest.mark.asyncio
     async def test_none_data_propagates(self, mock_agent):
@@ -59,7 +57,7 @@ class TestEdgeExecution:
         dst.required_input_count = 1
         dst.incoming_edges = ["e"]
 
-        e = Edge("e", "src", "dst", data_id="missing")
+        e = Edge("e", "src", "dst", channel="missing")
         result = await e.execute(src, dst, mock_agent)
         assert e.completed
 
@@ -72,7 +70,7 @@ class TestEdgeExecution:
         dst.required_input_count = 1
         dst.incoming_edges = ["e"]
 
-        e = Edge("e", "src", "dst", data_id="j", prompt="p", model="m")
+        e = Edge("e", "src", "dst", channel="j", prompt="p", model="m")
         result = await e.execute(src, dst, mock_agent)
         assert e.completed
         assert isinstance(result, dict)
@@ -86,7 +84,7 @@ class TestEdgeExecution:
         src = Vertex("src", initial_data=[{"data_id": "d", "value": "x"}])
         dst = Vertex("dst")
         agent = MockAgent(response_fn=boom)
-        e = Edge("e", "src", "dst", data_id="d", prompt="trigger")
+        e = Edge("e", "src", "dst", channel="d", prompt="trigger")
 
         with pytest.raises(RuntimeError, match="agent error"):
             await e.execute(src, dst, agent)
@@ -114,13 +112,13 @@ class TestEdgeScripts:
         dst.required_input_count = 1
         dst.incoming_edges = ["e"]
 
-        e = Edge("e", "src", "dst", data_id="d")
+        e = Edge("e", "src", "dst", channel="d")
         e.set_script_module(load_script(str(script)))
 
         result = await e.execute(src, dst, echo_agent)
         # echo_agent returns data unchanged, so result = post_process(pre_process("x"))
         assert result == "PRE:x:POST"
-        assert await dst.handle_edge_signal("", EdgeSignal.READ, data_id="d") == "PRE:x:POST"
+        assert await dst.handle_edge_signal("", EdgeSignal.READ, channel="d") == "PRE:x:POST"
 
 
 # ── reset ────────────────────────────────────────────────────────
