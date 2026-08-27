@@ -179,30 +179,35 @@ result = executor._result
 
 将敏感节点配置为需审批，引擎执行到该节点时会自动挂起并打上快照：
 
+将敏感节点配置为需审批，引擎执行到该节点时会自动挂起并打上快照：
+
+```jsonc
+// hitl_config.json
+{
+  "vertices": [
+    {"id": "Order", "initial_data": [{"channel": "amt", "value": 50000}]},
+    {"id": "PaymentRiskGate", "settings": {"require_approval": true}}, // 挂起点
+    {"id": "BankTransfer"}
+  ],
+  "edges": [
+    {"id": "e1", "source": "Order", "destination": "PaymentRiskGate", "channel": "amt"},
+    {"id": "e2", "source": "PaymentRiskGate", "destination": "BankTransfer", "channel": "amt"}
+  ]
+}
+```
+
 ```python
 from framework import Graph, CheckpointedExecutor, SQLiteStateStore, MockAgent
 
 store = SQLiteStateStore("my_workflow.db")
 
-config = {
-    "vertices": [
-        {"id": "Order", "initial_data": [{"channel": "amt", "value": 50000}]},
-        {"id": "PaymentRiskGate", "settings": {"require_approval": True}}, # 挂起点
-        {"id": "BankTransfer"}
-    ],
-    "edges": [
-        {"id": "e1", "source": "Order", "destination": "PaymentRiskGate", "channel": "amt"},
-        {"id": "e2", "source": "PaymentRiskGate", "destination": "BankTransfer", "channel": "amt"}
-    ]
-}
-
 # 阶段 1：启动执行，自动暂停在 PaymentRiskGate
-graph = Graph.from_dict(config)
+graph = Graph.from_json_file("hitl_config.json")
 executor = CheckpointedExecutor(graph, store=store, agents=MockAgent())
 await executor.run()  # 状态变为 awaiting_approval
 
 # 阶段 2：人工审查并批准
-resumed_graph = Graph.from_dict(config)
+resumed_graph = Graph.from_json_file("hitl_config.json")
 gate = resumed_graph.vertices["PaymentRiskGate"]
 gate.approve({"auth_by": "Compliance_Manager", "auth_code": "AUTH-2026"})
 
@@ -242,28 +247,34 @@ resume_executor = await CheckpointedExecutor.resume(
 
 无需在复杂的长链路中层层透传参数，利用 `MemoryStore` 与 `TelemetryTracker`：
 
+```jsonc
+// memory_config.json
+{
+  "vertices": [{"id": "A", "initial_data": [{"channel": "x", "value": 1}]}, {"id": "B"}],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "A",
+      "destination": "B",
+      "channel": "x",
+      "model": "gemini-1.5-pro",
+      "settings": {
+        "memory_write": {"auth_token": "global_auth_token"}, // 写入全局内存
+        "memory_read": ["user_profile"]                      // 读取全局内存
+      }
+    }
+  ]
+}
+```
+
 ```python
 from framework import Graph, Executor, MemoryStore
 
-config = {
-    "vertices": [{"id": "A", "initial_data": [{"channel": "x", "value": 1}]}, {"id": "B"}],
-    "edges": [
-        {
-            "id": "e1",
-            "source": "A",
-            "destination": "B",
-            "channel": "x",
-            "model": "gemini-1.5-pro",
-            "settings": {
-                "memory_write": {"auth_token": "global_auth_token"}, # 写入全局内存
-                "memory_read": ["user_profile"]                      # 读取全局内存
-            }
-        }
-    ]
-}
-
+# 初始化全局内存注入
 memory = MemoryStore({"user_profile": {"role": "admin"}})
-executor = Executor(Graph.from_dict(config), memory=memory)
+
+graph = Graph.from_json_file("memory_config.json")
+executor = Executor(graph, memory=memory)
 result = await executor.run()
 
 # 查看 Token 与预估成本分析
