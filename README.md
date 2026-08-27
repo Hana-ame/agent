@@ -148,6 +148,28 @@ Workflows support cyclic graph topologies for iterative refinement. Cycles are v
 ### 4. Real-Time Non-Blocking Event Streaming
 Observe graph execution live using `async for event in executor.stream()` emitting structured `GraphEvent` records without blocking core execution.
 
+## Enterprise-Grade Features (v3.0)
+
+### 1. Hierarchical Nested Sub-Graphs (`SubgraphVertex`)
+Encapsulate multi-agent teams as single modular nodes in a parent graph. Features automatic `input_map`/`output_map` translation, namespaced checkpoint persistence, and event bubbling (`subgraph_*`).
+
+### 2. Global Memory & Shared Context (`MemoryStore`)
+A thread-safe key-value bus allowing distant nodes to read and write shared state without routing clutter:
+```jsonc
+{
+  "id": "e_auth",
+  "source": "Login",
+  "destination": "Dashboard",
+  "settings": {
+    "memory_write": { "session_token": "global_session_id" },
+    "memory_read": [ "user_permissions" ]
+  }
+}
+```
+
+### 3. Granular Telemetry & Cost Profiling (`TelemetryTracker`)
+Automatically tracks prompt tokens, completion tokens, execution latency, and estimated dollar costs per edge and workflow-wide with built-in model pricing catalogs (OpenAI, Gemini, Claude).
+
 ## Examples
 
 ```bash
@@ -162,6 +184,9 @@ python examples/run.py examples/conditional_routing/config.json
 
 # Advanced Object-Oriented usage (Custom subclass overrides)
 python examples/run.py examples/custom_classes/config.json
+
+# Nested Sub-Graph delegation
+python examples/subgraph/demo.py
 ```
 *Each example folder contains a dedicated `README.md` tutorial.*
 
@@ -172,7 +197,7 @@ pip install pytest pytest-asyncio
 python -m pytest tests/ -v
 ```
 
-Currently contains **114 fully covered tests**, covering:
+Currently contains **125 fully covered tests**, covering:
 - Actor state machines & `EdgeSignal` unified message passing
 - 5-stage `EdgePipeline` execution & error isolation
 - Declarative threshold control, custom guards, and diamond branch pruning
@@ -180,3 +205,6 @@ Currently contains **114 fully covered tests**, covering:
 - SQLite snapshot persistence, crash recovery, and HITL approval resumes
 - Business-logic retry policies & self-correction prompt reflections
 - Real-time sidecar event streaming and concurrency semaphore limits
+- Hierarchical nested sub-graphs (`SubgraphVertex`) & event bubbling
+- Global shared memory bus (`MemoryStore`), TTLs, and scoped namespaces
+- Token usage tracking, latency benchmarking, and cost profiling

@@ -13,7 +13,9 @@ Stages (run in order by :meth:`run`):
     6. Deliver to destination vertex
 """
 
+import asyncio
 import logging
+import time
 from typing import Any, Dict, Optional
 
 from .vertex import VertexState, EdgeSignal
@@ -211,6 +213,7 @@ class EdgePipeline:
         source_vertex,
         dest_vertex,
         agents,
+        **kwargs,
     ) -> Any:
         """Execute all pipeline stages sequentially and return the final result.
 
@@ -268,6 +271,17 @@ class EdgePipeline:
 
             # 3 — Pre-process
             data = self._run_pre_process(edge_id, data)
+            # --- Memory reads (Pillar A) ---
+            memory = kwargs.get("memory")
+            if memory and isinstance(self.settings, dict):
+                mem_reads = self.settings.get("memory_read", [])
+                if mem_reads:
+                    if isinstance(data, dict):
+                        for m_key in mem_reads:
+                            data[m_key] = await memory.get(m_key)
+                    else:
+                        mem_context = {m_key: await memory.get(m_key) for m_key in mem_reads}
+                        logger.debug("[Pipeline:%s] Injected memory reads: %s", edge_id, mem_context)
 
             # Retry configuration (business logic / self-correction retry)
             retry_policy = self.settings.get("retry_policy", {}) if isinstance(self.settings, dict) else {}
@@ -279,6 +293,10 @@ class EdgePipeline:
             current_prompt = self.prompt
             base_prompt = self.prompt
 
+            t_compute_start = time.monotonic()
+            prompt_tokens_est = 0
+            completion_tokens_est = 0
+
             while True:
                 try:
                     # 4 — Compute (LLM agent or transparent pass-through)
@@ -289,46 +307,73 @@ class EdgePipeline:
                             model=self.model,
                             settings=self.settings,
                         )
-                        logger.debug(
-                            "[Pipeline:%s] LLM result (attempt %d/%d): %s",
-                            edge_id, attempt + 1, max_retries + 1, repr(result)[:200]
-                        )
+                        from .telemetry import estimate_tokens
+                        prompt_tokens_est += estimate_tokens(str(current_prompt) + str(data))
+                        completion_tokens_est += estimate_tokens(str(result))
                     else:
-                        result = data
-                        logger.debug(
-                            "[Pipeline:%s] Pass-through: %s", edge_id, repr(result)[:200]
-                        )
+                        result = data  # Pass-through
 
-                    # 5 — Post-process
+                    # 5 — Post-process (can raise ValueError, KeyError, JSONDecodeError, etc.)
                     result = self._run_post_process(edge_id, result)
-                    break  # Success! Exit retry loop
+                    break
 
                 except Exception as compute_or_hook_exc:
                     attempt += 1
-                    exc_name = compute_or_hook_exc.__class__.__name__
-                    should_retry = (
-                        attempt <= max_retries
-                        and (retry_on is None or exc_name in retry_on or any(issubclass(compute_or_hook_exc.__class__, base) for base in (Exception,) if base.__name__ in retry_on))
-                    )
+                    should_retry = False
+                    if attempt <= max_retries:
+                        if retry_on is None:
+                            should_retry = True
+                        else:
+                            exc_name = compute_or_hook_exc.__class__.__name__
+                            should_retry = exc_name in retry_on or any(
+                                issubclass(compute_or_hook_exc.__class__, base)
+                                for base in [Exception]
+                                if getattr(base, "__name__", "") in retry_on
+                            )
 
                     if should_retry:
                         delay = backoff_factor * (2 ** (attempt - 1))
+                        err_type = compute_or_hook_exc.__class__.__name__
+                        err_detail = str(compute_or_hook_exc)
                         logger.warning(
                             "[Pipeline:%s] Business retry attempt %d/%d after %s: %s. Backing off for %.2fs...",
-                            edge_id, attempt, max_retries, exc_name, compute_or_hook_exc, delay,
+                            edge_id, attempt, max_retries, err_type, err_detail, delay,
                         )
-                        # Construct self-correction prompt feedback
+                        # Inject feedback into prompt for self-correction
                         feedback = (
-                            f"\n\n[SYSTEM FEEDBACK: Your previous output produced a {exc_name}: {compute_or_hook_exc}.\n"
+                            f"\n\n[SYSTEM FEEDBACK: Your previous output produced a {err_type}: {err_detail}.\n"
                             f"Please correct your response and provide a valid output format.]"
                         )
-                        current_prompt = f"{base_prompt}{feedback}" if base_prompt else feedback.strip()
-                        if delay > 0:
-                            import asyncio
-                            await asyncio.sleep(delay)
+                        current_prompt = base_prompt + feedback
+                        await asyncio.sleep(delay)
                     else:
-                        # Re-raise to trigger failure signaling
+                        logger.error(
+                            "[Pipeline:%s] FAILED (no more retries): %s",
+                            edge_id, compute_or_hook_exc, exc_info=True,
+                        )
                         raise compute_or_hook_exc
+
+            # --- Record Telemetry (Pillar B) ---
+            telemetry = kwargs.get("telemetry")
+            if telemetry:
+                latency_ms = (time.monotonic() - t_compute_start) * 1000.0
+                telemetry.record_edge(
+                    edge_id=edge_id,
+                    prompt_tokens=prompt_tokens_est,
+                    completion_tokens=completion_tokens_est,
+                    model=self.model,
+                    latency_ms=latency_ms,
+                )
+
+            # --- Memory writes (Pillar A) ---
+            if memory and isinstance(self.settings, dict):
+                mem_writes = self.settings.get("memory_write", {})
+                if isinstance(mem_writes, dict):
+                    for src_field, target_mem_key in mem_writes.items():
+                        if isinstance(result, dict) and src_field in result:
+                            await memory.set(target_mem_key, result[src_field])
+                        else:
+                            await memory.set(target_mem_key, result)
 
             # 6 — Deliver
             await dest_vertex.receive_signal(

@@ -9,9 +9,13 @@ from .store import SQLiteStateStore, GraphSnapshot
 from .checkpoint import CheckpointedExecutor, HumanGateVertex
 from .script_loader import load_script
 
+from .memory import MemoryStore
+from .telemetry import TelemetryTracker, UsageMetrics, DEFAULT_PRICING, calculate_cost, estimate_tokens
+
 __all__ = [
     'VertexState', 'Vertex', 'EdgeSignal', 'DataRejectedError',
     'EdgePipeline', 'Edge', 'SubgraphVertex', 'Graph', 'Executor', 'ExecutionResult', 'GraphEvent',
+    'MemoryStore', 'TelemetryTracker', 'UsageMetrics', 'DEFAULT_PRICING', 'calculate_cost', 'estimate_tokens',
     'SQLiteStateStore', 'GraphSnapshot',
     'CheckpointedExecutor', 'HumanGateVertex',
     'BaseAgent', 'MockAgent', 'HttpLLMAgent', 'PiAgentRunner',

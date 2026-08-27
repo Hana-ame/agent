@@ -156,7 +156,7 @@ class Edge:
     # ------------------------------------------------------------------
     # Execution
     # ------------------------------------------------------------------
-    async def execute(self, source_vertex, dest_vertex, agents) -> Any:
+    async def execute(self, source_vertex, dest_vertex, agents, **kwargs) -> Any:
         """Run the 5-stage pipeline for this edge.
 
         Delegates entirely to :meth:`EdgePipeline.run`.
@@ -169,6 +169,7 @@ class Edge:
             source_vertex=source_vertex,
             dest_vertex=dest_vertex,
             agents=agents,
+            **kwargs,
         )
 
     # ------------------------------------------------------------------

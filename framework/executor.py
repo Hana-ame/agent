@@ -22,6 +22,8 @@ from .vertex import Vertex, VertexState, EdgeSignal
 from .edge import Edge
 from .graph import Graph
 from .agents import BaseAgent, MockAgent
+from .memory import MemoryStore
+from .telemetry import TelemetryTracker, UsageMetrics
 
 logger = logging.getLogger("vertex_edge_agent.executor")
 
@@ -45,6 +47,8 @@ class ExecutionResult:
         self.edge_results: Dict[str, Any] = {}
         self.errors: List[str] = []
         self.execution_time: float = 0.0
+        self.metrics: Optional[UsageMetrics] = None
+        self.memory_snapshot: Dict[str, Any] = {}
 
     def __repr__(self):
         status = "SUCCESS" if self.success else "FAILED"
@@ -63,8 +67,15 @@ class ExecutionResult:
             f"  Vertices processed: {len(self.vertex_results)}",
             f"  Edges completed: {len(self.edge_results)}",
             f"  Errors: {len(self.errors)}",
-            "=" * 60,
         ]
+        if self.metrics:
+            lines.extend([
+                f"  Prompt Tokens: {self.metrics.prompt_tokens}",
+                f"  Completion Tokens: {self.metrics.completion_tokens}",
+                f"  Total Tokens: {self.metrics.total_tokens}",
+                f"  Estimated Cost: ${self.metrics.cost_usd:.6f}",
+            ])
+        lines.append("=" * 60)
         if self.errors:
             lines.append("  ERRORS:")
             for err in self.errors:
@@ -82,6 +93,11 @@ class ExecutionResult:
         lines.append("  EDGE RESULTS:")
         for eid, val in self.edge_results.items():
             lines.append(f"    [{eid}]  {repr(val)[:100]}")
+        if self.memory_snapshot:
+            lines.append("")
+            lines.append("  GLOBAL MEMORY SNAPSHOT:")
+            for mk, mv in self.memory_snapshot.items():
+                lines.append(f"    • {mk}: {repr(mv)[:100]}")
         lines.append("=" * 60)
         return "\n".join(lines)
 
@@ -95,6 +111,8 @@ class Executor:
         max_concurrency:  Max concurrent edge executions.
         scan_interval:    Seconds between ready-vertex scans.
         timeout:          Overall execution timeout in seconds.
+        memory:           Optional MemoryStore instance for shared cross-vertex context.
+        telemetry:        Optional TelemetryTracker instance for token/cost tracking.
     """
 
     def __init__(
@@ -104,12 +122,16 @@ class Executor:
         max_concurrency: int = 10,
         scan_interval: float = 0.05,
         timeout: Optional[float] = None,
+        memory: Optional[MemoryStore] = None,
+        telemetry: Optional[TelemetryTracker] = None,
     ):
         self.graph = graph
         self.agents = agents or MockAgent()
         self.max_concurrency = max_concurrency
         self.scan_interval = scan_interval
         self.timeout = timeout or 300.0
+        self.memory = memory or MemoryStore()
+        self.telemetry = telemetry or TelemetryTracker()
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._result = ExecutionResult()
         self._event_queue: asyncio.Queue[Optional[GraphEvent]] = asyncio.Queue()
@@ -454,17 +476,32 @@ class Executor:
             self._emit("edge_started", edge_id=edge.id, payload={"source": edge.source_id, "destination": edge.destination_id})
             src = self.graph.vertices[edge.source_id]
             dst = self.graph.vertices[edge.destination_id]
-            result = await edge.execute(src, dst, self.agents)
+            result = await edge.execute(
+                src,
+                dst,
+                self.agents,
+                memory=self.memory,
+                telemetry=self.telemetry,
+            )
+            edge_metrics = self.telemetry.edge_metrics.get(edge.id)
+            metrics_payload = edge_metrics.to_dict() if edge_metrics else None
+
             if edge.aborted:
                 self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
                 self._emit("edge_aborted", edge_id=edge.id, payload={"reason": edge.abort_reason})
             else:
                 self._result.edge_results[edge.id] = result
-                self._emit("edge_completed", edge_id=edge.id, payload={"result": repr(result)[:100]})
+                self._emit("edge_completed", edge_id=edge.id, payload={
+                    "result": repr(result)[:100],
+                    "telemetry": metrics_payload,
+                })
             return result
 
     async def _collect_results(self):
-        """Snapshot every vertex's final state and data."""
+        """Snapshot every vertex's final state, data, telemetry metrics, and memory state."""
+        self._result.metrics = self.telemetry.get_total_metrics()
+        self._result.memory_snapshot = await self.memory.get_all()
+
         for v in self.graph.vertices.values():
             data = await v.get_all_data()
             self._result.vertex_results[v.id] = {
