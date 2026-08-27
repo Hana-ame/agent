@@ -1,14 +1,18 @@
 """Vertex module - Node in the computation graph.
 
-A Vertex stores data keyed by (data_id, tags) tuples, has a state machine
+A Vertex stores data keyed by channel strings, has a state machine
 for lifecycle management, and supports external Python scripts for data
 handling, validation, and rejection.
+
+Stateful loop support: vertices that receive signals from loop-back edges
+(``loop_incoming_edges``) can re-enter READY state on successive iterations,
+bounded by ``max_iterations`` per loop edge.
 """
 
 import asyncio
 import enum
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger("vertex_edge_agent.vertex")
 
@@ -39,9 +43,10 @@ class DataRejectedError(Exception):
 class Vertex:
     """A vertex (node) in the computation graph.
 
-    Stores data keyed by (data_id, tags) tuples.
+    Stores data keyed by channel strings.
     Has a state machine for lifecycle management.
     Supports external scripts for data handling/validation/rejection.
+    Supports stateful loop re-entry via ``loop_incoming_edges``.
 
     Methods:
         handle_edge_signal(edge_id, signal, payload, data_id, tags) -> data/bool
@@ -60,8 +65,8 @@ class Vertex:
         self.script_path = script_path
         self._script_module = None
 
-        # Data store: key = (data_id, tuple(sorted_tags)) -> value
-        self._data_store: Dict[Tuple[str, Tuple[str, ...]], Any] = {}
+        # Data store: key = channel string -> value
+        self._data_store: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
 
         # State management
@@ -75,6 +80,13 @@ class Vertex:
         self.completed_incoming_edges: set = set()
         self.aborted_incoming_edges: set = set()
         self._received_input_count: int = 0
+
+        # Loop support
+        # Maps loop-back edge ID -> max_iterations (0 = unlimited).
+        # Populated by Graph.validate() for cyclic graphs.
+        self.loop_incoming_edges: Dict[str, int] = {}
+        # Total number of times this vertex has re-entered via a loop-back edge.
+        self.iteration_count: int = 0
 
         # Error / Abort info
         self.error_message: Optional[str] = None
@@ -168,6 +180,59 @@ class Vertex:
                     ) from exc
 
             async with self._lock:
+                # ── Loop re-entry ────────────────────────────────────────
+                # The loop-back edge may arrive while the vertex is either:
+                # • DONE       — normal case: previous iteration fully settled
+                # • AWAITING_EDGES — concurrent case: the back-edge was fired
+                #   from a downstream vertex while THIS vertex's own outgoing
+                #   gather is still running (both in-flight simultaneously).
+                # In both cases, treat it as a re-entry signal.
+                if (
+                    edge_id
+                    and edge_id in self.loop_incoming_edges
+                    and self._state in (VertexState.DONE, VertexState.AWAITING_EDGES)
+                ):
+                    max_iter = self.loop_incoming_edges[edge_id]
+
+                    # Check limit BEFORE incrementing — the blocked delivery
+                    # should not count as a re-entry in iteration_count.
+                    if max_iter > 0 and self.iteration_count >= max_iter:
+                        logger.info(
+                            "[Vertex:%s] Loop limit (%d) reached after %d re-entries "
+                            "via edge '%s' — staying %s.",
+                            self.id, max_iter, self.iteration_count, edge_id,
+                            self._state.value,
+                        )
+                        return True  # Stay in current state, loop is exhausted
+
+                    self.iteration_count += 1
+
+                    # Reset per-iteration tracking for the new round
+                    self.completed_incoming_edges.clear()
+                    self.aborted_incoming_edges.clear()
+                    self._received_input_count = 0
+                    self.completed_incoming_edges.add(edge_id)
+                    self._data_store[key] = data
+
+                    logger.info(
+                        "[Vertex:%s] ↺ Loop re-entry (iteration %d/%s) via '%s'",
+                        self.id, self.iteration_count,
+                        max_iter if max_iter > 0 else "∞",
+                        edge_id,
+                    )
+
+                    # If this is the only incoming edge (simple cycle), go READY.
+                    # Otherwise fall to IDLE and wait for remaining inputs.
+                    total_settled = (
+                        len(self.completed_incoming_edges)
+                        + len(self.aborted_incoming_edges)
+                    )
+                    if total_settled >= len(self.incoming_edges):
+                        self.state = VertexState.READY
+                    # else: remain IDLE, other non-loop edges still pending
+                    return True
+                # ── End loop re-entry ─────────────────────────────────────
+
                 self._data_store[key] = data
                 if edge_id:
                     self.completed_incoming_edges.add(edge_id)
@@ -195,6 +260,20 @@ class Vertex:
         elif signal == EdgeSignal.ABORTED:
             logger.debug("[Vertex:%s] ABORTED signal from edge '%s'", self.id, edge_id)
             async with self._lock:
+                # If already settled and this abort is from a loop-back edge,
+                # the loop simply terminated (guard failed or limit reached).
+                # Stay in current state — nothing more to do.
+                if (
+                    edge_id
+                    and edge_id in self.loop_incoming_edges
+                    and self._state in (VertexState.DONE, VertexState.AWAITING_EDGES)
+                ):
+                    logger.info(
+                        "[Vertex:%s] Loop-back edge '%s' aborted — loop terminates cleanly.",
+                        self.id, edge_id,
+                    )
+                    return True
+
                 self.aborted_incoming_edges.add(edge_id)
                 
                 total = len(self.incoming_edges) if self.incoming_edges else self.required_input_count
@@ -215,7 +294,7 @@ class Vertex:
                 self.state = VertexState.ERROR
             return True
 
-    async def get_all_data(self) -> Dict[Tuple[str, Tuple[str, ...]], Any]:
+    async def get_all_data(self) -> Dict[str, Any]:
         """Return a copy of the entire data store."""
         async with self._lock:
             return dict(self._data_store)
@@ -225,8 +304,8 @@ class Vertex:
 
         Called by the executor right before outgoing edges fire.
         The hook receives all stored data and the vertex settings, and
-        should return a dict of ``{(data_id, (tags,...)): value}`` that
-        will be merged into the data store.
+        should return a dict of ``{channel: value}`` that will be merged
+        into the data store.
         """
         if hasattr(self, "on_ready") and callable(getattr(self, "on_ready")):
             logger.debug("[Vertex:%s] Running self.on_ready hook", self.id)
@@ -287,12 +366,14 @@ class Vertex:
         self.completed_incoming_edges.clear()
         self.aborted_incoming_edges.clear()
         self._received_input_count = 0
+        self.iteration_count = 0
         self.error_message = None
         self.abort_reason = None
         logger.debug("[Vertex:%s] Reset to IDLE", self.id)
 
     def __repr__(self):
+        loop_str = f" loop={self.iteration_count}" if self.loop_incoming_edges else ""
         return (
             f"Vertex(id={self.id!r}, state={self._state.value}, "
-            f"in={len(self.incoming_edges)}, out={len(self.outgoing_edges)})"
+            f"in={len(self.incoming_edges)}, out={len(self.outgoing_edges)}{loop_str})"
         )

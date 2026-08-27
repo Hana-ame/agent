@@ -1,15 +1,16 @@
 """Graph module - Load and manage the computation graph from JSON.
 
-A Graph is a DAG of Vertex nodes connected by Edge arrows.  It is loaded
-from a JSON configuration and validated for referential integrity and
-acyclicity before execution.
+A Graph is a network of Vertex nodes connected by Edge arrows.  It is loaded
+from a JSON configuration and validated for referential integrity.  Pure DAGs
+are enforced by default; cycles are permitted only when every back-edge carries
+``max_iterations > 0``, enabling stateful self-correction loops.
 """
 
 import json
 import logging
 import os
 import inspect
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from .vertex import Vertex
 from .edge import Edge
@@ -19,7 +20,7 @@ logger = logging.getLogger("vertex_edge_agent.graph")
 
 
 class Graph:
-    """DAG of vertices and edges loaded from JSON configuration.
+    """Network of vertices and edges loaded from JSON configuration.
 
     JSON schema::
 
@@ -40,11 +41,11 @@ class Graph:
               "id": "e1",
               "source": "v1",
               "destination": "v2",
-              "data_id": "text",
-              "tags": ["en"],
+              "channel": "text",
               "prompt": "Summarise this:",
               "model": "gemini-pro",
               "settings": {},
+              "max_iterations": 3,             // optional — enables loop back
               "script": "path/to/edge_script.py"  // optional
             }
           ]
@@ -114,7 +115,6 @@ class Graph:
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
-            edge_type = str(ec.get("type", ec.get("edge_type", ""))).lower()
             edge_cls = Edge
             script_module = None
             if script:
@@ -138,6 +138,7 @@ class Graph:
                 model=ec.get("model", "default"),
                 settings=ec.get("settings", {}),
                 script_path=script,
+                max_iterations=int(ec.get("max_iterations", 0)),
             )
 
             if script_module:
@@ -175,7 +176,16 @@ class Graph:
     # Validation
     # ------------------------------------------------------------------
     def validate(self):
-        """Validate referential integrity and acyclicity."""
+        """Validate referential integrity and cycle policy.
+
+        Pure DAGs are always valid.  A cycle is permitted only when *every*
+        back-edge in the cycle carries ``max_iterations > 0``; the back-edge
+        limit is then propagated to the destination vertex's
+        ``loop_incoming_edges`` mapping so the executor can enforce it.
+
+        Raises:
+            ValueError: If any referential error or unguarded cycle is found.
+        """
         errors: List[str] = []
 
         for edge in self.edges.values():
@@ -188,35 +198,54 @@ class Graph:
                     f"Edge '{edge.id}': destination '{edge.destination_id}' not found"
                 )
 
-        # cycle detection (DFS)
-        visited: set = set()
-        stack: set = set()
+        # ── Cycle detection (DFS) — collect all back-edges ────────────
+        visited: Set[str] = set()
+        stack: Set[str] = set()
+        back_edges: Set[str] = set()
 
-        def _dfs(vid: str) -> bool:
+        def _dfs(vid: str) -> None:
             visited.add(vid)
             stack.add(vid)
             for eid in self.vertices[vid].outgoing_edges:
+                if eid not in self.edges:
+                    continue
                 nxt = self.edges[eid].destination_id
                 if nxt not in self.vertices:
-                    continue  # skip missing vertices (caught above)
+                    continue  # referential error caught above
                 if nxt not in visited:
-                    if _dfs(nxt):
-                        return True
+                    _dfs(nxt)
                 elif nxt in stack:
-                    return True
+                    back_edges.add(eid)  # this edge closes a cycle
             stack.discard(vid)
-            return False
 
         for vid in self.vertices:
             if vid not in visited:
-                if _dfs(vid):
-                    errors.append("Graph contains a cycle (must be a DAG)")
-                    break
+                _dfs(vid)
+
+        # ── Policy: back-edges must be guarded by max_iterations ───────
+        for eid in back_edges:
+            edge = self.edges[eid]
+            if edge.max_iterations <= 0:
+                errors.append(
+                    f"Graph contains an unguarded cycle via edge '{eid}' "
+                    f"({edge.source_id} -> {edge.destination_id}). "
+                    f"Add 'max_iterations' > 0 to this edge to enable stateful loops."
+                )
 
         if errors:
             for e in errors:
                 logger.error("[Graph] Validation: %s", e)
             raise ValueError(f"Graph validation failed: {'; '.join(errors)}")
+
+        # ── Propagate loop metadata to destination vertices ────────────
+        for eid in back_edges:
+            edge = self.edges[eid]
+            dest = self.vertices[edge.destination_id]
+            dest.loop_incoming_edges[eid] = edge.max_iterations
+            logger.info(
+                "[Graph] Loop edge '%s' registered on vertex '%s' (max_iterations=%d)",
+                eid, dest.id, edge.max_iterations,
+            )
 
         logger.info("[Graph] Validation passed ✓")
 

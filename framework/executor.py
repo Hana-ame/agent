@@ -3,12 +3,18 @@
 The executor repeatedly scans for READY vertices, fires their outgoing
 edges concurrently (bounded by a semaphore), and advances vertex states
 until the entire graph is DONE or a deadlock / timeout is detected.
+
+Stateful loop support: when a loop-back edge delivers to a destination
+vertex that is already DONE, ``Vertex.receive_signal`` resets that vertex
+to READY.  The executor detects newly-READY vertices on each scan and
+spawns fresh processing tasks for them, enabling bounded self-correction
+cycles without changing the overall event-driven architecture.
 """
 
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from .vertex import Vertex, VertexState, EdgeSignal
 from .edge import Edge
@@ -58,7 +64,8 @@ class ExecutionResult:
             data_keys = list(info.get("data", {}).keys())
             abort_str = f" (aborted: {info.get('abort_reason')})" if state == "aborted" else ""
             err_str = f" (error: {info.get('error')})" if state == "error" else ""
-            lines.append(f"    [{vid}]  state={state}{abort_str}{err_str}  keys={data_keys}")
+            iter_str = f" (iterations: {info.get('iterations', 0)})" if info.get("iterations") else ""
+            lines.append(f"    [{vid}]  state={state}{abort_str}{err_str}{iter_str}  keys={data_keys}")
         lines.append("")
         lines.append("  EDGE RESULTS:")
         for eid, val in self.edge_results.items():
@@ -72,7 +79,7 @@ class Executor:
 
     Args:
         graph:            The Graph to execute.
-        agents:         PI Agent instance (defaults to MockAgent).
+        agents:           PI Agent instance (defaults to MockAgent).
         max_concurrency:  Max concurrent edge executions.
         scan_interval:    Seconds between ready-vertex scans.
         timeout:          Overall execution timeout in seconds.
@@ -135,43 +142,73 @@ class Executor:
     # Internal
     # ------------------------------------------------------------------
     def _init_sources(self):
-        """Mark source vertices (no incoming edges) as READY."""
-        for v in self.graph.get_source_vertices():
-            v.state = VertexState.READY
-            logger.info("[Executor] Source vertex '%s' → READY", v.id)
+        """Mark source vertices (no incoming edges) as READY.
+
+        In a cyclic graph, vertices whose *only* incoming edges are loop-back
+        edges (``edge_id in vertex.loop_incoming_edges``) are treated as
+        logical sources for the first iteration boot — the loop-back edge
+        hasn't fired yet, so they must self-start.
+        """
+        for v in self.graph.vertices.values():
+            non_loop_incoming = [
+                eid for eid in v.incoming_edges
+                if eid not in v.loop_incoming_edges
+            ]
+            if not non_loop_incoming:
+                # Pure source OR loop-destination with no other inputs
+                v.state = VertexState.READY
+                logger.info("[Executor] Source/loop-boot vertex '%s' → READY", v.id)
 
     async def _loop(self):
-        """Event-driven main loop."""
+        """Event-driven main loop with stateful-loop support.
+
+        Strategy:
+        1. Spawn one ``wait_and_process`` task per vertex for the first round.
+        2. After each ``asyncio.wait`` iteration, scan for any vertex that has
+           become READY again (loop re-entry) and spawn a fresh
+           ``_process_ready_vertex`` task for it.
+        3. Exit when all vertices are settled or a deadlock is detected.
+        """
         iteration = 0
 
         async def wait_and_process(vertex: Vertex):
-            if vertex.state not in (VertexState.READY, VertexState.AWAITING_EDGES, VertexState.DONE, VertexState.ABORTED, VertexState.ERROR):
+            """First-round task: wait for READY then process once."""
+            if vertex.state not in (
+                VertexState.READY, VertexState.AWAITING_EDGES,
+                VertexState.DONE, VertexState.ABORTED, VertexState.ERROR,
+            ):
                 await vertex.wait_ready()
-            
+
             if vertex.state == VertexState.READY:
                 vertex.state = VertexState.AWAITING_EDGES
                 await self._process_vertex(vertex)
             elif vertex.state == VertexState.ABORTED:
                 await self._abort_vertex(vertex)
 
-        # Create a task for each vertex
-        pending = {
-            asyncio.create_task(wait_and_process(v), name=f"task_{v.id}")
-            for v in self.graph.vertices.values()
-        }
+        # Maps vertex_id -> most-recently-spawned task for that vertex.
+        # Used to avoid double-scheduling when a vertex is already processing.
+        vertex_tasks: Dict[str, asyncio.Task] = {}
+
+        # Spawn initial tasks
+        for v in self.graph.vertices.values():
+            task = asyncio.create_task(
+                wait_and_process(v), name=f"task_{v.id}"
+            )
+            vertex_tasks[v.id] = task
+
+        pending: Set[asyncio.Task] = set(vertex_tasks.values())
 
         while pending:
             iteration += 1
             logger.debug("[Executor] ── event wait #%d ──", iteration)
 
-            # Wait for at least one task to complete, or timeout to check for deadlocks
             done, pending = await asyncio.wait(
                 pending,
                 timeout=self.scan_interval,
                 return_when=asyncio.FIRST_COMPLETED,
             )
 
-            # Handle exceptions from done tasks
+            # Surface task exceptions
             for task in done:
                 exc = task.exception()
                 if exc:
@@ -183,19 +220,42 @@ class Executor:
                 logger.info("[Executor] All vertices settled, exiting loop")
                 break
 
-            # 2. Deadlock detection
-            # If no tasks completed in this interval AND no vertex is READY or PROCESSING,
-            # then nothing is happening and nothing will happen (deadlock).
+            # 2. Loop re-entry: schedule processing for any newly-READY vertex
+            #    that doesn't already have an active task.
+            for v in self.graph.vertices.values():
+                if v.state == VertexState.READY:
+                    vid = v.id
+                    existing = vertex_tasks.get(vid)
+                    if existing is None or existing.done():
+                        logger.info(
+                            "[Executor] Vertex '%s' READY (loop re-entry #%d) — spawning task",
+                            vid, v.iteration_count,
+                        )
+                        task = asyncio.create_task(
+                            self._process_ready_vertex(v),
+                            name=f"task_{vid}_iter{v.iteration_count}",
+                        )
+                        vertex_tasks[vid] = task
+                        pending.add(task)
+
+            # 3. Deadlock detection
+            states = {v.state for v in self.graph.vertices.values()}
             if not done and VertexState.READY not in states and VertexState.AWAITING_EDGES not in states:
                 self._log_state_dump()
                 msg = "Deadlock – no READY/PROCESSING vertices but graph not settled"
                 logger.error("[Executor] %s", msg)
                 self._result.errors.append(msg)
-                
-                # Cancel remaining tasks
                 for t in pending:
                     t.cancel()
                 break
+
+    async def _process_ready_vertex(self, vertex: Vertex):
+        """Process a vertex that is already in READY state (loop re-entry)."""
+        if vertex.state == VertexState.READY:
+            vertex.state = VertexState.AWAITING_EDGES
+            await self._process_vertex(vertex)
+        elif vertex.state == VertexState.ABORTED:
+            await self._abort_vertex(vertex)
 
     async def _abort_vertex(self, vertex: Vertex):
         """Cascade abort to all outgoing edges of an aborted vertex."""
@@ -242,8 +302,17 @@ class Executor:
                 ok = False
 
         if ok:
-            vertex.state = VertexState.DONE
-            logger.info("[Executor] Vertex '%s' → DONE", vertex.id)
+            # A concurrent loop-back edge may have already reset this vertex
+            # to READY (re-entry) while we were in asyncio.gather.
+            # If so, honour the re-entry — do NOT overwrite with DONE.
+            if vertex.state == VertexState.AWAITING_EDGES:
+                vertex.state = VertexState.DONE
+                logger.info("[Executor] Vertex '%s' → DONE", vertex.id)
+            else:
+                logger.info(
+                    "[Executor] Vertex '%s' gather done; state already=%s (loop re-entry detected)",
+                    vertex.id, vertex.state.value,
+                )
         else:
             vertex.state = VertexState.ERROR
             vertex.error_message = "One or more outgoing edges failed"
@@ -272,6 +341,7 @@ class Executor:
                 },
                 "error": v.error_message,
                 "abort_reason": v.abort_reason,
+                "iterations": v.iteration_count,
             }
         for edge in self.graph.edges.values():
             if edge.id not in self._result.edge_results:
@@ -285,8 +355,8 @@ class Executor:
         logger.warning("[Executor] ── state dump ──")
         for v in self.graph.vertices.values():
             logger.warning(
-                "  [%s] state=%s  in=%d/%d  out=%s",
+                "  [%s] state=%s  in=%d/%d  out=%s  iter=%d",
                 v.id, v.state.value,
                 v._received_input_count, v.required_input_count,
-                v.outgoing_edges,
+                v.outgoing_edges, v.iteration_count,
             )
