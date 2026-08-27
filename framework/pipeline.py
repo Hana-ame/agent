@@ -241,7 +241,7 @@ class EdgePipeline:
             it in :attr:`error` and signalling FAILED to *dest_vertex*).
         """
         logger.info(
-            "[Pipeline:%s] RUN  %s -[%s:%s]-> %s",
+            "[Pipeline:%s] RUN  %s -[%s]-> %s",
             edge_id, source_id, channel, destination_id,
         )
 

@@ -19,4 +19,7 @@
 1. **✅ Nested Sub-Graphs (`SubgraphVertex`)**: Allow vertices to encapsulate entire independent graphs for scalable multi-agent teamwork, with boundary routing (`input_map`/`output_map`), event stream bubbling, and namespaced checkpoint persistence.
 2. **✅ Global Memory & Shared Context (`MemoryStore`)**: Decoupled, thread-safe key-value bus supporting TTLs, sub-namespaces, and declarative edge reads/writes (`memory_read`/`memory_write`).
 3. **✅ Telemetry & Cost Tracing (`TelemetryTracker`)**: Granular per-edge and workflow-level tracking of prompt tokens, completion tokens, execution latency, and model-specific USD cost estimates.
-4. **Distributed Execution**: Decouple `Executor` from `Graph` via message queues (e.g., Redis, RabbitMQ) to allow multi-node worker clusters for heavy workloads.
+4. **✅ Race Mode (First-to-Finish)**: Added `wait_policy: 'any'` to dynamically short-circuit execution, fire downstream routes early, and cancel pending upstream asynchronous tasks.
+5. **✅ Async Hooks & Dynamic Topologies**: Native `async def` support in pipeline hooks and a new `LinearChain.build()` API for rapid programmatic graph construction.
+6. **✅ Type-Safe Schema Validation**: Pydantic integration via `SchemaRegistry` for static graph compilation checks and runtime data validation with automatic LLM self-correction routing.
+7. **Distributed Execution**: Decouple `Executor` from `Graph` via message queues (e.g., Redis, RabbitMQ) to allow multi-node worker clusters for heavy workloads.

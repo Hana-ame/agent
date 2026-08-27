@@ -21,6 +21,9 @@
 | **v3.0 企业级编排** | **分层嵌套子图 (`SubgraphVertex`)** | “盒中盒”模型，单个节点封装完整的多智能体子图（如调研团队），支持边界映射与多级事件冒泡。 |
 | | **全局共享内存 (`MemoryStore`)** | 跨节点共享键值总线，支持 TTL 自动过期、作用域隔离（`scope`）与边声明式读写。 |
 | | **Token 与成本追踪 (`TelemetryTracker`)** | 自动记录每条边的 Prompt/Completion Token、耗时与模型预估美元成本，汇总输出财务明细。 |
+| | **竞速模式 (Race Mode)** | 节点支持 `wait_policy: 'any'`，满足条件即提前执行下游并主动取消未完成的上游异步任务，极大地节省延迟与成本。 |
+| | **异步钩子与动态拓扑构建** | 钩子原生支持 `async def`，并新增 `LinearChain.build()` 接口，无需 JSON 即可快速编排线性工作流。 |
+| | **Pydantic 类型安全校验** | 引入 `SchemaRegistry`，支持在编译期和运行期进行类型校验，校验失败自动触发 LLM 自纠错重试机制。 |
 
 ---
 
@@ -281,6 +284,15 @@ result = await executor.run()
 print(result.summary())
 ```
 
+### 6. 竞速模式 (Race Mode) 与任务取消机制
+支持在节点设置 `wait_policy: 'any'` 进行激进的短路执行。当首个入边数据到达并满足条件后，节点立即激发下游路径，同时主动取消所有处于 pending 状态的上游 `asyncio` 任务，最大限度降低 API 成本与延迟。
+
+### 7. 异步钩子与动态拓扑构建
+边管道拦截器（`pre_process`, `post_process`）原生支持 `async def`，可用于执行非阻塞的 I/O 操作。新增 `LinearChain.build(prompts)` 接口，支持纯 Python 代码快速构建 `A->B->C` 的线性工作流，无需维护复杂的 JSON。
+
+### 8. Pydantic 类型安全校验 (Schema Validation)
+通过 `SchemaRegistry` 深度集成 Pydantic，提供贯穿框架生命周期的安全保障。在图初始化时进行严格的静态校验（`SchemaMismatchError`），并在运行期的后处理阶段进行数据反序列化与验证，校验失败的异常（`ValidationError`）将自动交由 LLM 自纠错重试策略进行智能修复。
+
 ---
 
 ## 💻 官方演示案例 (Examples)
@@ -352,4 +364,4 @@ print(result.summary())
 python -m pytest tests/ -v
 ```
 
-当前包含 **125 个全量通过的测试用例**，覆盖拓扑静态校验、循环回边、菱形死锁防护、自纠错重试、事件流冒泡、子图映射、内存 TTL 与成本核算。
+当前包含 **129 个全量通过的测试用例**，覆盖拓扑静态校验、循环回边、菱形死锁防护、自纠错重试、事件流冒泡、子图映射、内存 TTL、成本核算、竞速模式与任务取消机制，以及 Pydantic 类型安全校验。

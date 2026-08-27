@@ -217,6 +217,15 @@ A thread-safe key-value bus allowing distant nodes to read and write shared stat
 ### 3. Granular Telemetry & Cost Profiling (`TelemetryTracker`)
 Automatically tracks prompt tokens, completion tokens, execution latency, and estimated dollar costs per edge and workflow-wide with built-in model pricing catalogs (OpenAI, Gemini, Claude).
 
+### 4. Race Mode (First-to-Finish)
+Support for `wait_policy: 'any'` on vertices to aggressively short-circuit execution. Once the first incoming edge satisfies the vertex, it immediately fires downstream routes and actively cancels all pending upstream `asyncio` tasks to minimize API costs and latency.
+
+### 5. Async Hooks & Dynamic Topologies
+Pipeline hooks (`pre_process`, `post_process`) natively support `async def` for I/O bound operations. The `LinearChain.build(prompts)` API enables rapid, programmatic construction of `A->B->C` topologies without JSON configuration.
+
+### 6. Type-Safe Schema Validation
+Pydantic integration via `SchemaRegistry` enforces data consistency across edges. It provides static graph compilation checks and runtime data validation, automatically routing `ValidationError`s to the LLM self-correction retry policy.
+
 ## 💻 Official Examples
 
 The `examples/` directory provides standalone, runnable demonstrations of the framework's core features. They serve as reference implementations for configuring Nodes, Edges, and the Execution API.
@@ -282,7 +291,7 @@ pip install pytest pytest-asyncio
 python -m pytest tests/ -v
 ```
 
-Currently contains **125 fully covered tests**, covering:
+Currently contains **129 fully covered tests**, covering:
 - Actor state machines & `EdgeSignal` unified message passing
 - 5-stage `EdgePipeline` execution & error isolation
 - Declarative threshold control, custom guards, and diamond branch pruning
@@ -293,3 +302,5 @@ Currently contains **125 fully covered tests**, covering:
 - Hierarchical nested sub-graphs (`SubgraphVertex`) & event bubbling
 - Global shared memory bus (`MemoryStore`), TTLs, and scoped namespaces
 - Token usage tracking, latency benchmarking, and cost profiling
+- Race Mode cancellation (`wait_policy: 'any'`), async hooks, and `LinearChain.build`
+- Static and Runtime Pydantic Schema Validation
