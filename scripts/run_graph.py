@@ -32,14 +32,14 @@ from typing import Any
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from framework import (
-    Graph, Executor, PIAgent, MockPIAgent, PICLIPIAgent, OpenCodeAgent,
+    Graph, Executor, PIAgent, MockPIAgent, PICLIPIAgent, OpenCodeAgent, OpenAIAgent,
 )
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Run any vertex-edge agent config.json")
     p.add_argument("config", help="path to config.json")
-    p.add_argument("--agent", default="opencode", choices=["mock", "pi", "opencode"],
+    p.add_argument("--agent", default="opencode", choices=["mock", "pi", "opencode", "openai"],
                    help="agent backend (default: opencode → opencode-zen/hy3-free)")
     p.add_argument("--provider", default=None, help="pi provider (pi backend)")
     p.add_argument("--model", default=None,
@@ -187,6 +187,12 @@ async def main():
         proxy_desc = inner.proxies[0] if inner.proxies else ""
         print(f"▶ Agent: REAL opencode agent (opencode CLI, model={model}, proxies={inner.proxies})")
         agent = LoggingAgent(inner, proxy_desc=proxy_desc)
+    elif args.agent == "openai":
+        model = args.model or "gpt-4o-mini"  # OpenAI 默认模型
+        inner = OpenAIAgent(model=model, timeout=240, proxy=os.environ.get("OPENAI_PROXY"))
+        pdesc = inner.proxy or os.environ.get("HTTPS_PROXY", "") or "(system)"
+        print(f"▶ Agent: REAL OpenAI agent (REST API, model={model}, proxy={pdesc})")
+        agent = LoggingAgent(inner, proxy_desc=pdesc)
     else:
         raise SystemExit(f"unknown agent backend: {args.agent}")
 

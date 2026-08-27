@@ -6,9 +6,11 @@ Provides an abstract base class ``PIAgent`` and two concrete implementations:
 
 提供抽象基类 ``PIAgent`` 和两个具体实现：
 * ``MockPIAgent``      – deterministic, for testing
-                         确定性的 Mock 实现，用于测试
+                          确定性的 Mock 实现，用于测试
 * ``ExternalPIAgent``  – delegates to an installed ``pi_agent`` package
-                         委托给已安装的 ``pi_agent`` 第三方包(预留真实接入)
+                          委托给已安装的 ``pi_agent`` 第三方包(预留真实接入)
+* ``OpenAIAgent``      – direct OpenAI Chat Completions REST API (urllib, no SDK)
+                          直连 OpenAI REST API(标准库 urllib 实现，无需 openai SDK)
 """
 
 import abc
@@ -16,6 +18,8 @@ import asyncio
 import json
 import logging
 import os
+import urllib.error
+import urllib.request
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger("vertex_edge_agent.pi_agent")
@@ -406,3 +410,108 @@ class OpenCodeAgent(PIAgent):
         )
         logger.debug("[OpenCodeAgent] got %d chars from model=%s", len(result), model)
         return result
+
+
+class OpenAIAgent(PIAgent):
+    """Real agent via the OpenAI Chat Completions REST API (direct, no pi/opencode).
+
+    直接调用 ``https://api.openai.com/v1/chat/completions``（用标准库 ``urllib``，
+    不依赖 ``openai`` SDK，无需额外安装）。相对 pi/opencode 后端，这是最轻量的真实
+    LLM 接入方式——只要一个 ``OPENAI_API_KEY`` 即可。
+
+    Args:
+        model:      OpenAI 模型 id，如 ``"gpt-4o-mini"`` / ``"gpt-4o"``。默认 ``"gpt-4o-mini"``。
+        api_key:    OpenAI API key；缺省读 ``OPENAI_API_KEY`` 环境变量。
+        base_url:   API base（默认 ``https://api.openai.com/v1``，可指向兼容端点）。
+        timeout:    单次调用超时秒数（默认 120）。
+        proxy:      可选代理 URL，如 ``"http://172.29.80.1:10809"``；缺省读 ``OPENAI_PROXY``
+                    环境变量。都不设则 urllib 使用系统 ``HTTPS_PROXY``。
+                    （注意：本机默认 ``HTTPS_PROXY`` 是 opencode 专用代理，访问 OpenAI 需改用
+                    能通外网的代理，如宿主机 ``http://172.29.80.1:10809``。）
+        temperature: 采样温度（默认 0.7）。
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-4o-mini",
+        api_key: Optional[str] = None,
+        base_url: str = "https://api.openai.com/v1",
+        timeout: float = 120.0,
+        proxy: Optional[str] = None,
+        temperature: float = 0.7,
+    ):
+        self.model = model
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.proxy = proxy or os.environ.get("OPENAI_PROXY")
+        self.temperature = temperature
+        if not self.api_key:
+            logger.warning(
+                "[OpenAIAgent] OPENAI_API_KEY 未设置；调用前需通过环境变量或 api_key 参数提供。"
+            )
+
+    @staticmethod
+    def _fmt(data: Any) -> str:
+        """把输入数据格式化为文本。"""
+        if isinstance(data, str):
+            return data
+        return json.dumps(data, ensure_ascii=False, default=str)
+
+    async def process(
+        self,
+        data: Any,
+        prompt: str,
+        model: Optional[str] = None,
+        settings: Optional[Dict] = None,
+    ) -> Any:
+        settings = settings or {}
+        # 模型优先级: 构造器显式指定 > settings > 边级 model(config)
+        model = model or self.model
+        api_key = settings.get("api_key") or self.api_key
+        if not api_key:
+            raise RuntimeError(
+                "[OpenAIAgent] 缺少 OpenAI API key（请设置 OPENAI_API_KEY 或传 api_key）。"
+            )
+
+        # 组装 messages：system(可选) + 单条 user(prompt + input)
+        messages = []
+        if settings.get("system"):
+            messages.append({"role": "system", "content": settings["system"]})
+        text = f"{prompt}\n\n--- INPUT ---\n{self._fmt(data)}"
+        messages.append({"role": "user", "content": text})
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": settings.get("temperature", self.temperature),
+        }
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._call, payload, api_key)
+
+    def _call(self, payload: Dict, api_key: str) -> str:
+        """同步发起 OpenAI Chat Completions 请求（在线程池里跑，避免阻塞事件循环）。"""
+        url = f"{self.base_url}/chat/completions"
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Authorization", f"Bearer {api_key}")
+        req.add_header("Content-Type", "application/json")
+
+        # 代理：显式设置则只用该代理；否则交给系统 HTTPS_PROXY
+        handlers = []
+        if self.proxy:
+            handlers.append(urllib.request.ProxyHandler({"https": self.proxy}))
+        opener = urllib.request.build_opener(*handlers) if handlers else urllib.request.build_opener()
+
+        try:
+            with opener.open(req, timeout=self.timeout) as resp:
+                raw = resp.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:500]
+            raise RuntimeError(f"[OpenAIAgent] HTTP {e.code}: {detail}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"[OpenAIAgent] 网络错误: {e.reason}") from e
+
+        obj = json.loads(raw)
+        return obj["choices"][0]["message"]["content"].strip()

@@ -10,12 +10,23 @@ pip install -r requirements.txt        # 仅测试依赖: pytest, pytest-asyncio
 ```
 
 ### 2. 准备代理环境（真实模型必需）
-真实 LLM 后端（`opencode` / `pi`）通过本地代理出口访问 `opencode.ai`，需把 `HTTPS_PROXY`
-设为 6 个本地代理之一（端口均 `7890`，**必须带 `http://` scheme**）：
-```bash
-export HTTPS_PROXY=http://127.0.1.4:7890
-# 可选出口: 127.0.1.4 / 127.0.1.6 / 127.0.2.4 / 127.0.2.6 / 127.0.3.4 / 127.0.3.6
-```
+真实 LLM 后端需要代理才能访问对应服务：
+
+- **`opencode` / `pi` 后端** → 访问 `opencode.ai`，需把 `HTTPS_PROXY` 设为 6 个本地代理之一
+  （端口均 `7890`，**必须带 `http://` scheme**）：
+  ```bash
+  export HTTPS_PROXY=http://127.0.1.4:7890
+  # 可选出口: 127.0.1.4 / 127.0.1.6 / 127.0.2.4 / 127.0.2.6 / 127.0.3.4 / 127.0.3.6
+  ```
+- **`openai` 后端** → 直连 OpenAI REST API，只需 API key（可选代理走外网）：
+  ```bash
+  export OPENAI_API_KEY=sk-...                      # 必填
+  export OPENAI_PROXY=http://172.29.80.1:10809     # 可选：本机访问外网用的宿主机代理
+  ```
+  > `openai` 后端最简：只要 `OPENAI_API_KEY` 就能跑，不依赖 opencode/pi。不设 `OPENAI_PROXY`
+  > 时 urllib 会用系统 `HTTPS_PROXY`（本机默认是 opencode 专用代理，访问 OpenAI 需改设能通外网的
+  > 代理，如上面的宿主机 `10809`）。
+
 > 注意：缺 `http://` 前缀时 opencode/pi 启动会抛 `Invalid URL` 而崩溃（看起来像 key 失效，实为代理配置问题）。
 
 ### 3. 运行
@@ -28,6 +39,10 @@ python3 scripts/run_graph.py config.template.json --agent opencode --proxy 1
 
 # pi 后端：pi CLI 调真实 LLM
 python3 scripts/run_graph.py config.template.json --agent pi
+
+# openai 后端：直连 OpenAI REST API（设好 OPENAI_API_KEY 即可）
+python3 scripts/run_graph.py config.template.json --agent openai
+python3 scripts/run_graph.py config.template.json --agent openai --model gpt-4o
 
 # 内置示例
 python examples/simple/run.py            # 线性链

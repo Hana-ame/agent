@@ -19,7 +19,7 @@ from .edge import Edge
 from .graph import Graph
 from .executor import Executor, ExecutionResult
 from .pi_agent import (
-    PIAgent, MockPIAgent, ExternalPIAgent, PICLIPIAgent, OpenCodeAgent,
+    PIAgent, MockPIAgent, ExternalPIAgent, PICLIPIAgent, OpenCodeAgent, OpenAIAgent,
     OPENCODE_PROXIES,
 )
 from .signal import AbortSignal, is_abort, abort_reason
@@ -35,7 +35,7 @@ __all__ = [
     'Edge',
     'Graph',
     'Executor', 'ExecutionResult',
-    'PIAgent', 'MockPIAgent', 'ExternalPIAgent', 'PICLIPIAgent', 'OpenCodeAgent',
+    'PIAgent', 'MockPIAgent', 'ExternalPIAgent', 'PICLIPIAgent', 'OpenCodeAgent', 'OpenAIAgent',
     'OPENCODE_PROXIES',
     'AbortSignal', 'is_abort', 'abort_reason',
     'load_script',
