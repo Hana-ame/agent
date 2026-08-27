@@ -1,5 +1,7 @@
 # Vertex-Edge Agent Framework
 
+[English](README.md) | [中文文档](README_CN.md)
+
 A **non-interactive**, data-driven, highly-scalable DAG (Directed Acyclic Graph) execution engine designed specifically for orchestrating and scheduling production-grade AI Agent pipelines.
 
 ## Unified Architecture
