@@ -78,7 +78,7 @@ class TestEdgeExecution:
         assert gate.completed is True
         assert gate.aborted is False
         assert v2.state == VertexState.READY
-        assert await v2.handle_edge_signal("", EdgeSignal.READ, channel="score") == 90
+        assert await v2.fetch_data(channel="score") == 90
 
     @pytest.mark.asyncio
     async def test_gate_edge_aborts_on_condition_false(self):
@@ -173,7 +173,7 @@ class TestConditionalDiamondRouting:
         assert g.edges["e_high"].completed is True
 
         # Data in Sink
-        sink_data = await g.vertices["Sink"].handle_edge_signal("", EdgeSignal.READ, channel="score")
+        sink_data = await g.vertices["Sink"].fetch_data(channel="score")
         assert "PROCESSED:high score:95" in sink_data
 
     @pytest.mark.asyncio

@@ -47,7 +47,7 @@ class TestEdgeExecution:
 
         assert e.completed
         assert result is not None
-        assert await dst.handle_edge_signal("", EdgeSignal.READ, channel="d") is not None
+        assert await dst.fetch_data(channel="d") is not None
 
     @pytest.mark.asyncio
     async def test_none_data_propagates(self, mock_agent):
@@ -118,7 +118,7 @@ class TestEdgeScripts:
         result = await e.execute(src, dst, echo_agent)
         # echo_agent returns data unchanged, so result = post_process(pre_process("x"))
         assert result == "PRE:x:POST"
-        assert await dst.handle_edge_signal("", EdgeSignal.READ, channel="d") == "PRE:x:POST"
+        assert await dst.fetch_data(channel="d") == "PRE:x:POST"
 
 
 # ── reset ────────────────────────────────────────────────────────

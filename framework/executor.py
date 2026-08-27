@@ -145,11 +145,11 @@ class Executor:
         iteration = 0
 
         async def wait_and_process(vertex: Vertex):
-            if vertex.state not in (VertexState.READY, VertexState.PROCESSING, VertexState.DONE, VertexState.ABORTED, VertexState.ERROR):
+            if vertex.state not in (VertexState.READY, VertexState.AWAITING_EDGES, VertexState.DONE, VertexState.ABORTED, VertexState.ERROR):
                 await vertex.wait_ready()
             
             if vertex.state == VertexState.READY:
-                vertex.state = VertexState.PROCESSING
+                vertex.state = VertexState.AWAITING_EDGES
                 await self._process_vertex(vertex)
             elif vertex.state == VertexState.ABORTED:
                 await self._abort_vertex(vertex)
@@ -186,7 +186,7 @@ class Executor:
             # 2. Deadlock detection
             # If no tasks completed in this interval AND no vertex is READY or PROCESSING,
             # then nothing is happening and nothing will happen (deadlock).
-            if not done and VertexState.READY not in states and VertexState.PROCESSING not in states:
+            if not done and VertexState.READY not in states and VertexState.AWAITING_EDGES not in states:
                 self._log_state_dump()
                 msg = "Deadlock – no READY/PROCESSING vertices but graph not settled"
                 logger.error("[Executor] %s", msg)

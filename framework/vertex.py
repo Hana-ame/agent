@@ -17,7 +17,7 @@ class VertexState(enum.Enum):
     """States for vertex lifecycle."""
     IDLE = "idle"                # Waiting for inputs
     READY = "ready"              # All inputs received, ready to process
-    PROCESSING = "processing"    # Outgoing edges being fired
+    AWAITING_EDGES = "awaiting_edges"    # Outgoing edges being fired
     DONE = "done"                # All processing complete
     ABORTED = "aborted"          # Pruned or all inputs aborted
     ERROR = "error"              # Error occurred
@@ -25,7 +25,6 @@ class VertexState(enum.Enum):
 
 class EdgeSignal(str, enum.Enum):
     """Signals exchanged between Edge and Vertex."""
-    READ = "read"
     COMPLETED = "completed"
     ABORTED = "aborted"
     FAILED = "failed"
@@ -137,50 +136,24 @@ class Vertex:
     # ------------------------------------------------------------------
     # Data access & Edge signaling
     # ------------------------------------------------------------------
-    async def handle_edge_signal(
+    async def fetch_data(self, channel: str = "default") -> Any:
+        """Command: Fetch data from the vertex's data store."""
+        async with self._lock:
+            val = self._data_store.get(channel)
+            logger.debug(f"[Vertex:{self.id}] FETCH channel='{channel}' -> {repr(val)[:120]}")
+            return val
+
+    async def receive_signal(
         self,
         edge_id: str,
         signal: EdgeSignal,
         payload: Any = None,
         channel: str = "default",
     ) -> Any:
-        """Unified method for all edge-to-vertex and vertex-to-edge communication."""
-        if signal == EdgeSignal.READ:
-            key = self._make_key(channel)
-            async with self._lock:
-                data = self._data_store.get(key)
-            logger.debug("[Vertex:%s] READ by edge '%s' %s -> %s", self.id, edge_id, key, repr(data)[:120])
-            return data
-
-        elif signal == EdgeSignal.FAILED:
-            async with self._lock:
-                self.error_message = f"Upstream edge {edge_id} failed: {payload}"
-                self.state = VertexState.ERROR
-                logger.error("[Vertex:%s] Failed due to upstream edge '%s'", self.id, edge_id)
-
-        elif signal == EdgeSignal.ABORTED:
-            async with self._lock:
-                self.aborted_incoming_edges.add(edge_id)
-                total = len(self.incoming_edges) if self.incoming_edges else self.required_input_count
-                logger.info(
-                    "[Vertex:%s] Incoming edge '%s' aborted (completed: %d, aborted: %d, total: %d)",
-                    self.id, edge_id,
-                    len(self.completed_incoming_edges),
-                    len(self.aborted_incoming_edges),
-                    total,
-                )
-
-                total_settled = len(self.completed_incoming_edges) + len(self.aborted_incoming_edges)
-                if total > 0 and total_settled >= total:
-                    if len(self.completed_incoming_edges) > 0:
-                        self.state = VertexState.READY
-                    else:
-                        self.abort_reason = payload or f"All {total} incoming edges aborted"
-                        self.state = VertexState.ABORTED
-
-        elif signal == EdgeSignal.COMPLETED:
+        """Event: Receive state update or completed payload from an edge."""
+        if signal == EdgeSignal.COMPLETED:
             data = payload
-            key = self._make_key(channel)
+            key = str(channel)
             logger.debug("[Vertex:%s] COMPLETED %s <- %s", self.id, key, repr(data)[:120])
 
             # --- run vertex script on_receive hook ---
@@ -230,6 +203,29 @@ class Vertex:
 
                 if is_ready:
                     self.state = VertexState.READY
+            return True
+
+        elif signal == EdgeSignal.ABORTED:
+            logger.debug("[Vertex:%s] ABORTED signal from edge '%s'", self.id, edge_id)
+            async with self._lock:
+                self.aborted_incoming_edges.add(edge_id)
+                
+                total = len(self.incoming_edges) if self.incoming_edges else self.required_input_count
+                total_settled = len(self.completed_incoming_edges) + len(self.aborted_incoming_edges)
+                
+                if total > 0 and total_settled >= total:
+                    if len(self.completed_incoming_edges) > 0:
+                        self.state = VertexState.READY
+                    else:
+                        self.abort_reason = payload or f"All {total} incoming edges aborted"
+                        self.state = VertexState.ABORTED
+            return True
+
+        elif signal == EdgeSignal.FAILED:
+            logger.error("[Vertex:%s] FAILED signal from edge '%s': %s", self.id, edge_id, payload)
+            async with self._lock:
+                self.error_message = str(payload)
+                self.state = VertexState.ERROR
             return True
 
     async def get_all_data(self) -> Dict[Tuple[str, Tuple[str, ...]], Any]:

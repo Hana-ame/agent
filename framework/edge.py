@@ -142,7 +142,7 @@ class Edge:
                 return None
 
             # 1 — Read from source
-            data = await source_vertex.handle_edge_signal(self.id, EdgeSignal.READ, channel=self.channel)
+            data = await source_vertex.fetch_data(channel=self.channel)
             logger.debug("[Edge:%s] Source data: %s", self.id, repr(data)[:200])
 
             # 1.5 — Guard (evaluate condition)
@@ -186,7 +186,7 @@ class Edge:
                 logger.debug("[Edge:%s] After module post_process: %s", self.id, repr(result)[:200])
 
             # 5 — Write to destination
-            await dest_vertex.handle_edge_signal(self.id, EdgeSignal.COMPLETED, payload=result, channel=self.channel)
+            await dest_vertex.receive_signal(self.id, EdgeSignal.COMPLETED, payload=result, channel=self.channel)
             logger.info(
                 "[Edge:%s] Delivered to '%s' | key=(%s, %s)",
                 self.id, self.destination_id, self.channel,
@@ -200,7 +200,7 @@ class Edge:
             self.error = str(exc)
             logger.error("[Edge:%s] FAILED: %s", self.id, exc, exc_info=True)
             # Propagate error to destination vertex to prevent deadlocks
-            await dest_vertex.handle_edge_signal(self.id, EdgeSignal.FAILED, payload=str(exc))
+            await dest_vertex.receive_signal(self.id, EdgeSignal.FAILED, payload=str(exc))
             raise
 
     def reset(self):
