@@ -180,7 +180,7 @@ async def fetch_recent_posts(url: str, recent_hours: int = 24) -> list[dict]:
                         collected.append(p)
         # 3) 降级：24h 内无新回复，抓最后一页(最新楼层)兜底，保证有文档产出
         if not collected and tid and total >= 1:
-            logger.info("[fetch_recent_posts] 近 %dh 无新回复，降级抓最后一页(p%d)", recent_hours, total)
+            logger.debug("[fetch_recent_posts] 近 %dh 无新回复，降级抓最后一页(p%d)", recent_hours, total)
             rr = await c.get(THREAD_URL_TMPL.format(tid=tid, n=total))
             if rr.status_code == 200:
                 pg, _ = sp._parse_thread_html(rr.text, total)
@@ -229,7 +229,7 @@ class IndexEdge(Edge):
         # 3) 写入 index 顶点 (posts, [])
         await dest_vertex.set(threads, "posts", [])
         self.completed, self.result = True, [t["title"] for t in threads]
-        logger.info("[IndexEdge] 抓到 %d 个帖子", len(threads))
+        logger.debug("[IndexEdge] 抓到 %d 个帖子", len(threads))
         return self.result
 
 
@@ -272,7 +272,7 @@ class SelectAIEdge(Edge):
             return await self.forward_abort(dest_vertex, reason, "picked", [])
         await dest_vertex.set(picked, "picked", [])
         self.completed, self.result = True, [t.get("title") for t in picked]
-        logger.info("[SelectAIEdge] 筛选出 %d 个 AI 相关帖", len(picked))
+        logger.debug("[SelectAIEdge] 筛选出 %d 个 AI 相关帖", len(picked))
         return self.result
 
 
@@ -307,7 +307,7 @@ class ThreadFetchEdge(Edge):
         doc = format_thread_doc(thread, posts)
         await dest_vertex.set(doc, self.data_id, self.tags)
         self.completed, self.result = True, doc
-        logger.info("[ThreadFetchEdge:%s] 分发帖子[%d] 爬取 %d 层 → docs (%s)",
+        logger.debug("[ThreadFetchEdge:%s] 分发帖子[%d] 爬取 %d 层 → docs (%s)",
                     self.id, self.post_index, len(posts), self.data_id)
         return doc
 
@@ -326,7 +326,7 @@ class ThreadAgentEdge(Edge):
         result = await pi_agent.process(doc, self.prompt, self.model, self.settings)
         await dest_vertex.set(result, self.data_id, self.tags)
         self.completed, self.result = True, result
-        logger.info("[ThreadAgentEdge:%s] 已总结文档 (%s)", self.id, self.data_id)
+        logger.debug("[ThreadAgentEdge:%s] 已总结文档 (%s)", self.id, self.data_id)
         return result
 
 

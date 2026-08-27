@@ -47,7 +47,7 @@ def load_script(script_path: str, script_name: Optional[str] = None):
     if script_name is None:
         script_name = os.path.splitext(os.path.basename(script_path))[0]
 
-    logger.info("[ScriptLoader] Loading '%s' from %s", script_name, script_path)
+    logger.debug("[ScriptLoader] Loading '%s' from %s", script_name, script_path)
 
     try:
         # 通过 importlib 从文件路径创建模块并执行

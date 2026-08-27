@@ -48,7 +48,7 @@ async def main():
 
     # 加载配置文件中的图定义
     config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    logger.info("Loading graph from %s", config_path)
+    logger.debug("Loading graph from %s", config_path)
 
     graph = Graph.from_json(config_path)
 
@@ -61,7 +61,7 @@ async def main():
         backend = "opencode"
     executor = Executor(graph, pi_agent=agent, max_concurrency=8, timeout=600)
 
-    logger.info("▶ Running with real %s agent (this calls the LLM 5 times)...", backend)
+    logger.debug("▶ Running with real %s agent (this calls the LLM 5 times)...", backend)
     result = await executor.run()
 
     print("\n" + result.summary())

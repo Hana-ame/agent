@@ -70,10 +70,10 @@ class MockPIAgent(PIAgent):
 
     用于测试的确定性 Mock agent。
 
-    By default it echoes data back with model metadata.  Supply a custom
-    *response_fn(data, prompt, model, settings) -> result* to override.
+    By default it echoes data back unchanged (no model name in the result).
+    Supply a custom *response_fn(data, prompt, model, settings) -> result* to override.
 
-    默认会把数据原样回显并附带模型元信息；可传入自定义的
+    默认会把数据原样回显(结果中不包含模型名)；可传入自定义的
     *response_fn(data, prompt, model, settings) -> result* 进行覆盖。
     """
 
@@ -88,7 +88,7 @@ class MockPIAgent(PIAgent):
         model: str,
         settings: Optional[Dict] = None,
     ) -> Any:
-        logger.info("[MockPIAgent] model=%s", model)
+        logger.debug("[MockPIAgent] model=%s", model)
         logger.debug("[MockPIAgent] data=%s", repr(data)[:200])
         logger.debug("[MockPIAgent] prompt=%s", prompt[:200] if prompt else "")
 
@@ -96,22 +96,8 @@ class MockPIAgent(PIAgent):
             # 用户提供了自定义响应函数，直接调用它
             result = self._response_fn(data, prompt, model, settings)
         else:
-            # 默认行为：回显数据并附带模型元信息
-            if isinstance(data, str):
-                # 字符串：加上 [模型名] 前缀回显
-                result = f"[{model}] {data}"
-            elif isinstance(data, dict):
-                # 字典：包装成带处理标记的结构
-                result = {
-                    "_processed": True,
-                    "_model": model,
-                    "_prompt": prompt,
-                    "input": data,
-                    "output": f"Processed: {json.dumps(data, default=str)}",
-                }
-            else:
-                # 其他类型：转为字符串回显
-                result = f"[{model}] {repr(data)}"
+            # 默认行为：原样回显数据(结果中不包含模型名，与真实 agent 一致)
+            result = data
 
         logger.debug("[MockPIAgent] result=%s", repr(result)[:200])
         return result
@@ -136,7 +122,7 @@ class ExternalPIAgent(PIAgent):
         model: str,
         settings: Optional[Dict] = None,
     ) -> Any:
-        logger.info("[ExternalPIAgent] model=%s", model)
+        logger.debug("[ExternalPIAgent] model=%s", model)
         try:
             # 动态导入第三方 pi_agent 包并调用其 run 接口
             import pi_agent as pa  # type: ignore[import-untyped]
@@ -222,9 +208,11 @@ class PICLIPIAgent(PIAgent):
             cmd += ["--model", model]
         cmd.append(text)
 
-        logger.info(
-            "[PICLIPIAgent] calling pi | provider=%s model=%s cli=%s",
-            provider, model, self.cli,
+        tag = f"[{(settings or {}).get('edge_id')}] " if (settings or {}).get("edge_id") else ""
+        logger.debug("[PICLIPIAgent]%sCMD: %s", tag, " ".join(cmd))
+        logger.debug(
+            "[PICLIPIAgent]%scalling pi | provider=%s model=%s cli=%s",
+            tag, provider, model, self.cli,
         )
 
         # 用子进程调用 pi,并应用超时
@@ -249,7 +237,7 @@ class PICLIPIAgent(PIAgent):
             )
 
         result = out.decode(errors="replace").strip()
-        logger.info("[PICLIPIAgent] got %d chars from model=%s", len(result), model)
+        logger.debug("[PICLIPIAgent] got %d chars from model=%s", len(result), model)
         return result
 
 
@@ -364,9 +352,11 @@ class OpenCodeAgent(PIAgent):
             cmd += ["--variant", self.variant]
         cmd.append(text)
 
-        logger.info(
-            "[OpenCodeAgent] calling opencode | model=%s cli=%s proxies=%s",
-            model, self.cli, self.proxies,
+        tag = f"[{(settings or {}).get('edge_id')}] " if (settings or {}).get("edge_id") else ""
+        logger.debug("[OpenCodeAgent]%sCMD: %s", tag, " ".join(cmd))
+        logger.debug(
+            "[OpenCodeAgent]%scalling opencode | model=%s cli=%s proxies=%s",
+            tag, model, self.cli, self.proxies,
         )
 
         # 逐个代理尝试：每个代理设置 HTTPS_PROXY 等环境变量后调用 opencode
@@ -377,7 +367,7 @@ class OpenCodeAgent(PIAgent):
                 for key in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
                             "https_proxy", "http_proxy", "all_proxy"):
                     env[key] = proxy
-                logger.info("[OpenCodeAgent] using proxy %s", proxy)
+                logger.debug("[OpenCodeAgent] using proxy %s", proxy)
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -398,7 +388,7 @@ class OpenCodeAgent(PIAgent):
 
             if proc.returncode == 0:
                 result = out.decode(errors="replace").strip()
-                logger.info(
+                logger.debug(
                     "[OpenCodeAgent] got %d chars from model=%s (proxy=%s)",
                     len(result), model, proxy,
                 )
@@ -407,12 +397,12 @@ class OpenCodeAgent(PIAgent):
             # 该代理失败，记录后尝试下一个
             err_text = err.decode(errors="replace")[:300]
             last_err = f"proxy={proxy} rc={proc.returncode}: {err_text}"
-            logger.warning("[OpenCodeAgent] attempt failed: %s", last_err)
+            logger.debug("[OpenCodeAgent] attempt failed: %s", last_err)
 
         # 所有代理都失败
         raise RuntimeError(
             f"[OpenCodeAgent] opencode failed after {len(self.proxies) or 1} "
             f"attempt(s): {last_err}"
         )
-        logger.info("[OpenCodeAgent] got %d chars from model=%s", len(result), model)
+        logger.debug("[OpenCodeAgent] got %d chars from model=%s", len(result), model)
         return result

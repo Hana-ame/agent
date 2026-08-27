@@ -32,7 +32,7 @@ async def main():
 
     # 加载配置文件中的图定义
     config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    logger.info("Loading graph from %s", config_path)
+    logger.debug("Loading graph from %s", config_path)
 
     graph = Graph.from_json(config_path)
 

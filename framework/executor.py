@@ -122,11 +122,11 @@ class Executor:
         """
         t0 = time.monotonic()  # 记录开始时间
 
-        logger.info("=" * 60)
-        logger.info("[Executor] ▶ Starting graph execution")
-        logger.info("[Executor]   graph=%s", self.graph)
-        logger.info("[Executor]   concurrency=%d  timeout=%ss", self.max_concurrency, self.timeout)
-        logger.info("=" * 60)
+        logger.debug("=" * 60)
+        logger.debug("[Executor] ▶ Starting graph execution")
+        logger.debug("[Executor]   graph=%s", self.graph)
+        logger.debug("[Executor]   concurrency=%d  timeout=%ss", self.max_concurrency, self.timeout)
+        logger.debug("=" * 60)
 
         try:
             self._init_sources()  # 先把所有源顶点置为 READY
@@ -148,9 +148,9 @@ class Executor:
         self._result.execution_time = time.monotonic() - t0
         await self._collect_results()  # 汇总各顶点最终状态与数据
 
-        logger.info("=" * 60)
-        logger.info("[Executor] ■ Finished: %s", self._result)
-        logger.info("=" * 60)
+        logger.debug("=" * 60)
+        logger.debug("[Executor] ■ Finished: %s", self._result)
+        logger.debug("=" * 60)
 
         return self._result
 
@@ -169,7 +169,7 @@ class Executor:
         """
         for v in self.graph.get_source_vertices():
             v.state = VertexState.READY
-            logger.info("[Executor] Source vertex '%s' → READY", v.id)
+            logger.debug("[Executor] Source vertex '%s' → READY", v.id)
 
     async def _loop(self):
         """Main event-driven loop.
@@ -189,7 +189,7 @@ class Executor:
             ]
 
             if ready:
-                logger.info(
+                logger.debug(
                     "[Executor] READY vertices: %s", [v.id for v in ready]
                 )
                 tasks = []
@@ -206,7 +206,7 @@ class Executor:
             # 3. 终止检查：所有顶点都已 DONE 或 ERROR
             states = {v.state for v in self.graph.vertices.values()}
             if states <= {VertexState.DONE, VertexState.ERROR}:
-                logger.info("[Executor] All vertices settled, exiting loop")
+                logger.debug("[Executor] All vertices settled, exiting loop")
                 break
 
             # 4. 死锁检测：本轮 gather 完成后，若没有产生新的 READY 事件，
@@ -223,13 +223,13 @@ class Executor:
 
         触发 *vertex* 的所有出边。
         """
-        logger.info("[Executor] Processing vertex '%s'", vertex.id)
+        logger.debug("[Executor] Processing vertex '%s'", vertex.id)
 
         outgoing = self.graph.get_outgoing_edges(vertex.id)
         if not outgoing:
             # 汇顶点没有出边，直接完成
             vertex.state = VertexState.DONE
-            logger.info("[Executor] Vertex '%s' is a sink → DONE", vertex.id)
+            logger.debug("[Executor] Vertex '%s' is a sink → DONE", vertex.id)
             return
 
         # 先运行 on_ready 钩子，把多个输入整合成输出供出边读取
@@ -258,7 +258,7 @@ class Executor:
 
         if ok:
             vertex.state = VertexState.DONE
-            logger.info("[Executor] Vertex '%s' → DONE", vertex.id)
+            logger.debug("[Executor] Vertex '%s' → DONE", vertex.id)
         else:
             # 任一出边失败 => 顶点进入 ERROR
             vertex.state = VertexState.ERROR
@@ -288,7 +288,8 @@ class Executor:
             self._result.vertex_results[v.id] = {
                 "state": v.state.value,
                 "data": {
-                    str(k): val for k, val in data.items()
+                    f"{k[0]}:{','.join(k[1])}" if k[1] else str(k[0]): val
+                    for k, val in data.items()
                 },
                 "error": v.error_message,
             }
@@ -298,9 +299,9 @@ class Executor:
 
         输出所有顶点的状态，便于死锁排查。
         """
-        logger.warning("[Executor] ── state dump ──")
+        logger.debug("[Executor] ── state dump ──")
         for v in self.graph.vertices.values():
-            logger.warning(
+            logger.debug(
                 "  [%s] state=%s  in=%d/%d  out=%s",
                 v.id, v.state.value,
                 v._received_input_count, v.required_input_count,

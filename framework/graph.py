@@ -71,7 +71,7 @@ class Graph:
 
         从 JSON 文件加载图。
         """
-        logger.info("[Graph] Loading from %s", json_path)
+        logger.debug("[Graph] Loading from %s", json_path)
         with open(json_path, "r") as fh:
             config = json.load(fh)
         # 以 JSON 文件所在目录为基准解析脚本相对路径
@@ -128,6 +128,10 @@ class Graph:
                 model=ec.get("model", "default"),
                 settings=ec.get("settings", {}),
                 script_path=script,
+                # 读/写 tag 与纯搬运：从 config 读取
+                read_tags=ec.get("read_tags") or ec.get("tags", []),
+                set_tags=ec.get("set_tags") or ec.get("tags", []),
+                passthrough=bool(ec.get("passthrough", False)),
             )
 
             if script:
@@ -162,7 +166,7 @@ class Graph:
 
         # 构建完成后统一校验
         graph.validate()
-        logger.info(
+        logger.debug(
             "[Graph] Loaded %d vertices, %d edges",
             len(graph.vertices), len(graph.edges),
         )
@@ -224,7 +228,7 @@ class Graph:
                 logger.error("[Graph] Validation: %s", e)
             raise ValueError(f"Graph validation failed: {'; '.join(errors)}")
 
-        logger.info("[Graph] Validation passed ✓")
+        logger.debug("[Graph] Validation passed ✓")
 
     # ------------------------------------------------------------------
     # Queries  查询

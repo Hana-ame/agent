@@ -45,6 +45,10 @@ class Edge:
         model: str = "default",
         settings: Optional[Dict] = None,
         script_path: Optional[str] = None,
+        read_tags: Optional[List[str]] = None,
+        set_tags: Optional[List[str]] = None,
+        passthrough: bool = False,
+        tags: Optional[List[str]] = None,
     ):
         self.id = edge_id
         self.source_id = source_id
@@ -54,13 +58,22 @@ class Edge:
         self.settings = settings or {}
         self.script_path = script_path
         self._script_module = None  # 加载后的外部脚本模块
+        # 区分「读 tag」与「写 tag」：
+        #   read_tags —— 读源时用的标签(从源里筛带这些 tag 的数据)
+        #   set_tags  —— 写目标时打的标签(存成 (self.id, set_tags) 槽)
+        self.read_tags = read_tags or []
+        self.set_tags = set_tags or []
+        # 配置里声明的标签（日志/展示用；read_tags/set_tags 才是执行语义）
+        self.tags = list(tags or [])
+        # passthrough=True 时本边是纯搬运：不调 LLM，数据原样透传到目标(仍按 set_tags 分槽)
+        self.passthrough = passthrough
 
         # 执行状态
         self.completed: bool = False   # 是否执行完成
         self.result: Any = None        # 执行结果
         self.error: Optional[str] = None  # 出错时的错误信息
 
-        logger.info(
+        logger.debug(
             "[Edge:%s] Created %s -> %s | model=%s",
             self.id, source_id, destination_id, model,
         )
@@ -93,17 +106,17 @@ class Edge:
         Returns the final result written to the destination vertex.
         返回写入目标顶点的最终结果。
         """
-        logger.info(
+        logger.debug(
             "[Edge:%s] EXECUTE  %s -> %s",
             self.id, self.source_id, self.destination_id,
         )
 
         try:
-            # 1 — 从源顶点读取主数据
-            data = await source_vertex.get()
+            # 1 — 从源顶点读取数据(用 read_tags 从源里筛；缺省读主数据)
+            data = await source_vertex.get(tags=self.read_tags or None)
             logger.debug("[Edge:%s] Source data: %s", self.id, repr(data)[:200])
             if data is None:
-                logger.warning(
+                logger.debug(
                     "[Edge:%s] Source vertex '%s' returned None (no main data)",
                     self.id, self.source_id,
                 )
@@ -113,13 +126,19 @@ class Edge:
                 data = self._script_module.pre_process(data, self.settings)
                 logger.debug("[Edge:%s] After pre_process: %s", self.id, repr(data)[:200])
 
-            # 3 — PI Agent 处理
-            result = await pi_agent.process(
-                data=data,
-                prompt=self.prompt,
-                model=self.model,
-                settings=self.settings,
-            )
+            # 3 — 若 passthrough(纯搬运)：不调 LLM，数据原样透传(仍执行 pre/post 脚本)
+            #    否则交给 PI Agent 处理
+            if self.passthrough:
+                result = data
+                logger.debug("[Edge:%s] passthrough (no LLM call)", self.id)
+            else:
+                result = await pi_agent.process(
+                    data=data,
+                    prompt=self.prompt,
+                    model=self.model,
+                    # 标准调用上下文：把本边 ID 传给 agent(真实/模拟都可用来做日志、追踪)
+                    settings={**self.settings, "edge_id": self.id},
+                )
             logger.debug("[Edge:%s] PI Agent result: %s", self.id, repr(result)[:200])
 
             # 4 — 脚本后处理(post_process)
@@ -127,11 +146,11 @@ class Edge:
                 result = self._script_module.post_process(result, self.settings)
                 logger.debug("[Edge:%s] After post_process: %s", self.id, repr(result)[:200])
 
-            # 5 — 以本边 ID 为键写入目标顶点(fan-in 按边 ID 分槽，不覆盖)
-            await dest_vertex.set(result, edge_id=self.id)
-            logger.info(
-                "[Edge:%s] Delivered to '%s' | key=edge:%s",
-                self.id, self.destination_id, self.id,
+            # 5 — 以本边 ID + set_tags 为键写入目标(fan-in 按边 ID 分槽，不覆盖)
+            await dest_vertex.set(result, edge_id=self.id, tags=self.set_tags)
+            logger.debug(
+                "[Edge:%s] Delivered to '%s' | key=(%s, %s)",
+                self.id, self.destination_id, self.id, self.set_tags,
             )
 
             # 记录执行成功状态
@@ -178,7 +197,7 @@ class Edge:
         self.completed = True
         self.result = signal
         self.error = None
-        logger.warning("[Edge:%s] FORWARD ABORT: %s", self.id, reason)
+        logger.debug("[Edge:%s] FORWARD ABORT: %s", self.id, reason)
         return signal
 
     def __repr__(self):

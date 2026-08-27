@@ -1,172 +1,118 @@
 {
   "metadata": {
-    "generated_at": "2026-08-27T04:48:00",
+    "generated_at": "2026-08-27T15:33:06",
     "success": true,
-    "execution_time_s": 0.001,
-    "agent": "Namespace(out=None, fast=True, real=False, proxy='1')",
-    "graph": "V=6, E=6",
-    "vertex_count": 6,
-    "edge_count": 6
+    "execution_time_s": 48.299,
+    "graph": "V=4, E=4",
+    "agent": "opencode http://127.0.1.4:7890"
   },
-  "input_graph": {
-    "vertices": [
-      {
-        "id": "A",
-        "settings": {},
-        "script": null,
-        "initial_data": [
-          {
-            "data_id": "_",
-            "tags": [
-              "_"
-            ],
-            "value": "The vertex-edge framework lets you compose AI pipelines as a graph."
-          }
-        ]
+  "vertices": [
+    {
+      "id": "source",
+      "settings": {},
+      "script": null,
+      "initial_data": [
+        {
+          "data_id": "__init__",
+          "tags": [],
+          "value": "The vertex-edge framework lets you compose AI pipelines as a graph."
+        }
+      ],
+      "state": "done",
+      "data": {
+        "__init__": "The vertex-edge framework lets you compose AI pipelines as a graph."
       },
-      {
-        "id": "B",
-        "settings": {},
-        "script": null,
-        "initial_data": []
-      },
-      {
-        "id": "C",
-        "settings": {},
-        "script": null,
-        "initial_data": []
-      },
-      {
-        "id": "D",
-        "settings": {},
-        "script": null,
-        "initial_data": []
-      },
-      {
-        "id": "E",
-        "settings": {},
-        "script": null,
-        "initial_data": []
-      },
-      {
-        "id": "F",
-        "settings": {},
-        "script": null,
-        "initial_data": []
-      }
-    ],
-    "edges": [
-      {
-        "id": "e1",
-        "source": "A",
-        "destination": "B",
-        "prompt": "Summarize the text:",
-        "model": "sum",
-        "settings": {},
-        "script": null
-      },
-      {
-        "id": "e2",
-        "source": "B",
-        "destination": "C",
-        "prompt": "Translate to French:",
-        "model": "fr",
-        "settings": {},
-        "script": null
-      },
-      {
-        "id": "e3",
-        "source": "B",
-        "destination": "D",
-        "prompt": "Translate to Spanish:",
-        "model": "es",
-        "settings": {},
-        "script": null
-      },
-      {
-        "id": "e4",
-        "source": "C",
-        "destination": "E",
-        "prompt": "",
-        "model": "m",
-        "settings": {},
-        "script": null
-      },
-      {
-        "id": "e5",
-        "source": "D",
-        "destination": "E",
-        "prompt": "",
-        "model": "m",
-        "settings": {},
-        "script": null
-      },
-      {
-        "id": "e6",
-        "source": "E",
-        "destination": "F",
-        "prompt": "Produce final report:",
-        "model": "digest",
-        "settings": {},
-        "script": null
-      }
-    ]
-  },
-  "results": {
-    "vertex_results": {
-      "A": {
-        "state": "done",
-        "data": {
-          "__init__": "The vertex-edge framework lets you compose AI pipelines as a graph."
-        },
-        "error": null
-      },
-      "B": {
-        "state": "done",
-        "data": {
-          "e1": "[sum] The vertex-edge framework lets you compose AI pipelines as a graph."
-        },
-        "error": null
-      },
-      "C": {
-        "state": "done",
-        "data": {
-          "e2": "[法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
-        },
-        "error": null
-      },
-      "D": {
-        "state": "done",
-        "data": {
-          "e3": "[西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
-        },
-        "error": null
-      },
-      "E": {
-        "state": "done",
-        "data": {
-          "e4": "[m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
-          "e5": "[m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
-          "__self__": "[e4] [m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.\n[e5] [m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
-        },
-        "error": null
-      },
-      "F": {
-        "state": "done",
-        "data": {
-          "e6": "[报告] [e4] [m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.\n[e5] [m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
-        },
-        "error": null
-      }
+      "error": null
     },
-    "edge_results": {
-      "e1": "[sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
-      "e2": "[法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
-      "e3": "[西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
-      "e4": "[m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
-      "e5": "[m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.",
-      "e6": "[报告] [e4] [m] [法] [sum] The vertex-edge framework lets you compose AI pipelines as a graph.\n[e5] [m] [西] [sum] The vertex-edge framework lets you compose AI pipelines as a graph."
+    {
+      "id": "summary",
+      "settings": {},
+      "script": null,
+      "initial_data": [],
+      "state": "done",
+      "data": {
+        "summarize:en": "The vertex-edge framework models AI pipelines as composable graphs."
+      },
+      "error": null
     },
-    "errors": []
-  }
+    {
+      "id": "merge",
+      "settings": {},
+      "script": "/mnt/d/WorkPlace/vertex_edge_agent/examples/trace/scripts/merge_on_ready.py",
+      "initial_data": [],
+      "state": "done",
+      "data": {
+        "to_french:fr": "Le framework vertex-edge modélise les pipelines d'IA comme des graphes composables.",
+        "to_spanish:es": "El marco vértice-arista modela los pipelines de IA como grafos componibles.",
+        "__self__": "【fr】 Le framework vertex-edge modélise les pipelines d'IA comme des graphes composables.\n【es】 El marco vértice-arista modela los pipelines de IA como grafos componibles."
+      },
+      "error": null
+    },
+    {
+      "id": "report",
+      "settings": {},
+      "script": null,
+      "initial_data": [],
+      "state": "done",
+      "data": {
+        "digest:final": "**Final Report — Cross-Lingual Alignment of Framework Description**\n\n**Source concept (EN, reconstructed):** The vertex-edge framework models AI pipelines as composable graphs.\n\n| Lang | Text | Gloss |\n|------|------|-------|\n| FR | Le framework vertex-edge modélise les pipelines d'IA comme des graphes composables. | \"framework\" kept loanword; \"modélise\"=models; \"pipelines d'IA\"=AI pipelines; \"comme des graphes composables\"=as composable graphs |\n| ES | El marco vértice-arista modela los pipelines de IA como grafos componibles. | \"marco\"=framework; \"vértice-arista\"=vertex-edge; \"modela\"=models; \"grafos componibles\"=composable graphs |\n\n**Findings:**\n- Both are faithful, near-parallel renderings of the same proposition; no semantic drift.\n- FR retains the English loanword *framework*; ES uses the native *marco* with a hyphenated calque *vértice-arista*.\n- Terminology mapping is consistent: *AI pipelines* → *pipelines d'IA* / *pipelines de IA*; *composable graphs* → *graphes composables* / *grafos componibles*.\n\n**Conclusion:** The FR and ES strings are equivalent translations suitable for localized documentation of the vertex-edge agent framework."
+      },
+      "error": null
+    }
+  ],
+  "edges": [
+    {
+      "id": "summarize",
+      "source": "source",
+      "destination": "summary",
+      "read_tags": [],
+      "set_tags": [
+        "en"
+      ],
+      "prompt": "Summarize the text:",
+      "model": "opencode-zen/hy3-free",
+      "result": "The vertex-edge framework models AI pipelines as composable graphs."
+    },
+    {
+      "id": "to_french",
+      "source": "summary",
+      "destination": "merge",
+      "read_tags": [
+        "en"
+      ],
+      "set_tags": [
+        "fr"
+      ],
+      "prompt": "Translate to French:",
+      "model": "opencode-zen/hy3-free",
+      "result": "Le framework vertex-edge modélise les pipelines d'IA comme des graphes composables."
+    },
+    {
+      "id": "to_spanish",
+      "source": "summary",
+      "destination": "merge",
+      "read_tags": [
+        "en"
+      ],
+      "set_tags": [
+        "es"
+      ],
+      "prompt": "Translate to Spanish:",
+      "model": "opencode-zen/hy3-free",
+      "result": "El marco vértice-arista modela los pipelines de IA como grafos componibles."
+    },
+    {
+      "id": "digest",
+      "source": "merge",
+      "destination": "report",
+      "read_tags": [],
+      "set_tags": [
+        "final"
+      ],
+      "prompt": "Produce final report:",
+      "model": "opencode-zen/hy3-free",
+      "result": "**Final Report — Cross-Lingual Alignment of Framework Description**\n\n**Source concept (EN, reconstructed):** The vertex-edge framework models AI pipelines as composable graphs.\n\n| Lang | Text | Gloss |\n|------|------|-------|\n| FR | Le framework vertex-edge modélise les pipelines d'IA comme des graphes composables. | \"framework\" kept loanword; \"modélise\"=models; \"pipelines d'IA\"=AI pipelines; \"comme des graphes composables\"=as composable graphs |\n| ES | El marco vértice-arista modela los pipelines de IA como grafos componibles. | \"marco\"=framework; \"vértice-arista\"=vertex-edge; \"modela\"=models; \"grafos componibles\"=composable graphs |\n\n**Findings:**\n- Both are faithful, near-parallel renderings of the same proposition; no semantic drift.\n- FR retains the English loanword *framework*; ES uses the native *marco* with a hyphenated calque *vértice-arista*.\n- Terminology mapping is consistent: *AI pipelines* → *pipelines d'IA* / *pipelines de IA*; *composable graphs* → *graphes composables* / *grafos componibles*.\n\n**Conclusion:** The FR and ES strings are equivalent translations suitable for localized documentation of the vertex-edge agent framework."
+    }
+  ],
+  "errors": []
 }

@@ -2,9 +2,10 @@
 
 顶点(Vertex)模块 —— 计算图中的节点。
 
-数据存储一律用「来源边 ID」做 key(edge_id -> data)：
-    每条边写入目标时带上自己的 ID，目标顶点按边 ID 分槽记录，fan-in 天然不覆盖。
-    非边来源的数据用保留键：
+数据存储键为 (edge_id, tags)：按「来源边 ID」+「标签」分槽。
+    每条边写入目标时带上自己的 ID，目标顶点按边 ID 分槽记录，fan-in 天然不覆盖；
+    tags 表达该数据的语义标签(读/写时区分)。
+    非边来源的数据用保留键 edge_id：
         KEY_INIT  ("__init__")   初始数据(源顶点预置)
         KEY_SELF  ("__self__")   顶点自产结果(on_ready / prepare_outputs 合并产物)
 
@@ -14,13 +15,18 @@
 import asyncio
 import enum
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("vertex_edge_agent.vertex")
 
 # 保留键：非边来源的数据
 KEY_INIT = "__init__"   # 初始数据
 KEY_SELF = "__self__"   # 顶点自产(on_ready 合并产物)
+
+
+def _key(edge_id: Optional[str], tags: Optional[List[str]]) -> Tuple[str, Tuple[str, ...]]:
+    """规范化存储键：key = (edge_id, tuple(sorted(tags)))。"""
+    return (edge_id or KEY_SELF, tuple(sorted(tags or [])))
 
 
 class VertexState(enum.Enum):
@@ -45,18 +51,16 @@ class Vertex:
 
     计算图中的一个顶点(节点)。
 
-    Data is keyed by the SOURCE EDGE ID (edge_id -> data).
-    数据以「来源边 ID」为键存储。
-    Has a state machine for lifecycle management.
-    拥有生命周期状态机。
+    Data is keyed by (source edge ID, tags).  数据以「来源边 ID + 标签」为键存储。
+    Has a state machine for lifecycle management.  拥有生命周期状态机。
     Supports external scripts for data handling/validation/rejection.
     支持外部脚本进行数据处理 / 校验 / 拒绝。
 
     Methods:
-        get(edge_id) -> data               读取数据(不传读主数据)
-        set(data, edge_id) -> bool         写入数据(edge_id 缺省=自产)
-        get_all_data() -> {edge_id: data}  全部数据
-        prepare_outputs()                  出边触发前运行 on_ready 钩子
+        get(edge_id, tags) -> data               读取数据(参数可省)
+        set(data, edge_id, tags) -> bool         写入数据
+        get_all_data() -> {(edge_id, tags): data}
+        prepare_outputs()                        出边触发前运行 on_ready 钩子
     """
 
     def __init__(
@@ -71,8 +75,8 @@ class Vertex:
         self.script_path = script_path
         self._script_module = None  # 加载后的外部脚本模块
 
-        # 数据存储：edge_id -> data（非边来源数据用 KEY_INIT / KEY_SELF）
-        self._data_store: Dict[str, Any] = {}
+        # 数据存储：key = (edge_id, tags) -> data（非边来源数据用 KEY_INIT / KEY_SELF）
+        self._data_store: Dict[Tuple[str, Tuple[str, ...]], Any] = {}
         self._lock = asyncio.Lock()  # 保护数据存储的异步锁
 
         # 状态管理
@@ -89,16 +93,17 @@ class Vertex:
         # 错误信息
         self.error_message: Optional[str] = None
 
-        # 加载初始数据(仅源顶点通常会有；存到保留键 __init__)
+        # 加载初始数据(仅源顶点通常会有；按 (__init__, tags) 分槽，保留各份的 tag)
         if initial_data:
             for item in initial_data:
-                self._data_store[KEY_INIT] = item.get("value")
+                key = _key(KEY_INIT, item.get("tags"))
+                self._data_store[key] = item.get("value")
                 logger.debug(
                     "[Vertex:%s] Loaded initial data -> key=%s, value=%s",
-                    self.id, KEY_INIT, repr(item.get("value"))[:120],
+                    self.id, key, repr(item.get("value"))[:120],
                 )
 
-        logger.info(
+        logger.debug(
             "[Vertex:%s] Created | settings=%s | script=%s | initial_keys=%s",
             self.id, self.settings, self.script_path, list(self._data_store.keys()),
         )
@@ -114,7 +119,7 @@ class Vertex:
     def state(self, new_state: VertexState):
         old = self._state
         self._state = new_state
-        logger.info("[Vertex:%s] %s -> %s", self.id, old.value, new_state.value)
+        logger.debug("[Vertex:%s] %s -> %s", self.id, old.value, new_state.value)
         # 进入 READY 时置位事件，否则清除，供 wait_ready 使用
         if new_state == VertexState.READY:
             self._ready_event.set()
@@ -146,38 +151,64 @@ class Vertex:
     # ------------------------------------------------------------------
     # Data access  数据访问
     # ------------------------------------------------------------------
-    async def get(self, edge_id: Optional[str] = None) -> Any:
+    async def get(
+        self,
+        edge_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> Any:
         """读取数据。
 
-        - edge_id 指定：读「该来源边写入」的槽。
-        - edge_id 缺省：读「主数据」—— 优先自产(__self__)，
-          否则唯一的槽，否则初始数据(__init__)。
+        - edge_id + tags：读精确槽 (edge_id, tags)。
+        - 仅 edge_id：读该来源边写入的槽(任一 tag)。
+        - 仅 tags：读带这些 tag 的槽(任一边)。
+        - 都不给：读「主数据」—— 优先自产(__self__)，否则唯一槽，否则初始(__init__)。
         """
         async with self._lock:
-            if edge_id is not None:
-                data = self._data_store.get(edge_id)
+            if edge_id is not None and tags is not None:
+                data = self._data_store.get(_key(edge_id, tags))
+            elif edge_id is not None:
+                data = self._first_locked(lambda k: k[0] == edge_id)
+            elif tags is not None:
+                want = tuple(sorted(tags))
+                data = self._first_locked(lambda k: k[1] == want)
             else:
                 data = self._main_data_locked()
-        logger.debug("[Vertex:%s] GET edge=%s -> %s", self.id, edge_id, repr(data)[:120])
+        logger.debug(
+            "[Vertex:%s] GET edge=%s tags=%s -> %s",
+            self.id, edge_id, tags, repr(data)[:120],
+        )
         return data
 
+    def _first_locked(self, pred) -> Any:
+        """按条件取第一个匹配槽的值。"""
+        for k, v in self._data_store.items():
+            if pred(k):
+                return v
+        return None
+
     def _main_data_locked(self) -> Any:
-        """主数据：__self__ > 唯一槽 > __init__。"""
-        if KEY_SELF in self._data_store:
-            return self._data_store[KEY_SELF]
+        """主数据：__self__ > 唯一槽 > 第一个 __init__ 槽。"""
+        if _key(KEY_SELF, None) in self._data_store:
+            return self._data_store[_key(KEY_SELF, None)]
         if len(self._data_store) == 1:
             return next(iter(self._data_store.values()))
-        return self._data_store.get(KEY_INIT)
+        # 多个槽时：返回第一个初始数据槽
+        for k, v in self._data_store.items():
+            if k[0] == KEY_INIT:
+                return v
+        return self._data_store.get(_key(KEY_INIT, None))
 
     async def set(
         self,
         data: Any,
         edge_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ) -> bool:
         """写入数据。
 
         edge_id 提供：按来源边 ID 分槽记录(不同边各占一槽，不覆盖)。
         edge_id 缺省：当作顶点自产，存到保留键 __self__。
+        tags：写入时打的标签(与 edge_id 一起组成 key = (edge_id, tags))。
 
         Returns True on success.  Raises ``DataRejectedError`` if the
         vertex script's ``on_receive`` rejects the data.
@@ -185,7 +216,7 @@ class Vertex:
         成功返回 True；若顶点脚本的 ``on_receive`` 拒绝该数据，
         则抛出 ``DataRejectedError``。
         """
-        key = edge_id if edge_id is not None else KEY_SELF
+        key = _key(edge_id, tags)
         logger.debug("[Vertex:%s] SET %s <- %s", self.id, key, repr(data)[:120])
 
         # --- 运行顶点脚本的 on_receive 钩子 ---
@@ -193,14 +224,14 @@ class Vertex:
         if self._script_module and hasattr(self._script_module, "on_receive"):
             try:
                 data = self._script_module.on_receive(
-                    data, edge_id or "", [], self.settings
+                    data, edge_id or "", tags or [], self.settings
                 )
                 logger.debug(
                     "[Vertex:%s] on_receive returned: %s", self.id, repr(data)[:120]
                 )
             except Exception as exc:
-                # 脚本抛异常 => 数据被拒绝
-                logger.warning(
+                # 脚本抛异常 => 数据被拒绝（异常会作为 DataRejectedError 上抛）
+                logger.debug(
                     "[Vertex:%s] on_receive REJECTED data: %s", self.id, exc
                 )
                 raise DataRejectedError(
@@ -210,7 +241,7 @@ class Vertex:
         async with self._lock:
             self._data_store[key] = data
             self._received_input_count += 1
-            logger.info(
+            logger.debug(
                 "[Vertex:%s] Input %d/%d received",
                 self.id, self._received_input_count, self.required_input_count,
             )
@@ -222,10 +253,10 @@ class Vertex:
                 self.state = VertexState.READY
         return True
 
-    async def get_all_data(self) -> Dict[str, Any]:
-        """Return a copy of the entire data store (edge_id -> data).
+    async def get_all_data(self) -> Dict[Tuple[str, Tuple[str, ...]], Any]:
+        """Return a copy of the entire data store ((edge_id, tags) -> data).
 
-        返回整个数据存储的副本(来源边 ID -> 数据)。
+        返回整个数据存储的副本((来源边 ID, 标签) -> 数据)。
         """
         async with self._lock:
             return dict(self._data_store)
@@ -235,13 +266,11 @@ class Vertex:
 
         运行脚本的 ``on_ready`` 钩子，把多个输入整合为输出(存到 __self__)。
 
-        Called by the executor right before outgoing edges fire.
-        由执行器在触发输出边之前调用。
-        The hook receives all stored data (edge_id -> data) and the vertex
-        settings, and should return a single consolidated value that will
-        be stored under the reserved key __self__ (the "main data").
+        The hook receives all stored data ((edge_id, tags) -> data) and the
+        vertex settings, and should return a single consolidated value that
+        will be stored under the reserved key __self__ (the "main data").
 
-        钩子接收所有已存数据({edge_id: data})与顶点配置，应返回一个
+        钩子接收所有已存数据({(edge_id, tags): data})与顶点配置，应返回一个
         合并后的值，会被存到保留键 __self__(即主数据)。
         """
         if self._script_module and hasattr(self._script_module, "on_ready"):
@@ -250,17 +279,26 @@ class Vertex:
             try:
                 outputs = self._script_module.on_ready(all_data, self.settings)
                 if outputs is not None:
-                    # 兼容旧脚本返回 {(key, (tags,)): value} 的 dict：取其第一个值
-                    if isinstance(outputs, dict) and outputs:
-                        value = next(iter(outputs.values()))
-                    else:
-                        value = outputs
+                    # 兼容旧脚本返回 {(key, (tags,)): value} 的 dict：按返回的
+                    # (data_id, tags) 分槽存储，使下游按 get-tags 能读到；
+                    # 同时额外存一份主数据(__self__)，保证无 tag 读取也能拿到。
                     async with self._lock:
-                        self._data_store[KEY_SELF] = value
-                        logger.debug(
-                            "[Vertex:%s] on_ready set %s = %s",
-                            self.id, KEY_SELF, repr(value)[:120],
-                        )
+                        value = None
+                        if isinstance(outputs, dict) and outputs:
+                            for out_key, val in outputs.items():
+                                value = val
+                                edge_id = out_key[0] if isinstance(out_key, tuple) else KEY_SELF
+                                tags = out_key[1] if (isinstance(out_key, tuple)
+                                                       and len(out_key) > 1) else None
+                                self._data_store[_key(edge_id, tags)] = val
+                        else:
+                            value = outputs
+                        if value is not None and _key(KEY_SELF, None) not in self._data_store:
+                            self._data_store[_key(KEY_SELF, None)] = value
+                            logger.debug(
+                                "[Vertex:%s] on_ready set %s = %s",
+                                self.id, _key(KEY_SELF, None), repr(value)[:120],
+                            )
             except Exception as exc:
                 logger.error(
                     "[Vertex:%s] on_ready hook failed: %s", self.id, exc, exc_info=True

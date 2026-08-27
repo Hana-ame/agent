@@ -10,6 +10,7 @@
     Executor / ExecutionResult                —— 异步执行器与执行结果
     PIAgent / MockPIAgent / ExternalPIAgent   —— AI 处理接口及实现
     load_script                               —— 动态加载外部 Python 脚本
+    build_archive / save_archive              —— 把一次图运行存档为 JSON 落盘
 """
 
 # 导出顶点相关类型
@@ -23,6 +24,11 @@ from .pi_agent import (
 )
 from .signal import AbortSignal, is_abort, abort_reason
 from .script_loader import load_script
+from .archive import (
+    snapshot_initial_data,
+    build_archive,
+    save_archive,
+)
 
 __all__ = [
     'Vertex', 'VertexState', 'DataRejectedError',
@@ -33,6 +39,7 @@ __all__ = [
     'OPENCODE_PROXIES',
     'AbortSignal', 'is_abort', 'abort_reason',
     'load_script',
+    'snapshot_initial_data', 'build_archive', 'save_archive',
 ]
 
 __version__ = "1.0.0"

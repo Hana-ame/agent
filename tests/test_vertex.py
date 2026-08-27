@@ -73,8 +73,8 @@ class TestVertexGetSet:
         await empty_vertex.set("v2", edge_id="e2")
         all_data = await empty_vertex.get_all_data()
         assert len(all_data) == 2
-        assert all_data["e1"] == "v1"
-        assert all_data["e2"] == "v2"
+        assert all_data[("e1", ())] == "v1"
+        assert all_data[("e2", ())] == "v2"
 
 
 # ── readiness ────────────────────────────────────────────────────
