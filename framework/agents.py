@@ -7,6 +7,7 @@ Provides an abstract base class ``BaseAgent`` and two concrete implementations:
 """
 
 import abc
+import asyncio
 import json
 import logging
 from typing import Any, Callable, Dict, Optional
@@ -61,6 +62,8 @@ class MockAgent(BaseAgent):
 
         if self._response_fn:
             result = self._response_fn(data, prompt, model, settings)
+            if asyncio.iscoroutine(result):
+                result = await result
         else:
             # Default echo with metadata
             if isinstance(data, str):
