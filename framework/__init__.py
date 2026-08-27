@@ -4,7 +4,7 @@ from .vertex import Vertex, VertexState, DataRejectedError
 from .edge import Edge
 from .graph import Graph
 from .executor import Executor, ExecutionResult
-from .pi_agent import PIAgent, MockPIAgent, ExternalPIAgent
+from .pi_agent import PIAgent, MockPIAgent, HttpPIAgent
 from .script_loader import load_script
 
 __all__ = [
@@ -12,7 +12,7 @@ __all__ = [
     'Edge',
     'Graph',
     'Executor', 'ExecutionResult',
-    'PIAgent', 'MockPIAgent', 'ExternalPIAgent',
+    'PIAgent', 'MockPIAgent', 'HttpPIAgent',
     'load_script',
 ]
 

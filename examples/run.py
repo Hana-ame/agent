@@ -38,8 +38,12 @@ async def main():
     logger.info("Loading graph from %s", config_path)
     graph = Graph.from_json(config_path)
 
-    # Use MockPIAgent — replace with ExternalPIAgent() when pi_agent is installed
-    agent = MockPIAgent()
+    from framework import MockPIAgent, HttpPIAgent
+    if "real_llm" in config_path:
+        agent = HttpPIAgent()
+    else:
+        agent = MockPIAgent()
+        
     executor = Executor(graph, pi_agent=agent, max_concurrency=4, timeout=30)
 
     result = await executor.run()

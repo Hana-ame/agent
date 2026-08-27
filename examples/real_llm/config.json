@@ -25,7 +25,6 @@
       "source": "user_input",
       "destination": "llm_output",
       "data_id": "text",
-      "script": "llm_edge.py",
       "prompt": "You are a creative poet.",
       "model": "hy3-free"
     }
