@@ -160,3 +160,33 @@ class HttpPIAgent(PIAgent):
     async def close(self):
         """Cleanup connection pool."""
         await self.client.aclose()
+
+
+class ExternalPIAgent(PIAgent):
+    """Delegates to the installed `pi-agent` open-source package.
+    
+    This allows the edge to leverage the true Pi Agent capabilities, 
+    including its core tools (bash, read, write, edit) and local model routing.
+    """
+
+    async def process(
+        self,
+        data: Any,
+        prompt: str,
+        model: str,
+        settings: Optional[Dict] = None,
+    ) -> Any:
+        logger.info(f"[ExternalPIAgent] Handing off to real Pi Agent (model={model})")
+        try:
+            import pi_agent as pa  # type: ignore[import-untyped]
+
+            result = await pa.run(
+                data=data, prompt=prompt, model=model, **(settings or {})
+            )
+            return result
+        except ImportError:
+            logger.error(
+                "[ExternalPIAgent] 'pi_agent' package not installed. "
+                "Please install the real Pi Agent toolkit to use this engine."
+            )
+            raise
