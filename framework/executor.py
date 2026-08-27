@@ -206,7 +206,7 @@ class Executor:
             edge.abort_reason = f"Upstream vertex '{vertex.id}' was aborted"
             self._result.edge_results[edge.id] = f"<ABORTED: {edge.abort_reason}>"
             dst = self.graph.vertices[edge.destination_id]
-            await dst.handle_edge_signal(edge.id, EdgeSignal.ABORTED, payload=edge.abort_reason)
+            await dst.receive_signal(edge.id, EdgeSignal.ABORTED, payload=edge.abort_reason)
 
     async def _process_vertex(self, vertex: Vertex):
         """Fire all outgoing edges of *vertex*."""
@@ -268,7 +268,7 @@ class Executor:
             self._result.vertex_results[v.id] = {
                 "state": v.state.value,
                 "data": {
-                    f"{k[0]}:{','.join(k[1])}": val for k, val in data.items()
+                    str(k): val for k, val in data.items()
                 },
                 "error": v.error_message,
                 "abort_reason": v.abort_reason,

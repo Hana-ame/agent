@@ -138,7 +138,7 @@ class Edge:
                 self.aborted = True
                 self.abort_reason = f"Upstream source vertex '{self.source_id}' is ABORTED"
                 logger.info("[Edge:%s] Source '%s' is ABORTED -> Aborting edge and notifying '%s'", self.id, self.source_id, self.destination_id)
-                await dest_vertex.handle_edge_signal(self.id, EdgeSignal.ABORTED, payload=self.abort_reason)
+                await dest_vertex.receive_signal(self.id, EdgeSignal.ABORTED, payload=self.abort_reason)
                 return None
 
             # 1 — Read from source
@@ -153,7 +153,7 @@ class Edge:
                     "[Edge:%s] Guard condition NOT satisfied -> ABORTING (dest: '%s')",
                     self.id, self.destination_id,
                 )
-                await dest_vertex.handle_edge_signal(self.id, EdgeSignal.ABORTED, payload=self.abort_reason)
+                await dest_vertex.receive_signal(self.id, EdgeSignal.ABORTED, payload=self.abort_reason)
                 return None
 
             # 2 — Pre-process

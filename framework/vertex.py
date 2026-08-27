@@ -83,30 +83,17 @@ class Vertex:
         # Load initial data
         if initial_data:
             for item in initial_data:
-                key = self._make_key(
-                    item.get("data_id", "default"),
-                    item.get("tags", []),
-                )
+                key = str(item.get("channel", item.get("data_id", "default")))
                 self._data_store[key] = item.get("value")
                 logger.debug(
-                    "[Vertex:%s] Loaded initial data: key=%s, value=%s",
+                    "[Vertex:%s] Loaded initial data: channel=%s, value=%s",
                     self.id, key, repr(item.get("value"))[:120],
                 )
 
         logger.info(
-            "[Vertex:%s] Created | settings=%s | script=%s | initial_keys=%s",
+            "[Vertex:%s] Created | settings=%s | script=%s | channels=%s",
             self.id, self.settings, self.script_path, list(self._data_store.keys()),
         )
-
-    # ------------------------------------------------------------------
-    # Key helpers
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _make_key(
-        data_id: str, tags: Optional[List[str]] = None
-    ) -> Tuple[str, Tuple[str, ...]]:
-        """Create a canonical key from data_id and tags."""
-        return (data_id, tuple(sorted(tags or [])))
 
     # ------------------------------------------------------------------
     # State property
@@ -249,7 +236,7 @@ class Vertex:
                 if outputs and isinstance(outputs, dict):
                     async with self._lock:
                         for key, value in outputs.items():
-                            store_key = self._make_key(str(key))
+                            store_key = str(key)
                             self._data_store[store_key] = value
                             logger.debug(
                                 "[Vertex:%s] self.on_ready set %s = %s",
@@ -266,7 +253,7 @@ class Vertex:
                 if outputs and isinstance(outputs, dict):
                     async with self._lock:
                         for key, value in outputs.items():
-                            store_key = self._make_key(str(key))
+                            store_key = str(key)
                             self._data_store[store_key] = value
                             logger.debug(
                                 "[Vertex:%s] on_ready set %s = %s",
