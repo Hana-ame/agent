@@ -40,43 +40,96 @@ pip install pytest pytest-asyncio
 
 创建一个简单的工作流：`InputNode -> LLM Analysis -> OutputNode`。
 
+创建 `config.json` 文件声明图拓扑：
+
+```json
+{
+  "vertices": [
+    {
+      "id": "InputNode",
+      "initial_data": [{"channel": "text", "value": "人工智能的未来趋势"}]
+    },
+    {"id": "OutputNode"}
+  ],
+  "edges": [
+    {
+      "id": "e_analyze",
+      "source": "InputNode",
+      "destination": "OutputNode",
+      "channel": "text",
+      "prompt": "请用一句话总结以下主题的核心观点：",
+      "model": "gemini-pro"
+    }
+  ]
+}
+```
+
+创建 `main.py` 加载并执行：
+
 ```python
 import asyncio
 from framework import Graph, Executor, MockAgent
 
-# 1. 声明式配置工作流拓扑
-config = {
-    "vertices": [
-        {"id": "InputNode", "initial_data": [{"channel": "text", "value": "人工智能的未来趋势"}]},
-        {"id": "OutputNode"}
-    ],
-    "edges": [
-        {
-            "id": "e_analyze",
-            "source": "InputNode",
-            "destination": "OutputNode",
-            "channel": "text",
-            "prompt": "请用一句话总结以下主题的核心观点：",
-            "model": "gemini-pro"
-        }
-    ]
-}
-
 async def main():
-    # 2. 从字典或 JSON 文件加载图
-    graph = Graph.from_dict(config)
+    # 1. 从 JSON 文件加载图配置
+    graph = Graph.from_json_file("config.json")
     
-    # 3. 运行执行器
+    # 2. 运行执行器
     executor = Executor(graph, agents=MockAgent(), max_concurrency=4)
     result = await executor.run()
     
-    # 4. 打印执行摘要
+    # 3. 打印执行摘要
     print(result.summary())
 
 asyncio.run(main())
 ```
 
 ---
+
+
+---
+
+## ⚙️ 节点与边配置指南 (Configuration Guide)
+
+整个框架采用 JSON 驱动的配置模式。你可以将拓扑结构完全写在 `.json` 文件中，并由 `Graph.from_json_file()` 自动加载解析。
+
+### 1. 节点 (Vertex) 配置参数
+
+节点是状态机的容器。在 JSON 的 `vertices` 数组中定义：
+
+| 字段名 (`Key`) | 类型 | 必填 | 默认值 | 说明与可选值 |
+| :--- | :--- | :---: | :--- | :--- |
+| **`id`** | `str` | **是** | - | 节点的唯一标识符（如 `"DataIngest"`）。 |
+| **`type`** | `str` | 否 | `"vertex"` | `"vertex"` (标准单节点) 或 `"subgraph"` (嵌套子图节点)。 |
+| **`initial_data`** | `list[dict]` | 否 | `[]` | 节点的初始注入数据列表（通常用于源节点）。每个字典包含 `channel` 与 `value`。 |
+| **`script`** | `str` | 否 | `null` | 外挂 Python 脚本路径，用于注入 `on_receive` 或 `on_ready` 钩子。 |
+| **`settings`** | `dict` | 否 | `{}` | 节点的业务高级配置字典。 |
+
+**`settings` 高级控制选项：**
+* `"require_approval"`: (`bool`) 设为 `true` 启用人类在回路 (HITL)，执行到此节点自动暂停并打入 SQLite 快照。
+* `"graph_config"`: (`str` / `dict`) 仅当 `type="subgraph"` 时必填，子图配置的 **JSON 文件路径**（如 `"subgraphs/team.json"`）。
+* `"input_map"` / `"output_map"`: 嵌套子图的输入/输出变量重定向映射。
+
+### 2. 边 (Edge) 配置参数
+
+边是承载 5 阶段计算与路由的分支管道。在 JSON 的 `edges` 数组中定义：
+
+| 字段名 (`Key`) | 类型 | 必填 | 默认值 | 说明与可选值 |
+| :--- | :--- | :---: | :--- | :--- |
+| **`id`** | `str` | **是** | - | 边的唯一标识符（如 `"e_analyze"`）。 |
+| **`source`** | `str` | **是** | - | 起始节点 ID。 |
+| **`destination`** | `str` | **是** | - | 目标节点 ID。 |
+| **`channel`** | `str` | 否 | `"default"` | 数据流转通道名称。 |
+| **`prompt`** | `str` | 否 | `""` | 提示词模版。如果不填，边作为**透明通道**直接透传数据。 |
+| **`model`** | `str` | 否 | `"default"`| 大模型名称（如 `"gemini-1.5-pro"`）。 |
+| **`max_iterations`** | `int` | 否 | `0` | **有界循环控制**：设为 `> 0` 将此边标记为回环边，允许循环 `N` 次。 |
+| **`script`** | `str` | 否 | `null` | 外挂 Python 脚本路径，用于注入数据前置/后置处理钩子。 |
+| **`settings`** | `dict` | 否 | `{}` | 边的计算、条件守卫、自纠错与内存配置字典。 |
+
+**`settings` 高级控制选项：**
+* **条件路由 (Guard)**: `"threshold"` (阈值), `"operator"` (`">=", "=="` 等), `"field"` (用于读取字典里的数字提取对比)。未达标分支会自动触发 `ABORTED` 剪枝。
+* **业务自纠错 (`retry_policy`)**: 包含 `"max_retries"`, `"backoff_factor"`, `"retry_on"`(如 `["KeyError", "JSONDecodeError"]`)。
+* **全局内存 (`memory_read` / `memory_write`)**: 数组形式声明前置读取（`["token"]`），字典形式声明后置写入（`{"auth": "token"}`）。
 
 ## 📖 核心功能使用指南
 
@@ -166,17 +219,15 @@ resume_executor = await CheckpointedExecutor.resume(
 
 ### 4. 分层嵌套子图 (`SubgraphVertex`)
 
-将独立的子图（如由 SearchAgent + FactChecker 组成的调研团队）作为单节点嵌入父图：
+将独立的子图（如由 SearchAgent + FactChecker 组成的调研团队）定义在另一个 JSON 中，并在父图中作为单节点引入：
 
 ```jsonc
 {
   "id": "ResearchDepartment",
   "type": "subgraph",  // 指定为嵌套子图类型
   "settings": {
-    "graph_config": {
-      "vertices": [{"id": "SearchAgent"}, {"id": "FactChecker"}],
-      "edges": [...]
-    },
+    // 引用外部子图配置文件
+    "graph_config": "subgraphs/research_team.json", 
     // 输入映射：父图入边 'topic' -> 子图 'SearchAgent' 的 'query'
     "input_map": { "topic": "SearchAgent.query" },
     // 输出映射：子图 'FactChecker' 的 'verified' -> 父图出边 'report'
