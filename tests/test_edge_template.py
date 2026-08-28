@@ -35,6 +35,49 @@ from framework.agents import MockAgent
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 完整使用示例
+# ═══════════════════════════════════════════════════════════════════
+
+"""
+示例：假设你有一个 Edge 子类
+
+class MyGuardEdge(Edge):
+    def condition(self, data, settings):
+        threshold = settings.get("threshold", 0)
+        return isinstance(data, (int, float)) and data >= threshold
+
+    def pre_process(self, data, settings):
+        prefix = settings.get("prefix", "")
+        return f"{prefix}{data}" if prefix else data
+
+测试代码：
+
+@pytest.mark.asyncio
+async def test_my_guard_edge():
+    # 1. 创建两个 Vertex
+    src = make_source_vertex(90, channel="score")   # 源节点，数据为 90
+    dst = make_dest_vertex(incoming_edges=["e1"])    # 目标节点
+
+    # 2. 创建你的 Edge
+    edge = make_edge(
+        MyGuardEdge,
+        edge_id="e1",
+        channel="score",
+        settings={"threshold": 80, "prefix": "[OK]"}
+    )
+
+    # 3. 执行
+    result = await edge.execute(src, dst, echo_agent())
+
+    # 4. 断言
+    assert edge.completed is True
+    assert edge.aborted is False
+    assert result == "[OK]90"
+    assert await dst.fetch_data(channel="score") == "[OK]90"
+"""
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 测试数据工厂 - 根据你的 Edge 需求修改
 # ═══════════════════════════════════════════════════════════════════
 

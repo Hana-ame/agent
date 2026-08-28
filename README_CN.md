@@ -384,3 +384,53 @@ python -m pytest tests/ -v
 ```
 
 当前包含 **129 个全量通过的测试用例**，覆盖拓扑静态校验、循环回边、菱形死锁防护、自纠错重试、事件流冒泡、子图映射、内存 TTL、成本核算、竞速模式与任务取消机制，以及 Pydantic 类型安全校验。
+
+---
+
+## 🧪 测试自定义 Edge 子类
+
+框架提供测试模板，用于为你的 Edge 子类编写测试。
+
+### 快速开始
+
+```bash
+# 复制模板
+cp tests/test_edge_template.py tests/test_my_edge.py
+
+# 编辑 test_my_edge.py，填入你的 Edge 类和测试数据
+
+# 运行
+pytest tests/test_my_edge.py -v
+```
+
+### 核心工具函数
+
+```python
+from tests.test_edge_template import make_edge, make_source_vertex, make_dest_vertex, echo_agent
+
+# 创建源 Vertex（带数据）
+src = make_source_vertex(90, channel="score")
+
+# 创建目标 Vertex
+dst = make_dest_vertex(incoming_edges=["e1"])
+
+# 创建你的 Edge
+edge = make_edge(MyGuardEdge, channel="score", settings={"threshold": 80})
+
+# 执行并验证
+result = await edge.execute(src, dst, echo_agent())
+assert edge.completed is True
+assert result == "[OK]90"
+```
+
+### 模板结构
+
+| 测试类 | 用途 |
+|--------|------|
+| `TestCondition` | 测试 `condition()` 守卫逻辑 |
+| `TestHooks` | 测试 `pre_process` / `post_process` 转换 |
+| `TestExecution` | 端到端执行测试 |
+| `TestSettingsCombinations` | 不同 settings 组合 |
+| `TestResetAndRepr` | reset 和 repr 行为 |
+
+详见 `tests/test_edge_template.py`。

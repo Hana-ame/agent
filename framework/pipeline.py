@@ -40,6 +40,15 @@ class Pipeline:
         self.hook_provider = hook_provider
         self.agent = agent
         self.log_id = log_id
+        self._pipeline_instance = None
+
+    def _get_pipeline_instance(self):
+        if self._pipeline_instance is None and self.pipeline_module is not None:
+            if isinstance(self.pipeline_module, type):
+                self._pipeline_instance = self.pipeline_module()
+            else:
+                self._pipeline_instance = self.pipeline_module
+        return self._pipeline_instance
 
     def evaluate_condition(self, data: Any) -> bool:
         if self.hook_provider:
@@ -47,8 +56,9 @@ class Pipeline:
             if callable(hook):
                 return bool(hook(data, self.settings))
 
-        if self.pipeline_module:
-            hook = getattr(self.pipeline_module, "condition", getattr(self.pipeline_module, "evaluate_condition", None))
+        inst = self._get_pipeline_instance()
+        if inst is not None:
+            hook = getattr(inst, "condition", getattr(inst, "evaluate_condition", None))
             if callable(hook):
                 return bool(hook(data, self.settings))
 
@@ -85,8 +95,9 @@ class Pipeline:
             hook = getattr(self.hook_provider, "pre_process", None)
             if callable(hook):
                 data = await hook(data, self.settings) if asyncio.iscoroutinefunction(hook) else hook(data, self.settings)
-        if self.pipeline_module:
-            hook = getattr(self.pipeline_module, "pre_process", None)
+        inst = self._get_pipeline_instance()
+        if inst is not None:
+            hook = getattr(inst, "pre_process", None)
             if callable(hook):
                 data = await hook(data, self.settings) if asyncio.iscoroutinefunction(hook) else hook(data, self.settings)
         return data
@@ -96,8 +107,9 @@ class Pipeline:
             hook = getattr(self.hook_provider, "post_process", None)
             if callable(hook):
                 result = await hook(result, self.settings) if asyncio.iscoroutinefunction(hook) else hook(result, self.settings)
-        if self.pipeline_module:
-            hook = getattr(self.pipeline_module, "post_process", None)
+        inst = self._get_pipeline_instance()
+        if inst is not None:
+            hook = getattr(inst, "post_process", None)
             if callable(hook):
                 result = await hook(result, self.settings) if asyncio.iscoroutinefunction(hook) else hook(result, self.settings)
         return result
