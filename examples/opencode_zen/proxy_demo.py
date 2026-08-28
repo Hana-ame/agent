@@ -17,9 +17,13 @@ HTTP 请求是真正经它出去的——不是仅仅存了个属性。
 import asyncio
 import http.client
 import json
+import os
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from framework import HttpLLMAgent
 
