@@ -1,7 +1,5 @@
 # Vertex-Edge Agent Framework
 
-[English](README.md) | [中文文档](README_CN.md)
-
 A **non-interactive**, data-driven, highly-scalable DAG (Directed Acyclic Graph) execution engine designed specifically for orchestrating and scheduling production-grade AI Agent pipelines.
 
 ## Unified Architecture
@@ -170,6 +168,7 @@ Vertices are the state machine containers. Defined in the `vertices` array:
 | **`settings`** | `dict` | No | `{}` | Advanced business logic settings. |
 
 **Advanced `settings`:**
+* **Computation Layer**: `"prompt"` (instruction to the LLM), `"model"` (LLM model name, e.g. `"gemini-1.5-pro"`), `"agent"` (agent override).
 * `"require_approval"`: (`bool`) Set to `true` to enable Human-in-the-Loop (HITL), pausing execution and saving a snapshot.
 * `"graph_config"`: (`str` / `dict`) **Required for `type="subgraph"`**. Path to the subgraph's `.json` configuration file.
 * `"input_map"` / `"output_map"`: Port mapping redirects for nested subgraphs.
@@ -184,13 +183,12 @@ Edges are the 5-stage compute and routing pipelines. Defined in the `edges` arra
 | **`source`** | `str` | **Yes** | - | Source Vertex ID. |
 | **`destination`** | `str` | **Yes** | - | Destination Vertex ID. |
 | **`channel`** | `str` | No | `"default"` | Channel name for data flow. |
-| **`prompt`** | `str` | No | `""` | The prompt for the LLM. If empty, the edge is a **transparent pass-through**. |
-| **`model`** | `str` | No | `"default"`| LLM model name (e.g., `"gemini-1.5-pro"`). |
 | **`max_iterations`** | `int` | No | `0` | **Cycle bound**: Set `> 0` to mark as a back-edge, allowing `N` iterations. |
 | **`script`** | `str` | No | `null` | Path to a Python script to inject `pre_process`/`post_process` hooks. |
-| **`settings`** | `dict` | No | `{}` | Settings for guards, self-correction, and global memory. |
+| **`settings`** | `dict` | No | `{}` | Contains `prompt`, `model`, `agent`, and settings for guards, self-correction, and global memory. |
 
 **Advanced `settings`:**
+* **Computation Layer**: `"prompt"` (instruction to the LLM), `"model"` (LLM model name, e.g. `"gemini-1.5-pro"`), `"agent"` (agent override).
 * **Conditional Routing (Guard)**: `"threshold"`, `"operator"` (e.g., `">="`), `"field"`. Triggers an `ABORTED` prune if conditions fail.
 * **Self-Correction (`retry_policy`)**: E.g., `{"max_retries": 3, "retry_on": ["KeyError"]}`.
 * **Global Memory**: `"memory_read"` (array of keys to read), `"memory_write"` (dict mapping output fields to global keys).

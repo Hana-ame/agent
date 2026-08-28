@@ -11,9 +11,8 @@
 graph TB
     subgraph "Core Layer"
         V[Vertex<br/>State Machine Container]
-        E[Edge<br/>Routing Config]
-        P[Pipeline<br/>5-Stage Compute]
-        G[Graph<br/>JSON Loader & Validator]
+        E[Edge<br/>5-Stage Compute & Routing]
+                G[Graph<br/>JSON Loader & Validator]
     end
 
     subgraph "Execution Layer"
@@ -201,7 +200,7 @@ Currently, `Vertex` uses a single `asyncio.Lock` for all data access. In graphs 
 ### 4.2 Add a Formal Error Propagation Strategy
 
 Currently, error handling is mixed:
-- `Pipeline.run()` raises exceptions for guard failures (`AbortPipeline`) and compute errors
+- `Edge.execute()` raises exceptions for guard failures (`AbortPipeline`) and compute errors
 - `Edge.execute()` catches these and sends `ABORTED`/`FAILED` signals
 - `Executor._process_vertex()` catches subgraph errors and hook errors
 - But `Executor._fire_edge()` re-raises after signaling, which means `asyncio.gather(return_exceptions=True)` catches them *after* the signal was already sent
@@ -217,9 +216,9 @@ ExecutionError
 └── SubgraphError          (inner graph failed)
 ```
 
-### 4.3 Make `Pipeline` Truly Stateless
+### 4.3 (Resolved) Consolidate Computation Logic
 
-`Pipeline` is *almost* stateless but it calls `get_agent()` in its constructor, which can trigger file I/O (loading scripts). Consider making Pipeline a pure data object and resolving agents earlier (in Graph loading or Edge init — which already happens).
+Previously, `Pipeline` held the execution state. The recent refactoring successfully absorbed `Pipeline` logic into `Edge`, making the execution model simpler and purely object-oriented without dynamic hook assignment.
 
 ### 4.4 Add Vertex/Edge Lifecycle Hooks to Executor
 
@@ -322,6 +321,8 @@ Per your ROADMAP, distributed execution is the next milestone. I'd advise:
 
 | Priority | Item | Status | Resolved In |
 |:---:|:---|:---:|:---:|
+| 🔴 P0 | Absorb `Pipeline` logic into `Edge` | ✅ Completed | Refactor |
+| 🔴 P0 | Consolidate `prompt`, `model`, `agent` into `settings` dictionary | ✅ Completed | Refactor |
 | 🔴 P0 | Fix `HttpLLMAgent` fatal error retry bug | ✅ Completed | `a2758d4` |
 | 🔴 P0 | Add `HttpLLMAgent` resource cleanup (`close()`, async context manager) | ✅ Completed | `a2758d4` |
 | 🟡 P1 | Remove duplicate `__repr__` return in `HumanGateVertex` | ✅ Completed | `a2758d4` |
@@ -341,7 +342,7 @@ Per your ROADMAP, distributed execution is the next milestone. I'd advise:
 
 ## 7. Verdict
 
-This is a **well-architected, well-tested framework** with a clean mental model (vertices as state containers, edges as compute pipelines, executor as async scheduler). The design decisions — unified signal passing, stateless pipelines, bounded cycle support, checkpoint/resume, subgraph nesting — are sound and show thoughtful engineering.
+This is a **well-architected, well-tested framework** with a clean mental model (vertices as state containers, edges as compute pipelines, executor as async scheduler). The design decisions — unified signal passing, unified edge orchestration (replacing pipelines), bounded cycle support, checkpoint/resume, subgraph nesting — are sound and show thoughtful engineering.
 
 The main risks are:
 1. **The `HttpLLMAgent` retry bug** will silently waste API credits and time in production
