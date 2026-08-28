@@ -180,7 +180,7 @@ class SQLiteStateStore(BaseStateStore):
                 ),
             )
             conn.commit()
-        logger.info("[Store] Run '%s' registered", run_id)
+        logger.debug("[Store] Run '%s' registered", run_id)
 
     def update_run_status(self, run_id: str, status: str) -> None:
         """Update the run's status string."""

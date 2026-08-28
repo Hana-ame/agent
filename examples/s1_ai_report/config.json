@@ -1,43 +1,71 @@
 {
   "metadata": {
     "name": "S1 AI Report",
-    "description": "Fetches thread list, filters for AI/LLM topics, fans out up to 8 threads to fetch replies, summarizes, and fans in to merge into a report."
+    "description": "Fetch thread list → LLM filter → select Nth → fetch replies → LLM summarize."
   },
   "vertices": [
     {
       "id": "v_forum",
       "initial_data": [
         {
-          "channel": "url",
+          "channel": "default",
           "value": "https://stage1st.com/2b/forum-157-1.html"
         }
       ]
     },
-    {
-      "id": "v_router"
-    },
-    {
-      "id": "v_report",
-      "pipeline": "report_hook.py"
-    }
+    { "id": "v_threads" },
+    { "id": "v_router" },
+    { "id": "v_sel1" }, { "id": "v_sel2" }, { "id": "v_sel3" }, { "id": "v_sel4" },
+    { "id": "v_sel5" }, { "id": "v_sel6" }, { "id": "v_sel7" }, { "id": "v_sel8" },
+    { "id": "v_t1" }, { "id": "v_t2" }, { "id": "v_t3" }, { "id": "v_t4" },
+    { "id": "v_t5" }, { "id": "v_t6" }, { "id": "v_t7" }, { "id": "v_t8" },
+    { "id": "v_report", "pipeline": "report_hook.py" }
   ],
   "edges": [
     {
-      "id": "e_filter",
+      "id": "e_fetch_threads",
       "source": "v_forum",
-      "destination": "v_router",
-      "channel": "url",
-      "prompt": "Here is a list of forum threads: {data}\nFilter and return ONLY the threads related to AI, LLM, GPT, artificial intelligence, etc. Output ONLY a valid JSON list of objects: [{'tid': '...', 'title': '...', 'url': '...'}].",
-      "model": "gemini-pro",
-      "pipeline": "s1_pipelines.py:FilterPipeline"
+      "destination": "v_threads",
+      "channel": "default",
+      "pipeline": "s1_pipelines.py:FetchThreadsPipeline",
+      "concurrency_type": "fetch"
     },
-    { "id": "e_t1", "source": "v_router", "destination": "v_report", "channel": "url", "pipeline": "s1_pipelines.py:ThreadPipeline", "prompt": "Summarize the following forum thread discussion from the last 24 hours: {data}\nFocus on AI/LLM trends, user opinions, and key points. Output markdown.", "model": "gemini-flash", "settings": {"index": 0} },
-    { "id": "e_t2", "source": "v_router", "destination": "v_report", "channel": "url", "pipeline": "s1_pipelines.py:ThreadPipeline", "prompt": "Summarize the following forum thread discussion from the last 24 hours: {data}\nFocus on AI/LLM trends, user opinions, and key points. Output markdown.", "model": "gemini-flash", "settings": {"index": 1} },
-    { "id": "e_t3", "source": "v_router", "destination": "v_report", "channel": "url", "pipeline": "s1_pipelines.py:ThreadPipeline", "prompt": "Summarize the following forum thread discussion from the last 24 hours: {data}\nFocus on AI/LLM trends, user opinions, and key points. Output markdown.", "model": "gemini-flash", "settings": {"index": 2} },
-    { "id": "e_t4", "source": "v_router", "destination": "v_report", "channel": "url", "pipeline": "s1_pipelines.py:ThreadPipeline", "prompt": "Summarize the following forum thread discussion from the last 24 hours: {data}\nFocus on AI/LLM trends, user opinions, and key points. Output markdown.", "model": "gemini-flash", "settings": {"index": 3} },
-    { "id": "e_t5", "source": "v_router", "destination": "v_report", "channel": "url", "pipeline": "s1_pipelines.py:ThreadPipeline", "prompt": "Summarize the following forum thread discussion from the last 24 hours: {data}\nFocus on AI/LLM trends, user opinions, and key points. Output markdown.", "model": "gemini-flash", "settings": {"index": 4} },
-    { "id": "e_t6", "source": "v_router", "destination": "v_report", "channel": "url", "pipeline": "s1_pipelines.py:ThreadPipeline", "prompt": "Summarize the following forum thread discussion from the last 24 hours: {data}\nFocus on AI/LLM trends, user opinions, and key points. Output markdown.", "model": "gemini-flash", "settings": {"index": 5} },
-    { "id": "e_t7", "source": "v_router", "destination": "v_report", "channel": "url", "pipeline": "s1_pipelines.py:ThreadPipeline", "prompt": "Summarize the following forum thread discussion from the last 24 hours: {data}\nFocus on AI/LLM trends, user opinions, and key points. Output markdown.", "model": "gemini-flash", "settings": {"index": 6} },
-    { "id": "e_t8", "source": "v_router", "destination": "v_report", "channel": "url", "pipeline": "s1_pipelines.py:ThreadPipeline", "prompt": "Summarize the following forum thread discussion from the last 24 hours: {data}\nFocus on AI/LLM trends, user opinions, and key points. Output markdown.", "model": "gemini-flash", "settings": {"index": 7} }
+    {
+      "id": "e_filter",
+      "source": "v_threads",
+      "destination": "v_router",
+      "channel": "default",
+      "prompt": "以下是 Stage1st (S1) 论坛加密/AI 讨论区的帖子列表：\n{data}\n\n你的任务：从中选出最多 8 个与 AI、LLM、GPT、人工智能、机器学习、深度学习最相关的帖子。如果 AI 相关的帖子少于 8 个，返回所有相关的。\n\n只输出一个合法的 JSON 数组，每个对象包含 'tid'、'title'、'url' 三个键。不要解释，不要 markdown 代码块，只输出原始 JSON 数组。",
+      "model": "hy3-free",
+      "pipeline": "s1_pipelines.py:FilterPipeline",
+      "concurrency_type": "llm"
+    },
+
+    { "id": "e_sel1", "source": "v_router", "destination": "v_sel1", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 0}, "concurrency_type": "default" },
+    { "id": "e_sel2", "source": "v_router", "destination": "v_sel2", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 1}, "concurrency_type": "default" },
+    { "id": "e_sel3", "source": "v_router", "destination": "v_sel3", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 2}, "concurrency_type": "default" },
+    { "id": "e_sel4", "source": "v_router", "destination": "v_sel4", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 3}, "concurrency_type": "default" },
+    { "id": "e_sel5", "source": "v_router", "destination": "v_sel5", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 4}, "concurrency_type": "default" },
+    { "id": "e_sel6", "source": "v_router", "destination": "v_sel6", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 5}, "concurrency_type": "default" },
+    { "id": "e_sel7", "source": "v_router", "destination": "v_sel7", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 6}, "concurrency_type": "default" },
+    { "id": "e_sel8", "source": "v_router", "destination": "v_sel8", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 7}, "concurrency_type": "default" },
+
+    { "id": "e_fetch1", "source": "v_sel1", "destination": "v_t1", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
+    { "id": "e_fetch2", "source": "v_sel2", "destination": "v_t2", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
+    { "id": "e_fetch3", "source": "v_sel3", "destination": "v_t3", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
+    { "id": "e_fetch4", "source": "v_sel4", "destination": "v_t4", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
+    { "id": "e_fetch5", "source": "v_sel5", "destination": "v_t5", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
+    { "id": "e_fetch6", "source": "v_sel6", "destination": "v_t6", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
+    { "id": "e_fetch7", "source": "v_sel7", "destination": "v_t7", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
+    { "id": "e_fetch8", "source": "v_sel8", "destination": "v_t8", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
+
+    { "id": "e_sum1", "source": "v_t1", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
+    { "id": "e_sum2", "source": "v_t2", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
+    { "id": "e_sum3", "source": "v_t3", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
+    { "id": "e_sum4", "source": "v_t4", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
+    { "id": "e_sum5", "source": "v_t5", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
+    { "id": "e_sum6", "source": "v_t6", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
+    { "id": "e_sum7", "source": "v_t7", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
+    { "id": "e_sum8", "source": "v_t8", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" }
   ]
 }

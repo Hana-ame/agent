@@ -304,3 +304,55 @@ Currently contains **129 fully covered tests**, covering:
 - Token usage tracking, latency benchmarking, and cost profiling
 - Race Mode cancellation (`wait_policy: 'any'`), async hooks, and `LinearChain.build`
 - Static and Runtime Pydantic Schema Validation
+
+## Testing Custom Edge Subclasses
+
+Framework provides a test template for you to write tests against your own Edge subclasses.
+
+### Quick Start
+
+```bash
+# Copy template
+cp tests/test_edge_template.py tests/test_my_edge.py
+
+# Edit test_my_edge.py, fill in your Edge class and test data
+
+# Run
+pytest tests/test_my_edge.py -v
+```
+
+### Template Structure
+
+| Test Class | Purpose |
+|------------|---------|
+| `TestCondition` | Test `condition()` guard logic |
+| `TestHooks` | Test `pre_process` / `post_process` transforms |
+| `TestExecution` | End-to-end execution tests |
+| `TestSettingsCombinations` | Different settings combinations |
+| `TestResetAndRepr` | Reset and repr behavior |
+
+### Core Helper Functions
+
+```python
+from tests.test_edge_template import make_edge, make_source_vertex, make_dest_vertex, echo_agent
+
+# Create Edge instance
+edge = make_edge(MyCustomEdge, channel="score", settings={"threshold": 80})
+
+# Create source Vertex with data
+src = make_source_vertex(90, channel="score")
+
+# Create destination Vertex
+dst = make_dest_vertex(incoming_edges=["e1"])
+
+# Execute and verify
+result = await edge.execute(src, dst, echo_agent())
+assert edge.completed is True
+```
+
+### Writing Your Tests
+
+1. Replace `TODO` comments with your Edge class
+2. Define `INPUT_SCENARIOS` for test data
+3. Define `SETTINGS_SCENARIOS` for configurations
+4. Implement assertions in test methods

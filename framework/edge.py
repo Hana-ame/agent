@@ -47,12 +47,14 @@ class Edge:
         settings: Optional[Dict] = None,
         max_iterations: int = 0,
         agent: Optional[Union[str, 'BaseAgent', Dict]] = None,
+        concurrency_type: str = "default",
     ):
         # --- Routing config (Edge's sole responsibility) ---
         self.id = edge_id
         self.source_id = source_id
         self.destination_id = destination_id
         self.channel = channel
+        self.concurrency_type = concurrency_type
         self._pipeline_module = None
         self.completed: bool = False
         self.aborted: bool = False
@@ -72,7 +74,7 @@ class Edge:
         self.settings = settings or {}
 
 
-        logger.info(
+        logger.debug(
             "[Edge:%s] Created %s -> %s | channel=%s model=%s",
             self.id, source_id, destination_id, self.channel, model,
         )

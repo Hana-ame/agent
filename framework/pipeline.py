@@ -103,7 +103,7 @@ class Pipeline:
         return result
 
     async def run(self, data: Any, agents=None, memory=None, telemetry=None) -> Any:
-        logger.info("[Pipeline:%s] START compute", self.log_id)
+        logger.debug("[Pipeline:%s] START compute", self.log_id)
         
         if not self.evaluate_condition(data):
             raise AbortPipeline(f"Guard condition not satisfied on '{self.log_id}'")

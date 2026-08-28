@@ -64,7 +64,7 @@ class Graph:
     @classmethod
     def from_json(cls, json_path: str) -> "Graph":
         """Load graph from a JSON file (supports // and /* */ comments)."""
-        logger.info("[Graph] Loading from %s", json_path)
+        logger.debug("[Graph] Loading from %s", json_path)
         import re
         
         def _strip_comments(text: str) -> str:
@@ -175,6 +175,7 @@ class Graph:
                 settings=ec.get("settings", {}),
                 max_iterations=int(ec.get("max_iterations", 0)),
                 agent=agent_spec,
+                concurrency_type=ec.get("concurrency_type", "default"),
             )
 
             if pipeline_module:
@@ -202,7 +203,7 @@ class Graph:
                 )
 
         graph.validate()
-        logger.info(
+        logger.debug(
             "[Graph] Loaded %d vertices, %d edges",
             len(graph.vertices), len(graph.edges),
         )
@@ -294,12 +295,12 @@ class Graph:
             edge = self.edges[eid]
             dest = self.vertices[edge.destination_id]
             dest.loop_incoming_edges[eid] = edge.max_iterations
-            logger.info(
+            logger.debug(
                 "[Graph] Loop edge '%s' registered on vertex '%s' (max_iterations=%d)",
                 eid, dest.id, edge.max_iterations,
             )
 
-        logger.info("[Graph] Validation passed ✓")
+        logger.debug("[Graph] Validation passed ✓")
 
     # ------------------------------------------------------------------
     # Serialization

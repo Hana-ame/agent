@@ -142,6 +142,7 @@ class Executor:
         graph: Graph,
         agents: Optional[BaseAgent] = None,
         max_concurrency: int = 10,
+        concurrency_config: Optional[Dict[str, int]] = None,
         scan_interval: float = 0.05,
         timeout: Optional[float] = None,
         memory: Optional[MemoryStore] = None,
@@ -156,7 +157,13 @@ class Executor:
         self.memory = memory or MemoryStore()
         self.telemetry = telemetry or TelemetryTracker()
         self.hooks = hooks
-        self._semaphore = asyncio.Semaphore(max_concurrency)
+        # Per-pipeline-type semaphores: llm, fetch, default
+        default_concurrency = concurrency_config or {}
+        self._semaphores = {
+            "llm": asyncio.Semaphore(default_concurrency.get("llm", max_concurrency)),
+            "fetch": asyncio.Semaphore(default_concurrency.get("fetch", max_concurrency)),
+            "default": asyncio.Semaphore(default_concurrency.get("default", max_concurrency)),
+        }
         self._result = ExecutionResult()
         self.active_edge_tasks = {}
         self._event_queue: asyncio.Queue[Optional[GraphEvent]] = asyncio.Queue()
@@ -233,22 +240,22 @@ class Executor:
         """Internal runner that powers both run() and stream()."""
         t0 = time.monotonic()
 
-        logger.info("=" * 60)
+        logger.debug("=" * 60)
         
         # --- Wire up cancellation callbacks for Race mode ---
         def cancel_edges_callback(edge_ids):
             for eid in edge_ids:
                 if eid in self.active_edge_tasks:
-                    logger.info("[Executor] Race condition won. Cancelling pending edge '%s'", eid)
+                    logger.debug("[Executor] Race condition won. Cancelling pending edge '%s'", eid)
                     self.active_edge_tasks[eid].cancel()
 
         for v in self.graph.vertices.values():
             v.on_cancel_edges = cancel_edges_callback
 
-        logger.info("[Executor] ▶ Starting graph execution")
-        logger.info("[Executor]   graph=%s", self.graph)
-        logger.info("[Executor]   concurrency=%d  timeout=%ss", self.max_concurrency, self.timeout)
-        logger.info("=" * 60)
+        logger.debug("[Executor] ▶ Starting graph execution")
+        logger.debug("[Executor]   graph=%s", self.graph)
+        logger.debug("[Executor]   concurrency=%d  timeout=%ss", self.max_concurrency, self.timeout)
+        logger.debug("=" * 60)
         self._emit("workflow_started", payload={"timeout": self.timeout, "concurrency": self.max_concurrency})
 
         try:
@@ -278,9 +285,9 @@ class Executor:
         # Put sentinel to close the event stream
         self._event_queue.put_nowait(None)
 
-        logger.info("=" * 60)
-        logger.info("[Executor] ■ Finished: %s", self._result)
-        logger.info("=" * 60)
+        logger.debug("=" * 60)
+        logger.debug("[Executor] ■ Finished: %s", self._result)
+        logger.debug("=" * 60)
 
         return self._result
 
@@ -304,10 +311,10 @@ class Executor:
                 # Pure source OR loop-destination with no other inputs
                 if v._require_approval and not v._approved:
                     v.state = VertexState.PAUSED
-                    logger.info("[Executor] Source/loop-boot vertex '%s' → PAUSED (requires approval)", v.id)
+                    logger.debug("[Executor] Source/loop-boot vertex '%s' → PAUSED (requires approval)", v.id)
                 else:
                     v.state = VertexState.READY
-                    logger.info("[Executor] Source/loop-boot vertex '%s' → READY", v.id)
+                    logger.debug("[Executor] Source/loop-boot vertex '%s' → READY", v.id)
 
     async def _loop(self):
         """Event-driven main loop with stateful-loop and PAUSED support.
@@ -367,7 +374,7 @@ class Executor:
             # 1. Terminal check: all vertices are in terminal states or PAUSED
             states = {v.state for v in self.graph.vertices.values()}
             if states <= {VertexState.DONE, VertexState.ABORTED, VertexState.ERROR, VertexState.PAUSED}:
-                logger.info("[Executor] All active work settled or paused, exiting loop")
+                logger.debug("[Executor] All active work settled or paused, exiting loop")
                 break
 
             # 2. Loop re-entry / Approval resume: schedule processing for any newly-READY vertex
@@ -377,7 +384,7 @@ class Executor:
                     vid = v.id
                     existing = vertex_tasks.get(vid)
                     if existing is None or existing.done():
-                        logger.info(
+                        logger.debug(
                             "[Executor] Vertex '%s' READY (iter #%d) — spawning task",
                             vid, v.iteration_count,
                         )
@@ -393,7 +400,7 @@ class Executor:
             if not done and VertexState.READY not in states and VertexState.AWAITING_EDGES not in states:
                 # If there are PAUSED vertices waiting for external approval, it's a pause, not a deadlock
                 if VertexState.PAUSED in states:
-                    logger.info("[Executor] Graph paused at PAUSED vertex (waiting for external approval)")
+                    logger.debug("[Executor] Graph paused at PAUSED vertex (waiting for external approval)")
                     break
                 self._log_state_dump()
                 msg = "Deadlock – no READY/PROCESSING vertices but graph not settled"
@@ -413,7 +420,7 @@ class Executor:
 
     async def _abort_vertex(self, vertex: Vertex):
         """Cascade abort to all outgoing edges of an aborted vertex."""
-        logger.info("[Executor] Vertex '%s' aborted → cascading to outgoing edges", vertex.id)
+        logger.debug("[Executor] Vertex '%s' aborted → cascading to outgoing edges", vertex.id)
         self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "aborted", "reason": vertex.abort_reason})
         outgoing = self.graph.get_outgoing_edges(vertex.id)
         for edge in outgoing:
@@ -426,7 +433,7 @@ class Executor:
 
     async def _process_vertex(self, vertex: Vertex):
         """Execute compute/subgraph lifecycle for *vertex* and fire all outgoing edges."""
-        logger.info("[Executor] Processing vertex '%s'", vertex.id)
+        logger.debug("[Executor] Processing vertex '%s'", vertex.id)
         self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": vertex.state.value})
 
         # --- Nested Sub-Graph Execution (Phase 2 & 3) ---
@@ -499,7 +506,7 @@ class Executor:
         outgoing = self.graph.get_outgoing_edges(vertex.id)
         if not outgoing:
             vertex.state = VertexState.DONE
-            logger.info("[Executor] Vertex '%s' is a sink → DONE", vertex.id)
+            logger.debug("[Executor] Vertex '%s' is a sink → DONE", vertex.id)
             self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "done"})
             return
 
@@ -525,10 +532,10 @@ class Executor:
             # If so, honour the re-entry — do NOT overwrite with DONE.
             if vertex.state == VertexState.AWAITING_EDGES:
                 vertex.state = VertexState.DONE
-                logger.info("[Executor] Vertex '%s' → DONE", vertex.id)
+                logger.debug("[Executor] Vertex '%s' → DONE", vertex.id)
                 self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "done"})
             else:
-                logger.info(
+                logger.debug(
                     "[Executor] Vertex '%s' gather done; state already=%s (loop re-entry detected)",
                     vertex.id, vertex.state.value,
                 )
@@ -540,8 +547,10 @@ class Executor:
             self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": "error"})
 
     async def _fire_edge(self, edge: Edge) -> Any:
-        """Execute one edge, bounded by the concurrency semaphore."""
-        async with self._semaphore:
+        """Execute one edge, bounded by the per-type concurrency semaphore."""
+        edge_type = edge.concurrency_type
+        semaphore = self._semaphores.get(edge_type, self._semaphores["default"])
+        async with semaphore:
             self._emit("edge_started", edge_id=edge.id, payload={"source": edge.source_id, "destination": edge.destination_id})
             src = self.graph.vertices[edge.source_id]
             dst = self.graph.vertices[edge.destination_id]

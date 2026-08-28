@@ -16,7 +16,7 @@ class PiAgentRunner(BaseAgent):
         import asyncio
         import json
         
-        logger.info(f"[PiAgentRunner] Handing off to real Pi Agent CLI (model={model})")
+        logger.debug(f"[PiAgentRunner] Handing off to real Pi Agent CLI (model={model})")
         
         if isinstance(data, (dict, list)):
             message = json.dumps(data, ensure_ascii=False)

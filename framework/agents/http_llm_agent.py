@@ -19,7 +19,7 @@ class HttpLLMAgent(BaseAgent):
         self.api_key = api_key
         self.max_retries = max_retries
         self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0, connect=10.0),
+            timeout=httpx.Timeout(300.0, connect=10.0),
             limits=httpx.Limits(max_keepalive_connections=50, max_connections=100)
         )
         self._closed = False
@@ -59,7 +59,7 @@ class HttpLLMAgent(BaseAgent):
             reraise=True
         )
         async def _make_request():
-            logger.info(f"[HttpLLMAgent] Requesting {target_model}...")
+            logger.debug(f"[HttpLLMAgent] Requesting {target_model}...")
             response = await self.client.post(
                 f"{self.base_url}/chat/completions",
                 json=payload,

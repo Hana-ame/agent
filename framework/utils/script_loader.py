@@ -39,7 +39,7 @@ def load_script(script_path: str, script_name: Optional[str] = None):
     if script_name is None:
         script_name = os.path.splitext(os.path.basename(script_path))[0]
 
-    logger.info("[ScriptLoader] Loading '%s' from %s", script_name, script_path)
+    logger.debug("[ScriptLoader] Loading '%s' from %s", script_name, script_path)
 
     try:
         spec = importlib.util.spec_from_file_location(script_name, script_path)

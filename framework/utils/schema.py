@@ -23,7 +23,7 @@ class SchemaRegistry:
         if not issubclass(schema_class, BaseModel):
             raise TypeError(f"Schema '{name}' must be a subclass of pydantic.BaseModel")
         cls._schemas[name] = schema_class
-        logger.info("[SchemaRegistry] Registered schema: '%s'", name)
+        logger.debug("[SchemaRegistry] Registered schema: '%s'", name)
 
     @classmethod
     def get(cls, name: str) -> Optional[Type[BaseModel]]:

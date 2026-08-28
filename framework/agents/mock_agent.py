@@ -17,7 +17,7 @@ class MockAgent(BaseAgent):
         model: str,
         settings: Optional[Dict] = None,
     ) -> Any:
-        logger.info("[MockAgent] model=%s", model)
+        logger.debug("[MockAgent] model=%s", model)
         logger.debug("[MockAgent] data=%s", repr(data)[:200])
         logger.debug("[MockAgent] prompt=%s", prompt[:200] if prompt else "")
 

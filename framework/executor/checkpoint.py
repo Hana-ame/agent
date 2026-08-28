@@ -164,7 +164,7 @@ class CheckpointedExecutor(Executor):
             self.store.create_run(self.run_id, graph_config=self._graph_config)
             await self._checkpoint("start")
         else:
-            logger.info(
+            logger.debug(
                 "[CheckpointedExecutor] Resuming run '%s' from step %d",
                 self.run_id, self._step,
             )
@@ -178,7 +178,7 @@ class CheckpointedExecutor(Executor):
             for v in paused_vertices:
                 await self._checkpoint(f"vertex:{v.id}:paused")
             self.store.update_run_status(self.run_id, "awaiting_approval")
-            logger.info("[CheckpointedExecutor] ⏸ Run '%s' paused at %d vertex(es) awaiting approval",
+            logger.debug("[CheckpointedExecutor] ⏸ Run '%s' paused at %d vertex(es) awaiting approval",
                         self.run_id, len(paused_vertices))
         else:
             final_status = "completed" if result.success else "failed"
@@ -219,7 +219,7 @@ class CheckpointedExecutor(Executor):
                 "Cannot resume."
             )
 
-        logger.info(
+        logger.debug(
             "[CheckpointedExecutor] Restoring snapshot step=%d trigger=%s for run '%s'",
             snap.step, snap.trigger, run_id,
         )
@@ -310,7 +310,7 @@ class CheckpointedExecutor(Executor):
     # ------------------------------------------------------------------
     def _init_sources(self):
         if self._is_resume:
-            logger.info(
+            logger.debug(
                 "[CheckpointedExecutor] Resume mode — skipping _init_sources; "
                 "states already restored from snapshot"
             )

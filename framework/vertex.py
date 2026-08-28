@@ -108,7 +108,7 @@ class Vertex:
                     self.id, key, repr(item.get("value"))[:120],
                 )
 
-        logger.info(
+        logger.debug(
             "[Vertex:%s] Created | settings=%s | script=%s | channels=%s",
             self.id, self.settings, getattr(self._pipeline_module, '__name__', None) if self._pipeline_module else None, list(self._data_store.keys()),
         )
@@ -122,7 +122,7 @@ class Vertex:
         self._approved = False
         if self._state == VertexState.READY:
             self.state = VertexState.PAUSED
-        logger.info("[Vertex:%s] Marked for approval (require_approval=True)", self.id)
+        logger.debug("[Vertex:%s] Marked for approval (require_approval=True)", self.id)
 
     def approve(self, approved_data: Optional[Dict] = None) -> None:
         """Approve a PAUSED (or pending approval) vertex, inject data, and transition to READY."""
@@ -131,7 +131,7 @@ class Vertex:
                 self._data_store[str(channel)] = value
         self._approved = True
         self.state = VertexState.READY
-        logger.info("[Vertex:%s] ✓ Approved -> state transition to READY", self.id)
+        logger.debug("[Vertex:%s] ✓ Approved -> state transition to READY", self.id)
 
     # ------------------------------------------------------------------
     # State property
@@ -144,7 +144,7 @@ class Vertex:
     def state(self, new_state: VertexState):
         old = self._state
         self._state = new_state
-        logger.info("[Vertex:%s] %s -> %s", self.id, old.value, new_state.value)
+        logger.debug("[Vertex:%s] %s -> %s", self.id, old.value, new_state.value)
         if new_state in (VertexState.READY, VertexState.ABORTED, VertexState.ERROR):
             self._ready_event.set()
         else:
@@ -229,7 +229,7 @@ class Vertex:
                     # Check limit BEFORE incrementing — the blocked delivery
                     # should not count as a re-entry in iteration_count.
                     if max_iter > 0 and self.iteration_count >= max_iter:
-                        logger.info(
+                        logger.debug(
                             "[Vertex:%s] Loop limit (%d) reached after %d re-entries "
                             "via edge '%s' — staying %s.",
                             self.id, max_iter, self.iteration_count, edge_id,
@@ -246,7 +246,7 @@ class Vertex:
                     self.completed_incoming_edges.add(edge_id)
                     self._data_store[key] = data
 
-                    logger.info(
+                    logger.debug(
                         "[Vertex:%s] ↺ Loop re-entry (iteration %d/%s) via '%s'",
                         self.id, self.iteration_count,
                         max_iter if max_iter > 0 else "∞",
@@ -275,7 +275,7 @@ class Vertex:
                     self._received_input_count += 1
                 
                 total = len(self.incoming_edges) if self.incoming_edges else self.required_input_count
-                logger.info(
+                logger.debug(
                     "[Vertex:%s] Input received (completed: %d, aborted: %d, total: %d)",
                     self.id, len(self.completed_incoming_edges), len(self.aborted_incoming_edges), total
                 )
@@ -315,7 +315,7 @@ class Vertex:
                     and edge_id in self.loop_incoming_edges
                     and self._state in (VertexState.DONE, VertexState.AWAITING_EDGES)
                 ):
-                    logger.info(
+                    logger.debug(
                         "[Vertex:%s] Loop-back edge '%s' aborted — loop terminates cleanly.",
                         self.id, edge_id,
                     )
