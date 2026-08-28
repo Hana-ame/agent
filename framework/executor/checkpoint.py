@@ -116,7 +116,6 @@ class HumanGateVertex(Vertex):
     def __repr__(self):
         status = "approved" if self._approved else ("paused" if self._state == VertexState.PAUSED else "pending")
         return f"HumanGateVertex(id={self.id!r}, state={self.state.value}, approval={status})"
-        return f"HumanGateVertex(id={self.id!r}, state={self.state.value}, approval={status})"
 
 
 # ---------------------------------------------------------------------------

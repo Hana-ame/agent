@@ -271,37 +271,30 @@ class TestHttpLLMAgentProcess:
         await agent.close()
 
     @pytest.mark.asyncio
-    async def test_no_retry_on_400_actual_behavior(self):
-        """BUG: 400 should fail immediately but actually retries.
-
-        The code logs "Fatal HTTP Error" for 400/401/403/404, but then calls
-        raise_for_status() which raises HTTPStatusError — and tenacity retries
-        on HTTPStatusError. So fatal errors get retried max_retries times.
-        Fix: either remove HTTPStatusError from retry_if_exception_type, or
-        re-raise a non-retryable exception for fatal status codes.
-        """
-        import httpx
+    async def test_no_retry_on_400(self):
+        """400 errors should fail immediately without retries."""
+        from framework.agents.http_llm_agent import NonRetryableHTTPError
         agent = HttpLLMAgent(max_retries=3)
         error_resp = self._make_response(400)
         agent.client.post = AsyncMock(return_value=error_resp)
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(NonRetryableHTTPError):
             await agent.process("d", "p", "m")
-        # Actual: retries max_retries times (BUG — should be 1)
-        assert agent.client.post.call_count == 3
+        # Fatal: no retries — exactly 1 call
+        assert agent.client.post.call_count == 1
         await agent.close()
 
     @pytest.mark.asyncio
-    async def test_no_retry_on_401_actual_behavior(self):
-        """BUG: same as 400 — 401 gets retried instead of failing fast."""
-        import httpx
+    async def test_no_retry_on_401(self):
+        """401 errors should fail immediately without retries."""
+        from framework.agents.http_llm_agent import NonRetryableHTTPError
         agent = HttpLLMAgent(max_retries=3)
         error_resp = self._make_response(401)
         agent.client.post = AsyncMock(return_value=error_resp)
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(NonRetryableHTTPError):
             await agent.process("d", "p", "m")
-        assert agent.client.post.call_count == 3
+        assert agent.client.post.call_count == 1
         await agent.close()
 
     @pytest.mark.asyncio

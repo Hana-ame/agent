@@ -1,8 +1,7 @@
 import asyncio
 import json
 import logging
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Union, Callable
+from typing import Any, Dict, Optional, Callable
 
 logger = logging.getLogger("vertex_edge_agent.agents")
 from .base_agent import BaseAgent

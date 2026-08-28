@@ -1,10 +1,16 @@
-import json
 import logging
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger("vertex_edge_agent.agents")
 from .base_agent import BaseAgent
+
+
+class NonRetryableHTTPError(Exception):
+    """Raised for HTTP errors that should NOT be retried (400, 401, 403, 404, etc.)."""
+    def __init__(self, status_code: int, message: str):
+        self.status_code = status_code
+        super().__init__(f"HTTP {status_code}: {message}")
+
 
 class HttpLLMAgent(BaseAgent):
     def __init__(self, api_key: str = "public", base_url: str = "https://opencode.ai/zen/v1", max_retries: int = 3):
@@ -16,6 +22,7 @@ class HttpLLMAgent(BaseAgent):
             timeout=httpx.Timeout(30.0, connect=10.0),
             limits=httpx.Limits(max_keepalive_connections=50, max_connections=100)
         )
+        self._closed = False
 
     async def process(
         self,
@@ -59,10 +66,12 @@ class HttpLLMAgent(BaseAgent):
                 headers=headers
             )
             if response.status_code in (429, 500, 502, 503, 504):
+                # Transient errors — let tenacity retry these
                 response.raise_for_status()
             elif response.status_code >= 400:
+                # Fatal client errors (400, 401, 403, 404, etc.) — fail immediately
                 logger.error(f"[HttpLLMAgent] Fatal HTTP Error: {response.status_code} - {response.text}")
-                response.raise_for_status()
+                raise NonRetryableHTTPError(response.status_code, response.text)
                 
             return response.json()
 
@@ -74,5 +83,15 @@ class HttpLLMAgent(BaseAgent):
             raise
 
     async def close(self):
-        await self.client.aclose()
+        """Close the underlying HTTP client and release connections."""
+        if not self._closed:
+            await self.client.aclose()
+            self._closed = True
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+        return False
 
