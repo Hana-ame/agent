@@ -85,6 +85,16 @@ def load_class_from_script(script_path: str, base_class: type, default_class: ty
         for name, obj in inspect.getmembers(module, inspect.isclass):
             if issubclass(obj, base_class) and obj not in (base_class, default_class):
                 return obj
+        # 静默降级是真正的坑：脚本挂上去了、配置看起来没问题、流水线也跑通了，
+        # 但自定义行为一行都没执行（complex demo 的 [ANALYZED] 前后缀就是这样丢的）。
+        # 至少得在日志里喊一声，别让人以为脚本生效了。
+        logger.warning(
+            "[ScriptLoader] %s 里没有 %s 子类，已降级用 %s——自定义行为不会执行。\n"
+            "        若要自定义，请在脚本里定义 %s 子类（旧的顶层 hook 函数写法已失效）。",
+            script_path, base_class.__name__, default_class.__name__, base_class.__name__,
+        )
         return default_class
     except Exception as exc:
-        raise RuntimeError(f"Pipeline script load failed for '{script_path}': {exc}") from exc
+        raise RuntimeError(
+            f"Script load failed for '{script_path}': {exc}"
+        ) from exc
