@@ -36,9 +36,7 @@ class EdgeSignal(str, enum.Enum):
 
 
 
-class DataRejectedError(Exception):
-    """Raised when a vertex rejects incoming data via its script."""
-    pass
+from .utils.errors import DataRejectedError
 
 
 class Vertex:
@@ -86,6 +84,7 @@ class Vertex:
         self.completed_incoming_edges: set = set()
         self.aborted_incoming_edges: set = set()
         self._received_input_count: int = 0
+        self.on_cancel_edges = None   # Optional callback for Race mode (wait_policy='any') cancellation
 
         # Loop support
         # Maps loop-back edge ID -> max_iterations (0 = unlimited).

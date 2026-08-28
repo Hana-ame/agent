@@ -20,10 +20,7 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger("vertex_edge_agent.pipeline")
 
-class AbortPipeline(Exception):
-    def __init__(self, reason: str):
-        self.reason = reason
-        super().__init__(reason)
+from .utils.errors import AbortPipeline, GuardAbortError, HookError, ComputeError
 
 class Pipeline:
     def __init__(
@@ -36,13 +33,12 @@ class Pipeline:
         agent=None,
         log_id: str = "Unknown"
     ):
-        from .agents import get_agent
         self.prompt = prompt
         self.model = model
         self.settings = settings
         self.pipeline_module = pipeline_module
         self.hook_provider = hook_provider
-        self.agent = get_agent(agent)
+        self.agent = agent
         self.log_id = log_id
 
     def evaluate_condition(self, data: Any) -> bool:

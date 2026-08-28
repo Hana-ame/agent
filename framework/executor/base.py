@@ -102,6 +102,27 @@ class ExecutionResult:
         return "\n".join(lines)
 
 
+class ExecutorHooks:
+    """Optional callbacks for observing and intercepting workflow execution."""
+    async def on_workflow_start(self, graph: Graph) -> None:
+        pass
+
+    async def on_vertex_state_changed(self, vertex: Vertex, state: VertexState) -> None:
+        pass
+
+    async def on_edge_started(self, edge: Edge) -> None:
+        pass
+
+    async def on_edge_completed(self, edge: Edge, result: Any) -> None:
+        pass
+
+    async def on_cancel_edges(self, edge_ids: List[str]) -> None:
+        pass
+
+    async def on_workflow_finish(self, result: ExecutionResult) -> None:
+        pass
+
+
 class Executor:
     """Async executor that drives the graph to completion with streaming event observability.
 
@@ -113,6 +134,7 @@ class Executor:
         timeout:          Overall execution timeout in seconds.
         memory:           Optional MemoryStore instance for shared cross-vertex context.
         telemetry:        Optional TelemetryTracker instance for token/cost tracking.
+        hooks:            Optional ExecutorHooks instance for lifecycle interception.
     """
 
     def __init__(
@@ -124,6 +146,7 @@ class Executor:
         timeout: Optional[float] = None,
         memory: Optional[MemoryStore] = None,
         telemetry: Optional[TelemetryTracker] = None,
+        hooks: Optional[ExecutorHooks] = None,
     ):
         self.graph = graph
         self.agents = agents or MockAgent()
@@ -132,6 +155,7 @@ class Executor:
         self.timeout = timeout or 300.0
         self.memory = memory or MemoryStore()
         self.telemetry = telemetry or TelemetryTracker()
+        self.hooks = hooks
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._result = ExecutionResult()
         self.active_edge_tasks = {}
@@ -147,7 +171,7 @@ class Executor:
         edge_id: Optional[str] = None,
         payload: Optional[Any] = None,
     ) -> None:
-        """Non-blocking event emitter via internal sidecar queue."""
+        """Non-blocking event emitter via internal sidecar queue and hooks."""
         event = GraphEvent(
             event_type=event_type,
             vertex_id=vertex_id,
@@ -155,6 +179,37 @@ class Executor:
             payload=payload,
         )
         self._event_queue.put_nowait(event)
+
+        if self.hooks:
+            try:
+                if event_type == "workflow_started" and hasattr(self.hooks, "on_workflow_start"):
+                    res = self.hooks.on_workflow_start(self.graph)
+                    if asyncio.iscoroutine(res):
+                        asyncio.create_task(res)
+                elif event_type == "workflow_finished" and hasattr(self.hooks, "on_workflow_finish"):
+                    res = self.hooks.on_workflow_finish(self._result)
+                    if asyncio.iscoroutine(res):
+                        asyncio.create_task(res)
+                elif event_type == "vertex_state_changed" and vertex_id and hasattr(self.hooks, "on_vertex_state_changed"):
+                    v = self.graph.vertices.get(vertex_id)
+                    if v:
+                        res = self.hooks.on_vertex_state_changed(v, v.state)
+                        if asyncio.iscoroutine(res):
+                            asyncio.create_task(res)
+                elif event_type == "edge_started" and edge_id and hasattr(self.hooks, "on_edge_started"):
+                    e = self.graph.edges.get(edge_id)
+                    if e:
+                        res = self.hooks.on_edge_started(e)
+                        if asyncio.iscoroutine(res):
+                            asyncio.create_task(res)
+                elif event_type == "edge_completed" and edge_id and hasattr(self.hooks, "on_edge_completed"):
+                    e = self.graph.edges.get(edge_id)
+                    if e:
+                        res = self.hooks.on_edge_completed(e, payload.get("result") if isinstance(payload, dict) else payload)
+                        if asyncio.iscoroutine(res):
+                            asyncio.create_task(res)
+            except Exception as hook_err:
+                logger.warning("[Executor] Hook dispatch error: %s", hook_err)
 
     async def stream(self) -> AsyncGenerator[GraphEvent, None]:
         """Stream execution events asynchronously as they occur without blocking execution."""

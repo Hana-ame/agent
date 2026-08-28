@@ -106,13 +106,12 @@ class SQLiteStateStore(BaseStateStore):
 
     def __init__(self, db_path: str = "checkpoints.db"):
         self.db_path = db_path
-        self._conn = None
-        if db_path == ":memory:":
-            self._conn = sqlite3.connect(":memory:", check_same_thread=False)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._closed = False
         self._init_db()
 
     # ------------------------------------------------------------------
-    # Setup
+    # Setup & Lifecycle
     # ------------------------------------------------------------------
     def _init_db(self):
         with self._connect() as conn:
@@ -140,9 +139,22 @@ class SQLiteStateStore(BaseStateStore):
         logger.debug("[Store] DB initialised at '%s'", self.db_path)
 
     def _connect(self):
-        if self._conn:
-            return self._conn
-        return sqlite3.connect(self.db_path, check_same_thread=False)
+        if self._closed:
+            raise RuntimeError("SQLiteStateStore connection is closed")
+        return self._conn
+
+    def close(self):
+        """Close the SQLite database connection."""
+        if not self._closed and self._conn:
+            self._conn.close()
+            self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
 
     # ------------------------------------------------------------------
     # Run lifecycle

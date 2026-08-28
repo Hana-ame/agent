@@ -154,3 +154,102 @@ class TestSchemaMismatchErrorDirect:
             Graph.from_dict(config)
 
         assert "Schema Mismatch on edge 'E1'" in str(excinfo.value)
+
+
+class TestExecutorHooks:
+    @pytest.mark.asyncio
+    async def test_executor_hooks_lifecycle(self):
+        from framework import ExecutorHooks
+
+        events = []
+
+        class TrackingHooks(ExecutorHooks):
+            async def on_workflow_start(self, graph):
+                events.append("started")
+
+            async def on_vertex_state_changed(self, vertex, state):
+                events.append(f"vertex:{vertex.id}:{state.value}")
+
+            async def on_edge_started(self, edge):
+                events.append(f"edge_start:{edge.id}")
+
+            async def on_edge_completed(self, edge, result):
+                events.append(f"edge_done:{edge.id}")
+
+            async def on_workflow_finish(self, result):
+                events.append("finished")
+
+        g = (
+            GraphBuilder()
+            .vertex("N1", initial_data=[{"channel": "default", "value": "data"}])
+            .vertex("N2")
+            .edge("N1", "N2", edge_id="e_step", prompt="process")
+            .build()
+        )
+
+        hooks = TrackingHooks()
+        executor = Executor(g, agents=MockAgent(), hooks=hooks)
+        result = await executor.run()
+
+        assert result.success is True
+        # Allow async hook tasks to settle
+        await asyncio.sleep(0.05)
+
+        assert "started" in events
+        assert "finished" in events
+        assert any("edge_done:e_step" in e for e in events)
+
+
+class TestSQLiteStoreLifecycle:
+    def test_store_context_manager_and_close(self):
+        store = SQLiteStateStore(":memory:")
+        store.create_run("test_run")
+        assert store.get_run("test_run") is not None
+        store.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            store.get_run("test_run")
+
+        with SQLiteStateStore(":memory:") as s:
+            s.create_run("ctx_run")
+            assert s.get_run("ctx_run") is not None
+        assert s._closed is True
+
+
+class TestBaseAgentStreaming:
+    @pytest.mark.asyncio
+    async def test_base_agent_stream_process(self):
+        agent = MockAgent()
+        chunks = []
+        async for chunk in agent.stream_process("hello world", "prompt", "test-model"):
+            chunks.append(chunk)
+
+        assert len(chunks) > 0
+        full_text = "".join(chunks)
+        assert "[test-model] hello world" in full_text
+
+
+class TestErrorHierarchy:
+    def test_error_inheritance(self):
+        from framework import (
+            FrameworkError,
+            ExecutionError,
+            GuardAbortError,
+            AbortPipeline,
+            HookError,
+            ComputeError,
+            SubgraphError,
+            DataRejectedError,
+        )
+
+        assert issubclass(ExecutionError, FrameworkError)
+        assert issubclass(GuardAbortError, ExecutionError)
+        assert issubclass(AbortPipeline, GuardAbortError)
+        assert issubclass(HookError, ExecutionError)
+        assert issubclass(ComputeError, ExecutionError)
+        assert issubclass(SubgraphError, ExecutionError)
+        assert issubclass(DataRejectedError, FrameworkError)
+
+        err = AbortPipeline("condition failed")
+        assert isinstance(err, GuardAbortError)
+        assert isinstance(err, ExecutionError)
+        assert isinstance(err, FrameworkError)
