@@ -54,26 +54,32 @@ class MyGuardEdge(Edge):
 
 @pytest.mark.asyncio
 async def test_my_guard_edge():
-    # 1. 创建两个 Vertex
-    src = make_source_vertex(90, channel="score")   # 源节点，数据为 90
-    dst = make_dest_vertex(incoming_edges=["e1"])    # 目标节点
-
-    # 2. 创建你的 Edge
-    edge = make_edge(
-        MyGuardEdge,
-        edge_id="e1",
-        channel="score",
-        settings={"threshold": 80, "prefix": "[OK]"}
-    )
-
-    # 3. 执行
+    # 方式1：单数据
+    src = make_source_vertex(90, channel="score")
+    dst = make_dest_vertex(incoming_edges=["e1"])
+    edge = make_edge(MyGuardEdge, edge_id="e1", channel="score",
+                     settings={"threshold": 80, "prefix": "[OK]"})
     result = await edge.execute(src, dst, echo_agent())
-
-    # 4. 断言
-    assert edge.completed is True
-    assert edge.aborted is False
     assert result == "[OK]90"
-    assert await dst.fetch_data(channel="score") == "[OK]90"
+
+    # 方式2：多数据
+    src2 = make_source_vertex(initial_data=[
+        {"data_id": "score", "value": 95},
+        {"data_id": "user", "value": "Alice"},
+    ])
+    dst2 = make_dest_vertex(incoming_edges=["e2"])
+    edge2 = make_edge(MyGuardEdge, edge_id="e2", channel="score",
+                      settings={"threshold": 80})
+    result2 = await edge2.execute(src2, dst2, echo_agent())
+    assert result2 == 95
+
+    # 方式3：手动设置
+    src3 = make_source_vertex(vertex_id="src3")
+    await src3.set_data("score", 75)
+    dst3 = make_dest_vertex(incoming_edges=["e3"])
+    edge3 = make_edge(MyGuardEdge, edge_id="e3", channel="score")
+    result3 = await edge3.execute(src3, dst3, echo_agent())
+    assert result3 == 75
 """
 
 
@@ -134,15 +140,34 @@ def make_edge(
 
 
 def make_source_vertex(
-    data: Any,
+    data: Any = None,
     channel: str = "default",
     vertex_id: str = "src",
+    initial_data: Optional[List[Dict]] = None,
 ) -> Vertex:
-    """工厂函数：创建带数据的源 Vertex。"""
-    return Vertex(
-        vertex_id=vertex_id,
-        initial_data=[{"data_id": channel, "value": data}],
-    )
+    """工厂函数：创建带数据的源 Vertex。
+
+    用法：
+        # 单数据
+        src = make_source_vertex(90, channel="score")
+
+        # 多数据
+        src = make_source_vertex(initial_data=[
+            {"data_id": "score", "value": 90},
+            {"data_id": "name", "value": "Alice"},
+        ])
+
+        # 空节点（手动设置）
+        src = make_source_vertex()
+        await src.set_data("score", 90)
+    """
+    if initial_data:
+        items = initial_data
+    elif data is not None:
+        items = [{"data_id": channel, "value": data}]
+    else:
+        items = []
+    return Vertex(vertex_id=vertex_id, initial_data=items)
 
 
 def make_dest_vertex(
