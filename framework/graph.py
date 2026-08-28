@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Set
 from .vertex import Vertex
 from .edge import Edge
 from .utils.script_loader import load_script
+from .utils.schema import SchemaMismatchError
 
 logger = logging.getLogger("vertex_edge_agent.graph")
 
@@ -222,6 +223,7 @@ class Graph:
             ValueError: If any referential error or unguarded cycle is found.
         """
         errors: List[str] = []
+        schema_errors: List[str] = []
 
         for edge in self.edges.values():
             if edge.source_id not in self.vertices:
@@ -240,7 +242,7 @@ class Graph:
                 in_schema_name = dest.settings.get("input_schema")
                 
                 if out_schema_name and in_schema_name and out_schema_name != in_schema_name:
-                    errors.append(
+                    schema_errors.append(
                         f"Schema Mismatch on edge '{edge.id}': Edge outputs '{out_schema_name}' "
                         f"but destination vertex '{dest.id}' expects '{in_schema_name}'"
                     )
@@ -279,10 +281,13 @@ class Graph:
                     f"Add 'max_iterations' > 0 to this edge to enable stateful loops."
                 )
 
-        if errors:
-            for e in errors:
+        if errors or schema_errors:
+            all_errors = errors + schema_errors
+            for e in all_errors:
                 logger.error("[Graph] Validation: %s", e)
-            raise ValueError(f"Graph validation failed: {'; '.join(errors)}")
+            if schema_errors and not errors:
+                raise SchemaMismatchError(f"Graph validation failed: {'; '.join(schema_errors)}")
+            raise ValueError(f"Graph validation failed: {'; '.join(all_errors)}")
 
         # ── Propagate loop metadata to destination vertices ────────────
         for eid in back_edges:
@@ -295,6 +300,55 @@ class Graph:
             )
 
         logger.info("[Graph] Validation passed ✓")
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize the graph back into a configuration dictionary."""
+        config: Dict[str, Any] = {
+            "metadata": dict(self.metadata),
+            "vertices": [],
+            "edges": [],
+        }
+        for v in self.vertices.values():
+            vc: Dict[str, Any] = {"id": v.id}
+            if v.settings:
+                vc["settings"] = dict(v.settings)
+            if hasattr(v, "initial_data") and v.initial_data:
+                vc["initial_data"] = list(v.initial_data)
+            from .subgraph import SubgraphVertex
+            if isinstance(v, SubgraphVertex):
+                vc["type"] = "subgraph"
+            config["vertices"].append(vc)
+
+        for e in self.edges.values():
+            ec: Dict[str, Any] = {
+                "id": e.id,
+                "source": e.source_id,
+                "destination": e.destination_id,
+            }
+            if e.channel != "default":
+                ec["channel"] = e.channel
+            if e.prompt:
+                ec["prompt"] = e.prompt
+            if e.model and e.model != "default":
+                ec["model"] = e.model
+            if e.settings:
+                ec["settings"] = dict(e.settings)
+            if e.max_iterations > 0:
+                ec["max_iterations"] = e.max_iterations
+            config["edges"].append(ec)
+
+        return config
+
+    def to_json(self, json_path: Optional[str] = None, indent: int = 2) -> str:
+        """Serialize the graph to a JSON string or write to a JSON file."""
+        data = json.dumps(self.to_dict(), indent=indent)
+        if json_path:
+            with open(json_path, "w", encoding="utf-8") as f:
+                f.write(data)
+        return data
 
     # ------------------------------------------------------------------
     # Queries

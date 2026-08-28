@@ -20,6 +20,7 @@ import datetime
 import json
 import logging
 import sqlite3
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -44,10 +45,58 @@ class GraphSnapshot:
 
 
 # ---------------------------------------------------------------------------
+# Base State Store Interface
+# ---------------------------------------------------------------------------
+
+class BaseStateStore(ABC):
+    """Abstract interface for execution state and checkpoint stores."""
+
+    @abstractmethod
+    def create_run(self, run_id: str, graph_config: Optional[Dict] = None) -> None:
+        """Register a new run."""
+        pass
+
+    @abstractmethod
+    def update_run_status(self, run_id: str, status: str) -> None:
+        """Update run status."""
+        pass
+
+    @abstractmethod
+    def get_run(self, run_id: str) -> Optional[Dict]:
+        """Get run metadata dict."""
+        pass
+
+    @abstractmethod
+    def list_runs(self) -> List[Dict]:
+        """List all runs."""
+        pass
+
+    @abstractmethod
+    def save_snapshot(self, snapshot: GraphSnapshot) -> None:
+        """Persist an execution snapshot."""
+        pass
+
+    @abstractmethod
+    def load_latest_snapshot(self, run_id: str) -> Optional[GraphSnapshot]:
+        """Retrieve the latest snapshot for a run."""
+        pass
+
+    @abstractmethod
+    def snapshot_count(self, run_id: str) -> int:
+        """Get total snapshot count for a run."""
+        pass
+
+    @abstractmethod
+    def load_all_snapshots(self, run_id: str) -> List[GraphSnapshot]:
+        """Retrieve all snapshots for a run."""
+        pass
+
+
+# ---------------------------------------------------------------------------
 # SQLite store
 # ---------------------------------------------------------------------------
 
-class SQLiteStateStore:
+class SQLiteStateStore(BaseStateStore):
     """Lightweight SQLite-backed store for execution checkpoints.
 
     Args:

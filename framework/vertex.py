@@ -99,6 +99,7 @@ class Vertex:
         self.abort_reason: Optional[str] = None
 
         # Load initial data
+        self.initial_data = initial_data or []
         if initial_data:
             for item in initial_data:
                 key = str(item.get("channel", item.get("data_id", "default")))

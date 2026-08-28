@@ -142,12 +142,24 @@ class Pipeline:
                 if current_prompt or (self.model and self.model != "default"):
                     from .agents import MockAgent
                     active_agent = self.agent or agents or MockAgent()
-                    result = await active_agent.process(
-                        data=data,
-                        prompt=current_prompt,
-                        model=self.model,
-                        settings=self.settings,
-                    )
+                    edge_timeout = float(self.settings.get("timeout", 0)) if isinstance(self.settings, dict) else 0
+                    if edge_timeout > 0:
+                        result = await asyncio.wait_for(
+                            active_agent.process(
+                                data=data,
+                                prompt=current_prompt,
+                                model=self.model,
+                                settings=self.settings,
+                            ),
+                            timeout=edge_timeout,
+                        )
+                    else:
+                        result = await active_agent.process(
+                            data=data,
+                            prompt=current_prompt,
+                            model=self.model,
+                            settings=self.settings,
+                        )
                     from .utils.telemetry import estimate_tokens
                     prompt_tokens_est += estimate_tokens(str(current_prompt) + str(data))
                     completion_tokens_est += estimate_tokens(str(result))

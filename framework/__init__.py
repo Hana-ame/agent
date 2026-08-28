@@ -5,21 +5,22 @@ from .pipeline import Pipeline
 from .edge import Edge
 from .subgraph import SubgraphVertex
 from .graph import Graph
-from .utils.store import SQLiteStateStore, GraphSnapshot
+from .utils.store import BaseStateStore, SQLiteStateStore, GraphSnapshot
 from .utils.script_loader import load_script
 
 from .utils.memory import MemoryStore
 from .utils.telemetry import TelemetryTracker, UsageMetrics, DEFAULT_PRICING, calculate_cost, estimate_tokens
 from .utils.schema import SchemaRegistry, SchemaMismatchError
 from .builders.chain import LinearChain
+from .builders.builder import GraphBuilder
 
 __all__ = [
     'VertexState', 'Vertex', 'EdgeSignal', 'DataRejectedError',
     'Pipeline', 'Edge', 'SubgraphVertex', 'Graph', 'Executor', 'ExecutionResult', 'GraphEvent',
     'MemoryStore', 'TelemetryTracker', 'UsageMetrics', 'DEFAULT_PRICING', 'calculate_cost', 'estimate_tokens',
     'SchemaRegistry', 'SchemaMismatchError',
-    'LinearChain',
-    'SQLiteStateStore', 'GraphSnapshot',
+    'LinearChain', 'GraphBuilder',
+    'BaseStateStore', 'SQLiteStateStore', 'GraphSnapshot',
     'CheckpointedExecutor', 'HumanGateVertex',
     'BaseAgent', 'MockAgent', 'HttpLLMAgent', 'PiAgentRunner',
     'load_script',
