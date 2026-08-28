@@ -123,8 +123,7 @@ class TestSubgraphEndToEndExecution:
                     "id": "e_inner_search_to_summary",
                     "source": "SearchAgent",
                     "destination": "SummaryAgent",
-                    "channel": "query",
-                    "prompt": "Find top insights on {query}",
+                    "channel": "query", "settings": {"prompt": "Find top insights on {query}"},
                 }
             ],
         }
@@ -148,15 +147,13 @@ class TestSubgraphEndToEndExecution:
                     "id": "e1_trigger_to_subgraph",
                     "source": "Trigger",
                     "destination": "ResearchSubsystem",
-                    "channel": "topic",
-                    "prompt": "Pass topic to research",
+                    "channel": "topic", "settings": {"prompt": "Pass topic to research"},
                 },
                 {
                     "id": "e2_subgraph_to_pub",
                     "source": "ResearchSubsystem",
                     "destination": "Publisher",
-                    "channel": "report",
-                    "prompt": "Publish report",
+                    "channel": "report", "settings": {"prompt": "Publish report"},
                 },
             ],
         }

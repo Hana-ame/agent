@@ -717,14 +717,14 @@ class TestPiAgentRunnerExtra:
         runner = PiAgentRunner()
         proc = self._make_proc()
         with patch("asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
-            await runner.process({"key": "中文"}, "p", "m")
+            await runner.process({"key": "caf\u00e9_\u00fcmlaut"}, "p", "m")
             msg = mock_exec.call_args[0][-1]
-            assert "中文" in msg  # ensure_ascii=False keeps CJK chars
+            assert "caf\u00e9_\u00fcmlaut" in msg  # ensure_ascii=False keeps non-ascii chars
 
     @pytest.mark.asyncio
     async def test_multibyte_output_decoded(self):
         runner = PiAgentRunner()
-        proc = self._make_proc(stdout="你好".encode("utf-8"))
+        proc = self._make_proc(stdout="caf\u00e9_resum\u00e9".encode("utf-8"))
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await runner.process("d", "p", "m")
-            assert result == "你好"
+            assert result == "caf\u00e9_resum\u00e9"

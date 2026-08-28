@@ -1,12 +1,7 @@
-"""S1 报告汇聚 Vertex 子类。
+"""S1 Report Aggregator Vertex subclass.
 
-作为 v_report 的本体被 graph 加载（config: ``"script": "vertex/report_hook.py"``，
-框架用 load_class_from_script 自动发现本文件中的 Vertex 子类并实例化）。
-每条 summarize 边的产出经 on_receive 累积，并实时生成 report.md。
-
-发现背景：原为模块级函数 on_receive，靠 Vertex.set_pipeline_module 挂载——
-但 Vertex 从未实现 module 委托，该路径加载即 AttributeError（死代码）。
-随框架统一转纯子类覆盖，改为 ReportVertex(Vertex)。
+Loaded as the body of v_report by the graph (config: ``"script": "vertex/report_hook.py"``).
+Accumulates AI summaries from summarize edges via on_receive and writes report.md to disk.
 """
 import os
 
@@ -14,11 +9,10 @@ from framework.vertex import Vertex
 
 
 class ReportVertex(Vertex):
-    """累积各 thread 的 AI 摘要，落盘 report.md。"""
+    """Accumulates AI summaries across threads and outputs report.md."""
 
     def on_receive(self, data, channel, settings):
-        # reports 跨多次 on_receive 累积；用实例属性替代原模块级全局
-        # （on_receive.reports）。懒初始化以避免重写 __init__。
+        # Accumulate reports across multiple on_receive calls.
         if not hasattr(self, "reports"):
             self.reports = []
 

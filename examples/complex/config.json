@@ -6,7 +6,10 @@
   "vertices": [
     {
       "id": "input_a",
-      "settings": {"type": "source", "label": "Primary Input"},
+      "settings": {
+        "type": "source",
+        "label": "Primary Input"
+      },
       "initial_data": [
         {
           "channel": "text",
@@ -20,7 +23,10 @@
     },
     {
       "id": "input_b",
-      "settings": {"type": "source", "label": "Context Input"},
+      "settings": {
+        "type": "source",
+        "label": "Context Input"
+      },
       "initial_data": [
         {
           "channel": "text",
@@ -30,17 +36,23 @@
     },
     {
       "id": "transform",
-      "settings": {"type": "process"},
+      "settings": {
+        "type": "process"
+      },
       "script": "../scripts/uppercase_handler.py"
     },
     {
       "id": "merge",
-      "settings": {"type": "merge"},
+      "settings": {
+        "type": "merge"
+      },
       "script": "../scripts/validator.py"
     },
     {
       "id": "output",
-      "settings": {"type": "sink"}
+      "settings": {
+        "type": "sink"
+      }
     }
   ],
   "edges": [
@@ -49,42 +61,53 @@
       "source": "input_a",
       "destination": "transform",
       "channel": "text",
-      "prompt": "Analyze the following text for key themes:",
-      "model": "gemini-pro"
+      "settings": {
+        "prompt": "Analyze the following text for key themes:",
+        "model": "gemini-pro"
+      }
     },
     {
       "id": "e2",
       "source": "input_b",
       "destination": "transform",
       "channel": "text",
-      "prompt": "Extract relevant context from:",
-      "model": "gemini-flash"
+      "settings": {
+        "prompt": "Extract relevant context from:",
+        "model": "gemini-flash"
+      }
     },
     {
       "id": "e3",
       "source": "transform",
       "destination": "merge",
       "channel": "result",
-      "prompt": "Combine analysis results into a coherent summary:",
-      "model": "gemini-pro",
-      "pipeline": "../scripts/prefix_handler.py",
-      "settings": {"prefix": "[ANALYZED]", "suffix": "[/ANALYZED]"}
+      "settings": {
+        "prefix": "[ANALYZED]",
+        "suffix": "[/ANALYZED]",
+        "prompt": "Combine analysis results into a coherent summary:",
+        "model": "gemini-pro"
+      },
+      "script": "../scripts/prefix_handler.py"
     },
     {
       "id": "e4",
       "source": "input_a",
       "destination": "merge",
       "channel": "text",
-      "prompt": "Format the original text for reference:",
-      "model": "gemini-flash"
+      "settings": {
+        "prompt": "Format the original text for reference:",
+        "model": "gemini-flash"
+      }
     },
     {
       "id": "e5",
       "source": "merge",
       "destination": "output",
       "channel": "final",
-      "prompt": "Generate a final report combining all inputs:",
-      "model": "gemini-pro"
+      "settings": {
+        "prompt": "Generate a final report combining all inputs:",
+        "model": "gemini-pro"
+      }
     }
   ]
 }

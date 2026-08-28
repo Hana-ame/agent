@@ -26,11 +26,11 @@ class TestEdgeConstruction:
 
     def test_custom_fields(self):
         e = Edge("e2", "a", "b", channel="msg", 
-                 prompt="do it", model="gpt-4", settings={"k": "v"})
+                 settings={"k": "v", "prompt": "do it", "model": "gpt-4"})
         assert e.channel == "msg"
         assert e.prompt == "do it"
         assert e.model == "gpt-4"
-        assert e.settings == {"k": "v"}
+        assert e.settings["k"] == "v"
 
 
 # ── execution ────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ class TestEdgeExecution:
         dst.required_input_count = 1
         dst.incoming_edges = ["e1"]
 
-        e = Edge("e1", "src", "dst", channel="d", prompt="process", model="mock")
+        e = Edge("e1", "src", "dst", channel="d", settings={"prompt": "process", "model": "mock"})
         result = await e.execute(src, dst, mock_agent)
 
         assert e.completed
@@ -70,7 +70,7 @@ class TestEdgeExecution:
         dst.required_input_count = 1
         dst.incoming_edges = ["e"]
 
-        e = Edge("e", "src", "dst", channel="j", prompt="p", model="m")
+        e = Edge("e", "src", "dst", channel="j", settings={"prompt": "p", "model": "m"})
         result = await e.execute(src, dst, mock_agent)
         assert e.completed
         assert isinstance(result, dict)
@@ -84,7 +84,7 @@ class TestEdgeExecution:
         src = Vertex("src", initial_data=[{"data_id": "d", "value": "x"}])
         dst = Vertex("dst")
         agent = MockAgent(response_fn=boom)
-        e = Edge("e", "src", "dst", channel="d", prompt="trigger")
+        e = Edge("e", "src", "dst", channel="d", settings={"prompt": "trigger"})
 
         with pytest.raises(RuntimeError, match="agent error"):
             await e.execute(src, dst, agent)

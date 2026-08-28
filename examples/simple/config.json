@@ -6,7 +6,9 @@
   "vertices": [
     {
       "id": "input",
-      "settings": {"type": "source"},
+      "settings": {
+        "type": "source"
+      },
       "initial_data": [
         {
           "channel": "text",
@@ -16,11 +18,15 @@
     },
     {
       "id": "processor",
-      "settings": {"type": "transform"}
+      "settings": {
+        "type": "transform"
+      }
     },
     {
       "id": "output",
-      "settings": {"type": "sink"}
+      "settings": {
+        "type": "sink"
+      }
     }
   ],
   "edges": [
@@ -29,18 +35,20 @@
       "source": "input",
       "destination": "processor",
       "channel": "text",
-      "prompt": "Summarize the following text in one sentence:",
-      "model": "gemini-pro",
-      "settings": {}
+      "settings": {
+        "prompt": "Summarize the following text in one sentence:",
+        "model": "gemini-pro"
+      }
     },
     {
       "id": "e2",
       "source": "processor",
       "destination": "output",
       "channel": "text",
-      "prompt": "Translate the following to French:",
-      "model": "gemini-flash",
-      "settings": {}
+      "settings": {
+        "prompt": "Translate the following to French:",
+        "model": "gemini-flash"
+      }
     }
   ]
 }

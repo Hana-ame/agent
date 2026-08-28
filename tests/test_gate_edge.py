@@ -15,42 +15,42 @@ from framework.vertex import EdgeSignal
 class TestEdgeCondition:
     def test_default_truthiness(self):
         gate = Edge("g1", "v1", "v2")
-        assert gate.evaluate_condition("hello", {}) is True
-        assert gate.evaluate_condition("", {}) is True
-        assert gate.evaluate_condition(1, {}) is True
-        assert gate.evaluate_condition(0, {}) is True
-        assert gate.evaluate_condition([], {}) is True
-        assert gate.evaluate_condition([1], {}) is True
+        assert gate.condition("hello", {}) is True
+        assert gate.condition("", {}) is True
+        assert gate.condition(1, {}) is True
+        assert gate.condition(0, {}) is True
+        assert gate.condition([], {}) is True
+        assert gate.condition([1], {}) is True
 
     def test_threshold_operators(self):
         gate = Edge("g1", "v1", "v2", settings={"threshold": 80, "operator": ">="})
-        assert gate.evaluate_condition(80, gate.settings) is True
-        assert gate.evaluate_condition(95, gate.settings) is True
-        assert gate.evaluate_condition(79, gate.settings) is False
+        assert gate.condition(80, gate.settings) is True
+        assert gate.condition(95, gate.settings) is True
+        assert gate.condition(79, gate.settings) is False
 
         gate_lt = Edge("g2", "v1", "v2", settings={"threshold": 50, "operator": "<"})
-        assert gate_lt.evaluate_condition(49, gate_lt.settings) is True
-        assert gate_lt.evaluate_condition(50, gate_lt.settings) is False
+        assert gate_lt.condition(49, gate_lt.settings) is True
+        assert gate_lt.condition(50, gate_lt.settings) is False
 
         gate_eq = Edge("g3", "v1", "v2", settings={"threshold": "apple", "operator": "=="})
-        assert gate_eq.evaluate_condition("apple", gate_eq.settings) is True
-        assert gate_eq.evaluate_condition("banana", gate_eq.settings) is False
+        assert gate_eq.condition("apple", gate_eq.settings) is True
+        assert gate_eq.condition("banana", gate_eq.settings) is False
 
         gate_contains = Edge("g4", "v1", "v2", settings={"threshold": "draw", "operator": "contains"})
-        assert gate_contains.evaluate_condition("please draw a cat", gate_contains.settings) is True
-        assert gate_contains.evaluate_condition("write a poem", gate_contains.settings) is False
+        assert gate_contains.condition("please draw a cat", gate_contains.settings) is True
+        assert gate_contains.condition("write a poem", gate_contains.settings) is False
 
     def test_threshold_with_dict_field(self):
         gate = Edge("g1", "v1", "v2", settings={"field": "score", "threshold": 60, "operator": ">="})
-        assert gate.evaluate_condition({"score": 75, "name": "Alice"}, gate.settings) is True
-        assert gate.evaluate_condition({"score": 50, "name": "Bob"}, gate.settings) is False
-        assert gate.evaluate_condition({"other": 100}, gate.settings) is False
+        assert gate.condition({"score": 75, "name": "Alice"}, gate.settings) is True
+        assert gate.condition({"score": 50, "name": "Bob"}, gate.settings) is False
+        assert gate.condition({"other": 100}, gate.settings) is False
 
     def test_dictionary_match(self):
         gate = Edge("g1", "v1", "v2", settings={"match": {"intent": "image", "vip": True}})
-        assert gate.evaluate_condition({"intent": "image", "vip": True, "prompt": "cat"}, gate.settings) is True
-        assert gate.evaluate_condition({"intent": "image", "vip": False}, gate.settings) is False
-        assert gate.evaluate_condition({"intent": "text", "vip": True}, gate.settings) is False
+        assert gate.condition({"intent": "image", "vip": True, "prompt": "cat"}, gate.settings) is True
+        assert gate.condition({"intent": "image", "vip": False}, gate.settings) is False
+        assert gate.condition({"intent": "text", "vip": True}, gate.settings) is False
 
     def test_subclass_override(self):
         class CustomGate(Edge):
@@ -58,8 +58,8 @@ class TestEdgeCondition:
                 return isinstance(data, str) and data.startswith("ALLOW")
 
         gate = CustomGate("g1", "v1", "v2")
-        assert gate.evaluate_condition("ALLOW: test", {}) is True
-        assert gate.evaluate_condition("DENY: test", {}) is False
+        assert gate.condition("ALLOW: test", {}) is True
+        assert gate.condition("DENY: test", {}) is False
 
 
 # ── Edge Execution Unit Tests ──────────────────────────────
@@ -140,14 +140,14 @@ class TestConditionalDiamondRouting:
                     "source": "HighBranch",
                     "destination": "Sink",
                     "data_id": "score",
-                    "prompt": "high score",
+                    "settings": {"prompt": "high score"},
                 },
                 {
                     "id": "e_low",
                     "source": "LowBranch",
                     "destination": "Sink",
                     "data_id": "score",
-                    "prompt": "low score",
+                    "settings": {"prompt": "low score"},
                 },
             ],
         }

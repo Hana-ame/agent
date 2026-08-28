@@ -33,7 +33,7 @@ async def fetch_thread_replies_md(url: str, hours: int = 24) -> str:
     cutoff = now - timedelta(hours=hours)
     headers = {"User-Agent": "Mozilla/5.0"}
 
-    m = re.search(r'(thread-\d+-)(\d+)(-\d+\.html)', url)
+    m = re.search(r"(thread-\d+-)(\d+)(-\d+\.html)", url)
     if not m:
         async with httpx.AsyncClient(headers=headers, timeout=30, trust_env=False, follow_redirects=True) as c:
             r = await c.get(url)
@@ -55,9 +55,9 @@ async def fetch_thread_replies_md(url: str, hours: int = 24) -> str:
                 break
 
         total_pages = 1
-        for a in soup1.select('.pg a[href]'):
-            href = a.get('href', '')
-            pm = re.search(r'-(\d+)-1\.html', href)
+        for a in soup1.select(".pg a[href]"):
+            href = a.get("href", "")
+            pm = re.search(r"-(\d+)-1\.html", href)
             if pm:
                 pnum = int(pm.group(1))
                 if pnum > total_pages:
@@ -82,12 +82,12 @@ async def fetch_thread_replies_md(url: str, hours: int = 24) -> str:
             if not page_has_recent:
                 break
 
-    lines = [f"# {title}", "", f"> 链接: <{url}>",
-             f"> 范围: 最近 **{hours} 小时** 的回复",
-             f"> 结果: **{len(all_posts)}** 条新回复", "", "---", ""]
+    lines = [f"# {title}", "", f"> Link: <{url}>",
+             f"> Range: Last **{hours} hours**",
+             f"> Result: **{len(all_posts)}** replies", "", "---", ""]
 
     if not all_posts:
-        lines.append(f"_最近 {hours} 小时暂无新回复。_")
+        lines.append(f"_No replies in the last {hours} hours._")
         return "\n".join(lines)
 
     for orig_idx, user, timestr, content in all_posts:
@@ -101,7 +101,7 @@ def _parse_posts_from_soup(soup):
     result = []
     for i, block in enumerate(posts):
         user = "Unknown"
-        user_node = block.select_one('.authi a.xw1')
+        user_node = block.select_one(".authi a.xw1")
         if user_node:
             user = user_node.get_text(strip=True)
 
@@ -109,20 +109,20 @@ def _parse_posts_from_soup(soup):
         dt = None
         em_node = block.select_one('em[id^="authorposton"]')
         if em_node:
-            span = em_node.select_one('span[title]')
+            span = em_node.select_one("span[title]")
             if span:
-                time_str = span.get('title')
+                time_str = span.get("title")
             else:
-                time_str = em_node.get_text(strip=True).replace('发表于', '').strip()
+                time_str = em_node.get_text(strip=True).replace("Post on", "").replace("Posted at", "").strip()
             try:
-                if re.match(r'\d{4}-\d{1,2}-\d{1,2}', time_str):
+                if re.match(r"\d{4}-\d{1,2}-\d{1,2}", time_str):
                     dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
                     dt = dt.replace(tzinfo=timezone(timedelta(hours=8)))
             except:
                 pass
 
-        msg = block.select_one("td.t_f, [id^='postmessage_']")
-        content = "(空)"
+        msg = block.select_one('td.t_f, [id^="postmessage_"]')
+        content = "(empty)"
         if msg:
             content = msg.get_text("\n", strip=True)
             content = re.sub(r"\n{3,}", "\n\n", content)
@@ -147,19 +147,19 @@ def _extract_posts_from_soup(soup, url, hours):
         if dt and dt >= cutoff:
             recent.append((i, user, timestr, content))
 
-    lines = [f"# {title}", "", f"> 链接: <{url}>", f"> 结果: **{len(recent)}** 条", "", "---", ""]
+    lines = [f"# {title}", "", f"> Link: <{url}>", f"> Result: **{len(recent)}** posts", "", "---", ""]
     for orig_idx, user, timestr, content in recent:
         lines.extend([f"### #{orig_idx + 1} **{user}** · {timestr}", "", content, "", "---", ""])
     return "\n".join(lines).rstrip() + "\n"
 
 
-class FetchThreadsPipeline(Edge):
+class FetchThreadsEdge(Edge):
     async def pre_process(self, data, settings):
         return await fetch_forum_threads(str(data))
 
     def post_process(self, data, settings):
         try:
-            m = re.search(r'\[.*\]', data, re.DOTALL)
+            m = re.search(r"\[.*\]", data, re.DOTALL)
             if m:
                 return json.loads(m.group(0))
             return json.loads(data)
@@ -167,10 +167,10 @@ class FetchThreadsPipeline(Edge):
             return []
 
 
-class FilterPipeline(Edge):
+class FilterEdge(Edge):
     def post_process(self, data, settings):
         try:
-            m = re.search(r'\[.*\]', data, re.DOTALL)
+            m = re.search(r"\[.*\]", data, re.DOTALL)
             if m:
                 return json.loads(m.group(0))
             return json.loads(data)
@@ -178,7 +178,7 @@ class FilterPipeline(Edge):
             return []
 
 
-class SelectPipeline(Edge):
+class SelectEdge(Edge):
     def condition(self, data, settings):
         index = int(settings.get("index", 0))
         return isinstance(data, list) and index < len(data)
@@ -188,7 +188,7 @@ class SelectPipeline(Edge):
         return data[index]
 
 
-class FetchPipeline(Edge):
+class FetchEdge(Edge):
     def condition(self, data, settings):
         return isinstance(data, dict) and "url" in data
 
@@ -198,11 +198,11 @@ class FetchPipeline(Edge):
         return {"title": data.get("title", ""), "url": data.get("url", ""), "content": md}
 
 
-class SummarizePipeline(Edge):
+class SummarizeEdge(Edge):
     def pre_process(self, data, settings):
         if isinstance(data, dict):
             title = data.get("title", "Unknown")
             url = data.get("url", "")
             content = data.get("content", "")
-            return f"帖子标题：{title}\n链接：{url}\n\n{content}"
+            return f"Thread Title: {title}\nLink: {url}\n\n{content}"
         return str(data)

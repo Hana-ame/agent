@@ -106,7 +106,7 @@ class TestTwoVertexLoop:
             ],
             "edges": [
                 {"id": "fwd", "source": "A", "destination": "B",
-                 "channel": "val", "prompt": "increment", "model": "m"},
+                 "channel": "val", "settings": {"prompt": "increment", "model": "m"}},
                 {"id": "back", "source": "B", "destination": "A",
                  "channel": "val", "max_iterations": 3},
             ],
@@ -135,7 +135,7 @@ class TestTwoVertexLoop:
             ],
             "edges": [
                 {"id": "fwd", "source": "A", "destination": "B",
-                 "channel": "v", "prompt": "+1", "model": "m"},
+                 "channel": "v", "settings": {"prompt": "+1", "model": "m"}},
                 {"id": "back", "source": "B", "destination": "A",
                  "channel": "v", "max_iterations": 5},
             ],
@@ -194,9 +194,9 @@ class TestThreeVertexLoop:
             ],
             "edges": [
                 {"id": "ab", "source": "A", "destination": "B",
-                 "channel": "n", "prompt": "B", "model": "m"},
+                 "channel": "n", "settings": {"prompt": "B", "model": "m"}},
                 {"id": "bc", "source": "B", "destination": "C",
-                 "channel": "n", "prompt": "C", "model": "m"},
+                 "channel": "n", "settings": {"prompt": "C", "model": "m"}},
                 {"id": "ca", "source": "C", "destination": "A",
                  "channel": "n", "max_iterations": 2},
             ],
@@ -234,7 +234,7 @@ class TestThreeVertexLoop:
             ],
             "edges": [
                 {"id": "fwd",  "source": "Src",    "destination": "Worker",
-                 "channel": "v", "prompt": "+1", "model": "m"},
+                 "channel": "v", "settings": {"prompt": "+1", "model": "m"}},
                 {"id": "back", "source": "Worker", "destination": "Src",
                  "channel": "v", "max_iterations": 3},
                 {"id": "out",  "source": "Src",    "destination": "Sink",
@@ -271,7 +271,7 @@ class TestGuardTerminatedLoop:
             ],
             "edges": [
                 {"id": "fwd",  "source": "A", "destination": "B",
-                 "channel": "v", "prompt": "+1", "model": "m"},
+                 "channel": "v", "settings": {"prompt": "+1", "model": "m"}},
                 {"id": "back", "source": "B", "destination": "A",
                  "channel": "v", "max_iterations": 10,
                  "settings": {"threshold": 3, "operator": "<"}},

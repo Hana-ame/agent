@@ -92,10 +92,6 @@ class TestVertexReadiness:
 
 
 # ── subclass hooks (on_receive / on_ready) ───────────────────────
-# 发现背景：原 TestVertexScript 走 set_pipeline_module(load_script(...)) 挂
-# 模块函数，但 Vertex 从未实现过 module 委托（vertex.py 只认 self.on_receive
-# 等实例方法），该路径加载即 AttributeError，3 个测试长期 fail。随框架统一
-# 转纯子类覆盖后，此处一并改为动态 Vertex 子类形式，真正覆盖钩子语义。
 class TestVertexSubclassHooks:
     @pytest.mark.asyncio
     async def test_on_receive_transforms(self):
@@ -126,7 +122,7 @@ class TestVertexSubclassHooks:
         v = ReadyVertex("v_ready")
         await v.receive_signal("", EdgeSignal.COMPLETED, payload="raw", channel="in")
         await v.prepare_outputs()
-        # 原测试仅 assert True（弱断言），现真正校验 on_ready 产出的 channel 被合并进 store。
+        # Verify that the channel produced by on_ready is merged into the store
         assert await v.fetch_data(channel="out") == "merged-data"
 
 

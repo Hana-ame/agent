@@ -71,8 +71,6 @@ class TestComplexExample:
             pytest.skip("complex example config not found")
 
         g = Graph.from_json(config_path)
-        # transform/merge 现为 Vertex 子类实例（UpperVertex/ValidatorVertex），
-        # 纯子类覆盖，无外部 module 挂载。
         assert type(g.vertices["transform"]).__name__ == "UpperVertex"
         assert type(g.vertices["merge"]).__name__ == "ValidatorVertex"
 
@@ -83,8 +81,7 @@ class TestScriptPipeline:
 
     @pytest.mark.asyncio
     async def test_full_script_lifecycle(self, tmp_path):
-        # Vertex 子类：on_receive strip + on_ready 汇聚成 out channel。
-        # 随框架统一转纯子类覆盖（原模块函数走 set_pipeline_module 死代码）。
+        # Vertex subclass: on_receive strip + on_ready merge into out channel.
         v_script = tmp_path / "v_hook.py"
         v_script.write_text(
             "from framework.vertex import Vertex\n"
@@ -96,14 +93,15 @@ class TestScriptPipeline:
             "        return {'out': ' + '.join(vals)}\n"
         )
 
-        # Edge script: wraps（edge 端仍用模块函数形式，待 edge 重构适配）
+        # Edge subclass: wraps
         e_script = tmp_path / "e_hook.py"
         e_script.write_text(
-            "def pre_process(data, settings):\n"
-            "    return f'<{data}>'\n"
-            "\n"
-            "def post_process(data, settings):\n"
-            "    return f'({data})'\n"
+            "from framework.edge import Edge\n"
+            "class WrapEdge(Edge):\n"
+            "    def pre_process(self, data, settings):\n"
+            "        return f'<{data}>'\n"
+            "    def post_process(self, result, settings):\n"
+            "        return f'({result})'\n"
         )
 
         config = {
@@ -114,11 +112,11 @@ class TestScriptPipeline:
             ],
             "edges": [
                 {"id": "e1", "source": "A", "destination": "B",
-                 "channel": "d", "prompt": "p", "model": "m"},
+                 "channel": "d", "settings": {"prompt": "p", "model": "m"}},
                 {"id": "e2", "source": "B", "destination": "C",
                  "channel": "out",
-                 "prompt": "p", "model": "m",
-                 "pipeline": str(e_script)},
+                 "settings": {"prompt": "p", "model": "m"},
+                 "script": str(e_script)},
             ],
         }
 
@@ -127,7 +125,6 @@ class TestScriptPipeline:
         result = await Executor(g, echo, timeout=10).run()
 
         assert result.success
-        # B 被加载为 StripVertex 子类（验证 vertex 纯子类加载链路）
         assert type(g.vertices["B"]).__name__ == "StripVertex"
         # B received " hello " → on_receive strips → "hello"
         # B.on_ready merges → out:final = "hello"
@@ -142,8 +139,7 @@ class TestRejectionPipeline:
 
     @pytest.mark.asyncio
     async def test_rejection_causes_error(self, tmp_path):
-        # Vertex 子类：on_receive 拒绝含 'bad' 的数据。
-        # 随框架统一转纯子类覆盖（原模块函数走 set_pipeline_module 死代码）。
+        # Vertex subclass: on_receive rejects data containing 'bad'
         reject_script = tmp_path / "reject.py"
         reject_script.write_text(
             "from framework.vertex import Vertex\n"
@@ -161,7 +157,7 @@ class TestRejectionPipeline:
             ],
             "edges": [
                 {"id": "e", "source": "A", "destination": "B",
-                 "channel": "d", "prompt": "", "model": "m"},
+                 "channel": "d", "settings": {"prompt": "", "model": "m"}},
             ],
         }
 
@@ -169,7 +165,6 @@ class TestRejectionPipeline:
         echo = MockAgent(response_fn=lambda d, p, m, s: d)
         result = await Executor(g, echo, timeout=10).run()
 
-        # B 被加载为 RejectVertex 子类（验证 vertex 纯子类加载链路）
         assert type(g.vertices["B"]).__name__ == "RejectVertex"
         assert True
 
@@ -187,11 +182,11 @@ class TestMultiSourceFanIn:
             ],
             "edges": [
                 {"id": "e1", "source": "s1", "destination": "sink",
-                 "channel": "d1", "prompt": "", "model": "m"},
+                 "channel": "d1", "settings": {"prompt": "", "model": "m"}},
                 {"id": "e2", "source": "s2", "destination": "sink",
-                 "channel": "d2", "prompt": "", "model": "m"},
+                 "channel": "d2", "settings": {"prompt": "", "model": "m"}},
                 {"id": "e3", "source": "s3", "destination": "sink",
-                 "channel": "d3", "prompt": "", "model": "m"},
+                 "channel": "d3", "settings": {"prompt": "", "model": "m"}},
             ],
         }
 
@@ -215,7 +210,7 @@ class TestDeepChain:
             ] + [{"id": f"v{i}"} for i in range(1, n)],
             "edges": [
                 {"id": f"e{i}", "source": f"v{i}", "destination": f"v{i+1}",
-                 "channel": "d", "prompt": f"step-{i}", "model": "m"}
+                 "channel": "d", "settings": {"prompt": f"step-{i}", "model": "m"}}
                 for i in range(n - 1)
             ],
         }

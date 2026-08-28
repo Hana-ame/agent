@@ -6,7 +6,9 @@
   "vertices": [
     {
       "id": "user_input",
-      "settings": {"type": "source"},
+      "settings": {
+        "type": "source"
+      },
       "initial_data": [
         {
           "channel": "text",
@@ -16,7 +18,9 @@
     },
     {
       "id": "pi_output",
-      "settings": {"type": "sink"}
+      "settings": {
+        "type": "sink"
+      }
     }
   ],
   "edges": [
@@ -25,9 +29,11 @@
       "source": "user_input",
       "destination": "pi_output",
       "channel": "text",
-      "pipeline": "pi_edge.py",
-      "prompt": "You are a creative poet.",
-      "model": "default"
+      "script": "pi_edge.py",
+      "settings": {
+        "prompt": "You are a creative poet.",
+        "model": "default"
+      }
     }
   ]
 }

@@ -13,13 +13,64 @@
         }
       ]
     },
-    { "id": "v_threads" },
-    { "id": "v_router" },
-    { "id": "v_sel1" }, { "id": "v_sel2" }, { "id": "v_sel3" }, { "id": "v_sel4" },
-    { "id": "v_sel5" }, { "id": "v_sel6" }, { "id": "v_sel7" }, { "id": "v_sel8" },
-    { "id": "v_t1" }, { "id": "v_t2" }, { "id": "v_t3" }, { "id": "v_t4" },
-    { "id": "v_t5" }, { "id": "v_t6" }, { "id": "v_t7" }, { "id": "v_t8" },
-    { "id": "v_report", "script": "vertex/report_hook.py" }
+    {
+      "id": "v_threads"
+    },
+    {
+      "id": "v_router"
+    },
+    {
+      "id": "v_sel1"
+    },
+    {
+      "id": "v_sel2"
+    },
+    {
+      "id": "v_sel3"
+    },
+    {
+      "id": "v_sel4"
+    },
+    {
+      "id": "v_sel5"
+    },
+    {
+      "id": "v_sel6"
+    },
+    {
+      "id": "v_sel7"
+    },
+    {
+      "id": "v_sel8"
+    },
+    {
+      "id": "v_t1"
+    },
+    {
+      "id": "v_t2"
+    },
+    {
+      "id": "v_t3"
+    },
+    {
+      "id": "v_t4"
+    },
+    {
+      "id": "v_t5"
+    },
+    {
+      "id": "v_t6"
+    },
+    {
+      "id": "v_t7"
+    },
+    {
+      "id": "v_t8"
+    },
+    {
+      "id": "v_report",
+      "script": "vertex/report_hook.py"
+    }
   ],
   "edges": [
     {
@@ -27,45 +78,268 @@
       "source": "v_forum",
       "destination": "v_threads",
       "channel": "default",
-      "pipeline": "s1_pipelines.py:FetchThreadsPipeline",
-      "concurrency_type": "fetch"
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchThreadsEdge"
     },
     {
       "id": "e_filter",
       "source": "v_threads",
       "destination": "v_router",
       "channel": "default",
-      "prompt": "以下是 Stage1st (S1) 论坛加密/AI 讨论区的帖子列表：\n{data}\n\n你的任务：从中选出最多 8 个与 AI、LLM、GPT、人工智能、机器学习、深度学习最相关的帖子。如果 AI 相关的帖子少于 8 个，返回所有相关的。\n\n只输出一个合法的 JSON 数组，每个对象包含 'tid'、'title'、'url' 三个键。不要解释，不要 markdown 代码块，只输出原始 JSON 数组。",
-      "model": "hy3-free",
-      "pipeline": "s1_pipelines.py:FilterPipeline",
-      "concurrency_type": "llm"
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:FilterEdge",
+      "settings": {
+        "prompt": "Here is a list of forum threads:\\n{data}\\n\\nTask: Select up to 8 threads most relevant to AI, LLM, GPT, Machine Learning, and Deep Learning. Return a valid JSON array of objects with \"tid\", \"title\", and \"url\" keys. Output only raw JSON array without markdown formatting.",
+        "model": "hy3-free"
+      }
     },
-
-    { "id": "e_sel1", "source": "v_router", "destination": "v_sel1", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 0}, "concurrency_type": "default" },
-    { "id": "e_sel2", "source": "v_router", "destination": "v_sel2", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 1}, "concurrency_type": "default" },
-    { "id": "e_sel3", "source": "v_router", "destination": "v_sel3", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 2}, "concurrency_type": "default" },
-    { "id": "e_sel4", "source": "v_router", "destination": "v_sel4", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 3}, "concurrency_type": "default" },
-    { "id": "e_sel5", "source": "v_router", "destination": "v_sel5", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 4}, "concurrency_type": "default" },
-    { "id": "e_sel6", "source": "v_router", "destination": "v_sel6", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 5}, "concurrency_type": "default" },
-    { "id": "e_sel7", "source": "v_router", "destination": "v_sel7", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 6}, "concurrency_type": "default" },
-    { "id": "e_sel8", "source": "v_router", "destination": "v_sel8", "channel": "default", "pipeline": "s1_pipelines.py:SelectPipeline", "settings": {"index": 7}, "concurrency_type": "default" },
-
-    { "id": "e_fetch1", "source": "v_sel1", "destination": "v_t1", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
-    { "id": "e_fetch2", "source": "v_sel2", "destination": "v_t2", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
-    { "id": "e_fetch3", "source": "v_sel3", "destination": "v_t3", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
-    { "id": "e_fetch4", "source": "v_sel4", "destination": "v_t4", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
-    { "id": "e_fetch5", "source": "v_sel5", "destination": "v_t5", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
-    { "id": "e_fetch6", "source": "v_sel6", "destination": "v_t6", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
-    { "id": "e_fetch7", "source": "v_sel7", "destination": "v_t7", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
-    { "id": "e_fetch8", "source": "v_sel8", "destination": "v_t8", "channel": "default", "pipeline": "s1_pipelines.py:FetchPipeline", "concurrency_type": "fetch" },
-
-    { "id": "e_sum1", "source": "v_t1", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
-    { "id": "e_sum2", "source": "v_t2", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
-    { "id": "e_sum3", "source": "v_t3", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
-    { "id": "e_sum4", "source": "v_t4", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
-    { "id": "e_sum5", "source": "v_t5", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
-    { "id": "e_sum6", "source": "v_t6", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
-    { "id": "e_sum7", "source": "v_t7", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" },
-    { "id": "e_sum8", "source": "v_t8", "destination": "v_report", "channel": "default", "pipeline": "s1_pipelines.py:SummarizePipeline", "prompt": "请总结以下论坛帖子的讨论内容，按 [帖子标题](帖子链接)。 从中提取的 AI/LLM 趋势、用户观点、关键论点三部分输出 markdown 格式。", "model": "hy3-free", "concurrency_type": "llm" }
+    {
+      "id": "e_sel1",
+      "source": "v_router",
+      "destination": "v_sel1",
+      "channel": "default",
+      "settings": {
+        "index": 0
+      },
+      "concurrency_type": "default",
+      "script": "s1_edges.py:SelectEdge"
+    },
+    {
+      "id": "e_sel2",
+      "source": "v_router",
+      "destination": "v_sel2",
+      "channel": "default",
+      "settings": {
+        "index": 1
+      },
+      "concurrency_type": "default",
+      "script": "s1_edges.py:SelectEdge"
+    },
+    {
+      "id": "e_sel3",
+      "source": "v_router",
+      "destination": "v_sel3",
+      "channel": "default",
+      "settings": {
+        "index": 2
+      },
+      "concurrency_type": "default",
+      "script": "s1_edges.py:SelectEdge"
+    },
+    {
+      "id": "e_sel4",
+      "source": "v_router",
+      "destination": "v_sel4",
+      "channel": "default",
+      "settings": {
+        "index": 3
+      },
+      "concurrency_type": "default",
+      "script": "s1_edges.py:SelectEdge"
+    },
+    {
+      "id": "e_sel5",
+      "source": "v_router",
+      "destination": "v_sel5",
+      "channel": "default",
+      "settings": {
+        "index": 4
+      },
+      "concurrency_type": "default",
+      "script": "s1_edges.py:SelectEdge"
+    },
+    {
+      "id": "e_sel6",
+      "source": "v_router",
+      "destination": "v_sel6",
+      "channel": "default",
+      "settings": {
+        "index": 5
+      },
+      "concurrency_type": "default",
+      "script": "s1_edges.py:SelectEdge"
+    },
+    {
+      "id": "e_sel7",
+      "source": "v_router",
+      "destination": "v_sel7",
+      "channel": "default",
+      "settings": {
+        "index": 6
+      },
+      "concurrency_type": "default",
+      "script": "s1_edges.py:SelectEdge"
+    },
+    {
+      "id": "e_sel8",
+      "source": "v_router",
+      "destination": "v_sel8",
+      "channel": "default",
+      "settings": {
+        "index": 7
+      },
+      "concurrency_type": "default",
+      "script": "s1_edges.py:SelectEdge"
+    },
+    {
+      "id": "e_fetch1",
+      "source": "v_sel1",
+      "destination": "v_t1",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchEdge"
+    },
+    {
+      "id": "e_fetch2",
+      "source": "v_sel2",
+      "destination": "v_t2",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchEdge"
+    },
+    {
+      "id": "e_fetch3",
+      "source": "v_sel3",
+      "destination": "v_t3",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchEdge"
+    },
+    {
+      "id": "e_fetch4",
+      "source": "v_sel4",
+      "destination": "v_t4",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchEdge"
+    },
+    {
+      "id": "e_fetch5",
+      "source": "v_sel5",
+      "destination": "v_t5",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchEdge"
+    },
+    {
+      "id": "e_fetch6",
+      "source": "v_sel6",
+      "destination": "v_t6",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchEdge"
+    },
+    {
+      "id": "e_fetch7",
+      "source": "v_sel7",
+      "destination": "v_t7",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchEdge"
+    },
+    {
+      "id": "e_fetch8",
+      "source": "v_sel8",
+      "destination": "v_t8",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchEdge"
+    },
+    {
+      "id": "e_sum1",
+      "source": "v_t1",
+      "destination": "v_report",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:SummarizeEdge",
+      "settings": {
+        "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e_sum2",
+      "source": "v_t2",
+      "destination": "v_report",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:SummarizeEdge",
+      "settings": {
+        "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e_sum3",
+      "source": "v_t3",
+      "destination": "v_report",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:SummarizeEdge",
+      "settings": {
+        "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e_sum4",
+      "source": "v_t4",
+      "destination": "v_report",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:SummarizeEdge",
+      "settings": {
+        "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e_sum5",
+      "source": "v_t5",
+      "destination": "v_report",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:SummarizeEdge",
+      "settings": {
+        "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e_sum6",
+      "source": "v_t6",
+      "destination": "v_report",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:SummarizeEdge",
+      "settings": {
+        "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e_sum7",
+      "source": "v_t7",
+      "destination": "v_report",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:SummarizeEdge",
+      "settings": {
+        "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e_sum8",
+      "source": "v_t8",
+      "destination": "v_report",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:SummarizeEdge",
+      "settings": {
+        "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+        "model": "hy3-free"
+      }
+    }
   ]
 }

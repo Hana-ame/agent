@@ -79,7 +79,7 @@ class TestConcurrency:
             ] + [{"id": f"dst{i}"} for i in range(10)],
             "edges": [
                 {"id": f"e{i}", "source": "src", "destination": f"dst{i}",
-                 "channel": "d", "tags": [str(i)], "prompt": "go", "model": "m"}
+                 "channel": "d", "tags": [str(i)], "settings": {"prompt": "go", "model": "m"}}
                 for i in range(10)
             ],
         }
@@ -109,7 +109,7 @@ class TestTimeout:
             ],
             "edges": [
                 {"id": "e", "source": "A", "destination": "B",
-                 "channel": "d", "prompt": "", "model": "m"},
+                 "channel": "d", "settings": {"prompt": "", "model": "m"}},
             ],
         }
         g = Graph.from_dict(config)
@@ -133,7 +133,7 @@ class TestErrorHandling:
             ],
             "edges": [
                 {"id": "e", "source": "A", "destination": "B",
-                 "channel": "d", "prompt": "", "model": "m"},
+                 "channel": "d", "settings": {"prompt": "", "model": "m"}},
             ],
         }
         g = Graph.from_dict(config)

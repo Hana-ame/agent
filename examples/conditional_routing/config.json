@@ -56,16 +56,20 @@
       "source": "ImageProcessingVertex",
       "destination": "ResponseCollectorVertex",
       "channel": "request",
-      "prompt": "Generate image dalle prompt for: ",
-      "model": "image-model"
+      "settings": {
+        "prompt": "Generate image dalle prompt for: ",
+        "model": "image-model"
+      }
     },
     {
       "id": "code_to_sink",
       "source": "CodeProcessingVertex",
       "destination": "ResponseCollectorVertex",
       "channel": "request",
-      "prompt": "Write high performance clean code: ",
-      "model": "code-model"
+      "settings": {
+        "prompt": "Write high performance clean code: ",
+        "model": "code-model"
+      }
     }
   ]
 }

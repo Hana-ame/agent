@@ -6,7 +6,9 @@
   "vertices": [
     {
       "id": "user_input",
-      "settings": {"type": "source"},
+      "settings": {
+        "type": "source"
+      },
       "initial_data": [
         {
           "channel": "text",
@@ -16,7 +18,9 @@
     },
     {
       "id": "llm_output",
-      "settings": {"type": "sink"}
+      "settings": {
+        "type": "sink"
+      }
     }
   ],
   "edges": [
@@ -25,8 +29,10 @@
       "source": "user_input",
       "destination": "llm_output",
       "channel": "text",
-      "prompt": "You are a creative poet.",
-      "model": "hy3-free"
+      "settings": {
+        "prompt": "You are a creative poet.",
+        "model": "hy3-free"
+      }
     }
   ]
 }

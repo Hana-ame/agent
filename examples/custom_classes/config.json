@@ -6,19 +6,28 @@
   "vertices": [
     {
       "id": "source_node",
-      "settings": {"type": "source"},
+      "settings": {
+        "type": "source"
+      },
       "initial_data": [
-        {"channel": "text", "value": "Initial raw data."}
+        {
+          "channel": "text",
+          "value": "Initial raw data."
+        }
       ]
     },
     {
       "id": "filter_node",
       "script": "my_nodes.py",
-      "settings": {"strict_mode": true}
+      "settings": {
+        "strict_mode": true
+      }
     },
     {
       "id": "sink_node",
-      "settings": {"type": "sink"}
+      "settings": {
+        "type": "sink"
+      }
     }
   ],
   "edges": [
@@ -26,16 +35,19 @@
       "id": "e_smart",
       "source": "source_node",
       "destination": "filter_node",
-      "pipeline": "my_nodes.py",
-      "prompt": "Analyze this data:",
-      "settings": {"prefix_tag": "[SMART]"}
+      "settings": {
+        "prefix_tag": "[SMART]",
+        "prompt": "Analyze this data:"
+      },
+      "script": "my_nodes.py"
     },
     {
       "id": "e_normal",
       "source": "filter_node",
       "destination": "sink_node",
-      "prompt": "Finalize.",
-      "settings": {}
+      "settings": {
+        "prompt": "Finalize."
+      }
     }
   ]
 }

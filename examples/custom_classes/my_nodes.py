@@ -10,8 +10,7 @@ class SafeFilterVertex(Vertex):
         self.is_strict = self.settings.get("strict_mode", False)
         logger.info(f"[{self.id}] Initialized with strict_mode={self.is_strict}")
 
-    # 签名随框架统一为 (self, data, channel, settings)：Vertex 现在调
-    # self.on_receive(data, channel, settings)，旧的 (data_id, tags) 参数已废弃。
+    # Signature is unified to (self, data, channel, settings).
     def on_receive(self, data, channel, settings):
         logger.info(f"[{self.id}] Custom on_receive() intercepted data: {data}")
 

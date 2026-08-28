@@ -90,8 +90,7 @@ def linear_config() -> Dict:
                 "destination": "B",
                 "data_id": "x",
                 "tags": [],
-                "prompt": "process",
-                "model": "mock",
+                "settings": {"prompt": "process", "model": "mock"},
             },
             {
                 "id": "e2",
@@ -99,8 +98,7 @@ def linear_config() -> Dict:
                 "destination": "C",
                 "data_id": "x",
                 "tags": [],
-                "prompt": "finalize",
-                "model": "mock",
+                "settings": {"prompt": "finalize", "model": "mock"},
             },
         ],
     }
@@ -130,8 +128,7 @@ def diamond_config() -> Dict:
                 "destination": "B",
                 "data_id": "v",
                 "tags": ["t1"],
-                "prompt": "branch-1",
-                "model": "mock",
+                "settings": {"prompt": "branch-1", "model": "mock"},
             },
             {
                 "id": "ac",
@@ -139,8 +136,7 @@ def diamond_config() -> Dict:
                 "destination": "C",
                 "data_id": "v",
                 "tags": ["t2"],
-                "prompt": "branch-2",
-                "model": "mock",
+                "settings": {"prompt": "branch-2", "model": "mock"},
             },
             {
                 "id": "bd",
@@ -148,8 +144,7 @@ def diamond_config() -> Dict:
                 "destination": "D",
                 "data_id": "v",
                 "tags": ["t1"],
-                "prompt": "merge-1",
-                "model": "mock",
+                "settings": {"prompt": "merge-1", "model": "mock"},
             },
             {
                 "id": "cd",
@@ -157,8 +152,7 @@ def diamond_config() -> Dict:
                 "destination": "D",
                 "data_id": "v",
                 "tags": ["t2"],
-                "prompt": "merge-2",
-                "model": "mock",
+                "settings": {"prompt": "merge-2", "model": "mock"},
             },
         ],
     }
@@ -175,16 +169,14 @@ def cycle_config() -> Dict:
                 "source": "A",
                 "destination": "B",
                 "data_id": "x",
-                "prompt": "",
-                "model": "m",
+                "settings": {"prompt": "", "model": "m"},
             },
             {
                 "id": "e2",
                 "source": "B",
                 "destination": "A",
                 "data_id": "x",
-                "prompt": "",
-                "model": "m",
+                "settings": {"prompt": "", "model": "m"},
             },
         ],
     }

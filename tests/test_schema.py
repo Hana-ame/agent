@@ -81,8 +81,7 @@ class TestRuntimeSchemaValidation:
                     "source": "Start",
                     "destination": "End",
                     "channel": "in",
-                    "prompt": "generate profile",
-                    "settings": {"output_schema": "UserProfile"}
+                    "settings": {"prompt": "generate profile", "output_schema": "UserProfile"}
                 }
             ]
         }

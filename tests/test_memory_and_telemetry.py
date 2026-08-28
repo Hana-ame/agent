@@ -80,22 +80,22 @@ class TestMemoryGraphIntegration:
                     "source": "Start",
                     "destination": "Middle",
                     "channel": "in",
-                    "prompt": "generate session",
                     "settings": {
+                        "prompt": "generate session",
                         # Write result dict field 'session_token' -> memory 'global_session'
                         "memory_write": {"session_token": "global_session"}
-                    },
+                    }
                 },
                 {
                     "id": "e2",
                     "source": "Middle",
                     "destination": "End",
                     "channel": "in",
-                    "prompt": "consume session",
                     "settings": {
+                        "prompt": "consume session",
                         # Read 'global_session' from memory into input data
                         "memory_read": ["global_session"]
-                    },
+                    }
                 },
             ],
         }
@@ -148,8 +148,7 @@ class TestTelemetryAndCostProfiling:
                     "source": "A",
                     "destination": "B",
                     "channel": "q",
-                    "prompt": "Answer thoroughly",
-                    "model": "gpt-4o",
+                    "settings": {"prompt": "Answer thoroughly", "model": "gpt-4o"},
                 }
             ],
         }

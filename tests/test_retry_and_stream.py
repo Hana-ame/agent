@@ -33,8 +33,9 @@ class TestPipelineBusinessRetry:
                 return {"wrong_key": "bad_data"}
             return {"target_key": "valid_data"}
 
-        def my_post_process(result, settings):
-            return result["target_key"]
+        class RetryEdge(Edge):
+            def post_process(self, result, settings):
+                return result["target_key"]
 
         config = {
             "vertices": [
@@ -47,8 +48,8 @@ class TestPipelineBusinessRetry:
                     "source": "A",
                     "destination": "B",
                     "channel": "in",
-                    "prompt": "Please extract target JSON",
                     "settings": {
+                        "prompt": "Please extract target JSON",
                         "retry_policy": {
                             "max_retries": 3,
                             "backoff_factor": 0.01,
@@ -60,8 +61,16 @@ class TestPipelineBusinessRetry:
         }
 
         g = Graph.from_dict(config)
-        edge = g.edges["e_retry"]
-        edge.set_pipeline_module(type("Hook", (), {"post_process": staticmethod(my_post_process)})())
+        
+        # Override the edge instantiated by Graph with our subclass
+        old_edge = g.edges["e_retry"]
+        e_retry = RetryEdge(
+            edge_id=old_edge.id, source_id=old_edge.source_id,
+            destination_id=old_edge.destination_id, channel=old_edge.channel,
+            settings=old_edge.settings, concurrency_type=old_edge.concurrency_type,
+            max_iterations=old_edge.max_iterations
+        )
+        g.edges["e_retry"] = e_retry
 
         agent = MockAgent(response_fn=flaking_agent)
         result = await Executor(g, agent).run()
@@ -80,8 +89,9 @@ class TestPipelineBusinessRetry:
         def always_failing_agent(data, prompt, model, settings):
             return "not_a_number"
 
-        def strict_post_process(result, settings):
-            return int(result)  # ValueError
+        class FailEdge(Edge):
+            def post_process(self, result, settings):
+                return int(result)  # ValueError
 
         config = {
             "vertices": [
@@ -94,8 +104,8 @@ class TestPipelineBusinessRetry:
                     "source": "A",
                     "destination": "B",
                     "channel": "x",
-                    "prompt": "output number",
                     "settings": {
+                        "prompt": "output number",
                         "retry_policy": {
                             "max_retries": 2,
                             "backoff_factor": 0.01,
@@ -107,8 +117,16 @@ class TestPipelineBusinessRetry:
         }
 
         g = Graph.from_dict(config)
-        edge = g.edges["e_fail"]
-        edge.set_pipeline_module(type("Hook", (), {"post_process": staticmethod(strict_post_process)})())
+        
+        old_edge = g.edges["e_fail"]
+        e_fail = FailEdge(
+            edge_id=old_edge.id, source_id=old_edge.source_id,
+            destination_id=old_edge.destination_id, channel=old_edge.channel,
+            settings=old_edge.settings, concurrency_type=old_edge.concurrency_type,
+            max_iterations=old_edge.max_iterations
+        )
+        g.edges["e_fail"] = e_fail
+        edge = e_fail
 
         agent = MockAgent(response_fn=always_failing_agent)
         result = await Executor(g, agent).run()
@@ -137,8 +155,8 @@ class TestPipelineBusinessRetry:
                     "source": "A",
                     "destination": "B",
                     "channel": "x",
-                    "prompt": "test",
                     "settings": {
+                        "prompt": "test",
                         "retry_policy": {
                             "max_retries": 5,
                             "backoff_factor": 0.01,
@@ -174,7 +192,7 @@ class TestExecutorEventStreaming:
                 {"id": "end"},
             ],
             "edges": [
-                {"id": "e1", "source": "start", "destination": "end", "channel": "msg", "prompt": "echo"}
+                {"id": "e1", "source": "start", "destination": "end", "channel": "msg", "settings": {"prompt": "echo"}}
             ],
         }
         g = Graph.from_dict(config)
@@ -203,7 +221,7 @@ class TestExecutorEventStreaming:
                 {"id": "B"},
             ],
             "edges": [
-                {"id": "ab", "source": "A", "destination": "B", "channel": "val", "prompt": "+5"}
+                {"id": "ab", "source": "A", "destination": "B", "channel": "val", "settings": {"prompt": "+5"}}
             ],
         }
         agent = MockAgent(response_fn=lambda d, p, m, s: d + 5)

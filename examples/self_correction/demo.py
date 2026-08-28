@@ -77,8 +77,8 @@ async def main():
                 "source": "RawInput",
                 "destination": "StructuredOutput",
                 "channel": "article",
-                "prompt": "Extract company entities in strict JSON format: {\"extracted_entities\": [...]}",
                 "settings": {
+                    "prompt": "Extract company entities in strict JSON format: {\"extracted_entities\": [...]}",
                     "retry_policy": {
                         "max_retries": 3,
                         "backoff_factor": 0.2,
@@ -91,9 +91,19 @@ async def main():
 
     graph = Graph.from_dict(config)
     
-    # Inject our post-process hook into the edge's pipeline
-    edge = graph.edges["e_extract"]
-    edge._pipeline._hook_provider = type("Hook", (), {"post_process": staticmethod(strict_post_process)})()
+    # Inject our post-process hook via Edge subclass
+    from framework.edge import Edge
+    class ExtractEdge(Edge):
+        def post_process(self, result, settings):
+            return strict_post_process(result, settings)
+
+    old_edge = graph.edges["e_extract"]
+    graph.edges["e_extract"] = ExtractEdge(
+        edge_id=old_edge.id, source_id=old_edge.source_id,
+        destination_id=old_edge.destination_id, channel=old_edge.channel,
+        settings=old_edge.settings, concurrency_type=old_edge.concurrency_type,
+        max_iterations=old_edge.max_iterations
+    )
 
     agent = MockAgent(response_fn=mock_flaky_llm)
     executor = Executor(graph, agents=agent)

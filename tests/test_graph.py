@@ -49,7 +49,7 @@ class TestGraphValidation:
             "vertices": [{"id": "B"}],
             "edges": [
                 {"id": "e", "source": "MISSING", "destination": "B",
-                 "data_id": "x", "prompt": "", "model": "m"},
+                 "data_id": "x", "settings": {"prompt": "", "model": "m"}},
             ],
         }
         with pytest.raises(ValueError, match="source"):
@@ -60,7 +60,7 @@ class TestGraphValidation:
             "vertices": [{"id": "A"}],
             "edges": [
                 {"id": "e", "source": "A", "destination": "MISSING",
-                 "data_id": "x", "prompt": "", "model": "m"},
+                 "data_id": "x", "settings": {"prompt": "", "model": "m"}},
             ],
         }
         with pytest.raises(ValueError, match="destination"):
@@ -138,8 +138,8 @@ class TestGraphScripts:
             "vertices": [{"id": "A"}, {"id": "B"}],
             "edges": [
                 {"id": "e", "source": "A", "destination": "B",
-                 "data_id": "x", "prompt": "", "model": "m",
-                 "pipeline": str(script)},
+                 "data_id": "x", "settings": {"prompt": "", "model": "m"},
+                 "script": str(script)},
             ],
         }
         g = Graph.from_dict(config)
@@ -150,7 +150,7 @@ class TestGraphScripts:
             "vertices": [{"id": "A", "script": "/nonexistent/path.py"}],
             "edges": [],
         }
-        # Based on user requirement: "如果有问题直接error", we now expect RuntimeError
+        # Expect RuntimeError on missing script file
         import pytest
         with pytest.raises(RuntimeError):
             g = Graph.from_dict(config)

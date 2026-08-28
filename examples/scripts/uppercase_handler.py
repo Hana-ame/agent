@@ -1,18 +1,13 @@
-"""Vertex 子类：大写转换 + 汇聚。
+"""Vertex subclass: Uppercase conversion and aggregation.
 
-complex/config.json 的 transform 节点用 ``"script": "../scripts/uppercase_handler.py"``
-指向本文件，框架自动发现 UpperVertex 并实例化。
-
-发现背景：原为模块级函数 on_receive/on_ready，靠 Vertex.set_pipeline_module
-挂载——但 Vertex 从未实现 module 委托，该路径加载即 AttributeError（死代码）。
-随框架统一转纯子类覆盖。on_ready 返回值也从旧的 (data_id,(tags,)) 元组 key
-改为现模型的 str channel。
+Referenced by complex/config.json using ``"script": "../scripts/uppercase_handler.py"``.
+The framework discovers UpperVertex and instantiates it.
 """
 from framework.vertex import Vertex
 
 
 class UpperVertex(Vertex):
-    """on_receive: 字符串大写；on_ready: 汇聚所有数据为 result channel。"""
+    """on_receive: uppercase strings; on_ready: combine all data into result channel."""
 
     def on_receive(self, data, channel, settings):
         if isinstance(data, str):

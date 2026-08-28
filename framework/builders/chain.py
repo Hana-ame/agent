@@ -24,7 +24,7 @@ class LinearChain:
                 "id": f"step_{i}",
                 "source": f"Node_{i}",
                 "destination": f"Node_{i+1}",
-                "prompt": prompt
+                "settings": {"prompt": prompt}
             })
             
         return Graph.from_dict(config)
