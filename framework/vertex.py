@@ -39,7 +39,49 @@ class EdgeSignal(str, enum.Enum):
 from .utils.errors import DataRejectedError
 
 
+
+class InvalidTransition(Exception):
+    pass
+
+class StateMachine:
+    """Declarative state machine with validated transitions."""
+    
+    TRANSITIONS = {
+        VertexState.IDLE:           {VertexState.READY, VertexState.AWAITING_EDGES, VertexState.ABORTED},
+        VertexState.AWAITING_EDGES: {VertexState.READY, VertexState.ABORTED, VertexState.ERROR, VertexState.DONE},
+        VertexState.READY:          {VertexState.DONE, VertexState.PAUSED, VertexState.ERROR, VertexState.AWAITING_EDGES},
+        VertexState.PAUSED:         {VertexState.READY, VertexState.ERROR},
+        VertexState.DONE:           {VertexState.IDLE},
+        VertexState.ABORTED:        {VertexState.IDLE},
+        VertexState.ERROR:          set(),
+    }
+    
+    def __set_name__(self, owner, name):
+        self._name = f"_{name}"
+    
+    def __get__(self, obj, objtype=None):
+        if obj is None: return self
+        return getattr(obj, self._name, VertexState.IDLE)
+    
+    def __set__(self, obj, new_state: VertexState):
+        current = getattr(obj, self._name, VertexState.IDLE)
+        if new_state != current and new_state not in self.TRANSITIONS.get(current, set()):
+            raise InvalidTransition(
+                f"Vertex[{obj.id}]: {current.value} -> {new_state.value} is not allowed"
+            )
+        logger.debug("Vertex[%s] %s -> %s", obj.id, current.value, new_state.value)
+        setattr(obj, self._name, new_state)
+        if new_state in (VertexState.READY, VertexState.ABORTED, VertexState.ERROR):
+            obj._ready_event.set()
+        else:
+            obj._ready_event.clear()
+            
+    def force_state(self, obj, new_state: VertexState):
+        """Bypass validation for recovery."""
+        setattr(obj, self._name, new_state)
+
 class Vertex:
+    state = StateMachine()
     """A vertex (node) in the computation graph.
 
     Stores data keyed by channel strings.
@@ -69,8 +111,8 @@ class Vertex:
         self._lock = asyncio.Lock()
 
         # State management
-        self._state = VertexState.IDLE
         self._ready_event = asyncio.Event()
+        self.state = VertexState.IDLE
 
         # Approval / HITL support
         self._require_approval: bool = bool(self.settings.get("require_approval", False))
@@ -119,7 +161,7 @@ class Vertex:
         """Mark this vertex as requiring approval before proceeding to READY."""
         self._require_approval = True
         self._approved = False
-        if self._state == VertexState.READY:
+        if self.state == VertexState.READY:
             self.state = VertexState.PAUSED
         logger.debug("[Vertex:%s] Marked for approval (require_approval=True)", self.id)
 
@@ -135,19 +177,6 @@ class Vertex:
     # ------------------------------------------------------------------
     # State property
     # ------------------------------------------------------------------
-    @property
-    def state(self) -> VertexState:
-        return self._state
-
-    @state.setter
-    def state(self, new_state: VertexState):
-        old = self._state
-        self._state = new_state
-        logger.debug("[Vertex:%s] %s -> %s", self.id, old.value, new_state.value)
-        if new_state in (VertexState.READY, VertexState.ABORTED, VertexState.ERROR):
-            self._ready_event.set()
-        else:
-            self._ready_event.clear()
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
@@ -198,7 +227,7 @@ class Vertex:
                 if (
                     edge_id
                     and edge_id in self.loop_incoming_edges
-                    and self._state in (VertexState.DONE, VertexState.AWAITING_EDGES)
+                    and self.state in (VertexState.DONE, VertexState.AWAITING_EDGES)
                 ):
                     max_iter = self.loop_incoming_edges[edge_id]
 
@@ -209,7 +238,7 @@ class Vertex:
                             "[Vertex:%s] Loop limit (%d) reached after %d re-entries "
                             "via edge '%s' — staying %s.",
                             self.id, max_iter, self.iteration_count, edge_id,
-                            self._state.value,
+                            self.state.value,
                         )
                         return True  # Stay in current state, loop is exhausted
 
@@ -289,7 +318,7 @@ class Vertex:
                 if (
                     edge_id
                     and edge_id in self.loop_incoming_edges
-                    and self._state in (VertexState.DONE, VertexState.AWAITING_EDGES)
+                    and self.state in (VertexState.DONE, VertexState.AWAITING_EDGES)
                 ):
                     logger.debug(
                         "[Vertex:%s] Loop-back edge '%s' aborted — loop terminates cleanly.",
@@ -375,7 +404,7 @@ class Vertex:
 
     def reset(self):
         """Reset vertex to initial state (for re-runs)."""
-        self._state = VertexState.IDLE
+        self.state = VertexState.IDLE
         self._ready_event.clear()
         self._approved = False
         self.completed_incoming_edges.clear()
@@ -389,6 +418,6 @@ class Vertex:
     def __repr__(self):
         loop_str = f" loop={self.iteration_count}" if self.loop_incoming_edges else ""
         return (
-            f"Vertex(id={self.id!r}, state={self._state.value}, "
+            f"Vertex(id={self.id!r}, state={self.state.value}, "
             f"in={len(self.incoming_edges)}, out={len(self.outgoing_edges)}{loop_str})"
         )

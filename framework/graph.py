@@ -42,8 +42,7 @@ class Graph:
               "id": "e1",
               "source": "v1",
               "destination": "v2",
-              "channel": "text",
-              "settings": {                       // 计算层全在 settings
+              "settings": {                       // Computation layer within settings
                 "prompt": "Summarise this:",
                 "model": "gemini-pro",
                 "agent": "http",                  // optional: str/dict/"path:Class"
@@ -51,7 +50,7 @@ class Graph:
                 "timeout": 60
               },
               "max_iterations": 3,                 // optional — enables loop back
-              "script": "path/to/edge_script.py"  // optional — Edge 子类
+              "script": "path/to/edge_script.py"  // optional — Edge subclass
             }
           ]
         }
@@ -99,14 +98,8 @@ class Graph:
         base_dir = base_dir or os.getcwd()
 
         # --- vertices ---
-        # Vertex 定制走纯子类实例化：config 的 "script" 字段指向一个含
-        # Vertex 子类的 .py，load_class_from_script 自动发现该子类并实例化
-        # 作为 vertex 本体。行为靠子类覆盖 on_receive/on_ready 等实例方法。
-        # ⚠️ 字段名刻意用 "script" 而非 "pipeline"：pipeline 是 Edge 专属概念
-        # （Edge 的 5 段计算管线），vertex 挂 "pipeline" 字段是历史误用，且
-        # Vertex 从无 pipeline_module 委托机制，混名只会让人以为两者同源。
-        # ⚠️ 不支持 "path.py:Class" 显式 entrypoint——整个框架已统一为
-        # "自动发现唯一子类"模式（edge 同理），保持对称。
+        # Vertex customization uses subclass instantiation: config "script" points to a .py
+        # containing a Vertex subclass. load_class_from_script discovers and instantiates it.
         for vc in config.get("vertices", []):
             script = vc.get("script")
             if script and not os.path.isabs(script):
@@ -138,13 +131,12 @@ class Graph:
             graph.vertices[vertex.id] = vertex
 
         # --- edges ---
-        # Edge 定制走纯子类实例化（和 vertex 对称）：config 的 "script" 字段指向
-        # 一个含 Edge 子类的 .py。支持两种格式：
-        #   "path/to/script.py:ClassName"  — 显式 entrypoint（一文件多子类时用，如 s1_pipelines）
-        #   "path/to/script.py"            — 自动发现唯一 Edge 子类
-        # ⚠️ 计算层配置（prompt/model/agent/match/threshold/retry_policy/timeout/memory_*/output_schema）
-        # 全部塞在 settings dict 里，Edge.__init__ 一次性解析成 self 属性。
-        # 顶层只保留路由层（id/source/destination/channel）和调度层（concurrency_type/max_iterations）。
+        # Edge customization uses subclass instantiation: config "script" points to a .py
+        # containing an Edge subclass. Supports two formats:
+        #   "path/to/script.py:ClassName"  — explicit entrypoint (for files with multiple subclasses)
+        #   "path/to/script.py"            — auto-discover unique Edge subclass
+        # Computation layer configuration (prompt, model, agent, retry_policy, timeout, etc.)
+        # is encapsulated within the settings dict.
         for ec in config.get("edges", []):
             script = ec.get("script")
             entrypoint = None
@@ -153,7 +145,7 @@ class Graph:
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
-            # agent spec 可能嵌在 settings 里（"agent" key）；如果是 .py 路径需解析相对路径
+            # Agent spec can be specified inside settings ("agent" key)
             settings = ec.get("settings", {})
             agent_spec = settings.get("agent") if isinstance(settings, dict) else None
             if isinstance(agent_spec, str) and agent_spec.endswith(".py") and not os.path.isabs(agent_spec):
@@ -166,13 +158,13 @@ class Graph:
                 from .utils.script_loader import load_class_from_script, load_script
                 try:
                     if entrypoint:
-                        # 有显式类名：加载模块，取指定类（一文件多子类场景）
+                        # Explicit class name: load module and get class
                         module = load_script(script)
                         edge_cls = getattr(module, entrypoint, None)
                         if edge_cls is None or not (isinstance(edge_cls, type) and issubclass(edge_cls, Edge)):
                             raise RuntimeError(f"Class '{entrypoint}' not found or not a subclass of Edge in {script}")
                     else:
-                        # 无类名：自动发现唯一 Edge 子类
+                        # No entrypoint: auto-discover unique Edge subclass
                         edge_cls = load_class_from_script(script, Edge, Edge)
                 except Exception as exc:
                     logger.error("[Graph] Edge script load failed for edge '%s': %s", ec["id"], exc)

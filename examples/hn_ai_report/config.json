@@ -1,0 +1,59 @@
+{
+  "metadata": {
+    "name": "HN AI Report",
+    "description": "Fetch top HN stories -> LLM filters for AI -> parallel fetch comments -> parallel LLM summarize -> final report."
+  },
+  "vertices": [
+    {
+      "id": "v_start",
+      "initial_data": [{"channel": "default", "value": "trigger"}]
+    },
+    { "id": "v_stories" },
+    { "id": "v_router" },
+    { "id": "v_report", "script": "vertex/report_hook.py" }
+  ],
+  "edges": [
+    {
+      "id": "e_fetch_stories",
+      "source": "v_start",
+      "destination": "v_stories",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "hn_edges.py:FetchTopStoriesEdge"
+    },
+    {
+      "id": "e_filter",
+      "source": "v_stories",
+      "destination": "v_router",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "hn_edges.py:FilterEdge",
+      "settings": {
+        "prompt": "Here is a list of top Hacker News stories (JSON format):\n{data}\n\nYour task: Select up to 5 stories that are most relevant to AI, LLMs, Machine Learning, or Deep Learning. If fewer than 5 are relevant, just return those.\n\nOutput ONLY a valid JSON array of objects containing 'id', 'title', and 'url'. Do not explain, no markdown formatting. Respond entirely in English.",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e_process_stories",
+      "source": "v_router",
+      "destination": "v_report",
+      "channel": "default",
+      "script": "hn_edges.py:ProcessStoriesMap",
+      "settings": {
+        "pipeline": [
+          {
+            "type": "fetch",
+            "script": "hn_edges.py:FetchCommentsEdge"
+          },
+          {
+            "type": "llm",
+            "script": "hn_edges.py:SummarizeEdge",
+            "prompt": "Summarize the discussion in the following Hacker News post comments.\n{data}\n\nProvide key takeaways, interesting technical details, and general sentiment. Format as markdown. Respond entirely in English.",
+            "model": "hy3-free"
+          }
+        ],
+        "max_concurrency": 5
+      }
+    }
+  ]
+}

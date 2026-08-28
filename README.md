@@ -153,7 +153,7 @@ Observe graph execution live using `async for event in executor.stream()` emitti
 
 ## ⚙️ Configuration Guide (Vertex & Edge)
 
-The framework is driven by JSON configurations. You can define the topology in a `.json` file and load it via `Graph.from_json_file()`.
+The framework is driven by JSON configurations. You can define the topology in a `.json` file and load it via `Graph.from_json()`.
 
 ### 1. Vertex Configuration
 
@@ -268,7 +268,7 @@ To build a custom multi-agent workflow from zero:
        # Setup Agent (Requires API Key ENV vars)
        agent = HttpLLMAgent()
        
-       graph = Graph.from_json_file("config.json")
+       graph = Graph.from_json("config.json")
        executor = Executor(graph, agents=agent)
        await executor.run()
    

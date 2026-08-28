@@ -49,7 +49,7 @@ class GraphBuilder:
         if initial_data:
             vc["initial_data"] = initial_data
         if script:
-            vc["pipeline"] = script
+            vc["script"] = script
         if type != "vertex":
             vc["type"] = type
         self._vertices.append(vc)
@@ -71,21 +71,25 @@ class GraphBuilder:
     ) -> "GraphBuilder":
         """Add a directed edge connection between two vertices."""
         eid = edge_id or f"e_{source}_{destination}"
+        s = settings or {}
+        if prompt:
+            s["prompt"] = prompt
+        if model != "default":
+            s["model"] = model
+        if agent is not None:
+            s["agent"] = agent
+            
         ec: Dict[str, Any] = {
             "id": eid,
             "source": source,
             "destination": destination,
             "channel": channel,
-            "prompt": prompt,
-            "model": model,
-            "settings": settings or {},
+            "settings": s,
             "max_iterations": max_iterations,
             **kwargs,
         }
         if script:
-            ec["pipeline"] = script
-        if agent is not None:
-            ec["agent"] = agent
+            ec["script"] = script
         self._edges.append(ec)
         return self
 

@@ -22,6 +22,7 @@ from ..vertex import Vertex, VertexState, EdgeSignal
 from ..edge import Edge
 from ..graph import Graph
 from ..agents import BaseAgent, MockAgent
+from .context import ExecutionContext
 from ..utils.memory import MemoryStore
 from ..utils.telemetry import TelemetryTracker, UsageMetrics
 
@@ -148,14 +149,20 @@ class Executor:
         memory: Optional[MemoryStore] = None,
         telemetry: Optional[TelemetryTracker] = None,
         hooks: Optional[ExecutorHooks] = None,
+        context: Optional[ExecutionContext] = None,
     ):
         self.graph = graph
-        self.agents = agents or MockAgent()
+        if context:
+            self.agents = context.agents
+            self.memory = context.memory
+            self.telemetry = context.telemetry
+        else:
+            self.agents = agents or MockAgent()
+            self.memory = memory or MemoryStore()
+            self.telemetry = telemetry or TelemetryTracker()
         self.max_concurrency = max_concurrency
         self.scan_interval = scan_interval
         self.timeout = timeout or 300.0
-        self.memory = memory or MemoryStore()
-        self.telemetry = telemetry or TelemetryTracker()
         self.hooks = hooks
         # Per-pipeline-type semaphores: llm, fetch, default
         default_concurrency = concurrency_config or {}
