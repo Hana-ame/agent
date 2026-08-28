@@ -119,6 +119,55 @@ async def main():
 asyncio.run(main())
 ```
 
+## Agent Engines
+
+The framework ships several swappable `BaseAgent` implementations. Pick one per graph (or per edge via `settings.agent`) — the rest of the engine is agent-agnostic.
+
+| Agent | Spec string | Default target | When to use |
+| :--- | :--- | :--- | :--- |
+| `MockAgent` | `"mock"` | — | Tests / dry runs. Echoes data with model metadata. |
+| `HttpLLMAgent` | `"http"` | OpenCode Zen | Generic OpenAI-compatible endpoint; **unbounded** — the escape hatch when you drive your own concurrency. |
+| `OpenCodeAgent` | `"opencode"` | `https://opencode.ai/zen/v1` | Free, key-less LLM via OpenCode Zen. **Self-throttled** for the free tier. |
+| `ProxiedLLMAgent` | `"proxy"` / `"proxied"` | `http://localhost:8000/v1` | Route all traffic through a self-hosted gateway (LiteLLM / one-api / internal). Concurrency-bounded, model-aliasing. |
+| `PiAgentRunner` | `"pi"` | local `pi` CLI | Delegate to the installed Pi Agent CLI subprocess. |
+| *custom* | `"path/to/script.py:ClassName"` | — | Subclass `BaseAgent` and load it. |
+
+```python
+from framework import Graph, Executor, OpenCodeAgent
+
+# Free-tier Zen, self-limited to 3 concurrent calls / 20 per minute.
+agent = OpenCodeAgent(max_concurrency=3, requests_per_minute=20.0)
+executor = Executor(graph, agents=agent)
+```
+
+**Throttling knobs** (`OpenCodeAgent` and `ProxiedLLMAgent`):
+
+* `max_concurrency` — `asyncio.Semaphore` bounding in-flight calls. A graph with 32 concurrent edges queues locally instead of opening 32 simultaneous connections.
+* `requests_per_minute` — token-bucket budget charged **per attempt**, so retries count against the budget rather than re-entering an already-exhausted endpoint. `None` disables it.
+* `queue_timeout` — fail fast with `ThrottleTimeoutError` (a `ComputeError`) instead of hanging the graph forever.
+
+Both gates are agent-local, so each edge's `settings` still decides its own `prompt`/`model` — only *when* it gets to speak is coordinated.
+
+```jsonc
+// config.json — per-edge agent override
+{ "id": "e_sum", "source": "v1", "destination": "v2",
+  "settings": { "prompt": "Summarise.", "model": "hy3-free",
+                "agent": { "type": "opencode", "max_concurrency": 2 } } }
+```
+
+`ProxiedLLMAgent` resolves its gateway URL/key explicit-first, environment-driven as fallback: `proxy_url` > `LLM_PROXY_BASE_URL` > `OPENAI_BASE_URL` > `http://localhost:8000/v1`, and `api_key` > `LLM_PROXY_API_KEY` > `OPENAI_API_KEY` > `"public"`. A `model_map` rewrites graph-level aliases to upstream ids (`{"cheap": "deepseek-v4-flash"}`), applied *after* the `"default"` fallback so the default model may itself be aliased.
+
+**Transport proxy** (HTTP 请求经代理出去): every HTTP agent (`HttpLLMAgent`, `OpenCodeAgent`, `ProxiedLLMAgent`) accepts a `proxy` URL — the HTTP(S)/SOCKS proxy the request *tunnels through* on its way to the endpoint. It is a different layer from `ProxiedLLMAgent.proxy_url`: `proxy_url` is **who** you talk to (the gateway), `proxy` is **how** your TCP gets there (corporate egress / authenticated proxy). They stack — a gateway behind a corporate proxy works as-is.
+
+```python
+from framework import HttpLLMAgent
+
+# Every HTTP request physically goes through corp-proxy:3128
+agent = HttpLLMAgent(proxy="http://user:pass@corp-proxy:3128")
+```
+
+When `proxy` is unset, `trust_env=True` (default) lets httpx fall back to `HTTP_PROXY` / `HTTPS_PROXY` from the environment; `proxy` wins if both are present.
+
 ## Advanced Features (v2.0)
 
 ### 1. Business Logic Retry & Self-Correction
@@ -280,7 +329,7 @@ To build a custom multi-agent workflow from zero:
 1. **Path Resolution**: Paths defined in JSON (`"script"` or `"graph_config"`) are resolved relative to the **Current Working Directory (CWD)** where the script is executed. 
 2. **Deadlock Prevention**: If an edge has a conditional guard (`threshold`), ensure there is a fallback edge, or that cascaded `ABORTED` signals are safely handled. Otherwise, downstream nodes may wait infinitely for data that will never arrive.
 3. **Infinite Loop Protection**: Any edge that creates a topological cycle (a back-edge) **must** explicitly configure `"max_iterations": N`. Failure to do so will result in a `GraphCycleError` during initialization.
-4. **LLM Agents**: Many examples use a `MockAgent` for predictable testing. For real-world usage, switch to `HttpLLMAgent` and provide necessary environment variables (e.g., `OPENAI_API_KEY`, `GEMINI_API_KEY`).
+4. **LLM Agents**: Many examples use a `MockAgent` for predictable testing. For real-world usage, use `OpenCodeAgent` (free OpenCode Zen, self-throttled), `ProxiedLLMAgent` (through your own gateway), or `HttpLLMAgent` (generic, unbounded) — and provide the necessary environment variables (e.g. `OPENAI_API_KEY`, `LLM_PROXY_BASE_URL`).
 
 ## Tests
 

@@ -146,12 +146,13 @@ class Edge:
     async def compute(self, data: Any, agent: Optional[BaseAgent], settings: Dict) -> Any:
         """Single computation. Default: call agent.process if prompt/model present, else passthrough.
 
-        Pure Python edges (without prompt/model) pass data through by default.
-        Hybrid/LLM edges call agent.process.
-        Subclasses can override compute for custom business execution logic.
+        Agent precedence (most specific first):
+        1. ``self.agent`` — the per-edge ``settings.agent`` override (str / dict / path:Class)
+        2. ``agent``      — the executor-level agent passed in
+        3. ``MockAgent()`` — the deterministic fallback
         """
         if self.prompt or (self.model and self.model != "default"):
-            active_agent = agent or MockAgent()
+            active_agent = self.agent or agent or MockAgent()
             if self.timeout > 0:
                 result = await asyncio.wait_for(
                     active_agent.process(

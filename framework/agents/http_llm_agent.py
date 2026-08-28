@@ -1,97 +1,70 @@
-import logging
-from typing import Any, Dict, Optional
+"""Generic OpenAI-compatible LLM agent.
 
-logger = logging.getLogger("vertex_edge_agent.agents")
-from .base_agent import BaseAgent
+Talks ``/chat/completions`` to any OpenAI-compatible endpoint — OpenAI,
+OpenRouter, vLLM, llama.cpp, LM Studio, ... Defaulting to the OpenCode Zen
+gateway keeps it usable out of the box with no API key.
+
+For an opinionated OpenCode variant use :class:`OpenCodeAgent`; for traffic
+that must go through a self-hosted gateway use :class:`ProxiedLLMAgent`.
+"""
+
+from typing import Dict, Optional
+
+from ._http_base import _HTTPAgentBase
+from .base_agent import BaseAgent  # noqa: F401  (backwards-compatible re-export)
+from ._http_base import NonRetryableHTTPError  # noqa: F401  (backwards-compatible re-export)
+
+__all__ = ["HttpLLMAgent", "NonRetryableHTTPError"]
 
 
-class NonRetryableHTTPError(Exception):
-    """Raised for HTTP errors that should NOT be retried (400, 401, 403, 404, etc.)."""
-    def __init__(self, status_code: int, message: str):
-        self.status_code = status_code
-        super().__init__(f"HTTP {status_code}: {message}")
+class HttpLLMAgent(_HTTPAgentBase):
+    """Generic OpenAI-compatible chat-completions agent.
 
+    The canonical "HTTP node with a proxy": set ``proxy`` to make every
+    request *tunnel through* a transport-level HTTP(S) proxy (corporate
+    egress / SOCKS / authenticated proxy) on its way to ``base_url``.
 
-class HttpLLMAgent(BaseAgent):
-    def __init__(self, api_key: str = "public", base_url: str = "https://opencode.ai/zen/v1", max_retries: int = 3):
-        import httpx
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
-        self.max_retries = max_retries
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(300.0, connect=10.0),
-            limits=httpx.Limits(max_keepalive_connections=50, max_connections=100)
-        )
-        self._closed = False
+    Parameters
+    ----------
+    api_key:
+        Bearer token. OpenCode Zen works with the default ``"public"``.
+    base_url:
+        Endpoint root, ``"/chat/completions"`` is appended automatically.
+    max_retries:
+        Total attempts for transient failures (408 / 429 / 5xx / network).
+    timeout:
+        Overall request timeout in seconds (connect timeout is 10 s).
+    extra_headers:
+        Additional headers, e.g. ``{"X-Title": "my-agent"}``.
+    proxy:
+        Transport-level HTTP(S) proxy the request tunnels through, e.g.
+        ``"http://user:pass@corp-proxy:3128"`` or ``"socks5://host:1080"``.
+        When unset, ``trust_env`` decides whether httpx reads
+        ``HTTP_PROXY`` / ``HTTPS_PROXY`` from the environment.
+    trust_env:
+        Honour ``HTTP_PROXY`` / ``HTTPS_PROXY`` from the environment when
+        ``proxy`` is unset. Independent of ``proxy``.
+    """
 
-    async def process(
+    NAME = "HttpLLMAgent"
+    DEFAULT_MODEL = "hy3-free"
+
+    def __init__(
         self,
-        data: Any,
-        prompt: str,
-        model: str,
-        settings: Optional[Dict] = None,
-    ) -> Any:
-        import httpx
-        from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
-
-        settings = settings or {}
-        target_model = model if model and model != "default" else "hy3-free"
-        
-        payload = {
-            "model": target_model,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": str(data)}
-            ],
-            **settings.get("llm_kwargs", {})
-        }
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
-
-        @retry(
-            stop=stop_after_attempt(self.max_retries),
-            wait=wait_exponential(multiplier=1, min=2, max=10),
-            retry=retry_if_exception_type((httpx.RequestError, httpx.HTTPStatusError)),
-            before_sleep=before_sleep_log(logger, logging.WARNING),
-            reraise=True
+        api_key: str = "public",
+        base_url: str = "https://opencode.ai/zen/v1",
+        max_retries: int = 3,
+        timeout: float = 300.0,
+        extra_headers: Optional[Dict[str, str]] = None,
+        proxy: Optional[str] = None,
+        trust_env: bool = True,
+    ) -> None:
+        super().__init__(
+            base_url=base_url,
+            api_key=api_key,
+            max_retries=max_retries,
+            timeout=timeout,
+            extra_headers=extra_headers,
+            proxy=proxy,
+            trust_env=trust_env,
         )
-        async def _make_request():
-            logger.debug(f"[HttpLLMAgent] Requesting {target_model}...")
-            response = await self.client.post(
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=headers
-            )
-            if response.status_code in (429, 500, 502, 503, 504):
-                # Transient errors — let tenacity retry these
-                response.raise_for_status()
-            elif response.status_code >= 400:
-                # Fatal client errors (400, 401, 403, 404, etc.) — fail immediately
-                logger.error(f"[HttpLLMAgent] Fatal HTTP Error: {response.status_code} - {response.text}")
-                raise NonRetryableHTTPError(response.status_code, response.text)
-                
-            return response.json()
-
-        try:
-            response_data = await _make_request()
-            return response_data['choices'][0]['message']['content']
-        except Exception as exc:
-            logger.error(f"[HttpLLMAgent] Exhausted retries or fatal error: {exc}", exc_info=True)
-            raise
-
-    async def close(self):
-        """Close the underlying HTTP client and release connections."""
-        if not self._closed:
-            await self.client.aclose()
-            self._closed = True
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.close()
-        return False
-

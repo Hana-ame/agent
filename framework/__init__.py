@@ -1,5 +1,15 @@
 from .executor import Executor, ExecutionResult, GraphEvent, CheckpointedExecutor, HumanGateVertex, ExecutorHooks
-from .agents import BaseAgent, MockAgent, HttpLLMAgent, PiAgentRunner
+from .agents import (
+    BaseAgent,
+    MockAgent,
+    HttpLLMAgent,
+    NonRetryableHTTPError,
+    ThrottleTimeoutError,
+    OpenCodeAgent,
+    ProxiedLLMAgent,
+    PiAgentRunner,
+    get_agent,
+)
 from .vertex import Vertex, VertexState, EdgeSignal, DataRejectedError
 from .pipeline import Pipeline
 from .edge import Edge
@@ -28,6 +38,8 @@ __all__ = [
     'LinearChain', 'GraphBuilder',
     'BaseStateStore', 'SQLiteStateStore', 'GraphSnapshot',
     'CheckpointedExecutor', 'HumanGateVertex',
-    'BaseAgent', 'MockAgent', 'HttpLLMAgent', 'PiAgentRunner',
+    'BaseAgent', 'MockAgent', 'HttpLLMAgent', 'NonRetryableHTTPError',
+    'ThrottleTimeoutError',
+    'OpenCodeAgent', 'ProxiedLLMAgent', 'PiAgentRunner', 'get_agent',
     'load_script',
 ]
