@@ -63,7 +63,6 @@ class Vertex:
     ):
         self.id = vertex_id
         self.settings = settings or {}
-        self._pipeline_module = None
 
         # Data store: key = channel string -> value
         self._data_store: Dict[str, Any] = {}
@@ -390,6 +389,17 @@ class Vertex:
                     "[Vertex:%s] on_ready hook failed: %s", self.id, exc, exc_info=True
                 )
                 raise
+
+    # ------------------------------------------------------------------
+    # Subclass hooks — override in subclasses to customise behaviour
+    # ------------------------------------------------------------------
+    def on_receive(self, data: Any, channel: str, settings: Dict) -> Any:
+        """Called when an edge delivers data. Return data to store, or raise to reject."""
+        return data
+
+    def on_ready(self, all_data: Dict[str, Any], settings: Dict) -> Optional[Dict[str, Any]]:
+        """Called before outgoing edges fire. Return {channel: value} to merge, or None."""
+        return None
 
     # ------------------------------------------------------------------
     # Helpers
