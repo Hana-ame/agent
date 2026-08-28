@@ -318,24 +318,24 @@ Per your ROADMAP, distributed execution is the next milestone. I'd advise:
 
 ---
 
-## 6. Priority Action Items
+## 6. Action Items Status (All Resolved ✅)
 
-| Priority | Item | Effort |
-|:---:|:---|:---:|
-| 🔴 P0 | Fix `HttpLLMAgent` fatal error retry bug | 30 min |
-| 🔴 P0 | Add `HttpLLMAgent` resource cleanup (context manager or `Executor.shutdown()`) | 1 hr |
-| 🟡 P1 | Remove duplicate `__repr__` return in `HumanGateVertex` | 5 min |
-| 🟡 P1 | Clean unused imports across agent files | 15 min |
-| 🟡 P1 | Make package installable (`pyproject.toml` with `[project]` section) | 1 hr |
-| 🟡 P1 | Add `Graph.to_dict()` / `Graph.to_json()` serialization | 2 hr |
-| 🟡 P1 | Use `SchemaMismatchError` instead of `ValueError` in graph validation | 15 min |
-| 🔵 P2 | Add per-edge timeout support | 3 hr |
-| 🔵 P2 | Implement fluent `GraphBuilder` API | 4 hr |
-| 🔵 P2 | Extract abstract `StateStore` interface for distributed readiness | 2 hr |
-| 🔵 P2 | Enrich `BaseAgent` with streaming and structured output support | 4 hr |
-| ⚪ P3 | Formal `ExecutorHooks` callback system (replace monkey-patching) | 3 hr |
-| ⚪ P3 | Connection pooling / lifecycle for `SQLiteStateStore` | 2 hr |
-| ⚪ P3 | Unified error hierarchy (`ExecutionError` tree) | 3 hr |
+| Priority | Item | Status | Resolved In |
+|:---:|:---|:---:|:---:|
+| 🔴 P0 | Fix `HttpLLMAgent` fatal error retry bug | ✅ Completed | `a2758d4` |
+| 🔴 P0 | Add `HttpLLMAgent` resource cleanup (`close()`, async context manager) | ✅ Completed | `a2758d4` |
+| 🟡 P1 | Remove duplicate `__repr__` return in `HumanGateVertex` | ✅ Completed | `a2758d4` |
+| 🟡 P1 | Clean unused imports across agent files | ✅ Completed | `a2758d4` |
+| 🟡 P1 | Make package installable (`pyproject.toml` with `[project]` metadata) | ✅ Completed | `1793caa` |
+| 🟡 P1 | Add `Graph.to_dict()` / `Graph.to_json()` serialization | ✅ Completed | `1793caa` |
+| 🟡 P1 | Use `SchemaMismatchError` instead of generic `ValueError` | ✅ Completed | `1793caa` |
+| 🔵 P2 | Add per-edge timeout support (`settings={"timeout": ...}`) | ✅ Completed | `1793caa` |
+| 🔵 P2 | Implement fluent `GraphBuilder` API | ✅ Completed | `1793caa` |
+| 🔵 P2 | Extract abstract `BaseStateStore` interface | ✅ Completed | `1793caa` |
+| 🔵 P2 | Enrich `BaseAgent` with streaming (`stream_process`) & context manager | ✅ Completed | `2ce9a05` |
+| ⚪ P3 | Formal `ExecutorHooks` callback system | ✅ Completed | `2ce9a05` |
+| ⚪ P3 | Connection lifecycle management for `SQLiteStateStore` | ✅ Completed | `2ce9a05` |
+| ⚪ P3 | Unified error hierarchy (`FrameworkError`, `ExecutionError`, etc.) | ✅ Completed | `2ce9a05` |
 
 ---
 
