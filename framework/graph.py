@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import inspect
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .vertex import Vertex
 from .edge import Edge
@@ -18,6 +18,37 @@ from .edge import Edge
 from .utils.schema import SchemaMismatchError
 
 logger = logging.getLogger("vertex_edge_agent.graph")
+
+
+# 计算层字段：必须住在 settings dict 里，顶层写了不生效。
+# 历史上静默吞掉是真正的坑——prompt 一丢，边就退化成透传管道，
+# 整条链路"跑通了"但语义全错（LLM 不跑、守卫永远为真、循环跑满次数）。
+# 比抛错更难查的是悄悄成功，所以这里直接报错。
+_LEGACY_EDGE_KEYS = (
+    "prompt", "model", "agent", "retry_policy", "timeout",
+    "threshold", "match", "condition", "memory_read", "memory_write",
+    "output_schema", "input_schema", "schema", "pipeline",
+)
+_LEGACY_VERTEX_KEYS = ("pipeline",)
+
+
+def _reject_legacy_keys(item: Dict, kind: str, legacy: Tuple[str, ...]) -> None:
+    """抛出仍住在顶层的旧 schema 字段，给出可操作的迁移提示。"""
+    stray = [k for k in legacy if k in item]
+    if not stray:
+        return
+    fixes = "\n".join(
+        f"  • {k}: 改名 \"script\"" if k == "pipeline" else f"  • {k}: 移到 \"settings\" 里"
+        for k in stray
+    )
+    example = (
+        '{"id": %r, "source": "A", "destination": "B", '
+        '"settings": {"prompt": "...", "model": "gpt-4"}}'
+    ) % item.get("id", "e")
+    raise ValueError(
+        f"{kind} '{item.get('id', '<unknown>')}' 仍在使用旧 schema 的顶层字段 {stray}。\n"
+        "这些字段住在顶层会被静默忽略，必须迁移：\n" + fixes + "\n示例：" + example
+    )
 
 
 class Graph:
@@ -101,6 +132,7 @@ class Graph:
         # Vertex customization uses subclass instantiation: config "script" points to a .py
         # containing a Vertex subclass. load_class_from_script discovers and instantiates it.
         for vc in config.get("vertices", []):
+            _reject_legacy_keys(vc, "Vertex", _LEGACY_VERTEX_KEYS)
             script = vc.get("script")
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
@@ -138,6 +170,7 @@ class Graph:
         # Computation layer configuration (prompt, model, agent, retry_policy, timeout, etc.)
         # is encapsulated within the settings dict.
         for ec in config.get("edges", []):
+            _reject_legacy_keys(ec, "Edge", _LEGACY_EDGE_KEYS)
             script = ec.get("script")
             entrypoint = None
             if script and ":" in script:
@@ -332,10 +365,9 @@ class Graph:
             }
             if e.channel != "default":
                 ec["channel"] = e.channel
-            if e.prompt:
-                ec["prompt"] = e.prompt
-            if e.model and e.model != "default":
-                ec["model"] = e.model
+            # prompt/model 已从 settings 里解析出来（见 Edge.__init__），
+            # settings 是唯一真源；再写顶层键回读时会被静默忽略，
+            # 导致 to_dict -> from_dict 往返丢掉 prompt。
             if e.settings:
                 ec["settings"] = dict(e.settings)
             if e.max_iterations > 0:

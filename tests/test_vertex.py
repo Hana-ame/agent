@@ -22,13 +22,16 @@ class TestVertexState:
         assert empty_vertex.state == VertexState.READY
 
     def test_reset(self, empty_vertex):
-        empty_vertex.state = VertexState.DONE
+        # 从终态回收：reset 是重开机而非生命周期流转，不受转换表约束
+        empty_vertex.force_state(VertexState.DONE)
         empty_vertex.reset()
         assert empty_vertex.state == VertexState.IDLE
 
     def test_all_states_reachable(self, empty_vertex):
+        # 这里校验的是"每个状态都能被表示和读出"，不是"每个状态都能走到"。
+        # 状态间的合法路径由 StateMachine.TRANSITIONS 管，这里直接摆出来。
         for st in VertexState:
-            empty_vertex.state = st
+            empty_vertex.force_state(st)
             assert empty_vertex.state == st
 
 

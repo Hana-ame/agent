@@ -40,7 +40,7 @@ async def post_process(data, settings):
             "source": v_name,
             "destination": "Collector",
             "channel": f"result_{i}",
-            "prompt": f"Execute task: {task}"
+            "settings": {"prompt": f"Execute task: {task}"}
         })
         
     dynamic_graph = Graph.from_dict(config)
@@ -76,7 +76,7 @@ async def main():
                 "id": "e_manage",
                 "source": "Manager",
                 "destination": "FinalSink",
-                "prompt": "Break down into tasks"
+                "settings": {"prompt": "Break down into tasks"}
             }
         ]
     }

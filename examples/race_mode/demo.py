@@ -24,8 +24,8 @@ async def main():
         "edges": [
             {"id": "e_start_fast", "source": "Start", "destination": "FastAgent", "channel": "query"},
             {"id": "e_start_slow", "source": "Start", "destination": "SlowAgent", "channel": "query"},
-            {"id": "e_fast_end", "source": "FastAgent", "destination": "End", "prompt": "fast_task", "channel": "fast_result"},
-            {"id": "e_slow_end", "source": "SlowAgent", "destination": "End", "prompt": "slow_task", "channel": "slow_result"},
+            {"id": "e_fast_end", "source": "FastAgent", "destination": "End", "settings": {"prompt": "fast_task"}, "channel": "fast_result"},
+            {"id": "e_slow_end", "source": "SlowAgent", "destination": "End", "settings": {"prompt": "slow_task"}, "channel": "slow_result"},
         ]
     }
     

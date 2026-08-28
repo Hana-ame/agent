@@ -46,7 +46,7 @@ async def main():
                 "source": "WebSearcher",
                 "destination": "FactChecker",
                 "channel": "query",
-                "prompt": "Find verified raw facts and statistics for query",
+                "settings": {"prompt": "Find verified raw facts and statistics for query"}
             }
         ],
     }
@@ -85,14 +85,14 @@ async def main():
                 "source": "EditorInChief",
                 "destination": "ResearchDepartment",
                 "channel": "assignment",
-                "prompt": "Assign investigation topic",
+                "settings": {"prompt": "Assign investigation topic"}
             },
             {
                 "id": "e_deliver_facts_to_writer",
                 "source": "ResearchDepartment",
                 "destination": "LeadWriter",
                 "channel": "verified_facts",
-                "prompt": "Draft complete feature article using facts",
+                "settings": {"prompt": "Draft complete feature article using facts"}
             },
         ],
     }

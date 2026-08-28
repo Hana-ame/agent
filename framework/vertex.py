@@ -43,26 +43,43 @@ from .utils.errors import DataRejectedError
 class InvalidTransition(Exception):
     pass
 
+
 class StateMachine:
     """Declarative state machine with validated transitions."""
-    
+
+    # 只列真实生命周期流转；表外一律拒绝。
+    # reset / 测试搭初始态 / 快照恢复走 force_state，不走这张表。
     TRANSITIONS = {
-        VertexState.IDLE:           {VertexState.READY, VertexState.AWAITING_EDGES, VertexState.ABORTED},
-        VertexState.AWAITING_EDGES: {VertexState.READY, VertexState.ABORTED, VertexState.ERROR, VertexState.DONE},
-        VertexState.READY:          {VertexState.DONE, VertexState.PAUSED, VertexState.ERROR, VertexState.AWAITING_EDGES},
-        VertexState.PAUSED:         {VertexState.READY, VertexState.ERROR},
-        VertexState.DONE:           {VertexState.IDLE},
-        VertexState.ABORTED:        {VertexState.IDLE},
-        VertexState.ERROR:          set(),
+        # 等输入：可能收齐进 READY，也可能被要求审批（PAUSED），
+        # 入边全被剪枝（ABORTED），或上游边直接失败（ERROR）。
+        # AWAITING_EDGES 给无入边的源节点——executor 直接拉它开火。
+        VertexState.IDLE: {
+            VertexState.READY, VertexState.PAUSED,
+            VertexState.AWAITING_EDGES, VertexState.ABORTED, VertexState.ERROR,
+        },
+        VertexState.AWAITING_EDGES: {
+            VertexState.READY, VertexState.ABORTED, VertexState.ERROR, VertexState.DONE,
+        },
+        VertexState.READY: {
+            VertexState.DONE, VertexState.PAUSED, VertexState.ERROR, VertexState.AWAITING_EDGES,
+        },
+        VertexState.PAUSED: {VertexState.READY, VertexState.ERROR},
+        # DONE -> READY 是有界循环重入的关键：回边把 DONE 的顶点再拉起来。
+        # 少了这条整个 loops 特性直接炸（done -> ready is not allowed）。
+        VertexState.DONE: {VertexState.READY, VertexState.IDLE},
+        VertexState.ABORTED: {VertexState.IDLE},
+        # ERROR -> IDLE 让 reset() 能从任何终态干净回收。
+        VertexState.ERROR: {VertexState.IDLE},
     }
-    
+
     def __set_name__(self, owner, name):
         self._name = f"_{name}"
-    
+
     def __get__(self, obj, objtype=None):
-        if obj is None: return self
+        if obj is None:
+            return self
         return getattr(obj, self._name, VertexState.IDLE)
-    
+
     def __set__(self, obj, new_state: VertexState):
         current = getattr(obj, self._name, VertexState.IDLE)
         if new_state != current and new_state not in self.TRANSITIONS.get(current, set()):
@@ -70,15 +87,19 @@ class StateMachine:
                 f"Vertex[{obj.id}]: {current.value} -> {new_state.value} is not allowed"
             )
         logger.debug("Vertex[%s] %s -> %s", obj.id, current.value, new_state.value)
-        setattr(obj, self._name, new_state)
+        self._commit(obj, new_state)
+
+    def force_state(self, obj, new_state: VertexState):
+        """Bypass validation for reset / recovery / snapshot restore / test setup."""
+        self._commit(obj, new_state)
+
+    @staticmethod
+    def _commit(obj, new_state: VertexState):
+        setattr(obj, "_state", new_state)
         if new_state in (VertexState.READY, VertexState.ABORTED, VertexState.ERROR):
             obj._ready_event.set()
         else:
             obj._ready_event.clear()
-            
-    def force_state(self, obj, new_state: VertexState):
-        """Bypass validation for recovery."""
-        setattr(obj, self._name, new_state)
 
 class Vertex:
     state = StateMachine()
@@ -402,9 +423,26 @@ class Vertex:
         """True if this vertex has no outgoing edges."""
         return len(self.outgoing_edges) == 0
 
+    def force_state(self, new_state: VertexState) -> None:
+        """直接设置状态，跳过转换校验。
+
+        给三类场景用：
+          1. ``reset()``  —— 整台重开机，不属于生命周期流转
+          2. 快照恢复     —— 从持久化状态重建，无需重放流转历史
+          3. 测试搭初始态 —— 验证某个状态的行为，而非验证如何到达它
+
+        注意：``self.state = X`` 会走 ``StateMachine.__set__`` 并校验，
+        本方法才是无校验的入口。
+        """
+        type(self).state.force_state(self, new_state)
+
     def reset(self):
-        """Reset vertex to initial state (for re-runs)."""
-        self.state = VertexState.IDLE
+        """Reset vertex to initial state (for re-runs).
+
+        走 force_state：reset 是整台重开机，不是生命周期流转，
+        不允许因为当前在 ERROR/READY/PAUSED 就 reset 不了。
+        """
+        self.force_state(VertexState.IDLE)
         self._ready_event.clear()
         self._approved = False
         self.completed_incoming_edges.clear()

@@ -67,14 +67,14 @@ async def main():
                 "source": "OrderInitiation",
                 "destination": "HighValueRiskApproval",
                 "channel": "order",
-                "prompt": "Evaluate payout risk for order",
+                "settings": {"prompt": "Evaluate payout risk for order"}
             },
             {
                 "id": "e2_execute_transfer",
                 "source": "HighValueRiskApproval",
                 "destination": "BankTransferExecution",
                 "channel": "order",
-                "prompt": "Execute bank transfer",
+                "settings": {"prompt": "Execute bank transfer"}
             },
         ],
     }

@@ -46,28 +46,28 @@ async def main():
                 "source": "DataIngest",
                 "destination": "Analyzer_A",
                 "channel": "topic",
-                "prompt": "Analyze market trends for {topic}",
+                "settings": {"prompt": "Analyze market trends for {topic}"}
             },
             {
                 "id": "e_ingest_to_b",
                 "source": "DataIngest",
                 "destination": "Analyzer_B",
                 "channel": "topic",
-                "prompt": "Analyze technical challenges for {topic}",
+                "settings": {"prompt": "Analyze technical challenges for {topic}"}
             },
             {
                 "id": "e_a_to_agg",
                 "source": "Analyzer_A",
                 "destination": "Aggregator",
                 "channel": "topic",
-                "prompt": "Summarize market analysis",
+                "settings": {"prompt": "Summarize market analysis"}
             },
             {
                 "id": "e_b_to_agg",
                 "source": "Analyzer_B",
                 "destination": "Aggregator",
                 "channel": "topic",
-                "prompt": "Summarize tech analysis",
+                "settings": {"prompt": "Summarize tech analysis"}
             },
         ],
     }
