@@ -39,8 +39,11 @@ async def main():
     graph = Graph.from_json(config_path)
 
     from framework import MockAgent, HttpLLMAgent
+    from framework.agents import PiAgentRunner
     if "real_llm" in config_path:
         agent = HttpLLMAgent()
+    elif "real_pi" in config_path:
+        agent = PiAgentRunner()
     else:
         agent = MockAgent()
         

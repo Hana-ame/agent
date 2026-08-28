@@ -1,0 +1,33 @@
+{
+  "metadata": {
+    "name": "Real Pi Agent Edge Pipeline",
+    "description": "Demonstrates overriding Edge.execute() to delegate to the real Pi Agent CLI via PiAgentRunner."
+  },
+  "vertices": [
+    {
+      "id": "user_input",
+      "settings": {"type": "source"},
+      "initial_data": [
+        {
+          "channel": "text",
+          "value": "Please write a short haiku about artificial intelligence."
+        }
+      ]
+    },
+    {
+      "id": "pi_output",
+      "settings": {"type": "sink"}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_real_pi",
+      "source": "user_input",
+      "destination": "pi_output",
+      "channel": "text",
+      "script": "pi_edge.py",
+      "prompt": "You are a creative poet.",
+      "model": "default"
+    }
+  ]
+}
