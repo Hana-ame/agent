@@ -108,8 +108,8 @@ class Vertex:
                 )
 
         logger.debug(
-            "[Vertex:%s] Created | settings=%s | script=%s | channels=%s",
-            self.id, self.settings, getattr(self._pipeline_module, '__name__', None) if self._pipeline_module else None, list(self._data_store.keys()),
+            "[Vertex:%s] Created | settings=%s | channels=%s",
+            self.id, self.settings, list(self._data_store.keys()),
         )
 
     # ------------------------------------------------------------------
@@ -150,13 +150,6 @@ class Vertex:
             self._ready_event.clear()
 
     # ------------------------------------------------------------------
-    # Script
-    # ------------------------------------------------------------------
-    def set_pipeline_module(self, module):
-        """Attach a loaded external script module."""
-        self._pipeline_module = module
-        logger.debug("[Vertex:%s] Script module attached: %s", self.id, module)
-
     # ------------------------------------------------------------------
     # Data access & Edge signaling
     # ------------------------------------------------------------------
@@ -186,29 +179,13 @@ class Vertex:
             key = str(channel)
             logger.debug("[Vertex:%s] COMPLETED %s <- %s", self.id, key, repr(data)[:120])
 
-            # --- run vertex script on_receive hook ---
-            if hasattr(self, "on_receive") and callable(getattr(self, "on_receive")):
-                try:
-                    data = self.on_receive(data, channel, self.settings)
-                    logger.debug("[Vertex:%s] self.on_receive returned: %s", self.id, repr(data)[:120])
-                except Exception as exc:
-                    logger.warning("[Vertex:%s] self.on_receive REJECTED data: %s", self.id, exc)
-                    raise DataRejectedError(f"Vertex '{self.id}' rejected data: {exc}") from exc
-            elif self._pipeline_module and hasattr(self._pipeline_module, "on_receive"):
-                try:
-                    data = self._pipeline_module.on_receive(
-                        data, channel, self.settings
-                    )
-                    logger.debug(
-                        "[Vertex:%s] on_receive returned: %s", self.id, repr(data)[:120]
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "[Vertex:%s] on_receive REJECTED data: %s", self.id, exc
-                    )
-                    raise DataRejectedError(
-                        f"Vertex '{self.id}' rejected data: {exc}"
-                    ) from exc
+            # --- run vertex on_receive hook ---
+            try:
+                data = self.on_receive(data, channel, self.settings)
+                logger.debug("[Vertex:%s] on_receive returned: %s", self.id, repr(data)[:120])
+            except Exception as exc:
+                logger.warning("[Vertex:%s] on_receive REJECTED data: %s", self.id, exc)
+                raise DataRejectedError(f"Vertex '{self.id}' rejected data: {exc}") from exc
 
             async with self._lock:
                 # ── Loop re-entry ────────────────────────────────────────
@@ -346,49 +323,29 @@ class Vertex:
             return dict(self._data_store)
 
     async def prepare_outputs(self):
-        """Run the script's ``on_ready`` hook to consolidate data.
+        """Run the on_ready hook to consolidate data.
 
         Called by the executor right before outgoing edges fire.
         The hook receives all stored data and the vertex settings, and
         should return a dict of ``{channel: value}`` that will be merged
         into the data store.
         """
-        if hasattr(self, "on_ready") and callable(getattr(self, "on_ready")):
-            logger.debug("[Vertex:%s] Running self.on_ready hook", self.id)
-            all_data = dict(self._data_store)
-            try:
-                outputs = self.on_ready(all_data, self.settings)
-                if outputs and isinstance(outputs, dict):
-                    async with self._lock:
-                        for key, value in outputs.items():
-                            store_key = str(key)
-                            self._data_store[store_key] = value
-                            logger.debug(
-                                "[Vertex:%s] self.on_ready set %s = %s",
-                                self.id, store_key, repr(value)[:120],
-                            )
-            except Exception as exc:
-                logger.error("[Vertex:%s] self.on_ready hook failed: %s", self.id, exc, exc_info=True)
-                raise
-        elif self._pipeline_module and hasattr(self._pipeline_module, "on_ready"):
-            logger.debug("[Vertex:%s] Running module on_ready hook", self.id)
-            all_data = dict(self._data_store)
-            try:
-                outputs = self._pipeline_module.on_ready(all_data, self.settings)
-                if outputs and isinstance(outputs, dict):
-                    async with self._lock:
-                        for key, value in outputs.items():
-                            store_key = str(key)
-                            self._data_store[store_key] = value
-                            logger.debug(
-                                "[Vertex:%s] on_ready set %s = %s",
-                                self.id, store_key, repr(value)[:120],
-                            )
-            except Exception as exc:
-                logger.error(
-                    "[Vertex:%s] on_ready hook failed: %s", self.id, exc, exc_info=True
-                )
-                raise
+        logger.debug("[Vertex:%s] Running on_ready hook", self.id)
+        all_data = dict(self._data_store)
+        try:
+            outputs = self.on_ready(all_data, self.settings)
+            if outputs and isinstance(outputs, dict):
+                async with self._lock:
+                    for key, value in outputs.items():
+                        store_key = str(key)
+                        self._data_store[store_key] = value
+                        logger.debug(
+                            "[Vertex:%s] on_ready set %s = %s",
+                            self.id, store_key, repr(value)[:120],
+                        )
+        except Exception as exc:
+            logger.error("[Vertex:%s] on_ready hook failed: %s", self.id, exc, exc_info=True)
+            raise
 
     # ------------------------------------------------------------------
     # Subclass hooks — override in subclasses to customise behaviour

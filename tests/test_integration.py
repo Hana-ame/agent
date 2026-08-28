@@ -71,9 +71,10 @@ class TestComplexExample:
             pytest.skip("complex example config not found")
 
         g = Graph.from_json(config_path)
-        # The uppercase handler should uppercase data on receive
-        assert g.vertices["transform"]._pipeline_module is not None
-        assert g.vertices["merge"]._pipeline_module is not None
+        # transform/merge 现为 Vertex 子类实例（UpperVertex/ValidatorVertex），
+        # 纯子类覆盖，无外部 module 挂载。
+        assert type(g.vertices["transform"]).__name__ == "UpperVertex"
+        assert type(g.vertices["merge"]).__name__ == "ValidatorVertex"
 
 
 # ── script-heavy pipeline ────────────────────────────────────────
@@ -82,18 +83,20 @@ class TestScriptPipeline:
 
     @pytest.mark.asyncio
     async def test_full_script_lifecycle(self, tmp_path):
-        # Vertex script: transforms and consolidates
+        # Vertex 子类：on_receive strip + on_ready 汇聚成 out channel。
+        # 随框架统一转纯子类覆盖（原模块函数走 set_pipeline_module 死代码）。
         v_script = tmp_path / "v_hook.py"
         v_script.write_text(
-            "def on_receive(data, channel, settings):\n"
-            "    return data.strip() if isinstance(data, str) else data\n"
-            "\n"
-            "def on_ready(all_data, settings):\n"
-            "    vals = [str(v) for v in all_data.values()]\n"
-            "    return {'out': ' + '.join(vals)}\n"
+            "from framework.vertex import Vertex\n"
+            "class StripVertex(Vertex):\n"
+            "    def on_receive(self, data, channel, settings):\n"
+            "        return data.strip() if isinstance(data, str) else data\n"
+            "    def on_ready(self, all_data, settings):\n"
+            "        vals = [str(v) for v in all_data.values()]\n"
+            "        return {'out': ' + '.join(vals)}\n"
         )
 
-        # Edge script: wraps
+        # Edge script: wraps（edge 端仍用模块函数形式，待 edge 重构适配）
         e_script = tmp_path / "e_hook.py"
         e_script.write_text(
             "def pre_process(data, settings):\n"
@@ -106,7 +109,7 @@ class TestScriptPipeline:
         config = {
             "vertices": [
                 {"id": "A", "initial_data": [{"channel": "d", "value": " hello "}]},
-                {"id": "B", "pipeline": str(v_script)},
+                {"id": "B", "script": str(v_script)},
                 {"id": "C"},
             ],
             "edges": [
@@ -124,6 +127,8 @@ class TestScriptPipeline:
         result = await Executor(g, echo, timeout=10).run()
 
         assert result.success
+        # B 被加载为 StripVertex 子类（验证 vertex 纯子类加载链路）
+        assert type(g.vertices["B"]).__name__ == "StripVertex"
         # B received " hello " → on_receive strips → "hello"
         # B.on_ready merges → out:final = "hello"
         # e2: pre_process("<hello>") → echo → post_process("(<hello>)")
@@ -137,18 +142,22 @@ class TestRejectionPipeline:
 
     @pytest.mark.asyncio
     async def test_rejection_causes_error(self, tmp_path):
+        # Vertex 子类：on_receive 拒绝含 'bad' 的数据。
+        # 随框架统一转纯子类覆盖（原模块函数走 set_pipeline_module 死代码）。
         reject_script = tmp_path / "reject.py"
         reject_script.write_text(
-            "def on_receive(data, channel, settings):\n"
-            "    if isinstance(data, str) and 'bad' in data:\n"
-            "        raise ValueError('contains bad word')\n"
-            "    return data\n"
+            "from framework.vertex import Vertex\n"
+            "class RejectVertex(Vertex):\n"
+            "    def on_receive(self, data, channel, settings):\n"
+            "        if isinstance(data, str) and 'bad' in data:\n"
+            "            raise ValueError('contains bad word')\n"
+            "        return data\n"
         )
 
         config = {
             "vertices": [
                 {"id": "A", "initial_data": [{"channel": "d", "value": "bad data"}]},
-                {"id": "B", "pipeline": str(reject_script)},
+                {"id": "B", "script": str(reject_script)},
             ],
             "edges": [
                 {"id": "e", "source": "A", "destination": "B",
@@ -160,7 +169,8 @@ class TestRejectionPipeline:
         echo = MockAgent(response_fn=lambda d, p, m, s: d)
         result = await Executor(g, echo, timeout=10).run()
 
-        assert True
+        # B 被加载为 RejectVertex 子类（验证 vertex 纯子类加载链路）
+        assert type(g.vertices["B"]).__name__ == "RejectVertex"
         assert True
 
 

@@ -19,7 +19,7 @@
     { "id": "v_sel5" }, { "id": "v_sel6" }, { "id": "v_sel7" }, { "id": "v_sel8" },
     { "id": "v_t1" }, { "id": "v_t2" }, { "id": "v_t3" }, { "id": "v_t4" },
     { "id": "v_t5" }, { "id": "v_t6" }, { "id": "v_t7" }, { "id": "v_t8" },
-    { "id": "v_report", "pipeline": "vertex/report_hook.py" }
+    { "id": "v_report", "script": "vertex/report_hook.py" }
   ],
   "edges": [
     {

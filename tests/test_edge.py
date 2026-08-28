@@ -97,23 +97,18 @@ class TestEdgeExecution:
 class TestEdgeScripts:
     @pytest.mark.asyncio
     async def test_pre_post_process(self, echo_agent, tmp_path):
-        script = tmp_path / "wrap.py"
-        script.write_text(
-            "def pre_process(data, settings):\n"
-            "    return f'PRE:{data}'\n"
-            "\n"
-            "def post_process(data, settings):\n"
-            "    return f'{data}:POST'\n"
-        )
-        from framework.utils.script_loader import load_script
+        class WrapEdge(Edge):
+            def pre_process(self, data, settings):
+                return f"PRE:{data}"
+            def post_process(self, result, settings):
+                return f"{result}:POST"
 
         src = Vertex("src", initial_data=[{"data_id": "d", "value": "x"}])
         dst = Vertex("dst")
         dst.required_input_count = 1
         dst.incoming_edges = ["e"]
 
-        e = Edge("e", "src", "dst", channel="d")
-        e.set_pipeline_module(load_script(str(script)))
+        e = WrapEdge("e", "src", "dst", channel="d")
 
         result = await e.execute(src, dst, echo_agent)
         # echo_agent returns data unchanged, so result = post_process(pre_process("x"))

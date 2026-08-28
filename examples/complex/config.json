@@ -31,12 +31,12 @@
     {
       "id": "transform",
       "settings": {"type": "process"},
-      "pipeline": "../scripts/uppercase_handler.py"
+      "script": "../scripts/uppercase_handler.py"
     },
     {
       "id": "merge",
       "settings": {"type": "merge"},
-      "pipeline": "../scripts/validator.py"
+      "script": "../scripts/validator.py"
     },
     {
       "id": "output",

@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from .vertex import Vertex
 from .edge import Edge
-from .utils.script_loader import load_script
+
 from .utils.schema import SchemaMismatchError
 
 logger = logging.getLogger("vertex_edge_agent.graph")
@@ -43,11 +43,15 @@ class Graph:
               "source": "v1",
               "destination": "v2",
               "channel": "text",
-              "prompt": "Summarise this:",
-              "model": "gemini-pro",
-              "settings": {},
-              "max_iterations": 3,             // optional — enables loop back
-              "script": "path/to/edge_script.py"  // optional
+              "settings": {                       // 计算层全在 settings
+                "prompt": "Summarise this:",
+                "model": "gemini-pro",
+                "agent": "http",                  // optional: str/dict/"path:Class"
+                "retry_policy": {"max_retries": 2},
+                "timeout": 60
+              },
+              "max_iterations": 3,                 // optional — enables loop back
+              "script": "path/to/edge_script.py"  // optional — Edge 子类
             }
           ]
         }
@@ -95,11 +99,16 @@ class Graph:
         base_dir = base_dir or os.getcwd()
 
         # --- vertices ---
+        # Vertex 定制走纯子类实例化：config 的 "script" 字段指向一个含
+        # Vertex 子类的 .py，load_class_from_script 自动发现该子类并实例化
+        # 作为 vertex 本体。行为靠子类覆盖 on_receive/on_ready 等实例方法。
+        # ⚠️ 字段名刻意用 "script" 而非 "pipeline"：pipeline 是 Edge 专属概念
+        # （Edge 的 5 段计算管线），vertex 挂 "pipeline" 字段是历史误用，且
+        # Vertex 从无 pipeline_module 委托机制，混名只会让人以为两者同源。
+        # ⚠️ 不支持 "path.py:Class" 显式 entrypoint——整个框架已统一为
+        # "自动发现唯一子类"模式（edge 同理），保持对称。
         for vc in config.get("vertices", []):
-            script = vc.get("pipeline")
-            entrypoint = None
-            if script and ":" in script:
-                script, entrypoint = script.split(":", 1)
+            script = vc.get("script")
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
@@ -110,17 +119,13 @@ class Graph:
             else:
                 vertex_base_cls = Vertex
 
-            pipeline_module = None
             if script:
                 from .utils.script_loader import load_class_from_script
                 try:
                     vertex_cls = load_class_from_script(script, Vertex, vertex_base_cls)
-                    pipeline_module = load_script(script)  # Need the module for hooks
-                    if entrypoint:
-                        pipeline_module = getattr(pipeline_module, entrypoint)
                 except Exception as exc:
-                    logger.error("[Graph] Pipeline script load failed for vertex '%s': %s", vc["id"], exc)
-                    raise RuntimeError(f"Pipeline script load failed for vertex '{vc['id']}': {exc}") from exc
+                    logger.error("[Graph] Vertex subclass load failed for '%s': %s", vc["id"], exc)
+                    raise RuntimeError(f"Vertex subclass load failed for '{vc['id']}': {exc}") from exc
             else:
                 vertex_cls = vertex_base_cls
 
@@ -130,38 +135,48 @@ class Graph:
                 initial_data=vc.get("initial_data"),
             )
 
-            if pipeline_module:
-                vertex.set_pipeline_module(pipeline_module)
-
             graph.vertices[vertex.id] = vertex
 
         # --- edges ---
+        # Edge 定制走纯子类实例化（和 vertex 对称）：config 的 "script" 字段指向
+        # 一个含 Edge 子类的 .py。支持两种格式：
+        #   "path/to/script.py:ClassName"  — 显式 entrypoint（一文件多子类时用，如 s1_pipelines）
+        #   "path/to/script.py"            — 自动发现唯一 Edge 子类
+        # ⚠️ 计算层配置（prompt/model/agent/match/threshold/retry_policy/timeout/memory_*/output_schema）
+        # 全部塞在 settings dict 里，Edge.__init__ 一次性解析成 self 属性。
+        # 顶层只保留路由层（id/source/destination/channel）和调度层（concurrency_type/max_iterations）。
         for ec in config.get("edges", []):
-            script = ec.get("pipeline")
+            script = ec.get("script")
             entrypoint = None
             if script and ":" in script:
                 script, entrypoint = script.split(":", 1)
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
-            agent_spec = ec.get("agent")
+            # agent spec 可能嵌在 settings 里（"agent" key）；如果是 .py 路径需解析相对路径
+            settings = ec.get("settings", {})
+            agent_spec = settings.get("agent") if isinstance(settings, dict) else None
             if isinstance(agent_spec, str) and agent_spec.endswith(".py") and not os.path.isabs(agent_spec):
-                agent_spec = os.path.join(base_dir, agent_spec)
+                settings["agent"] = os.path.join(base_dir, agent_spec)
             elif isinstance(agent_spec, dict) and isinstance(agent_spec.get("type"), str) and agent_spec["type"].endswith(".py") and not os.path.isabs(agent_spec["type"]):
-                agent_spec["type"] = os.path.join(base_dir, agent_spec["type"])
+                settings["type"] = os.path.join(base_dir, agent_spec["type"])
+                settings["agent"] = settings.pop("type")
 
-            pipeline_module = None
             if script:
-                from .utils.script_loader import load_class_from_script
+                from .utils.script_loader import load_class_from_script, load_script
                 try:
-                    edge_cls = load_class_from_script(script, Edge, Edge)
-                    pipeline_module = load_script(script)  # Need the module for hooks
                     if entrypoint:
-                        pipeline_module = getattr(pipeline_module, entrypoint)
-
+                        # 有显式类名：加载模块，取指定类（一文件多子类场景）
+                        module = load_script(script)
+                        edge_cls = getattr(module, entrypoint, None)
+                        if edge_cls is None or not (isinstance(edge_cls, type) and issubclass(edge_cls, Edge)):
+                            raise RuntimeError(f"Class '{entrypoint}' not found or not a subclass of Edge in {script}")
+                    else:
+                        # 无类名：自动发现唯一 Edge 子类
+                        edge_cls = load_class_from_script(script, Edge, Edge)
                 except Exception as exc:
-                    logger.error("[Graph] Pipeline script load failed for edge '%s': %s", ec["id"], exc)
-                    raise RuntimeError(f"Pipeline script load failed for edge '{ec['id']}': {exc}") from exc
+                    logger.error("[Graph] Edge script load failed for edge '%s': %s", ec["id"], exc)
+                    raise RuntimeError(f"Edge script load failed for edge '{ec['id']}': {exc}") from exc
             else:
                 edge_cls = Edge
 
@@ -170,16 +185,10 @@ class Graph:
                 source_id=ec["source"],
                 destination_id=ec["destination"],
                 channel=ec.get("channel", ec.get("data_id", "default")),
-                prompt=ec.get("prompt", ""),
-                model=ec.get("model", "default"),
-                settings=ec.get("settings", {}),
+                settings=settings,
                 max_iterations=int(ec.get("max_iterations", 0)),
-                agent=agent_spec,
                 concurrency_type=ec.get("concurrency_type", "default"),
             )
-
-            if pipeline_module:
-                edge.set_pipeline_module(pipeline_module)
 
             graph.edges[edge.id] = edge
 

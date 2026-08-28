@@ -111,18 +111,28 @@ class TestGraphQueries:
 class TestGraphScripts:
     def test_vertex_script_loaded(self, tmp_path):
         script = tmp_path / "vs.py"
-        script.write_text("def on_receive(d, i, t, s): return d\n")
+        script.write_text(
+            "from framework.vertex import Vertex\n"
+            "class MyVertex(Vertex):\n"
+            "    def on_receive(self, data, channel, settings):\n"
+            "        return data\n"
+        )
 
         config = {
-            "vertices": [{"id": "A", "pipeline": str(script)}],
+            "vertices": [{"id": "A", "script": str(script)}],
             "edges": [],
         }
         g = Graph.from_dict(config)
-        assert g.vertices["A"]._pipeline_module is not None
+        assert type(g.vertices["A"]).__name__ == "MyVertex"
 
     def test_edge_script_loaded(self, tmp_path):
         script = tmp_path / "es.py"
-        script.write_text("def pre_process(d, s): return d\n")
+        script.write_text(
+            "from framework.edge import Edge\n"
+            "class MyEdge(Edge):\n"
+            "    def pre_process(self, data, settings):\n"
+            "        return data\n"
+        )
 
         config = {
             "vertices": [{"id": "A"}, {"id": "B"}],
@@ -133,11 +143,11 @@ class TestGraphScripts:
             ],
         }
         g = Graph.from_dict(config)
-        assert g.edges["e"]._pipeline_module is not None
+        assert type(g.edges["e"]).__name__ == "MyEdge"
 
     def test_missing_script_does_not_crash(self):
         config = {
-            "vertices": [{"id": "A", "pipeline": "/nonexistent/path.py"}],
+            "vertices": [{"id": "A", "script": "/nonexistent/path.py"}],
             "edges": [],
         }
         # Based on user requirement: "如果有问题直接error", we now expect RuntimeError

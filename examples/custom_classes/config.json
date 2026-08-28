@@ -13,7 +13,7 @@
     },
     {
       "id": "filter_node",
-      "pipeline": "my_nodes.py",
+      "script": "my_nodes.py",
       "settings": {"strict_mode": true}
     },
     {

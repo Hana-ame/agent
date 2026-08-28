@@ -91,48 +91,43 @@ class TestVertexReadiness:
         assert source_vertex.is_source()
 
 
-# ── external script hooks ────────────────────────────────────────
-class TestVertexScript:
+# ── subclass hooks (on_receive / on_ready) ───────────────────────
+# 发现背景：原 TestVertexScript 走 set_pipeline_module(load_script(...)) 挂
+# 模块函数，但 Vertex 从未实现过 module 委托（vertex.py 只认 self.on_receive
+# 等实例方法），该路径加载即 AttributeError，3 个测试长期 fail。随框架统一
+# 转纯子类覆盖后，此处一并改为动态 Vertex 子类形式，真正覆盖钩子语义。
+class TestVertexSubclassHooks:
     @pytest.mark.asyncio
-    async def test_on_receive_transforms(self, empty_vertex, tmp_path):
-        script = tmp_path / "upper.py"
-        script.write_text(
-            "def on_receive(data, channel, settings):\n"
-            "    return data.upper() if isinstance(data, str) else data\n"
-        )
-        from framework.utils.script_loader import load_script
-        empty_vertex.set_pipeline_module(load_script(str(script)))
+    async def test_on_receive_transforms(self):
+        class UpperVertex(Vertex):
+            def on_receive(self, data, channel, settings):
+                return data.upper() if isinstance(data, str) else data
 
-        await empty_vertex.receive_signal("", EdgeSignal.COMPLETED, payload="hello", channel="k")
-        assert await empty_vertex.fetch_data(channel="k") == "HELLO"
+        v = UpperVertex("v_upper")
+        await v.receive_signal("", EdgeSignal.COMPLETED, payload="hello", channel="k")
+        assert await v.fetch_data(channel="k") == "HELLO"
 
     @pytest.mark.asyncio
-    async def test_on_receive_rejects(self, empty_vertex, tmp_path):
-        script = tmp_path / "reject.py"
-        script.write_text(
-            "def on_receive(data, channel, settings):\n"
-            "    raise ValueError('rejected')\n"
-        )
-        from framework.utils.script_loader import load_script
-        empty_vertex.set_pipeline_module(load_script(str(script)))
+    async def test_on_receive_rejects(self):
+        class RejectVertex(Vertex):
+            def on_receive(self, data, channel, settings):
+                raise ValueError("rejected")
 
+        v = RejectVertex("v_reject")
         with pytest.raises(DataRejectedError, match="rejected"):
-            await empty_vertex.receive_signal("", EdgeSignal.COMPLETED, payload="anything", channel="k")
+            await v.receive_signal("", EdgeSignal.COMPLETED, payload="anything", channel="k")
 
     @pytest.mark.asyncio
-    async def test_on_ready_hook(self, empty_vertex, tmp_path):
-        script = tmp_path / "ready.py"
-        script.write_text(
-            "def on_ready(all_data, settings):\n"
-            "    return {'out': 'merged-data'}\n"
-        )
-        from framework.utils.script_loader import load_script
-        empty_vertex.set_pipeline_module(load_script(str(script)))
+    async def test_on_ready_hook(self):
+        class ReadyVertex(Vertex):
+            def on_ready(self, all_data, settings):
+                return {"out": "merged-data"}
 
-        await empty_vertex.receive_signal("", EdgeSignal.COMPLETED, payload="raw", channel="in")
-        await empty_vertex.prepare_outputs()
-
-        assert True
+        v = ReadyVertex("v_ready")
+        await v.receive_signal("", EdgeSignal.COMPLETED, payload="raw", channel="in")
+        await v.prepare_outputs()
+        # 原测试仅 assert True（弱断言），现真正校验 on_ready 产出的 channel 被合并进 store。
+        assert await v.fetch_data(channel="out") == "merged-data"
 
 
 # ── helpers ──────────────────────────────────────────────────────

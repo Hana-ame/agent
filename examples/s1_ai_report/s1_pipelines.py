@@ -3,6 +3,7 @@ import httpx
 from bs4 import BeautifulSoup
 import re
 from datetime import datetime, timedelta, timezone
+from framework.edge import Edge
 
 
 async def fetch_forum_threads(url: str):
@@ -152,7 +153,7 @@ def _extract_posts_from_soup(soup, url, hours):
     return "\n".join(lines).rstrip() + "\n"
 
 
-class FetchThreadsPipeline:
+class FetchThreadsPipeline(Edge):
     async def pre_process(self, data, settings):
         return await fetch_forum_threads(str(data))
 
@@ -166,7 +167,7 @@ class FetchThreadsPipeline:
             return []
 
 
-class FilterPipeline:
+class FilterPipeline(Edge):
     def post_process(self, data, settings):
         try:
             m = re.search(r'\[.*\]', data, re.DOTALL)
@@ -177,7 +178,7 @@ class FilterPipeline:
             return []
 
 
-class SelectPipeline:
+class SelectPipeline(Edge):
     def condition(self, data, settings):
         index = int(settings.get("index", 0))
         return isinstance(data, list) and index < len(data)
@@ -187,7 +188,7 @@ class SelectPipeline:
         return data[index]
 
 
-class FetchPipeline:
+class FetchPipeline(Edge):
     def condition(self, data, settings):
         return isinstance(data, dict) and "url" in data
 
@@ -197,7 +198,7 @@ class FetchPipeline:
         return {"title": data.get("title", ""), "url": data.get("url", ""), "content": md}
 
 
-class SummarizePipeline:
+class SummarizePipeline(Edge):
     def pre_process(self, data, settings):
         if isinstance(data, dict):
             title = data.get("title", "Unknown")
