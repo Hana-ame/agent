@@ -1,4 +1,4 @@
-"""Tests for EdgePipeline business retry policy and Executor real-time event streaming."""
+"""Tests for Pipeline business retry policy and Executor real-time event streaming."""
 
 import asyncio
 import os
@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework import Graph, Executor, MockAgent, Vertex, Edge, EdgePipeline, GraphEvent
+from framework import Graph, Executor, MockAgent, Vertex, Edge, Pipeline, GraphEvent
 from framework.vertex import VertexState
 
 
@@ -21,7 +21,7 @@ class TestPipelineBusinessRetry:
         """
         Scenario:
         1. First 2 LLM calls return dict missing 'target_key' -> post_process raises KeyError.
-        2. EdgePipeline intercepts KeyError, updates prompt with [SYSTEM FEEDBACK:...].
+        2. Pipeline intercepts KeyError, updates prompt with [SYSTEM FEEDBACK:...].
         3. On 3rd attempt, LLM returns valid dict with 'target_key'.
         4. Overall execution succeeds.
         """
@@ -61,7 +61,7 @@ class TestPipelineBusinessRetry:
 
         g = Graph.from_dict(config)
         edge = g.edges["e_retry"]
-        edge._pipeline._hook_provider = type("Hook", (), {"post_process": staticmethod(my_post_process)})()
+        edge.set_pipeline_module(type("Hook", (), {"post_process": staticmethod(my_post_process)})())
 
         agent = MockAgent(response_fn=flaking_agent)
         result = await Executor(g, agent).run()
@@ -108,7 +108,7 @@ class TestPipelineBusinessRetry:
 
         g = Graph.from_dict(config)
         edge = g.edges["e_fail"]
-        edge._pipeline._hook_provider = type("Hook", (), {"post_process": staticmethod(strict_post_process)})()
+        edge.set_pipeline_module(type("Hook", (), {"post_process": staticmethod(strict_post_process)})())
 
         agent = MockAgent(response_fn=always_failing_agent)
         result = await Executor(g, agent).run()

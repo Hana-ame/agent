@@ -18,12 +18,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 
-from .vertex import Vertex, VertexState, EdgeSignal
-from .edge import Edge
-from .graph import Graph
-from .agents import BaseAgent, MockAgent
-from .memory import MemoryStore
-from .telemetry import TelemetryTracker, UsageMetrics
+from ..vertex import Vertex, VertexState, EdgeSignal
+from ..edge import Edge
+from ..graph import Graph
+from ..agents import BaseAgent, MockAgent
+from ..utils.memory import MemoryStore
+from ..utils.telemetry import TelemetryTracker, UsageMetrics
 
 logger = logging.getLogger("vertex_edge_agent.executor")
 
@@ -375,7 +375,7 @@ class Executor:
         self._emit("vertex_state_changed", vertex_id=vertex.id, payload={"state": vertex.state.value})
 
         # --- Nested Sub-Graph Execution (Phase 2 & 3) ---
-        from .subgraph import SubgraphVertex
+        from ..subgraph import SubgraphVertex
         if isinstance(vertex, SubgraphVertex):
             try:
                 inner_graph = vertex.initialize_inner_graph()

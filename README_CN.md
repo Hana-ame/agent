@@ -123,6 +123,7 @@ asyncio.run(main())
 | **`source`** | `str` | **是** | - | 起始节点 ID。 |
 | **`destination`** | `str` | **是** | - | 目标节点 ID。 |
 | **`channel`** | `str` | 否 | `"default"` | 数据流转通道名称。 |
+| **`agent`** | `str`/`dict`| 否 | `null` | 指定执行该边的专属 Agent（如 `"mock"`, `"http"`, `"pi"`，或指向自定义 Agent 的 `.py` 脚本相对路径）。 |
 | **`prompt`** | `str` | 否 | `""` | 提示词模版。如果不填，边作为**透明通道**直接透传数据。 |
 | **`model`** | `str` | 否 | `"default"`| 大模型名称（如 `"gemini-1.5-pro"`）。 |
 | **`max_iterations`** | `int` | 否 | `0` | **有界循环控制**：设为 `> 0` 将此边标记为回环边，允许循环 `N` 次。 |
@@ -292,6 +293,24 @@ print(result.summary())
 
 ### 8. Pydantic 类型安全校验 (Schema Validation)
 通过 `SchemaRegistry` 深度集成 Pydantic，提供贯穿框架生命周期的安全保障。在图初始化时进行严格的静态校验（`SchemaMismatchError`），并在运行期的后处理阶段进行数据反序列化与验证，校验失败的异常（`ValidationError`）将自动交由 LLM 自纠错重试策略进行智能修复。
+
+### 9. 边级别 Agent 独立调度 (Per-Edge Agent)
+框架支持在边（Edge）的级别独立配置其专属的 Agent，打破了全局单例的限制。同一张图内可以实现 HTTP API、本地命令行工具甚至自定义代码混合执行。
+
+* **使用内置 Agent**：支持配置 `"mock"`, `"http"`, `"pi"`。如果是复杂配置，可传入字典如 `{"type": "http", "api_key": "..."}`。
+* **外部自定义 Agent 脚本挂载**：支持直接将 `.py` 文件路径写在 `agent` 字段中。框架会自动扫描脚本中继承自 `BaseAgent` 的类并动态加载。
+  ```json
+  {
+    "edges": [
+      {
+        "id": "e_custom",
+        "source": "v1",
+        "destination": "v2",
+        "agent": "scripts/my_custom_agent.py" // 相对于 config.json 所在目录解析
+      }
+    ]
+  }
+  ```
 
 ---
 

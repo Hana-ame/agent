@@ -31,12 +31,12 @@
     {
       "id": "transform",
       "settings": {"type": "process"},
-      "script": "../scripts/uppercase_handler.py"
+      "pipeline": "../scripts/uppercase_handler.py"
     },
     {
       "id": "merge",
       "settings": {"type": "merge"},
-      "script": "../scripts/validator.py"
+      "pipeline": "../scripts/validator.py"
     },
     {
       "id": "output",
@@ -67,7 +67,7 @@
       "channel": "result",
       "prompt": "Combine analysis results into a coherent summary:",
       "model": "gemini-pro",
-      "script": "../scripts/prefix_handler.py",
+      "pipeline": "../scripts/prefix_handler.py",
       "settings": {"prefix": "[ANALYZED]", "suffix": "[/ANALYZED]"}
     },
     {

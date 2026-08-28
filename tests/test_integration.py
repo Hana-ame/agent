@@ -72,8 +72,8 @@ class TestComplexExample:
 
         g = Graph.from_json(config_path)
         # The uppercase handler should uppercase data on receive
-        assert g.vertices["transform"]._script_module is not None
-        assert g.vertices["merge"]._script_module is not None
+        assert g.vertices["transform"]._pipeline_module is not None
+        assert g.vertices["merge"]._pipeline_module is not None
 
 
 # ── script-heavy pipeline ────────────────────────────────────────
@@ -106,7 +106,7 @@ class TestScriptPipeline:
         config = {
             "vertices": [
                 {"id": "A", "initial_data": [{"channel": "d", "value": " hello "}]},
-                {"id": "B", "script": str(v_script)},
+                {"id": "B", "pipeline": str(v_script)},
                 {"id": "C"},
             ],
             "edges": [
@@ -115,7 +115,7 @@ class TestScriptPipeline:
                 {"id": "e2", "source": "B", "destination": "C",
                  "channel": "out",
                  "prompt": "p", "model": "m",
-                 "script": str(e_script)},
+                 "pipeline": str(e_script)},
             ],
         }
 
@@ -148,7 +148,7 @@ class TestRejectionPipeline:
         config = {
             "vertices": [
                 {"id": "A", "initial_data": [{"channel": "d", "value": "bad data"}]},
-                {"id": "B", "script": str(reject_script)},
+                {"id": "B", "pipeline": str(reject_script)},
             ],
             "edges": [
                 {"id": "e", "source": "A", "destination": "B",

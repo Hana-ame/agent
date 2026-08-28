@@ -105,7 +105,7 @@ class TestEdgeScripts:
             "def post_process(data, settings):\n"
             "    return f'{data}:POST'\n"
         )
-        from framework.script_loader import load_script
+        from framework.utils.script_loader import load_script
 
         src = Vertex("src", initial_data=[{"data_id": "d", "value": "x"}])
         dst = Vertex("dst")
@@ -113,7 +113,7 @@ class TestEdgeScripts:
         dst.incoming_edges = ["e"]
 
         e = Edge("e", "src", "dst", channel="d")
-        e.set_script_module(load_script(str(script)))
+        e.set_pipeline_module(load_script(str(script)))
 
         result = await e.execute(src, dst, echo_agent)
         # echo_agent returns data unchanged, so result = post_process(pre_process("x"))

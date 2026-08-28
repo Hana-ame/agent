@@ -1,5 +1,5 @@
 from typing import List
-from .graph import Graph
+from ..graph import Graph
 
 class LinearChain:
     """Utility class to quickly generate a linear A -> B -> C graph without writing manual vertices/edges."""

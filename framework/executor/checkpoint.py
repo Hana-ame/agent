@@ -40,11 +40,11 @@ import logging
 import uuid
 from typing import Any, Dict, Optional
 
-from .executor import Executor, ExecutionResult
-from .graph import Graph
-from .agents import BaseAgent
-from .store import SQLiteStateStore, GraphSnapshot
-from .vertex import Vertex, VertexState
+from .base import Executor, ExecutionResult
+from ..graph import Graph
+from ..agents import BaseAgent
+from ..utils.store import SQLiteStateStore, GraphSnapshot
+from ..vertex import Vertex, VertexState
 
 logger = logging.getLogger("vertex_edge_agent.checkpoint")
 

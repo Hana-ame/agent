@@ -38,16 +38,9 @@ async def main():
     logger.info("Loading graph from %s", config_path)
     graph = Graph.from_json(config_path)
 
-    from framework import MockAgent, HttpLLMAgent
-    from framework.agents import PiAgentRunner
-    if "real_llm" in config_path:
-        agent = HttpLLMAgent()
-    elif "real_pi" in config_path:
-        agent = PiAgentRunner()
-    else:
-        agent = MockAgent()
-        
-    executor = Executor(graph, agents=agent, max_concurrency=4, timeout=30)
+    # Agent selection is now delegated to the Graph configuration (per-edge 'agent' field)
+    # The Executor and EdgePipeline will automatically fallback to MockAgent if no agents are specified.
+    executor = Executor(graph, agents=None, max_concurrency=4, timeout=30)
 
     result = await executor.run()
     print("\n" + result.summary())

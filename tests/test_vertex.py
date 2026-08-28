@@ -100,8 +100,8 @@ class TestVertexScript:
             "def on_receive(data, channel, settings):\n"
             "    return data.upper() if isinstance(data, str) else data\n"
         )
-        from framework.script_loader import load_script
-        empty_vertex.set_script_module(load_script(str(script)))
+        from framework.utils.script_loader import load_script
+        empty_vertex.set_pipeline_module(load_script(str(script)))
 
         await empty_vertex.receive_signal("", EdgeSignal.COMPLETED, payload="hello", channel="k")
         assert await empty_vertex.fetch_data(channel="k") == "HELLO"
@@ -113,8 +113,8 @@ class TestVertexScript:
             "def on_receive(data, channel, settings):\n"
             "    raise ValueError('rejected')\n"
         )
-        from framework.script_loader import load_script
-        empty_vertex.set_script_module(load_script(str(script)))
+        from framework.utils.script_loader import load_script
+        empty_vertex.set_pipeline_module(load_script(str(script)))
 
         with pytest.raises(DataRejectedError, match="rejected"):
             await empty_vertex.receive_signal("", EdgeSignal.COMPLETED, payload="anything", channel="k")
@@ -126,8 +126,8 @@ class TestVertexScript:
             "def on_ready(all_data, settings):\n"
             "    return {'out': 'merged-data'}\n"
         )
-        from framework.script_loader import load_script
-        empty_vertex.set_script_module(load_script(str(script)))
+        from framework.utils.script_loader import load_script
+        empty_vertex.set_pipeline_module(load_script(str(script)))
 
         await empty_vertex.receive_signal("", EdgeSignal.COMPLETED, payload="raw", channel="in")
         await empty_vertex.prepare_outputs()

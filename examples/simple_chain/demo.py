@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from framework import Executor, MockAgent
-from framework.chain import LinearChain
+from framework.builders.chain import LinearChain
 
 async def main():
     # Instead of writing a complex JSON with explicit Vertices and Edges,

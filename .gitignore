@@ -2,4 +2,6 @@ scratch/
 *.pyc
 __pycache__/
 *.db
+.coverage
 .pytest_cache/.coverage
+examples/s1profile_collect/data/

@@ -114,11 +114,11 @@ class TestGraphScripts:
         script.write_text("def on_receive(d, i, t, s): return d\n")
 
         config = {
-            "vertices": [{"id": "A", "script": str(script)}],
+            "vertices": [{"id": "A", "pipeline": str(script)}],
             "edges": [],
         }
         g = Graph.from_dict(config)
-        assert g.vertices["A"]._script_module is not None
+        assert g.vertices["A"]._pipeline_module is not None
 
     def test_edge_script_loaded(self, tmp_path):
         script = tmp_path / "es.py"
@@ -129,17 +129,18 @@ class TestGraphScripts:
             "edges": [
                 {"id": "e", "source": "A", "destination": "B",
                  "data_id": "x", "prompt": "", "model": "m",
-                 "script": str(script)},
+                 "pipeline": str(script)},
             ],
         }
         g = Graph.from_dict(config)
-        assert g.edges["e"]._script_module is not None
+        assert g.edges["e"]._pipeline_module is not None
 
     def test_missing_script_does_not_crash(self):
         config = {
-            "vertices": [{"id": "A", "script": "/nonexistent/path.py"}],
+            "vertices": [{"id": "A", "pipeline": "/nonexistent/path.py"}],
             "edges": [],
         }
-        # Script load fails gracefully (logs error, vertex has no module)
-        g = Graph.from_dict(config)
-        assert g.vertices["A"]._script_module is None
+        # Based on user requirement: "如果有问题直接error", we now expect RuntimeError
+        import pytest
+        with pytest.raises(RuntimeError):
+            g = Graph.from_dict(config)

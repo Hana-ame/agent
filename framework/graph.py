@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from .vertex import Vertex
 from .edge import Edge
-from .script_loader import load_script
+from .utils.script_loader import load_script
 
 logger = logging.getLogger("vertex_edge_agent.graph")
 
@@ -62,10 +62,26 @@ class Graph:
     # ------------------------------------------------------------------
     @classmethod
     def from_json(cls, json_path: str) -> "Graph":
-        """Load graph from a JSON file."""
+        """Load graph from a JSON file (supports // and /* */ comments)."""
         logger.info("[Graph] Loading from %s", json_path)
-        with open(json_path, "r") as fh:
-            config = json.load(fh)
+        import re
+        
+        def _strip_comments(text: str) -> str:
+            # Match JSON strings OR comments
+            pattern = r'("(?:\\.|[^"\\])*")|(/\*.*?\*/|//[^\r\n]*)'
+            regex = re.compile(pattern, re.DOTALL)
+            def replacer(match):
+                if match.group(2) is not None:
+                    return "" # It's a comment, strip it
+                return match.group(1) # It's a string, keep it
+            return regex.sub(replacer, text)
+
+        with open(json_path, "r", encoding="utf-8") as fh:
+            raw_content = fh.read()
+            
+        clean_content = _strip_comments(raw_content)
+        config = json.loads(clean_content)
+        
         # resolve script paths relative to the JSON file
         base_dir = os.path.dirname(os.path.abspath(json_path))
         return cls.from_dict(config, base_dir=base_dir)
@@ -79,61 +95,74 @@ class Graph:
 
         # --- vertices ---
         for vc in config.get("vertices", []):
-            script = vc.get("script")
+            script = vc.get("pipeline")
+            entrypoint = None
+            if script and ":" in script:
+                script, entrypoint = script.split(":", 1)
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
             v_type = vc.get("type", "vertex")
             if v_type == "subgraph":
                 from .subgraph import SubgraphVertex
-                vertex_cls = SubgraphVertex
+                vertex_base_cls = SubgraphVertex
             else:
-                vertex_cls = Vertex
+                vertex_base_cls = Vertex
 
-            script_module = None
+            pipeline_module = None
             if script:
+                from .utils.script_loader import load_class_from_script
                 try:
-                    script_module = load_script(script)
-                    for name, obj in inspect.getmembers(script_module, inspect.isclass):
-                        if issubclass(obj, Vertex) and obj not in (Vertex, SubgraphVertex):
-                            vertex_cls = obj
-                            break
+                    vertex_cls = load_class_from_script(script, Vertex, vertex_base_cls)
+                    pipeline_module = load_script(script)  # Need the module for hooks
+                    if entrypoint:
+                        pipeline_module = getattr(pipeline_module, entrypoint)
                 except Exception as exc:
-                    logger.error(
-                        "[Graph] Script load failed for vertex '%s': %s", vc["id"], exc
-                    )
+                    logger.error("[Graph] Pipeline script load failed for vertex '%s': %s", vc["id"], exc)
+                    raise RuntimeError(f"Pipeline script load failed for vertex '{vc['id']}': {exc}") from exc
+            else:
+                vertex_cls = vertex_base_cls
 
             vertex = vertex_cls(
                 vertex_id=vc["id"],
                 settings=vc.get("settings", {}),
-                script_path=script,
                 initial_data=vc.get("initial_data"),
             )
 
-            if script_module:
-                vertex.set_script_module(script_module)
+            if pipeline_module:
+                vertex.set_pipeline_module(pipeline_module)
 
             graph.vertices[vertex.id] = vertex
 
         # --- edges ---
         for ec in config.get("edges", []):
-            script = ec.get("script")
+            script = ec.get("pipeline")
+            entrypoint = None
+            if script and ":" in script:
+                script, entrypoint = script.split(":", 1)
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
-            edge_cls = Edge
-            script_module = None
+            agent_spec = ec.get("agent")
+            if isinstance(agent_spec, str) and agent_spec.endswith(".py") and not os.path.isabs(agent_spec):
+                agent_spec = os.path.join(base_dir, agent_spec)
+            elif isinstance(agent_spec, dict) and isinstance(agent_spec.get("type"), str) and agent_spec["type"].endswith(".py") and not os.path.isabs(agent_spec["type"]):
+                agent_spec["type"] = os.path.join(base_dir, agent_spec["type"])
+
+            pipeline_module = None
             if script:
+                from .utils.script_loader import load_class_from_script
                 try:
-                    script_module = load_script(script)
-                    for name, obj in inspect.getmembers(script_module, inspect.isclass):
-                        if issubclass(obj, Edge) and obj is not Edge:
-                            edge_cls = obj
-                            break
+                    edge_cls = load_class_from_script(script, Edge, Edge)
+                    pipeline_module = load_script(script)  # Need the module for hooks
+                    if entrypoint:
+                        pipeline_module = getattr(pipeline_module, entrypoint)
+
                 except Exception as exc:
-                    logger.error(
-                        "[Graph] Script load failed for edge '%s': %s", ec["id"], exc
-                    )
+                    logger.error("[Graph] Pipeline script load failed for edge '%s': %s", ec["id"], exc)
+                    raise RuntimeError(f"Pipeline script load failed for edge '{ec['id']}': {exc}") from exc
+            else:
+                edge_cls = Edge
 
             edge = edge_cls(
                 edge_id=ec["id"],
@@ -143,12 +172,12 @@ class Graph:
                 prompt=ec.get("prompt", ""),
                 model=ec.get("model", "default"),
                 settings=ec.get("settings", {}),
-                script_path=script,
                 max_iterations=int(ec.get("max_iterations", 0)),
+                agent=agent_spec,
             )
 
-            if script_module:
-                edge.set_script_module(script_module)
+            if pipeline_module:
+                edge.set_pipeline_module(pipeline_module)
 
             graph.edges[edge.id] = edge
 

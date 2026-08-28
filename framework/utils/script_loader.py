@@ -61,3 +61,30 @@ def load_script(script_path: str, script_name: Optional[str] = None):
     except Exception as exc:
         logger.error("[ScriptLoader] Failed to load %s: %s", script_path, exc)
         raise
+
+def load_class_from_script(script_path: str, base_class: type, default_class: type = None) -> type:
+    """Load a script and find a subclass of base_class.
+    
+    Args:
+        script_path: Path to the python script.
+        base_class: The base class to look for.
+        default_class: The class to return if no subclass is found. Defaults to base_class.
+        
+    Returns:
+        The found subclass, or default_class if none found.
+        
+    Raises:
+        RuntimeError: If script fails to load.
+    """
+    import inspect
+    if default_class is None:
+        default_class = base_class
+        
+    try:
+        module = load_script(script_path)
+        for name, obj in inspect.getmembers(module, inspect.isclass):
+            if issubclass(obj, base_class) and obj not in (base_class, default_class):
+                return obj
+        return default_class
+    except Exception as exc:
+        raise RuntimeError(f"Pipeline script load failed for '{script_path}': {exc}") from exc

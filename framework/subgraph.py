@@ -29,13 +29,11 @@ class SubgraphVertex(Vertex):
         self,
         vertex_id: str,
         settings: Optional[Dict] = None,
-        script_path: Optional[str] = None,
         initial_data: Optional[List[Dict]] = None,
     ):
         super().__init__(
             vertex_id=vertex_id,
             settings=settings,
-            script_path=script_path,
             initial_data=initial_data,
         )
         self.graph_config: Dict = self.settings.get("graph_config", {})

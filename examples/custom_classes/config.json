@@ -13,7 +13,7 @@
     },
     {
       "id": "filter_node",
-      "script": "my_nodes.py",
+      "pipeline": "my_nodes.py",
       "settings": {"strict_mode": true}
     },
     {
@@ -26,7 +26,7 @@
       "id": "e_smart",
       "source": "source_node",
       "destination": "filter_node",
-      "script": "my_nodes.py",
+      "pipeline": "my_nodes.py",
       "prompt": "Analyze this data:",
       "settings": {"prefix_tag": "[SMART]"}
     },

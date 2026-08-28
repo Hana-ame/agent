@@ -61,13 +61,11 @@ class Vertex:
         self,
         vertex_id: str,
         settings: Optional[Dict] = None,
-        script_path: Optional[str] = None,
         initial_data: Optional[List[Dict]] = None,
     ):
         self.id = vertex_id
         self.settings = settings or {}
-        self.script_path = script_path
-        self._script_module = None
+        self._pipeline_module = None
 
         # Data store: key = channel string -> value
         self._data_store: Dict[str, Any] = {}
@@ -112,7 +110,7 @@ class Vertex:
 
         logger.info(
             "[Vertex:%s] Created | settings=%s | script=%s | channels=%s",
-            self.id, self.settings, self.script_path, list(self._data_store.keys()),
+            self.id, self.settings, getattr(self._pipeline_module, '__name__', None) if self._pipeline_module else None, list(self._data_store.keys()),
         )
 
     # ------------------------------------------------------------------
@@ -155,9 +153,9 @@ class Vertex:
     # ------------------------------------------------------------------
     # Script
     # ------------------------------------------------------------------
-    def set_script_module(self, module):
+    def set_pipeline_module(self, module):
         """Attach a loaded external script module."""
-        self._script_module = module
+        self._pipeline_module = module
         logger.debug("[Vertex:%s] Script module attached: %s", self.id, module)
 
     # ------------------------------------------------------------------
@@ -197,9 +195,9 @@ class Vertex:
                 except Exception as exc:
                     logger.warning("[Vertex:%s] self.on_receive REJECTED data: %s", self.id, exc)
                     raise DataRejectedError(f"Vertex '{self.id}' rejected data: {exc}") from exc
-            elif self._script_module and hasattr(self._script_module, "on_receive"):
+            elif self._pipeline_module and hasattr(self._pipeline_module, "on_receive"):
                 try:
-                    data = self._script_module.on_receive(
+                    data = self._pipeline_module.on_receive(
                         data, channel, self.settings
                     )
                     logger.debug(
@@ -373,11 +371,11 @@ class Vertex:
             except Exception as exc:
                 logger.error("[Vertex:%s] self.on_ready hook failed: %s", self.id, exc, exc_info=True)
                 raise
-        elif self._script_module and hasattr(self._script_module, "on_ready"):
+        elif self._pipeline_module and hasattr(self._pipeline_module, "on_ready"):
             logger.debug("[Vertex:%s] Running module on_ready hook", self.id)
             all_data = dict(self._data_store)
             try:
-                outputs = self._script_module.on_ready(all_data, self.settings)
+                outputs = self._pipeline_module.on_ready(all_data, self.settings)
                 if outputs and isinstance(outputs, dict):
                     async with self._lock:
                         for key, value in outputs.items():

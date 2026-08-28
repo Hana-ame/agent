@@ -2,18 +2,18 @@
 
 An Edge defines *where* data flows (source → destination via channel).
 The *how* — guard evaluation, hooks, LLM computation, and delivery — is
-fully encapsulated in :class:`~framework.pipeline.EdgePipeline`.
+fully encapsulated in :class:`~framework.pipeline.Pipeline`.
 
 This separation follows the Single Responsibility Principle:
 
 * ``Edge``         — routing config + public extension surface
-* ``EdgePipeline`` — 5-stage computation logic
+* ``Pipeline`` — 5-stage computation logic
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
-from .pipeline import EdgePipeline
+from .pipeline import Pipeline
 
 logger = logging.getLogger("vertex_edge_agent.edge")
 
@@ -29,7 +29,6 @@ class Edge:
         prompt:          Prompt sent to the LLM Agent.
         model:           Model identifier for the LLM Agent.
         settings:        Arbitrary settings dict passed to agent & scripts.
-        script_path:     Optional path to an external Python script.
 
     Subclass hooks (override in a subclass to customise pipeline behaviour):
         condition(data, settings) -> bool   — guard stage
@@ -46,15 +45,20 @@ class Edge:
         prompt: str = "",
         model: str = "default",
         settings: Optional[Dict] = None,
-        script_path: Optional[str] = None,
         max_iterations: int = 0,
+        agent: Optional[Union[str, 'BaseAgent', Dict]] = None,
     ):
         # --- Routing config (Edge's sole responsibility) ---
         self.id = edge_id
         self.source_id = source_id
         self.destination_id = destination_id
         self.channel = channel
-        self.script_path = script_path
+        self._pipeline_module = None
+        self.completed: bool = False
+        self.aborted: bool = False
+        self.abort_reason: Optional[str] = None
+        self.result: Any = None
+        self.error: Optional[str] = None
         # Loop support: when > 0, this edge is a back-edge that allows the
         # destination vertex to re-enter READY state up to max_iterations times.
         self.max_iterations = max_iterations
@@ -63,18 +67,10 @@ class Edge:
         # and tests can read them without going through the pipeline.
         self.prompt = prompt
         self.model = model
+        from .agents import get_agent
+        self.agent = get_agent(agent)
         self.settings = settings or {}
 
-        # --- Computation pipeline ---
-        # Pass `self` as hook_provider so any subclass-defined hooks
-        # (condition, pre_process, post_process) are discovered naturally
-        # via hasattr inside the pipeline.
-        self._pipeline = EdgePipeline(
-            prompt=prompt,
-            model=model,
-            settings=self.settings,
-            hook_provider=self,
-        )
 
         logger.info(
             "[Edge:%s] Created %s -> %s | channel=%s model=%s",
@@ -84,100 +80,81 @@ class Edge:
     # ------------------------------------------------------------------
     # Execution state — delegate to pipeline (backward-compatible)
     # ------------------------------------------------------------------
-    @property
-    def completed(self) -> bool:
-        return self._pipeline.completed
-
-    @completed.setter
-    def completed(self, value: bool) -> None:
-        self._pipeline.completed = value
-
-    @property
-    def aborted(self) -> bool:
-        return self._pipeline.aborted
-
-    @aborted.setter
-    def aborted(self, value: bool) -> None:
-        self._pipeline.aborted = value
-
-    @property
-    def abort_reason(self) -> Optional[str]:
-        return self._pipeline.abort_reason
-
-    @abort_reason.setter
-    def abort_reason(self, value: Optional[str]) -> None:
-        self._pipeline.abort_reason = value
-
-    @property
-    def result(self) -> Any:
-        return self._pipeline.result
-
-    @result.setter
-    def result(self, value: Any) -> None:
-        self._pipeline.result = value
-
-    @property
-    def error(self) -> Optional[str]:
-        return self._pipeline.error
-
-    @error.setter
-    def error(self, value: Optional[str]) -> None:
-        self._pipeline.error = value
 
     # ------------------------------------------------------------------
     # Script
     # ------------------------------------------------------------------
-    @property
-    def _script_module(self):
-        """Proxy to the pipeline's script module (backward-compatible)."""
-        return self._pipeline._script_module
-
-    @_script_module.setter
-    def _script_module(self, module) -> None:
-        self._pipeline._script_module = module
-
-    def set_script_module(self, module) -> None:
-        """Attach a loaded external script module (forwarded to pipeline)."""
-        self._pipeline.set_script_module(module)
+    def set_pipeline_module(self, module) -> None:
+        self._pipeline_module = module
         logger.debug("[Edge:%s] Script module attached: %s", self.id, module)
-
     # ------------------------------------------------------------------
     # Guard — public proxy so tests / external callers still work
     # ------------------------------------------------------------------
     def evaluate_condition(self, data: Any, settings: Optional[Dict] = None) -> bool:
-        """Evaluate whether the guard condition is satisfied.
-
-        Delegates to :meth:`EdgePipeline.evaluate_condition`.  The optional
-        *settings* argument is accepted for backward compatibility but
-        ignored — the pipeline always uses its own ``self.settings``.
-        """
-        return self._pipeline.evaluate_condition(data)
+        from .pipeline import Pipeline
+        pipeline = Pipeline(
+            prompt=self.prompt,
+            model=self.model,
+            settings=self.settings,
+            pipeline_module=self._pipeline_module,
+            hook_provider=self,
+            agent=self.agent,
+            log_id=self.id
+        )
+        return pipeline.evaluate_condition(data)
 
     # ------------------------------------------------------------------
     # Execution
     # ------------------------------------------------------------------
     async def execute(self, source_vertex, dest_vertex, agents, **kwargs) -> Any:
-        """Run the 5-stage pipeline for this edge.
-
-        Delegates entirely to :meth:`EdgePipeline.run`.
-        """
-        return await self._pipeline.run(
-            edge_id=self.id,
-            source_id=self.source_id,
-            destination_id=self.destination_id,
-            channel=self.channel,
-            source_vertex=source_vertex,
-            dest_vertex=dest_vertex,
-            agents=agents,
-            **kwargs,
+        from .pipeline import Pipeline, AbortPipeline
+        from .vertex import EdgeSignal
+        
+        # 1. Fetch data from source vertex
+        data = await source_vertex.fetch_data(channel=self.channel)
+        
+        # 2. Build stateless pipeline
+        pipeline = Pipeline(
+            prompt=self.prompt,
+            model=self.model,
+            settings=self.settings,
+            pipeline_module=self._pipeline_module,
+            hook_provider=self,
+            agent=self.agent,
+            log_id=self.id
         )
+        
+        # 3. Run pipeline
+        try:
+            result = await pipeline.run(data, agents=agents, **kwargs)
+        except AbortPipeline as e:
+            self.aborted = True
+            self.abort_reason = e.reason
+            await dest_vertex.receive_signal(self.id, EdgeSignal.ABORTED, payload=e.reason)
+            return None
+        except Exception as exc:
+            self.error = str(exc)
+            await dest_vertex.receive_signal(self.id, EdgeSignal.FAILED, payload=str(exc))
+            raise
+            
+        # 4. Deliver result
+        self.completed = True
+        self.result = result
+        await dest_vertex.receive_signal(
+            self.id, EdgeSignal.COMPLETED, payload=result, channel=self.channel
+        )
+        return result
 
     # ------------------------------------------------------------------
     # Reset
     # ------------------------------------------------------------------
     def reset(self) -> None:
         """Reset edge (and its pipeline) execution state for re-runs."""
-        self._pipeline.reset()
+        self.completed = False
+        self.aborted = False
+        self.abort_reason = None
+        self.result = None
+        self.error = None
 
     def __repr__(self) -> str:
         status = (
