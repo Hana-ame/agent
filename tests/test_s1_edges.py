@@ -17,6 +17,8 @@ import os
 import sys
 
 import pytest
+
+bs4 = pytest.importorskip("bs4")  # optional: s1 examples dependency
 from bs4 import BeautifulSoup
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
