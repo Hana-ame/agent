@@ -9,7 +9,7 @@ Every HTTP agent in this package differs from every other in a few ways:
 Everything else — client lifecycle, retry/backoff, payload assembly, SSE
 streaming, error taxonomy — is byte-for-byte identical, so it is implemented
 once here and subclassed by ``HttpLLMAgent``, ``OpenCodeAgent`` and
-``ProxiedLLMAgent``.
+
 """
 
 import asyncio
@@ -230,6 +230,12 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
             trust_env=trust_env,
         )
         self._closed = False
+        # Per-call transport proxy override: edge ``settings`` may carry
+        # ``"proxy": "http://..."`` to pin a call to a specific egress proxy.
+        # ``_default_proxy`` is the constructor one we fall back to when
+        # settings don't specify any; the lock guards lazy client rebuilds.
+        self._default_proxy = proxy
+        self._client_lock = asyncio.Lock()
         # Real per-request token usage from upstream responses (``usage`` field).
         self.usage_log: list = []
         logger.debug(
@@ -292,18 +298,62 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
     # ------------------------------------------------------------------
     # Request execution
     # ------------------------------------------------------------------
-    async def _post(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _endpoint_url(self, settings: Optional[Dict] = None) -> str:
+        """Resolve the chat-completions URL.
+
+        ``settings["base_url"]`` (or ``settings["endpoint"]``) is honored
+        verbatim when present — it must be the *complete* URL including
+        ``/chat/completions``. Otherwise fall back to ``self.base_url`` +
+        ``_CHAT_COMPLETIONS`` (legacy: ``base_url`` is the API root).
+        Never double-append the path.
+        """
+        base = None
+        if settings:
+            base = settings.get("base_url") or settings.get("endpoint")
+        base = (base or self.base_url).rstrip("/")
+        if base.endswith(_CHAT_COMPLETIONS):
+            return base
+        return f"{base}{_CHAT_COMPLETIONS}"
+
+    def _build_client(self, proxy: Optional[str]) -> None:
+        """(Re)create the underlying httpx client, routing through ``proxy``."""
+        import httpx
+
+        self.proxy = proxy
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(self.timeout, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=50, max_connections=100),
+            proxy=proxy,
+            trust_env=self.trust_env,
+        )
+        self._closed = False
+
+    async def _apply_settings_proxy(self, settings: Optional[Dict]) -> None:
+        """Honour a per-call transport proxy from ``settings``.
+
+        When ``settings`` carries ``"proxy": "http://..."``, this call
+        tunnels through that proxy instead of the agent's configured one;
+        without it the agent falls back to its constructor proxy. The httpx
+        client is rebuilt lazily, only when the effective proxy changes.
+        """
+        target = (settings or {}).get("proxy") or self._default_proxy
+        if target != self.proxy:
+            async with self._client_lock:
+                if target != self.proxy:
+                    self._build_client(target)
+
+    async def _post(self, payload: Dict[str, Any], url: Optional[str] = None) -> Dict[str, Any]:
         """One POST + error split, gated by the per-attempt rate budget."""
         await self._acquire_budget()
         response = await self.client.post(
-            f"{self.base_url}{_CHAT_COMPLETIONS}",
+            url or self._endpoint_url(),
             json=payload,
             headers=self.headers,
         )
         self._raise_for_status(response)
         return response.json()
 
-    async def _request_with_retry(self, payload: Dict[str, Any]) -> Any:
+    async def _request_with_retry(self, payload: Dict[str, Any], settings: Optional[Dict] = None) -> Any:
         """Retry a POST on transient failures, inside the concurrency gate."""
         import httpx
         from tenacity import (
@@ -322,26 +372,37 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
             reraise=True,
         )
         async def _make_request():
-            return await self._post(payload)
+            return await self._post(payload, url=self._endpoint_url(settings))
 
         response = await _make_request()
         usage = response.get("usage") or {}
         if usage:
+            details = usage.get("completion_tokens_details") or {}
             self.usage_log.append({
                 "prompt_tokens": usage.get("prompt_tokens", 0),
                 "completion_tokens": usage.get("completion_tokens", 0),
+                "reasoning_tokens": details.get("reasoning_tokens", 0),
                 "total_tokens": usage.get("total_tokens", 0),
             })
         return response["choices"][0]["message"]["content"]
 
     def get_usage_summary(self) -> dict:
-        """Aggregate real token usage recorded from upstream responses."""
+        """Aggregate real token usage recorded from upstream responses.
+
+        ``completion_tokens`` is the model's total generated output; most of it
+        is often ``reasoning_tokens`` (internal chain-of-thought) which is NOT
+        part of the visible answer. ``visible_tokens`` is the text actually
+        returned to the graph.
+        """
         prompt = sum(u["prompt_tokens"] for u in self.usage_log)
         completion = sum(u["completion_tokens"] for u in self.usage_log)
+        reasoning = sum(u.get("reasoning_tokens", 0) for u in self.usage_log)
         return {
             "calls": len(self.usage_log),
             "prompt_tokens": prompt,
             "completion_tokens": completion,
+            "reasoning_tokens": reasoning,
+            "visible_tokens": max(0, completion - reasoning),
             "total_tokens": prompt + completion,
         }
 
@@ -355,12 +416,13 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         model: str,
         settings: Optional[Dict] = None,
     ) -> Any:
+        await self._apply_settings_proxy(settings)
         payload = self.build_payload(data, prompt, model, settings)
-        logger.debug("[%s] -> %s%s model=%s", self.NAME, self.base_url, _CHAT_COMPLETIONS, payload["model"])
+        logger.debug("[%s] -> %s model=%s", self.NAME, self._endpoint_url(settings), payload["model"])
 
         try:
             async with self._concurrency_gate():
-                return await self._request_with_retry(payload)
+                return await self._request_with_retry(payload, settings=settings)
         except ThrottleTimeoutError as exc:
             # Pre-flight refusal — nothing was sent, so "exhausted retries"
             # would be the wrong story here.
@@ -382,12 +444,13 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         Streams are not retried (a partial stream is not replayable); a
         non-2xx handshake raises :class:`NonRetryableHTTPError` instead.
         """
+        await self._apply_settings_proxy(settings)
         payload = self.build_payload(data, prompt, model, settings, stream=True)
         try:
             async with self._concurrency_gate():
                 async with self.client.stream(
                     "POST",
-                    f"{self.base_url}{_CHAT_COMPLETIONS}",
+                    self._endpoint_url(settings),
                     json=payload,
                     headers=self.headers,
                 ) as response:

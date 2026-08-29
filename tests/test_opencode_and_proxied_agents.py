@@ -1,4 +1,4 @@
-"""Tests for OpenCodeAgent, ProxiedLLMAgent and their shared HTTP base.
+"""Tests for OpenCodeAgent and their shared HTTP base.
 
 Covers the two new agent engines plus the ``_HTTPAgentBase`` plumbing they
 both inherit (retry semantics, payload assembly, SSE streaming, lifecycle),
@@ -20,7 +20,6 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from framework.agents import (
-    DEFAULT_PROXY_BASE_URL,
     DEFAULT_ZEN_BASE_URL,
     DEFAULT_ZEN_MODEL,
     KNOWN_ZEN_MODELS,
@@ -29,7 +28,6 @@ from framework.agents import (
     MockAgent,
     NonRetryableHTTPError,
     OpenCodeAgent,
-    ProxiedLLMAgent,
     ThrottleTimeoutError,
     get_agent,
 )
@@ -93,9 +91,6 @@ class TestHTTPAgentHierarchy:
 
     def test_opencode_agent_is_subclass(self):
         assert issubclass(OpenCodeAgent, BaseAgent)
-
-    def test_proxied_agent_is_subclass(self):
-        assert issubclass(ProxiedLLMAgent, BaseAgent)
 
     @pytest.mark.asyncio
     async def test_shared_client_config(self):
@@ -203,32 +198,12 @@ class TestRetrySemantics:
         await agent.close()
 
     @pytest.mark.asyncio
-    async def test_504_is_retryable_on_proxied_agent(self):
-        agent = ProxiedLLMAgent(proxy_url="http://proxy:4000/v1", max_retries=2)
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp(504))
-        with pytest.raises(httpx.HTTPStatusError):
-            await agent.process("d", "p", "m")
-        assert agent.client.post.call_count == 2
-        await agent.close()
-
-    @pytest.mark.asyncio
     async def test_400_is_fatal_no_retry(self):
         agent = HttpLLMAgent(max_retries=3)
         agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp(400))
         with pytest.raises(NonRetryableHTTPError) as excinfo:
             await agent.process("d", "p", "m")
         assert excinfo.value.status_code == 400
-        assert agent.client.post.call_count == 1
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_401_is_fatal(self):
-        agent = ProxiedLLMAgent(proxy_url="http://proxy:4000/v1", max_retries=3)
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp(401))
-        with pytest.raises(NonRetryableHTTPError) as excinfo:
-            await agent.process("d", "p", "m")
-        assert excinfo.value.status_code == 401
-        assert "401" in str(excinfo.value)
         assert agent.client.post.call_count == 1
         await agent.close()
 
@@ -247,16 +222,6 @@ class TestRetrySemantics:
         agent.client.post = AsyncMock(side_effect=httpx.RequestError("boom"))
         with pytest.raises(httpx.RequestError, match="boom"):
             await agent.process("d", "p", "m")
-        assert agent.client.post.call_count == 2
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_retry_then_success_recovers(self):
-        agent = ProxiedLLMAgent(proxy_url="http://proxy:4000/v1", max_retries=3)
-        agent.client.post = AsyncMock(
-            side_effect=[_HTTPHelpers.make_resp(500), _HTTPHelpers.make_resp(200, "back")]
-        )
-        assert await agent.process("d", "p", "m") == "back"
         assert agent.client.post.call_count == 2
         await agent.close()
 
@@ -301,19 +266,6 @@ class TestStreaming:
         agent = OpenCodeAgent()
         agent.client.stream = MagicMock(return_value=_HTTPHelpers.make_stream(lines=lines))
         assert [c async for c in agent.stream_process("d", "p", "m")] == ["only"]
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_stream_skips_empty_deltas(self):
-        lines = [
-            'data: {"choices":[{"delta":{}}]}',
-            'data: {"choices":[]}',
-            'data: {"choices":[{"delta":{"content":"x"}}]}',
-            'data: [DONE]',
-        ]
-        agent = ProxiedLLMAgent(proxy_url="http://proxy:4000/v1")
-        agent.client.stream = MagicMock(return_value=_HTTPHelpers.make_stream(lines=lines))
-        assert [c async for c in agent.stream_process("d", "p", "m")] == ["x"]
         await agent.close()
 
     @pytest.mark.asyncio
@@ -363,7 +315,7 @@ class TestStreaming:
 class TestTransportProxy:
     """``proxy=`` makes the HTTP request itself go through a proxy server.
 
-    Distinct from ``proxy_url`` on :class:`ProxiedLLMAgent` (which is the
+    Distinct from ``proxy_url`` on a gateway agent (which is the
     application-level gateway base URL): ``proxy`` is the transport tunnel
     — corporate egress / SOCKS / authenticated proxy.
     """
@@ -414,21 +366,6 @@ class TestTransportProxy:
         assert len(self._mounts(agent)) == 1  # explicit proxy still mounts
         await agent.close()
 
-    @pytest.mark.asyncio
-    async def test_proxied_agent_gateway_and_transport_proxy_stack(self, monkeypatch):
-        """The gateway URL and the transport proxy are two layers."""
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = ProxiedLLMAgent(
-            proxy_url="http://litellm.internal:4000/v1",  # WHO
-            proxy="http://corp-egress:3128",               # HOW
-        )
-        assert agent.base_url == "http://litellm.internal:4000/v1"  # gateway
-        assert agent.proxy == "http://corp-egress:3128"             # transport
-        assert len(self._mounts(agent)) == 1
-        await agent.close()
-
-    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_request_actually_tunnels_through_the_proxy(self):
         """End-to-end: the HTTP request must physically pass through the proxy.
@@ -610,6 +547,70 @@ class TestTransportProxy:
 
 
 # ====================================================================
+# Per-call proxy override from edge settings
+# ====================================================================
+class TestSettingsProxyOverride:
+    """``settings["proxy"]`` routes a single call through a specific proxy.
+
+    An edge can pin its own egress proxy without the agent being
+    reconfigured; when settings omit it, the agent's constructor proxy is
+    restored. The httpx client is rebuilt lazily on change.
+    """
+
+    @pytest.mark.asyncio
+    async def test_settings_proxy_rebuilds_client(self):
+        agent = HttpLLMAgent(trust_env=False)
+        old_client = agent.client
+        await agent._apply_settings_proxy({"proxy": "http://corp:3128"})
+        assert agent.proxy == "http://corp:3128"
+        assert agent.client is not old_client
+        assert len(getattr(agent.client, "_mounts", {})) == 1
+        await agent.close()
+
+    @pytest.mark.asyncio
+    async def test_settings_proxy_used_for_request(self):
+        agent = HttpLLMAgent(trust_env=False)
+        await agent._apply_settings_proxy({"proxy": "http://corp:3128"})
+        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp(200, "via-settings-proxy"))
+        result = await agent.process("d", "p", "m", settings={"proxy": "http://corp:3128"})
+        assert result == "via-settings-proxy"
+        assert agent.client.post.call_args[1]["headers"]["Authorization"] == "Bearer public"
+        await agent.close()
+
+    @pytest.mark.asyncio
+    async def test_settings_proxy_falls_back_to_default(self):
+        agent = HttpLLMAgent(proxy="http://base:3128", trust_env=False)
+        await agent._apply_settings_proxy({"proxy": "http://edge:4000"})
+        assert agent.proxy == "http://edge:4000"
+        # No proxy in settings -> constructor proxy is restored.
+        await agent._apply_settings_proxy({})
+        assert agent.proxy == "http://base:3128"
+        await agent.close()
+
+    @pytest.mark.asyncio
+    async def test_same_proxy_does_not_rebuild(self):
+        agent = HttpLLMAgent(proxy="http://base:3128", trust_env=False)
+        old = agent.client
+        await agent._apply_settings_proxy({"proxy": "http://base:3128"})
+        assert agent.client is old
+        await agent.close()
+
+    @pytest.mark.asyncio
+    async def test_stream_applies_settings_proxy(self):
+        agent = HttpLLMAgent(trust_env=False)
+        await agent._apply_settings_proxy({"proxy": "http://corp:3128"})
+        agent.client.stream = MagicMock(return_value=_HTTPHelpers.make_stream(lines=[
+            'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            'data: [DONE]',
+        ]))
+        chunks = [c async for c in agent.stream_process(
+            "d", "p", "m", settings={"proxy": "http://corp:3128"}
+        )]
+        assert chunks == ["ok"]
+        await agent.close()
+
+
+# ====================================================================
 # Self-throttling: token bucket + bounded concurrency
 # ====================================================================
 class TestTokenBucket:
@@ -714,14 +715,6 @@ class TestConcurrencyGate:
         await agent.close()
 
     @pytest.mark.asyncio
-    async def test_proxied_agent_bounds_in_flight_calls(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = ProxiedLLMAgent(proxy_url="http://proxy:4000/v1", max_concurrency=3)
-        assert await self._measure_parallelism(agent, calls=7) == 3
-        await agent.close()
-
-    @pytest.mark.asyncio
     async def test_concurrency_of_one_serialises(self):
         order = []
         resp = _HTTPHelpers.make_resp()
@@ -759,18 +752,6 @@ class TestConcurrencyGate:
         elapsed = time.monotonic() - started
         assert elapsed >= 0.9  # 2 immediate + ~0.5 s per remaining token
         await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_disabled_budget_is_a_noop(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = ProxiedLLMAgent(proxy_url="http://proxy:4000/v1")
-        assert agent.requests_per_minute is None
-        assert agent._rate_budget is None
-        started = time.monotonic()
-        for _ in range(20):
-            await agent._acquire_budget()
-        assert time.monotonic() - started < 0.05
 
     @pytest.mark.asyncio
     async def test_queue_timeout_on_concurrency_slot(self):
@@ -887,15 +868,6 @@ class TestOpenCodeAgentConstruction:
         assert agent.queue_timeout == 5.0
         assert agent._rate_budget is not None
 
-    def test_throttle_knobs_overridable_on_proxied_agent(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = ProxiedLLMAgent(
-            proxy_url="http://gw:4000/v1", max_concurrency=8, queue_timeout=10.0
-        )
-        assert agent.max_concurrency == 8
-        assert agent.queue_timeout == 10.0
-
     def test_default_model_class_attr_matches_constant(self):
         assert OpenCodeAgent.DEFAULT_MODEL == DEFAULT_ZEN_MODEL
 
@@ -987,194 +959,6 @@ class TestOpenCodeAgentProcess:
 
 
 # ====================================================================
-# ProxiedLLMAgent — configuration resolution
-# ====================================================================
-class TestProxiedLLMAgentConstruction:
-    def test_default_values(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = ProxiedLLMAgent()
-        assert agent.base_url == DEFAULT_PROXY_BASE_URL == "http://localhost:8000/v1"
-        assert agent.api_key == "public"
-        assert agent.default_model == "gpt-4o-mini"
-        assert agent.max_retries == 3
-        assert agent.timeout == 300.0
-        assert agent.trust_env is True
-        assert agent.model_map == {}
-        assert agent.NAME == "ProxiedLLMAgent"
-
-    def test_explicit_proxy_url(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = ProxiedLLMAgent(proxy_url="http://litellm.internal:4000/v1/")
-        assert agent.base_url == "http://litellm.internal:4000/v1"
-
-    def test_base_url_kwarg_is_accepted_as_alias(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        assert ProxiedLLMAgent(base_url="http://a:1/v1").base_url == "http://a:1/v1"
-
-    def test_proxy_url_wins_over_base_url(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = ProxiedLLMAgent(proxy_url="http://explicit:1/v1", base_url="http://ignored:2/v1")
-        assert agent.base_url == "http://explicit:1/v1"
-
-    @pytest.mark.parametrize("env_var", ["LLM_PROXY_BASE_URL", "OPENAI_BASE_URL"])
-    def test_env_base_url_fallback(self, monkeypatch, env_var):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv(env_var, "http://gateway.example:8080/v1")
-        assert ProxiedLLMAgent().base_url == "http://gateway.example:8080/v1"
-
-    def test_proxy_env_beats_openai_env(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("LLM_PROXY_BASE_URL", "http://proxy-wins:1/v1")
-        monkeypatch.setenv("OPENAI_BASE_URL", "http://openai-loser:2/v1")
-        assert ProxiedLLMAgent().base_url == "http://proxy-wins:1/v1"
-
-    def test_explicit_url_beats_env(self, monkeypatch):
-        monkeypatch.setenv("LLM_PROXY_BASE_URL", "http://from-env:1/v1")
-        assert ProxiedLLMAgent(proxy_url="http://from-code:2/v1").base_url == "http://from-code:2/v1"
-
-    @pytest.mark.parametrize("env_var", ["LLM_PROXY_API_KEY", "OPENAI_API_KEY"])
-    def test_env_api_key_fallback(self, monkeypatch, env_var):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv(env_var, "sk-proxy-secret")
-        assert ProxiedLLMAgent().api_key == "sk-proxy-secret"
-
-    def test_proxy_key_env_beats_openai_key_env(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("LLM_PROXY_API_KEY", "sk-proxy")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
-        assert ProxiedLLMAgent().api_key == "sk-proxy"
-
-    def test_empty_env_values_are_ignored(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("LLM_PROXY_BASE_URL", "")
-        monkeypatch.setenv("OPENAI_BASE_URL", "http://real:1/v1")
-        monkeypatch.setenv("LLM_PROXY_API_KEY", "")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-real")
-        agent = ProxiedLLMAgent()
-        assert agent.base_url == "http://real:1/v1"
-        assert agent.api_key == "sk-real"
-
-    def test_defaults_log_when_unconfigured(self, monkeypatch, caplog):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        with caplog.at_level(logging.INFO, logger="vertex_edge_agent.agents"):
-            ProxiedLLMAgent()
-        assert any("no proxy configured" in r.message for r in caplog.records)
-
-    def test_no_warning_when_explicitly_configured(self, monkeypatch, caplog):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        with caplog.at_level(logging.INFO, logger="vertex_edge_agent.agents"):
-            ProxiedLLMAgent(proxy_url="http://explicit:1/v1")
-        assert not [r for r in caplog.records if "no proxy configured" in r.message]
-
-    def test_trust_env_forwarded_to_client(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        assert ProxiedLLMAgent(proxy_url="http://a:1/v1", trust_env=False).client.trust_env is False
-
-    def test_default_model_custom(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        assert ProxiedLLMAgent(default_model="claude-3.5").default_model == "claude-3.5"
-
-    def test_extra_headers_merged(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = ProxiedLLMAgent(proxy_url="http://a:1/v1", extra_headers={"X-Workspace": "team-a"})
-        assert agent.headers["X-Workspace"] == "team-a"
-        assert agent.headers["Authorization"] == "Bearer public"
-
-
-class TestProxiedLLMAgentModelMap:
-    """Alias -> upstream model routing through the gateway."""
-
-    def _agent(self, monkeypatch, model_map, default_model=None):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        return ProxiedLLMAgent(
-            proxy_url="http://proxy:4000/v1", model_map=model_map, default_model=default_model
-        )
-
-    def test_alias_is_rewritten(self, monkeypatch):
-        agent = self._agent(monkeypatch, {"alias": "deepseek-v4-flash"})
-        assert agent.resolve_model("alias") == "deepseek-v4-flash"
-
-    def test_unmapped_model_passes_through(self, monkeypatch):
-        agent = self._agent(monkeypatch, {"alias": "deepseek-v4-flash"})
-        assert agent.resolve_model("gpt-5.5") == "gpt-5.5"
-
-    def test_default_alias_resolves_before_map(self, monkeypatch):
-        """``"default"`` falls back first, so the default model may be aliased."""
-        agent = self._agent(monkeypatch, {"alias": "deepseek-v4-flash"}, default_model="alias")
-        assert agent.resolve_model("default") == "deepseek-v4-flash"
-        assert agent.resolve_model("") == "deepseek-v4-flash"
-
-    def test_default_alias_resolves_when_no_map(self, monkeypatch):
-        agent = self._agent(monkeypatch, {}, default_model="gpt-5.5")
-        assert agent.resolve_model("default") == "gpt-5.5"
-
-    def test_empty_map_is_inert(self, monkeypatch):
-        agent = self._agent(monkeypatch, {})
-        assert agent.resolve_model("any-model") == "any-model"
-
-    def test_none_map_treated_as_empty(self, monkeypatch):
-        assert self._agent(monkeypatch, None).model_map == {}
-
-    def test_model_map_is_copied(self, monkeypatch):
-        source = {"alias": "deepseek-v4-flash"}
-        agent = self._agent(monkeypatch, source)
-        source["alias"] = "mutated"
-        assert agent.model_map["alias"] == "deepseek-v4-flash"
-
-    def test_mapping_logs_debug(self, monkeypatch, caplog):
-        agent = self._agent(monkeypatch, {"alias": "deepseek-v4-flash"})
-        with caplog.at_level(logging.DEBUG, logger="vertex_edge_agent.agents"):
-            agent.resolve_model("alias")
-        assert any("via proxy" in r.message for r in caplog.records)
-
-    @pytest.mark.asyncio
-    async def test_map_applied_in_request_payload(self, monkeypatch):
-        agent = self._agent(monkeypatch, {"alias": "claude-opus-4.7"}, default_model="alias")
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-        await agent.process("d", "p", "default")
-        assert agent.client.post.call_args[1]["json"]["model"] == "claude-opus-4.7"
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_request_goes_to_proxy_url(self, monkeypatch):
-        agent = self._agent(monkeypatch, {})
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-        await agent.process("d", "p", "gpt-5.5")
-        assert agent.client.post.call_args[0][0] == "http://proxy:4000/v1/chat/completions"
-        assert agent.client.post.call_args[1]["json"]["model"] == "gpt-5.5"
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_process_via_env_configured_proxy(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("LLM_PROXY_BASE_URL", "http://env-gateway:9090/v1")
-        monkeypatch.setenv("LLM_PROXY_API_KEY", "sk-env")
-        agent = ProxiedLLMAgent()
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp(200, "proxied reply"))
-        assert await agent.process("d", "p", "m") == "proxied reply"
-        call = agent.client.post.call_args
-        assert call[0][0] == "http://env-gateway:9090/v1/chat/completions"
-        assert call[1]["headers"]["Authorization"] == "Bearer sk-env"
-        await agent.close()
-
-
-# ====================================================================
 # get_agent factory wiring
 # ====================================================================
 class TestAgentFactory:
@@ -1182,8 +966,6 @@ class TestAgentFactory:
         "spec,expected",
         [
             ("opencode", OpenCodeAgent),
-            ("proxy", ProxiedLLMAgent),
-            ("proxied", ProxiedLLMAgent),
             ("http", HttpLLMAgent),
             ("mock", MockAgent),
         ],
@@ -1249,39 +1031,6 @@ class TestAgentFactory:
         assert agent.default_model == DEFAULT_ZEN_MODEL
         await agent.close()
 
-    @pytest.mark.parametrize("key", ["proxy_url", "base_url"])
-    async def test_proxy_dict_config(self, monkeypatch, key):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = get_agent({
-            "type": "proxy",
-            key: "http://gw:4000/v1/",
-            "api_key": "sk-gw",
-            "model": "alias",
-            "model_map": {"alias": "deepseek-v4-flash"},
-            "max_retries": 2,
-        })
-        assert isinstance(agent, ProxiedLLMAgent)
-        assert agent.base_url == "http://gw:4000/v1"
-        assert agent.api_key == "sk-gw"
-        assert agent.default_model == "alias"
-        assert agent.model_map == {"alias": "deepseek-v4-flash"}
-        assert agent.resolve_model("default") == "deepseek-v4-flash"
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_proxied_dict_alias(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        assert isinstance(get_agent({"type": "proxied", "proxy_url": "http://a:1/v1"}), ProxiedLLMAgent)
-
-    async def test_proxy_dict_without_api_key_uses_env(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
-        agent = get_agent({"type": "proxy", "proxy_url": "http://a:1/v1"})
-        assert agent.api_key == "sk-from-env"
-
     @pytest.mark.asyncio
     async def test_opencode_dict_throttle_knobs(self, monkeypatch):
         for var in PROXY_ENV_VARS:
@@ -1295,17 +1044,6 @@ class TestAgentFactory:
         assert agent.max_concurrency == 9
         assert agent.requests_per_minute == 45.0
         assert agent.queue_timeout == 12.0
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_proxy_dict_budget_off_by_default(self, monkeypatch):
-        """The gateway governs its own rate, so the agent only bounds concurrency."""
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = get_agent({"type": "proxy", "proxy_url": "http://a:1/v1", "max_concurrency": 4})
-        assert agent.max_concurrency == 4
-        assert agent.requests_per_minute is None
-        assert agent._rate_budget is None
         await agent.close()
 
     @pytest.mark.asyncio
@@ -1329,7 +1067,7 @@ class TestAgentFactory:
         await agent.close()
 
     @pytest.mark.asyncio
-    async def test_proxy_key_wired_for_opencode_and_proxied(self, monkeypatch):
+    async def test_proxy_key_wired_for_opencode(self, monkeypatch):
         """``proxy`` (transport) is accepted by every HTTP agent type."""
         for var in PROXY_ENV_VARS:
             monkeypatch.delenv(var, raising=False)
@@ -1337,9 +1075,3 @@ class TestAgentFactory:
         assert zen.proxy == "http://corp:3128"
         assert len(getattr(zen.client, "_mounts", {})) == 1
         await zen.close()
-
-        gateway = get_agent({"type": "proxy", "proxy_url": "http://gw:4000/v1", "proxy": "http://corp:3128"})
-        assert gateway.proxy == "http://corp:3128"
-        assert gateway.base_url == "http://gw:4000/v1"
-        assert len(getattr(gateway.client, "_mounts", {})) == 1
-        await gateway.close()

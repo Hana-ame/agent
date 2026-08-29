@@ -5,7 +5,7 @@ OpenRouter, vLLM, llama.cpp, LM Studio, ... Defaulting to the OpenCode Zen
 gateway keeps it usable out of the box with no API key.
 
 For an opinionated OpenCode variant use :class:`OpenCodeAgent`; for traffic
-that must go through a self-hosted gateway use :class:`ProxiedLLMAgent`.
+
 """
 
 from typing import Dict, Optional

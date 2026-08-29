@@ -6,7 +6,6 @@ from .agents import (
     NonRetryableHTTPError,
     ThrottleTimeoutError,
     OpenCodeAgent,
-    ProxiedLLMAgent,
     PiAgentRunner,
     get_agent,
 )
@@ -40,6 +39,6 @@ __all__ = [
     'CheckpointedExecutor', 'HumanGateVertex',
     'BaseAgent', 'MockAgent', 'HttpLLMAgent', 'NonRetryableHTTPError',
     'ThrottleTimeoutError',
-    'OpenCodeAgent', 'ProxiedLLMAgent', 'PiAgentRunner', 'get_agent',
+    'OpenCodeAgent', 'PiAgentRunner', 'get_agent',
     'load_script',
 ]

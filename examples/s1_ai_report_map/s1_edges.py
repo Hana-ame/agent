@@ -28,77 +28,81 @@ async def fetch_forum_threads(url: str):
     return json.dumps(out, ensure_ascii=False)
 
 
-async def fetch_thread_replies_md(url: str, hours: int = 24) -> str:
+async def fetch_thread_replies_md(url: str, hours: int = 24, timeout: float = 30) -> str:
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=hours)
     headers = {"User-Agent": "Mozilla/5.0"}
 
+    async def _get(u: str) -> "httpx.Response":
+        async with httpx.AsyncClient(
+            headers=headers, timeout=timeout, trust_env=False, follow_redirects=True
+        ) as c:
+            return await c.get(u)
+
     m = re.search(r"(thread-\d+-)(\d+)(-\d+\.html)", url)
     if not m:
-        async with httpx.AsyncClient(headers=headers, timeout=30, trust_env=False, follow_redirects=True) as c:
-            r = await c.get(url)
+        r = await _get(url)
         soup = BeautifulSoup(r.text, "html.parser")
         return _extract_posts_from_soup(soup, url, hours)
 
     base_prefix = m.group(1)
     base_suffix = m.group(3)
 
-    async with httpx.AsyncClient(headers=headers, timeout=30, trust_env=False, follow_redirects=True) as c:
-        r1 = await c.get(url)
-        soup1 = BeautifulSoup(r1.text, "html.parser")
+    r1 = await _get(url)
+    soup1 = BeautifulSoup(r1.text, "html.parser")
 
-        title = url
-        for sel in ("#thread_subject", "h1.ts2", "h1.title"):
-            node = soup1.select_one(sel)
-            if node and node.get_text(strip=True):
-                title = node.get_text(strip=True)
-                break
+    title = url
+    for sel in ("#thread_subject", "h1.ts2", "h1.title"):
+        node = soup1.select_one(sel)
+        if node and node.get_text(strip=True):
+            title = node.get_text(strip=True)
+            break
 
-        total_pages = 1
-        for a in soup1.select(".pg a[href]"):
-            href = a.get("href", "")
-            pm = re.search(r"-(\d+)-1\.html", href)
-            if pm:
-                pnum = int(pm.group(1))
-                if pnum > total_pages:
-                    total_pages = pnum
+    total_pages = 1
+    for a in soup1.select(".pg a[href]"):
+        href = a.get("href", "")
+        pm = re.search(r"-(\d+)-1\.html", href)
+        if pm:
+            pnum = int(pm.group(1))
+            if pnum > total_pages:
+                total_pages = pnum
 
-        all_posts = []
-        for page in range(total_pages, 0, -1):
-            page_url = f"https://stage1st.com/2b/{base_prefix}{page}{base_suffix}"
-            if page == 1:
-                soup = soup1
-            else:
-                r = await c.get(page_url)
-                soup = BeautifulSoup(r.text, "html.parser")
+    all_posts = []
+    for page in range(total_pages, 0, -1):
+        page_url = f"https://stage1st.com/2b/{base_prefix}{page}{base_suffix}"
+        if page == 1:
+            soup = soup1
+        else:
+            r = await _get(page_url)
+            soup = BeautifulSoup(r.text, "html.parser")
 
-            page_posts = _parse_posts_from_soup(soup)
-            page_has_recent = False
-            for orig_idx, user, timestr, dt, content in page_posts:
-                if dt and dt >= cutoff:
-                    # keep dt for sorting (dropped before output)
-                    all_posts.append((dt, orig_idx, user, timestr, content))
-                    page_has_recent = True
+        page_posts = _parse_posts_from_soup(soup)
+        page_has_recent = False
+        for orig_idx, user, timestr, dt, content in page_posts:
+            if dt and dt >= cutoff:
+                # keep dt for sorting (dropped before output)
+                all_posts.append((dt, orig_idx, user, timestr, content))
+                page_has_recent = True
 
-            if not page_has_recent:
-                break
+        if not page_has_recent:
+            break
 
-        # chronological order (oldest -> newest) so the summary LLM can write
-        # the trends section in time order.
-        all_posts.sort(key=lambda x: x[0])
+    # chronological order (oldest -> newest) so the summary LLM can write
+    # the trends section in time order.
+    all_posts.sort(key=lambda x: x[0])
 
-        lines = [f"# {title}", "", f"> Link: <{url}>",
-                 f"> Range: Last **{hours} hours**",
-                 f"> Result: **{len(all_posts)}** replies", "", "---", ""]
+    lines = [f"# {title}", "", f"> Link: <{url}>",
+             f"> Range: Last **{hours} hours**",
+             f"> Result: **{len(all_posts)}** replies", "", "---", ""]
 
-        if not all_posts:
-            lines.append(f"_No replies in the last {hours} hours._")
-            return "\n".join(lines)
+    if not all_posts:
+        lines.append(f"_No replies in the last {hours} hours._")
+        return "\n".join(lines)
 
-        for _dt, orig_idx, user, timestr, content in all_posts:
-            lines.extend([f"### #{orig_idx + 1} **{user}** · {timestr}", "", content, "", "---", ""])
+    for _dt, orig_idx, user, timestr, content in all_posts:
+        lines.extend([f"### #{orig_idx + 1} **{user}** · {timestr}", "", content, "", "---", ""])
 
-        return "\n".join(lines).rstrip() + "\n"
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _parse_posts_from_soup(soup):
@@ -208,7 +212,8 @@ class FetchEdge(Edge):
 
     async def pre_process(self, data, settings):
         hours = int(settings.get("hours", 24))
-        md = await fetch_thread_replies_md(data["url"], hours=hours)
+        timeout = float(settings.get("timeout", 30))
+        md = await fetch_thread_replies_md(data["url"], hours=hours, timeout=timeout)
         return {"title": data.get("title", ""), "url": data.get("url", ""), "content": md}
 
 

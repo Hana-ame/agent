@@ -6,11 +6,23 @@
   "vertices": [
     {
       "id": "v_start",
-      "initial_data": [{"channel": "default", "value": "trigger"}]
+      "initial_data": [
+        {
+          "channel": "default",
+          "value": "trigger"
+        }
+      ]
     },
-    { "id": "v_stories" },
-    { "id": "v_router" },
-    { "id": "v_report", "script": "vertex/report_hook.py" }
+    {
+      "id": "v_stories"
+    },
+    {
+      "id": "v_router"
+    },
+    {
+      "id": "v_report",
+      "script": "vertex/report_hook.py"
+    }
   ],
   "edges": [
     {
@@ -43,13 +55,16 @@
         "pipeline": [
           {
             "type": "fetch",
-            "script": "hn_edges.py:FetchCommentsEdge"
+            "script": "hn_edges.py:FetchCommentsEdge",
+            "settings": {}
           },
           {
             "type": "llm",
             "script": "hn_edges.py:SummarizeEdge",
-            "prompt": "Summarize the discussion in the following Hacker News post comments.\n{data}\n\nProvide key takeaways, interesting technical details, and general sentiment. Format as markdown. Respond entirely in English.",
-            "model": "hy3-free"
+            "settings": {
+              "prompt": "Summarize the discussion in the following Hacker News post comments.\n{data}\n\nProvide key takeaways, interesting technical details, and general sentiment. Format as markdown. Respond entirely in English.",
+              "model": "hy3-free"
+            }
           }
         ],
         "max_concurrency": 5
