@@ -33,12 +33,21 @@ def _build_from_dict(agent_spec: Dict) -> BaseAgent:
     """Build an agent from a JSON config block: ``{"type": "http|opencode|proxy", ...}``."""
     agent_type = agent_spec.get("type")
 
+    # Transport proxy, graph.json style. Accepts `proxy`, `https_proxy` or
+    # `HTTPS_PROXY` (all mean the same HTTP proxy the requests tunnel through)
+    # and **overrides** any HTTP_PROXY / HTTPS_PROXY from the environment.
+    proxy = (
+        agent_spec.get("proxy")
+        or agent_spec.get("https_proxy")
+        or agent_spec.get("HTTPS_PROXY")
+    )
+
     # Knobs shared by every HTTP agent.
     common = {
         "max_retries": agent_spec.get("max_retries", 3),
         "timeout": agent_spec.get("timeout", 300.0),
         "extra_headers": agent_spec.get("extra_headers"),
-        "proxy": agent_spec.get("proxy"),
+        "proxy": proxy,
         "trust_env": agent_spec.get("trust_env", True),
     }
 

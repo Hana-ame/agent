@@ -43,7 +43,8 @@
           "type": "proxy",
           "proxy_url": "http://localhost:8000/v1",
           "model_map": { "cheap": "deepseek-v4-flash", "smart": "gpt-5.5" },
-          "max_concurrency": 4
+          "max_concurrency": 4,
+          "https_proxy": "http://127.0.1.6:7890"
         }
       }
     }

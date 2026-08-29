@@ -26,16 +26,18 @@ export LLM_PROXY_API_KEY=sk-...
 python examples/opencode_zen/run.py
 ```
 
-### HTTP 请求经代理出去 (transport proxy)
+### HTTP 请求经代理出去 (transport proxy, in graph.json)
 
-All three HTTP agents also accept a transport-level `proxy` — the HTTP(S)/SOCKS proxy the request *tunnels through* on its way to the endpoint, independent of the gateway above:
+All three HTTP agents accept a transport-level proxy — the HTTP(S)/SOCKS proxy the request *tunnels through* on its way to the endpoint, independent of the gateway above. Set it right in `config.json` via `proxy`, `https_proxy` or `HTTPS_PROXY`; the graph config **overrides** any `HTTP_PROXY` / `HTTPS_PROXY` from the environment:
 
 ```jsonc
-"agent": { "type": "http", "proxy": "http://user:pass@corp-proxy:3128" }
-"agent": { "type": "opencode", "proxy": "socks5://host:1080" }
+"agent": { "type": "http",    "https_proxy": "http://127.0.1.6:7890" }
+"agent": { "type": "opencode", "proxy":       "socks5://host:1080" }
+"agent": { "type": "proxy",   "proxy_url":   "http://gw:4000/v1",
+            "https_proxy": "http://127.0.1.6:7890" }
 ```
 
-When `proxy` is unset, `trust_env` (default `true`) reads `HTTP_PROXY` / `HTTPS_PROXY` from the environment.
+The `e_proxy` edge in this example's `config.json` is wired this way — swap `127.0.1.6:7890` for one of `127.0.{1,2,3}.{4,6}:7890` (your local Clash-style egress) or your own proxy. When `https_proxy` is unset, `trust_env` (default `true`) falls back to the environment's `HTTP_PROXY` / `HTTPS_PROXY`.
 
 
 ## How the per-edge agent wiring works

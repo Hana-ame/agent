@@ -1,7 +1,7 @@
 {
   "metadata": {
     "name": "Real LLM Edge Pipeline",
-    "description": "Demonstrates overriding Edge.execute() to directly hit an OpenAI-compatible endpoint."
+    "description": "Real LLM call with a transport HTTP proxy set in graph.json (https_proxy overrides any env HTTP_PROXY/HTTPS_PROXY)."
   },
   "vertices": [
     {
@@ -31,7 +31,12 @@
       "channel": "text",
       "settings": {
         "prompt": "You are a creative poet.",
-        "model": "hy3-free"
+        "model": "hy3-free",
+        "agent": {
+          "type": "http",
+          "base_url": "https://opencode.ai/zen/v1",
+          "https_proxy": "http://127.0.1.6:7890"
+        }
       }
     }
   ]

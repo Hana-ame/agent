@@ -166,7 +166,16 @@ from framework import HttpLLMAgent
 agent = HttpLLMAgent(proxy="http://user:pass@corp-proxy:3128")
 ```
 
-When `proxy` is unset, `trust_env=True` (default) lets httpx fall back to `HTTP_PROXY` / `HTTPS_PROXY` from the environment; `proxy` wins if both are present.
+**在 graph.json 中设置代理（覆盖环境变量）:** the agent config block accepts `proxy`, `https_proxy` or `HTTPS_PROXY` — same meaning. Setting it in the graph config **overrides** any `HTTP_PROXY` / `HTTPS_PROXY` from the environment, so a pipeline can pin its own egress proxy regardless of the shell it runs in:
+
+```jsonc
+{ "id": "e_sum", "source": "v1", "destination": "v2",
+  "settings": { "prompt": "Summarise.", "model": "hy3-free",
+                "agent": { "type": "http",
+                            "https_proxy": "http://127.0.1.6:7890" } } }
+```
+
+When the graph config leaves `proxy` unset, `trust_env=True` (default) lets httpx fall back to `HTTP_PROXY` / `HTTPS_PROXY` from the environment. Explicit config > environment.
 
 ## Advanced Features (v2.0)
 

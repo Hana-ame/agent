@@ -1,20 +1,32 @@
 # Real LLM Endpoint Example
 
-This example demonstrates how to completely bypass the built-in test `MockPIAgent` by subclassing `Edge`, thereby sending requests directly to a real external LLM provider.
-
-Unlike standard `pre_process` (which modifies the prompt) or `post_process` (which modifies the returned result), `RealLLMEdge` completely reconstructs the internal workflow. It uses the built-in `urllib` library in conjunction with `asyncio.to_thread` to make real, asynchronous HTTP POST network requests to an OpenAI-compatible endpoint (such as `https://opencode.ai/zen/v1/chat/completions`). The model used for the request is dynamically specified in `config.json`.
+This example sends a request to a real external LLM provider — [OpenCode Zen](https://opencode.ai/zen/v1) (`hy3-free`, free, no key) — instead of the test `MockAgent`. The HTTP request goes out **through a transport HTTP proxy set directly in `config.json`** (here: `https_proxy: http://127.0.1.6:7890`).
 
 ## How it works
 
-1. In `config.json`, the edge `e_real_llm` is configured to use the external extension `"script": "llm_edge.py"`.
-2. The framework loads `llm_edge.py` and, when building the graph, automatically replaces the default `Edge` class with the `RealLLMEdge` subclass.
-3. When the scheduler (Executor) activates this edge, it does not use the built-in PI Agent. Instead, it executes the custom invocation logic we overrode in the subclass.
-4. This invocation logic includes: reading data from the upstream Vertex, assembling the JSON request body, initiating a non-blocking HTTP request, parsing and extracting the LLM's response, and writing it fully to the downstream target Vertex via `handle_edge_signal`.
+The edge `e_real_llm` in `config.json` declares its own agent in `settings.agent`; the framework resolves it via `get_agent()` and `Edge.compute` picks it up (per-edge agent > executor-level agent). No custom `Edge.execute()` subclass is needed:
+
+```jsonc
+{ "id": "e_real_llm", "source": "user_input", "destination": "llm_output",
+  "settings": {
+    "prompt": "You are a creative poet.",
+    "model": "hy3-free",
+    "agent": {
+      "type": "http",
+      "base_url": "https://opencode.ai/zen/v1",
+      "https_proxy": "http://127.0.1.6:7890"   // ← HTTP 请求经这个代理出去
+    }
+  } }
+```
+
+The `settings.agent` block accepts `https_proxy` / `proxy` / `HTTPS_PROXY` — all mean the transport HTTP(S)/SOCKS proxy. Setting it in graph.json **overrides** any `HTTP_PROXY` / `HTTPS_PROXY` from the environment.
 
 ## Execution
-
-Use the unified execution script pointing to the `config.json` in this directory:
 
 ```bash
 python examples/run.py examples/real_llm/config.json
 ```
+
+Swap `127.0.1.6:7890` for one of `127.0.{1,2,3}.{4,6}:7890` (a local Clash-style egress proxy) or your own proxy endpoint. If you drop the `https_proxy` key, the agent falls back to the environment's `HTTP_PROXY` / `HTTPS_PROXY` (via `trust_env`, default on).
+
+> **Note on the old `llm_edge.py` style**: an older version of this example overrode `Edge.execute()` and used `urllib.request.urlopen` by hand. `urllib` only honours proxy *environment variables* — it cannot pin a proxy from the graph config or override the environment. The current example uses the built-in `HttpLLMAgent` instead, which supports both.

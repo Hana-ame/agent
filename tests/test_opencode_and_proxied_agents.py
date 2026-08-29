@@ -503,6 +503,111 @@ class TestTransportProxy:
             proxy.shutdown()
             upstream.shutdown()
 
+    def test_https_proxy_key_alias(self, monkeypatch):
+        """graph.json can set the transport proxy as `https_proxy` / `HTTPS_PROXY`."""
+        for var in PROXY_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        for key in ("proxy", "https_proxy", "HTTPS_PROXY"):
+            agent = get_agent({"type": "http", key: "http://127.0.0.4:7890"})
+            assert agent.proxy == "http://127.0.0.4:7890", key
+            assert len(getattr(agent.client, "_mounts", {})) == 1, key
+
+    @pytest.mark.asyncio
+    async def test_config_proxy_overrides_env(self, monkeypatch):
+        """A proxy set in the graph config overrides HTTPS_PROXY / HTTP_PROXY env.
+
+        The environment points at a *drop* proxy (records and 502s), while the
+        graph config points at a *real* proxy (forwards upstream). If the
+        request went through the real proxy and the drop proxy saw nothing,
+        the graph config wins — exactly the override semantics required.
+        """
+        import http.client
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import threading
+
+        for var in (
+            "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy",
+            "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+        drop_seen = []
+        real_seen = []
+        upstream_payloads = []
+
+        class DropProxy(BaseHTTPRequestHandler):
+            """Env proxy: records and refuses — if hit, override failed."""
+            def do_POST(self):
+                drop_seen.append(self.path)
+                self.send_response(502)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        class RealProxy(BaseHTTPRequestHandler):
+            """Config proxy: forwards upstream."""
+            def do_POST(self):
+                real_seen.append(self.path)
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                parsed = urlparse(self.path)
+                conn = http.client.HTTPConnection(parsed.hostname, parsed.port or 80)
+                conn.request(self.command, parsed.path or "/", body=body, headers=dict(self.headers))
+                resp = conn.getresponse()
+                data = resp.read()
+                self.send_response(resp.status)
+                for key, val in resp.getheaders():
+                    self.send_header(key, val)
+                self.end_headers()
+                self.wfile.write(data)
+                conn.close()
+
+            def log_message(self, *a):
+                pass
+
+        class Upstream(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                upstream_payloads.append(self.rfile.read(length).decode())
+                body = json.dumps({"choices": [{"message": {"content": "config-proxy-wins"}}]})
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body.encode())
+
+            def log_message(self, *a):
+                pass
+
+        drop = ThreadingHTTPServer(("127.0.0.1", 0), DropProxy)
+        real = ThreadingHTTPServer(("127.0.0.1", 0), RealProxy)
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+        threading.Thread(target=drop.serve_forever, daemon=True).start()
+        threading.Thread(target=real.serve_forever, daemon=True).start()
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
+        try:
+            # Env points at the drop proxy.
+            monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{drop.server_address[1]}")
+            monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{drop.server_address[1]}")
+            # Graph config (agent dict, as it appears in graph.json) wins.
+            agent = get_agent({
+                "type": "http",
+                "base_url": f"http://127.0.0.1:{upstream.server_address[1]}/v1",
+                "https_proxy": f"http://127.0.0.1:{real.server_address[1]}",
+            })
+            assert agent.proxy == f"http://127.0.0.1:{real.server_address[1]}"
+            result = await agent.process("hello", "p", "m")
+            assert result == "config-proxy-wins"
+            assert len(real_seen) == 1      # went through the configured proxy
+            assert len(drop_seen) == 0      # env proxy untouched → override works
+            await agent.close()
+        finally:
+            drop.shutdown()
+            real.shutdown()
+            upstream.shutdown()
+
 
 # ====================================================================
 # Self-throttling: token bucket + bounded concurrency
