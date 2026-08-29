@@ -55,13 +55,94 @@ GELU, causal self-attention.
 ## Quick start
 
 ```bash
+# 1. Install torch CPU-only (no CUDA needed)
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-# 50-step smoke test (no checkpoint)
+# 2. 50-step smoke test (no checkpoint, ~1 min on CPU)
 python -m additive_rand_transformer.train --quick
 
-# full run, checkpoint saved to runs/<timestamp>/checkpoint_final.pt
+# 3. Full run (checkpoint saved to runs/<timestamp>/checkpoint_final.pt)
 python -m additive_rand_transformer.train --steps 3000
+```
+
+## CLI parameters
+
+```bash
+python -m additive_rand_transformer.train [options]
+```
+
+| option | default | meaning |
+|--------|---------|---------|
+| `--quick` | off | 50-step smoke test, no checkpoint |
+| `--steps` | 3000 | total training steps |
+| `--batch_size` | 8 | sequences per batch |
+| `--block_size` | 1024 | context length (packed expressions) |
+| `--n_layer` | 2 | transformer blocks |
+| `--n_head` | 4 | attention heads |
+| `--n_embd` | 64 | embedding dimension |
+| `--lr` | 3e-4 | peak learning rate (warmup + cosine) |
+| `--wd` | 0.1 | weight decay |
+| `--warmup` | 200 | linear warmup steps |
+| `--grad_clip` | 1.0 | gradient norm clip |
+| `--seed` | 1337 | RNG seed (deterministic data + model init) |
+| `--log_every` | 25 | print interval |
+| `--save_every` | 1000 | checkpoint interval |
+| `--max_digits` | 6 | max operand length (1-4 always covered) |
+| `--max_spaces` | 3 | max spaces around an operator (0..N, uniform) |
+
+## Understanding the output
+
+Every `log_every` steps the script prints:
+
+```
+step    25 | loss 2.7134 | lr 3.75e-04 | pos_ll -18.32 | other_avg -22.50 | margin 4.18 | 12.3s
+```
+
+* `loss` — cross-entropy training loss (lower = better next-token prediction)
+* `pos_ll` — mean log-likelihood of expressions **from the generator** (higher = better)
+* `other_avg` — mean log-likelihood of 4 counter-example families (should be lower)
+* `margin` — `pos_ll - other_avg` (should grow as the model learns the distribution)
+
+At the end, a full membership report is printed:
+
+```
+========================================================================
+MEMBERSHIP TEST  (mean log-likelihood, higher = more like generator)
+========================================================================
+class              mean_ll   sample
+------------------------------------------------------------------------
+positive             -12.30   <BOS>1234 + 5678 = 6912<EOS>
+wrong_result         -28.41   <BOS>1234 + 5678 = 6913<EOS>
+leading_zero         -19.87   <BOS>0123 + 4 = 127<EOS>
+negative_result      -22.15   <BOS>5 - 234 = 229<EOS>
+wrong_operator       -31.02   <BOS>1234 = 5678 = 6912<EOS>
+------------------------------------------------------------------------
+positive mean: -12.30   others avg: -25.36   margin: 13.06
+========================================================================
+```
+
+A positive margin means the model can tell generator output apart from
+non-generator output.
+
+## Using a trained checkpoint
+
+```python
+import torch
+from additive_rand_transformer.model import TinyGPT, TinyGPTConfig
+from additive_rand_transformer.evaluate import sequence_logprob
+
+ckpt = torch.load("runs/<timestamp>/checkpoint_final.pt", map_location="cpu")
+cfg = TinyGPTConfig(**ckpt["config"])
+model = TinyGPT(cfg)
+model.load_state_dict(ckpt["model"])
+model.eval()
+
+# Judge any expression: high ll = looks like generator output
+from additive_rand_transformer.data import gen_expression
+import random
+expr = gen_expression(random.Random(0))   # a valid expression
+ll = sequence_logprob(model, expr, torch.device("cpu"))
+print(f"log-likelihood: {ll:.2f}  (higher = more likely from this generator)")
 ```
 
 ## Files
