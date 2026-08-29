@@ -121,7 +121,7 @@ asyncio.run(main())
 
 ## Agent Engines
 
-The framework ships several swappable `BaseAgent` implementations. Pick one per graph (or per edge via `settings.agent`) — the rest of the engine is agent-agnostic.
+The framework ships several swappable `BaseAgent` implementations. Pick one per graph — or let a script `Edge` subclass own one. The rest of the engine is agent-agnostic.
 
 | Agent | Spec string | Default target | When to use |
 | :--- | :--- | :--- | :--- |
@@ -149,13 +149,15 @@ executor = Executor(graph, agents=agent)
 Both gates are agent-local, so each edge's `settings` still decides its own `prompt`/`model` — only *when* it gets to speak is coordinated.
 
 ```jsonc
-// config.json — per-edge agent override
-{ "id": "e_sum", "source": "v1", "destination": "v2",
-  "settings": { "prompt": "Summarise.", "model": "hy3-free",
-                "agent": { "type": "opencode", "max_concurrency": 2 } } }
+// config.json — an edge loads its agent via `script: file:Class`
+{ "id": "e_zen", "source": "v1", "destination": "v2",
+  "settings": { "prompt": "Summarise.", "model": "hy3-free" },
+  "script": "zen_edge.py:OpenCodeEdge" }
 ```
 
-`ProxiedLLMAgent` resolves its gateway URL/key explicit-first, environment-driven as fallback: `proxy_url` > `LLM_PROXY_BASE_URL` > `OPENAI_BASE_URL` > `http://localhost:8000/v1`, and `api_key` > `LLM_PROXY_API_KEY` > `OPENAI_API_KEY` > `"public"`. A `model_map` rewrites graph-level aliases to upstream ids (`{"cheap": "deepseek-v4-flash"}`), applied *after* the `"default"` fallback so the default model may itself be aliased.
+The edge script owns its agent in Python (e.g. `self.agent = OpenCodeAgentRunner()` in `__init__`); nothing is injected by the runner and no fallback default agent is used.
+
+`ProxiedLLMAgent` resolves its gateway URL/key explicit-first, environment-driven as fallback: `proxy_url` > `LLM_PROXY_BASE_URL` > `OPENAI_BASE_URL` > `http://localhost:8000/v1`, and `api_key` > `LLM_PROXY_API_KEY` > `OPENAI_API_KEY` > `"public"`. A `model_map` rewrites graph-level aliases to upstream ids, applied *after* the `"default"` fallback so the default model may itself be aliased.
 
 **Transport proxy** (HTTP 请求经代理出去): every HTTP agent (`HttpLLMAgent`, `OpenCodeAgent`, `ProxiedLLMAgent`) accepts a `proxy` URL — the HTTP(S)/SOCKS proxy the request *tunnels through* on its way to the endpoint. It is a different layer from `ProxiedLLMAgent.proxy_url`: `proxy_url` is **who** you talk to (the gateway), `proxy` is **how** your TCP gets there (corporate egress / authenticated proxy). They stack — a gateway behind a corporate proxy works as-is.
 
@@ -166,13 +168,13 @@ from framework import HttpLLMAgent
 agent = HttpLLMAgent(proxy="http://user:pass@corp-proxy:3128")
 ```
 
-**在 graph.json 中设置代理（覆盖环境变量）:** the agent config block accepts `proxy`, `https_proxy` or `HTTPS_PROXY` — same meaning. Setting it in the graph config **overrides** any `HTTP_PROXY` / `HTTPS_PROXY` from the environment, so a pipeline can pin its own egress proxy regardless of the shell it runs in:
+**在 graph.json 中设置代理（覆盖环境变量）:** the edge settings accept `proxy`, `https_proxy` or `HTTPS_PROXY` — same meaning — and the script edge forwards them to its agent. Setting it in the graph config **overrides** any `HTTP_PROXY` / `HTTPS_PROXY` from the environment, so a pipeline can pin its own egress proxy regardless of the shell it runs in:
 
 ```jsonc
-{ "id": "e_sum", "source": "v1", "destination": "v2",
+{ "id": "e_real_llm", "source": "v1", "destination": "v2",
+  "script": "llm_edge.py:HttpLLMEdge",
   "settings": { "prompt": "Summarise.", "model": "hy3-free",
-                "agent": { "type": "http",
-                            "https_proxy": "http://127.0.1.6:7890" } } }
+                "https_proxy": "http://127.0.1.6:7890" } }
 ```
 
 When the graph config leaves `proxy` unset, `trust_env=True` (default) lets httpx fall back to `HTTP_PROXY` / `HTTPS_PROXY` from the environment. Explicit config > environment.
@@ -292,11 +294,12 @@ The `examples/` directory provides 16 standalone, runnable demonstrations of the
 | **`self_correction/`** | Simulates LLM formatting errors to trigger `retry_policy`. Injects error stack traces back into the Prompt for LLM self-healing. | `python examples/self_correction/demo.py` |
 | **`hitl_approval/`** | Shows how `require_approval` pauses execution at sensitive nodes, saves SQLite state snapshots, and resumes via `approve()`. | `python examples/hitl_approval/demo.py` |
 | **`subgraph/`** | Demonstrates hierarchical nesting. A parent graph imports a `research_team.json` subgraph, routing inputs/outputs via boundary mapping. | `python examples/subgraph/demo.py` |
-| **`opencode_zen/`** | **v3.0** `OpenCodeAgent` (free OpenCode Zen, self-throttled) + `ProxiedLLMAgent` (self-hosted gateway with model aliasing), both wired declaratively from `config.json`. | `python examples/opencode_zen/run.py` |
+| **`opencode_zen/`** | **v3.0** Launches the local `opencode` CLI (`opencode run`) via `OpenCodeAgentRunner`; edge loaded by `script: zen_edge.py:OpenCodeEdge`, everything declared in the config. | `python examples/opencode_zen/run.py` |
 | **`race_mode/`** | **v3.0** First-to-finish fan-in: the sink wins on the first response and cancels the losers cleanly. | `python examples/race_mode/demo.py` |
 | **`dynamic_topology/`** | Async hooks and manager-driven runtime graph growth — one worker vertex per task the Manager emits. | `python examples/dynamic_topology/demo.py` |
 | **`simple_chain/`** | Programmatic `LinearChain.build(prompts)` for the shortest path to a working `A->B->C` graph (no JSON). | `python examples/simple_chain/demo.py` |
 | **`real_pi/`** | Real-LLM flow that delegates to the local `pi` CLI subprocess via `PiAgentRunner` (Pi-stdlib counterpart of `real_llm/`). | `python examples/run.py examples/real_pi/config.json` |
+| **`real_llm/`** | Real-LLM call (`hy3-free`) through a transport `https_proxy` pinned in the edge settings, overriding env proxies — edge loaded by `script: llm_edge.py:HttpLLMEdge` owning `HttpLLMAgent`. | `python examples/run.py examples/real_llm/config.json` |
 | **`hn_ai_report/`** | End-to-end S1 AI report graph on `SubgraphVertex` delegation. | `python examples/hn_ai_report/demo.py` |
 | **`s1_ai_report/`** | Same S1 report graph on plain `HttpLLMAgent` — a comparison baseline against `hn_ai_report/`. | `python examples/s1_ai_report/demo.py` |
 

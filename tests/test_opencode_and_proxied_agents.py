@@ -1106,16 +1106,16 @@ class TestProxiedLLMAgentModelMap:
         )
 
     def test_alias_is_rewritten(self, monkeypatch):
-        agent = self._agent(monkeypatch, {"cheap": "deepseek-v4-flash"})
-        assert agent.resolve_model("cheap") == "deepseek-v4-flash"
+        agent = self._agent(monkeypatch, {"alias": "deepseek-v4-flash"})
+        assert agent.resolve_model("alias") == "deepseek-v4-flash"
 
     def test_unmapped_model_passes_through(self, monkeypatch):
-        agent = self._agent(monkeypatch, {"cheap": "deepseek-v4-flash"})
+        agent = self._agent(monkeypatch, {"alias": "deepseek-v4-flash"})
         assert agent.resolve_model("gpt-5.5") == "gpt-5.5"
 
     def test_default_alias_resolves_before_map(self, monkeypatch):
         """``"default"`` falls back first, so the default model may be aliased."""
-        agent = self._agent(monkeypatch, {"cheap": "deepseek-v4-flash"}, default_model="cheap")
+        agent = self._agent(monkeypatch, {"alias": "deepseek-v4-flash"}, default_model="alias")
         assert agent.resolve_model("default") == "deepseek-v4-flash"
         assert agent.resolve_model("") == "deepseek-v4-flash"
 
@@ -1131,20 +1131,20 @@ class TestProxiedLLMAgentModelMap:
         assert self._agent(monkeypatch, None).model_map == {}
 
     def test_model_map_is_copied(self, monkeypatch):
-        source = {"cheap": "deepseek-v4-flash"}
+        source = {"alias": "deepseek-v4-flash"}
         agent = self._agent(monkeypatch, source)
-        source["cheap"] = "mutated"
-        assert agent.model_map["cheap"] == "deepseek-v4-flash"
+        source["alias"] = "mutated"
+        assert agent.model_map["alias"] == "deepseek-v4-flash"
 
     def test_mapping_logs_debug(self, monkeypatch, caplog):
-        agent = self._agent(monkeypatch, {"cheap": "deepseek-v4-flash"})
+        agent = self._agent(monkeypatch, {"alias": "deepseek-v4-flash"})
         with caplog.at_level(logging.DEBUG, logger="vertex_edge_agent.agents"):
-            agent.resolve_model("cheap")
+            agent.resolve_model("alias")
         assert any("via proxy" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_map_applied_in_request_payload(self, monkeypatch):
-        agent = self._agent(monkeypatch, {"smart": "claude-opus-4.7"}, default_model="smart")
+        agent = self._agent(monkeypatch, {"alias": "claude-opus-4.7"}, default_model="alias")
         agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
         await agent.process("d", "p", "default")
         assert agent.client.post.call_args[1]["json"]["model"] == "claude-opus-4.7"
@@ -1257,15 +1257,15 @@ class TestAgentFactory:
             "type": "proxy",
             key: "http://gw:4000/v1/",
             "api_key": "sk-gw",
-            "model": "cheap",
-            "model_map": {"cheap": "deepseek-v4-flash"},
+            "model": "alias",
+            "model_map": {"alias": "deepseek-v4-flash"},
             "max_retries": 2,
         })
         assert isinstance(agent, ProxiedLLMAgent)
         assert agent.base_url == "http://gw:4000/v1"
         assert agent.api_key == "sk-gw"
-        assert agent.default_model == "cheap"
-        assert agent.model_map == {"cheap": "deepseek-v4-flash"}
+        assert agent.default_model == "alias"
+        assert agent.model_map == {"alias": "deepseek-v4-flash"}
         assert agent.resolve_model("default") == "deepseek-v4-flash"
         await agent.close()
 

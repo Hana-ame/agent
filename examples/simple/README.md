@@ -27,7 +27,7 @@ python examples/run.py examples/simple/config.json
 
 1. The `input` node, having no incoming edges, automatically enters the `READY` state upon initialization.
 2. The scheduler (Executor) activates outgoing edge `e1` and extracts the string from the data source.
-3. The Mock version of PI Agent simulates LLM processing, adding the prefix `[gemini-pro]` to the string.
+3. The Mock version of PI Agent simulates LLM processing, adding the prefix `[hy3-free]` to the string.
 4. The processing result is written to the `processor` node, and the unified signal delivery mechanism triggers its state to change to `READY`.
-5. Outgoing edge `e2` is activated, and the LLM processes it and adds the prefix `[gemini-flash]`.
+5. Outgoing edge `e2` is activated, and the LLM processes it and adds the prefix `[hy3-free]`.
 6. The final data reaches the `output` node, and the entire computation graph enters the settlement state and all become `DONE`.

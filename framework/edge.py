@@ -19,7 +19,7 @@ import logging
 import time
 from typing import Any, Dict, Optional, Union
 
-from .agents import get_agent, MockAgent, BaseAgent
+from .agents import MockAgent, BaseAgent
 from .utils.errors import AbortPipeline, GuardAbortError, HookError, ComputeError
 
 logger = logging.getLogger("vertex_edge_agent.edge")
@@ -78,7 +78,10 @@ class Edge:
         self.prompt = s.get("prompt", "")
         self._base_prompt = self.prompt
         self.model = s.get("model", "default")
-        self.agent = get_agent(s.get("agent"))
+        # No per-edge agent from config. Script Edge subclasses may set their
+        # own agent (e.g. ``self.agent = OpenCodeAgentRunner()`` in ``__init__``);
+        # plain edges fall back to the executor agent, then MockAgent.
+        self.agent = None
         self.retry_policy = s.get("retry_policy", {})
         self.timeout = float(s.get("timeout", 0))
         self.output_schema = s.get("output_schema")
@@ -147,7 +150,7 @@ class Edge:
         """Single computation. Default: call agent.process if prompt/model present, else passthrough.
 
         Agent precedence (most specific first):
-        1. ``self.agent`` — the per-edge ``settings.agent`` override (str / dict / path:Class)
+        1. ``self.agent`` — set by a script ``Edge`` subclass (e.g. ``OpenCodeEdge``)
         2. ``agent``      — the executor-level agent passed in
         3. ``MockAgent()`` — the deterministic fallback
         """

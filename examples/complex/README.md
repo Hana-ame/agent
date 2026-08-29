@@ -6,11 +6,11 @@ This example demonstrates a high-level Directed Acyclic Graph (DAG) covering con
 
 ```mermaid
 graph TD
-    input_a((input_a)) -- e1 (gemini-pro) --> transform((transform))
-    input_a -- e4 (gemini-flash) --> merge((merge))
-    input_b((input_b)) -- e2 (gemini-flash) --> transform
-    transform -- e3 (gemini-pro) --> merge
-    merge -- e5 (gemini-pro) --> output((output))
+    input_a((input_a)) -- e1 (hy3-free) --> transform((transform))
+    input_a -- e4 (hy3-free) --> merge((merge))
+    input_b((input_b)) -- e2 (hy3-free) --> transform
+    transform -- e3 (hy3-free) --> merge
+    merge -- e5 (hy3-free) --> output((output))
 ```
 
 ## Key Features Showcased

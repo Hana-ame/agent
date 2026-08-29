@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "name": "OpenCode Zen + Proxied LLM",
-    "description": "Two real-LLM agents in one graph: OpenCodeAgent hits free OpenCode Zen directly (self-throttled), while ProxiedLLMAgent routes through a self-hosted gateway with model aliasing."
+    "name": "OpenCode CLI Agent",
+    "description": "One edge loaded from `script: zen_edge.py:OpenCodeEdge` that launches the local `opencode` CLI to process the prompt. Everything is declared in the config: edge class (script), prompt and model."
   },
   "vertices": [
     {
@@ -11,8 +11,7 @@
         { "channel": "text", "value": "Explain why a DAG execution engine is a good fit for orchestrating AI agents, in two sentences." }
       ]
     },
-    { "id": "zen_out", "settings": { "type": "sink" } },
-    { "id": "proxy_out", "settings": { "type": "sink" } }
+    { "id": "zen_out", "settings": { "type": "sink" } }
   ],
   "edges": [
     {
@@ -20,32 +19,11 @@
       "source": "prompt_in",
       "destination": "zen_out",
       "channel": "text",
+      "concurrency_type": "llm",
+      "script": "zen_edge.py:OpenCodeEdge",
       "settings": {
         "prompt": "You are a concise technical writer.",
-        "model": "hy3-free",
-        "agent": {
-          "type": "opencode",
-          "max_concurrency": 2,
-          "requests_per_minute": 20.0,
-          "queue_timeout": 60.0
-        }
-      }
-    },
-    {
-      "id": "e_proxy",
-      "source": "prompt_in",
-      "destination": "proxy_out",
-      "channel": "text",
-      "settings": {
-        "prompt": "You are a concise technical writer.",
-        "model": "cheap",
-        "agent": {
-          "type": "proxy",
-          "proxy_url": "http://localhost:8000/v1",
-          "model_map": { "cheap": "deepseek-v4-flash", "smart": "gpt-5.5" },
-          "max_concurrency": 4,
-          "https_proxy": "http://127.0.1.6:7890"
-        }
+        "model": "hy3-free"
       }
     }
   ]

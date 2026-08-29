@@ -37,7 +37,7 @@
       "channel": "text",
       "settings": {
         "prompt": "Summarize the following text in one sentence:",
-        "model": "gemini-pro"
+        "model": "hy3-free"
       }
     },
     {
@@ -47,7 +47,7 @@
       "channel": "text",
       "settings": {
         "prompt": "Translate the following to French:",
-        "model": "gemini-flash"
+        "model": "hy3-free"
       }
     }
   ]

@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
-"""OpenCode Zen + Proxied LLM example.
+"""OpenCode CLI Agent example.
 
-Runs ``config.json`` — a fan-out graph where one edge calls OpenCode Zen
-directly (free, no key, self-throttled) and the other routes through a
-self-hosted proxy/gateway with model aliasing.
+Runs ``config.json`` — a single edge loaded from
+``script: zen_edge.py:OpenCodeEdge`` that launches the local ``opencode``
+CLI to process the prompt.
 
-Both agents are wired **declaratively** from ``config.json`` via the per-edge
-``settings.agent`` block, so this entrypoint stays agent-agnostic:
+Everything is declared in the config (edge class + prompt + model). The
+runner only loads the graph and executes it — no agent is injected and no
+fallback default agent is used.
 
     python examples/opencode_zen/run.py
-
-The OpenCode edge works out of the box. The proxy edge needs a gateway
-listening at ``http://localhost:8000/v1`` (e.g. LiteLLM / one-api) — set
-``LLM_PROXY_BASE_URL`` / ``LLM_PROXY_API_KEY`` to point elsewhere.
 """
 
 import asyncio
@@ -38,15 +35,14 @@ async def main() -> None:
     config = os.path.join(os.path.dirname(__file__), "config.json")
     graph = Graph.from_json(config)
 
-    # agents=None → each edge uses the agent declared in its own settings.
-    executor = Executor(graph, agents=None, max_concurrency=4)
+    # The edge owns its agent (OpenCodeAgentRunner) via config's `script`.
+    executor = Executor(graph)
 
     result = await executor.run()
     print("\n" + result.summary())
 
-    for vid in ("zen_out", "proxy_out"):
-        data = await graph.vertices[vid].fetch_data()
-        print(f"\n--- {vid} ---\n{data}")
+    data = await graph.vertices["zen_out"].fetch_data()
+    print(f"\n--- zen_out ---\n{data}")
 
 
 if __name__ == "__main__":

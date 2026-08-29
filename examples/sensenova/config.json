@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "name": "Real LLM Edge Pipeline",
-    "description": "Real LLM call through a transport HTTP proxy. The edge is loaded from `script: llm_edge.py:HttpLLMEdge` and owns an HttpLLMAgent; base_url / https_proxy come from settings."
+    "name": "SenseNova Free LLM (no proxy)",
+    "description": "Clone of real_llm for the free SenseNova endpoint `token.sensenova.cn` — model `sensenova-6.8-flash-lite`, directly reachable without any proxy. Edge loaded by `script: sensenova_edge.py:SensenovaEdge`."
   },
   "vertices": [
     {
@@ -17,7 +17,7 @@
       ]
     },
     {
-      "id": "llm_output",
+      "id": "sensenova_output",
       "settings": {
         "type": "sink"
       }
@@ -25,17 +25,16 @@
   ],
   "edges": [
     {
-      "id": "e_real_llm",
+      "id": "e_sensenova",
       "source": "user_input",
-      "destination": "llm_output",
+      "destination": "sensenova_output",
       "channel": "text",
       "concurrency_type": "llm",
-      "script": "llm_edge.py:HttpLLMEdge",
+      "script": "sensenova_edge.py:SensenovaEdge",
       "settings": {
         "prompt": "You are a creative poet.",
-        "model": "hy3-free",
-        "base_url": "https://opencode.ai/zen/v1",
-        "https_proxy": "http://127.0.1.6:7890"
+        "model": "sensenova-6.8-flash-lite",
+        "base_url": "https://token.sensenova.cn/v1"
       }
     }
   ]

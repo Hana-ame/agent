@@ -32,11 +32,11 @@
   ],
   "edges": [
     {
-      "id": "e_smart",
+      "id": "e_custom",
       "source": "source_node",
       "destination": "filter_node",
       "settings": {
-        "prefix_tag": "[SMART]",
+        "prefix_tag": "[CUSTOM]",
         "prompt": "Analyze this data:"
       },
       "script": "my_nodes.py"

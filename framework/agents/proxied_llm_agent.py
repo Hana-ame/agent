@@ -63,8 +63,7 @@ class ProxiedLLMAgent(_HTTPAgentBase):
     api_key:
         Gateway token. Fall back to ``LLM_PROXY_API_KEY`` / ``OPENAI_API_KEY``.
     model_map:
-        Graph-level alias -> upstream model id, e.g.
-        ``{"cheap": "deepseek-v4-flash", "smart": "gpt-5.5"}``.
+        Graph-level alias -> upstream model id (e.g. ``{"alias": "gpt-5.5"}``).
         Applied *after* the ``"default"`` fallback, so the default model
         can itself be aliased.
     default_model:
@@ -139,7 +138,7 @@ class ProxiedLLMAgent(_HTTPAgentBase):
         """Resolve the model through the alias map.
 
         The ``"default"`` fallback happens first so ``default_model`` can be
-        aliased too (e.g. ``default_model="cheap"`` + ``model_map``).
+        aliased too (e.g. ``default_model="alias"`` + ``model_map``).
         Unmapped names pass through unchanged.
         """
         target = super().resolve_model(model, settings)

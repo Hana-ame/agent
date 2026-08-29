@@ -1,5 +1,6 @@
 pytest>=7.0
 pytest-asyncio>=0.21
-httpx>=0.24
+httpx>=0.28
+socksio>=1.0
 tenacity>=8.2
 pydantic>=2.0

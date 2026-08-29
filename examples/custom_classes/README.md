@@ -4,7 +4,7 @@ This example demonstrates the true object-oriented programming (OOP) power of th
 
 ## How it works
 
-1. In `config.json`, we configure `"script": "my_nodes.py"` for `filter_node` and `e_smart`.
+1. In `config.json`, we configure `"script": "my_nodes.py"` for `filter_node` and `e_custom`.
 2. The framework automatically scans `my_nodes.py` using Python's native `inspect` module to intelligently identify subclasses that inherit from `Vertex` and `Edge`.
 3. The framework natively constructs instances of `SafeFilterVertex` and `PrefixEdge`, passing the JSON configuration directly to their `__init__` constructors.
 4. Subclasses can directly define or override lifecycle methods (such as defining a native `on_receive()` method in the vertex, or overriding `pre_process()` and `post_process()` in the edge). These class methods seamlessly integrate into the Executor's event loop mechanism.

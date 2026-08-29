@@ -76,7 +76,6 @@ class Graph:
               "settings": {                       // Computation layer within settings
                 "prompt": "Summarise this:",
                 "model": "gemini-pro",
-                "agent": "http",                  // optional: str/dict/"path:Class"
                 "retry_policy": {"max_retries": 2},
                 "timeout": 60
               },
@@ -178,14 +177,7 @@ class Graph:
             if script and not os.path.isabs(script):
                 script = os.path.join(base_dir, script)
 
-            # Agent spec can be specified inside settings ("agent" key)
             settings = ec.get("settings", {})
-            agent_spec = settings.get("agent") if isinstance(settings, dict) else None
-            if isinstance(agent_spec, str) and agent_spec.endswith(".py") and not os.path.isabs(agent_spec):
-                settings["agent"] = os.path.join(base_dir, agent_spec)
-            elif isinstance(agent_spec, dict) and isinstance(agent_spec.get("type"), str) and agent_spec["type"].endswith(".py") and not os.path.isabs(agent_spec["type"]):
-                settings["type"] = os.path.join(base_dir, agent_spec["type"])
-                settings["agent"] = settings.pop("type")
 
             if script:
                 from .utils.script_loader import load_class_from_script, load_script

@@ -63,7 +63,7 @@
       "channel": "text",
       "settings": {
         "prompt": "Analyze the following text for key themes:",
-        "model": "gemini-pro"
+        "model": "hy3-free"
       }
     },
     {
@@ -73,7 +73,7 @@
       "channel": "text",
       "settings": {
         "prompt": "Extract relevant context from:",
-        "model": "gemini-flash"
+        "model": "hy3-free"
       }
     },
     {
@@ -85,7 +85,7 @@
         "prefix": "[ANALYZED]",
         "suffix": "[/ANALYZED]",
         "prompt": "Combine analysis results into a coherent summary:",
-        "model": "gemini-pro"
+        "model": "hy3-free"
       },
       "script": "../scripts/prefix_handler.py"
     },
@@ -96,7 +96,7 @@
       "channel": "text",
       "settings": {
         "prompt": "Format the original text for reference:",
-        "model": "gemini-flash"
+        "model": "hy3-free"
       }
     },
     {
@@ -106,7 +106,7 @@
       "channel": "final",
       "settings": {
         "prompt": "Generate a final report combining all inputs:",
-        "model": "gemini-pro"
+        "model": "hy3-free"
       }
     }
   ]

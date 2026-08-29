@@ -1,10 +1,10 @@
-"""Agent for the OpenCode Zen gateway — free, key-less LLM access.
+"""Agent for the OpenCode Zen gateway.
 
 OpenCode Zen (``https://opencode.ai/zen/v1``) exposes an OpenAI-compatible
-``/chat/completions`` endpoint that fronts a rotating set of free models
-from DeepSeek, Google, OpenAI, Anthropic, xAI, Moonshot, Zhipu and others.
-No API key is required — the default token is the literal string
-``"public"``.
+``/chat/completions`` endpoint. The free-tier model ``hy3-free`` needs no
+API key — the default token is the literal string ``"public"``. Other,
+key-gated models are deliberately NOT catalogued: only ``*-free`` (key-less)
+model ids are listed below.
 
 Self-throttling
 ---------------
@@ -37,23 +37,16 @@ logger = logging.getLogger("vertex_edge_agent.agents")
 DEFAULT_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
 DEFAULT_ZEN_MODEL = "hy3-free"
 
-#: Free models currently served by OpenCode Zen (id -> upstream vendor).
+#: Free (key-less) models served by OpenCode Zen — only ``*-free`` ids.
 #: Informational — used for validation warnings, never enforced.
+#: Key-gated models are intentionally absent; the free tier is ``hy3-free``.
 KNOWN_ZEN_MODELS: Dict[str, str] = {
     "hy3-free": "DeepSeek",
-    "deepseek-v4-flash": "DeepSeek",
-    "grok-4.2-fast": "xAI",
-    "gemini-3.5-flash": "Google",
-    "gpt-5.5": "OpenAI",
-    "claude-opus-4.7": "Anthropic",
-    "qwen3.6-plus": "Alibaba",
-    "kimi-k2.7": "Moonshot",
-    "glm-5.1": "Zhipu",
 }
 
 
 class OpenCodeAgent(_HTTPAgentBase):
-    """OpenCode Zen agent — free LLM calls with no API key, self-limited.
+    """OpenCode Zen agent — free-tier LLM calls with no API key, self-limited.
 
     Parameters
     ----------
