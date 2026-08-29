@@ -77,3 +77,22 @@ def test_time_regex_handles_prefix():
     y, mo, d, h, mi = map(int, m.groups())
     dt = datetime(y, mo, d, h, mi, tzinfo=timezone(timedelta(hours=8)))
     assert dt.year == 2026 and dt.month == 8 and dt.day == 29
+
+
+@pytest.mark.parametrize("path", EDGE_PATHS)
+def test_summarize_edge_keeps_original_title(path):
+    # Regression: the report title must come from the fetched thread data, not
+    # from the LLM restating it. SummarizeEdge must attach the original
+    # title/url to its output as structured fields.
+    mod = _load_s1_edges(path)
+    edge = mod.SummarizeEdge(edge_id="e_sum", source_id="v_router", destination_id="v_report")
+    payload = {"title": "原帖标题X", "url": "https://stage1st.com/2b/thread-1-1-1.html", "content": "# some thread\ncontent"}
+    prompt = edge.pre_process(payload, {})
+    assert "原帖标题X" in prompt and "thread-1-1-1.html" in prompt
+    # LLM body is whatever the model returned; post_process must wrap it.
+    out = edge.post_process("## AI/LLM Trends\n- body", {})
+    assert out == {
+        "title": "原帖标题X",
+        "url": "https://stage1st.com/2b/thread-1-1-1.html",
+        "summary": "## AI/LLM Trends\n- body",
+    }

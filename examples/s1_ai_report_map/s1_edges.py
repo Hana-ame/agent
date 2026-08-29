@@ -210,11 +210,24 @@ class FetchEdge(Edge):
 class SummarizeEdge(Edge):
     def pre_process(self, data, settings):
         if isinstance(data, dict):
-            title = data.get("title", "Unknown")
-            url = data.get("url", "")
+            # Remember the ORIGINAL fetched thread title/url so the report does
+            # not depend on the LLM faithfully restating the title.
+            self._title = data.get("title", "Unknown")
+            self._url = data.get("url", "")
             content = data.get("content", "")
-            return f"Thread Title: {title}\nLink: {url}\n\n{content}"
+            return f"Thread Title: {self._title}\nLink: {self._url}\n\n{content}"
         return str(data)
+
+    def post_process(self, data, settings):
+        # Attach the original title/url to the LLM summary as structured data.
+        summary = str(data)
+        if isinstance(data, dict) and data.get("summary"):
+            summary = data["summary"]
+        return {
+            "title": getattr(self, "_title", "Unknown"),
+            "url": getattr(self, "_url", ""),
+            "summary": summary,
+        }
 
 
 class ProcessThreadsMap(MapEdge):

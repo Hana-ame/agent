@@ -20,7 +20,15 @@ class ReportVertex(Vertex):
 
         lines = ["# S1 AI Discussion Report\n"]
         for i, report in enumerate(self.reports):
-            lines += [f"## Thread {i + 1}", report, "\n---\n"]
+            if isinstance(report, dict):
+                # Structured summary: title/url come from the fetched thread
+                # data (not restated by the LLM), summary is the LLM body.
+                title = report.get("title", "Unknown")
+                url = report.get("url", "")
+                summary = report.get("summary", "")
+                lines += [f"## Thread {i + 1}", "", f"# [{title}]({url})", "", summary, "\n---\n"]
+            else:
+                lines += [f"## Thread {i + 1}", "", str(report), "\n---\n"]
         content = "\n".join(lines)
 
         out_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # example root

@@ -53,7 +53,7 @@
           {
             "type": "llm",
             "script": "s1_edges.py:SummarizeEdge",
-            "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+            "prompt": "Summarize the following forum thread discussion in markdown. Structure it as three sections: ## AI/LLM Trends, ## User Opinions, ## Key Arguments. Output ONLY the three sections as the body — do NOT repeat the thread title or link.",
             "model": "hy3-free"
           }
         ],

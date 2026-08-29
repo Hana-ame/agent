@@ -37,7 +37,13 @@ async def test_s1_summarize_edge():
         }
     )
     result = await edge.execute(v_t, Vertex("v_report"), MockAgent(response_fn=lambda d, p, m, s: f"PROCESSED: {d}"))
-    assert "Thread Title: Sample Title" in result
+    # SummarizeEdge attaches the original title/url structurally; the LLM body
+    # goes into "summary".
+    assert isinstance(result, dict)
+    assert result["title"] == "Sample Title"
+    assert result["url"] == "https://example.com"
+    assert "Thread Title: Sample Title" in result["summary"]
+    assert "PROCESSED" in result["summary"]
     assert edge.completed is True
 
 

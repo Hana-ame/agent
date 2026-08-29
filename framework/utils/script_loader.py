@@ -64,30 +64,47 @@ def load_script(script_path: str, script_name: Optional[str] = None):
 
 def load_class_from_script(script_path: str, base_class: type, default_class: type = None) -> type:
     """Load a script and find a subclass of base_class.
-    
+
     Args:
         script_path: Path to the python script.
-        base_class: The base class to look for.
-        default_class: The class to return if no subclass is found. Defaults to base_class.
-        
+        base_class: The base class the found class must subclass.
+        default_class: Either a class NAME (str) to look up explicitly (e.g.
+            MapEdge pipeline steps pass ``"SummarizeEdge"``), or a fallback
+            class type to return when auto-discovery finds nothing.
+            Defaults to base_class.
+
     Returns:
-        The found subclass, or default_class if none found.
-        
+        The found subclass, or the fallback if none found.
+
     Raises:
         RuntimeError: If script fails to load.
     """
     import inspect
     if default_class is None:
         default_class = base_class
-        
+
     try:
         module = load_script(script_path)
+
+        # Explicit class name requested -> find the class with that name
+        # (previously this argument was silently ignored and the first
+        # subclass of base_class was returned, so "script.py:SummarizeEdge"
+        # could actually load FetchEdge).
+        if isinstance(default_class, str):
+            requested = getattr(module, default_class, None)
+            if requested is not None and inspect.isclass(requested) and issubclass(requested, base_class):
+                return requested
+            logger.warning(
+                "[ScriptLoader] %s 里没有名为 %s 的 %s 子类，已降级用 %s——自定义行为不会执行。",
+                script_path, default_class, base_class.__name__, base_class.__name__,
+            )
+            return base_class
+
+        # Auto-discover: first subclass of base_class in the script.
         for name, obj in inspect.getmembers(module, inspect.isclass):
             if issubclass(obj, base_class) and obj not in (base_class, default_class):
                 return obj
-        # 静默降级是真正的坑：脚本挂上去了、配置看起来没问题、流水线也跑通了，
-        # 但自定义行为一行都没执行（complex demo 的 [ANALYZED] 前后缀就是这样丢的）。
-        # 至少得在日志里喊一声，别让人以为脚本生效了。
+
         logger.warning(
             "[ScriptLoader] %s 里没有 %s 子类，已降级用 %s——自定义行为不会执行。\n"
             "        若要自定义，请在脚本里定义 %s 子类（旧的顶层 hook 函数写法已失效）。",
