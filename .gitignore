@@ -3,5 +3,7 @@ scratch/
 __pycache__/
 *.db
 .coverage
-.pytest_cache/.coverage
+.pytest_cache/
 examples/s1profile_collect/data/
+.venv_libs/
+runs/
