@@ -9,9 +9,9 @@ from framework.edge import Edge, MapEdge
 
 logger = logging.getLogger(__name__)
 
-async def fetch_hn_top_stories(limit: int = 30, timeout: float = 30):
+async def fetch_hn_top_stories(limit: int = 30, timeout: float = 30, proxy: str = None):
     headers = {"User-Agent": "Mozilla/5.0"}
-    async with httpx.AsyncClient(headers=headers, timeout=timeout) as c:
+    async with httpx.AsyncClient(headers=headers, timeout=timeout, proxy=proxy, trust_env=True) as c:
         r = await c.get("https://hacker-news.firebaseio.com/v0/topstories.json")
         r.raise_for_status()
         story_ids = r.json()[:limit]
@@ -40,9 +40,9 @@ async def fetch_hn_top_stories(limit: int = 30, timeout: float = 30):
     return json.dumps(out, ensure_ascii=False)
 
 
-async def fetch_hn_comments_md(story_id: int, max_comments: int = 15, timeout: float = 30) -> str:
+async def fetch_hn_comments_md(story_id: int, max_comments: int = 15, timeout: float = 30, proxy: str = None) -> str:
     headers = {"User-Agent": "Mozilla/5.0"}
-    async with httpx.AsyncClient(headers=headers, timeout=timeout) as c:
+    async with httpx.AsyncClient(headers=headers, timeout=timeout, proxy=proxy, trust_env=True) as c:
         try:
             r = await c.get(f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json")
             r.raise_for_status()
@@ -87,7 +87,9 @@ async def fetch_hn_comments_md(story_id: int, max_comments: int = 15, timeout: f
 
 class FetchTopStoriesEdge(Edge):
     async def pre_process(self, data, settings):
-        return await fetch_hn_top_stories(30)
+        timeout = float(settings.get("timeout", 30))
+        proxy = settings.get("proxy")
+        return await fetch_hn_top_stories(30, timeout=timeout, proxy=proxy)
 
     def post_process(self, data, settings):
         try:
@@ -118,18 +120,32 @@ class FetchCommentsEdge(Edge):
 
     async def pre_process(self, data, settings):
         timeout = float(settings.get("timeout", 30))
-        md = await fetch_hn_comments_md(data["id"], timeout=timeout)
+        proxy = settings.get("proxy")
+        md = await fetch_hn_comments_md(data["id"], timeout=timeout, proxy=proxy)
         return {"title": data.get("title", ""), "url": data.get("url", ""), "content": md}
 
 
 class SummarizeEdge(Edge):
     def pre_process(self, data, settings):
         if isinstance(data, dict):
-            title = data.get("title", "Unknown")
-            url = data.get("url", "")
+            # Remember the ORIGINAL fetched story title/url so the report does
+            # not depend on the LLM faithfully restating the title.
+            self._title = data.get("title", "Unknown")
+            self._url = data.get("url", "")
             content = data.get("content", "")
-            return f"Title: {title}\nURL: {url}\n\n{content}"
+            return f"Story Title: {self._title}\nURL: {self._url}\n\n{content}"
         return str(data)
+
+    def post_process(self, data, settings):
+        # Attach the original title/url to the LLM summary as structured data.
+        summary = str(data)
+        if isinstance(data, dict) and data.get("summary"):
+            summary = data["summary"]
+        return {
+            "title": getattr(self, "_title", "Unknown"),
+            "url": getattr(self, "_url", ""),
+            "summary": summary,
+        }
 
 
 class ProcessStoriesMap(MapEdge):

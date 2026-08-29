@@ -41,7 +41,7 @@
       "concurrency_type": "llm",
       "script": "s1_edges.py:FilterEdge",
       "settings": {
-        "prompt": "Here is a list of forum threads:\n{data}\n\nTask: Select up to 8 threads most relevant to AI, LLM, GPT, Machine Learning, and Deep Learning. Return a valid JSON array of objects with \"tid\", \"title\", and \"url\" keys. Output only raw JSON array without markdown formatting.",
+        "prompt": "这是一份 S1 论坛 AI 专区的帖子列表:\n{data}\n\n任务:选出与 AI、大语言模型、机器学习、深度学习相关的帖子,有多少选多少,不要限定数量。\n\n只输出一个合法的 JSON 数组,元素含 'tid'、'title'、'url' 字段。不要解释,不要 markdown 格式。",
         "model": "hy3-free",
         "base_url": "https://opencode.ai/zen/v1/chat/completions",
         "proxy": "http://127.0.2.6:7890"

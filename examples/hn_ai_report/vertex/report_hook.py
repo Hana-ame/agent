@@ -1,31 +1,38 @@
+"""HN Report Aggregator Vertex subclass.
+
+Loaded as the body of v_report by the graph (config: ``"script": "vertex/report_hook.py"``).
+Accumulates AI summaries from summarize edges via on_receive and writes report.md to disk.
+"""
 import os
-import asyncio
+
 from framework.vertex import Vertex
 
+
 class ReportVertex(Vertex):
-    """Accumulates summaries of HN AI stories and outputs to report.md."""
+    """Accumulates AI summaries across stories and outputs report.md."""
 
     def on_receive(self, data, channel, settings):
+        # Accumulate reports across multiple on_receive calls.
         if not hasattr(self, "reports"):
             self.reports = []
-        
-        # When using MapEdge, data might come as a list of results
-        if isinstance(data, list):
-            self.reports.extend(data)
-        else:
-            self.reports.append(data)
-            
-        return self.reports
 
-    def on_ready(self, all_data, settings):
-        reports = getattr(self, "reports", [])
+        self.reports.append(data)
+
         lines = ["# Hacker News AI Report\n"]
-        for i, report in enumerate(reports):
-            lines += [f"## Story {i + 1}", str(report), "\n---\n"]
+        for report in self.reports:
+            if isinstance(report, dict):
+                # Structured summary: title/url come from the fetched story
+                # data (not restated by the LLM), summary is the LLM body.
+                title = report.get("title", "Unknown")
+                url = report.get("url", "")
+                summary = report.get("summary", "")
+                lines += [f"# [{title}]({url})", "", summary, "\n---\n"]
+            else:
+                lines += [str(report), "\n---\n"]
         content = "\n".join(lines)
 
-        out_dir = os.path.dirname(os.path.abspath(__file__))
-        with open(os.path.join(out_dir, "..", "report.md"), "w", encoding="utf-8") as f:
+        out_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # example root
+        with open(os.path.join(out_dir, "report.md"), "w", encoding="utf-8") as f:
             f.write(content)
-            
-        return {"report_md": content}
+
+        return self.reports
