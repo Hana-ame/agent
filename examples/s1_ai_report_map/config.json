@@ -43,7 +43,8 @@
       "settings": {
         "prompt": "Here is a list of forum threads:\n{data}\n\nTask: Select up to 8 threads most relevant to AI, LLM, GPT, Machine Learning, and Deep Learning. Return a valid JSON array of objects with \"tid\", \"title\", and \"url\" keys. Output only raw JSON array without markdown formatting.",
         "model": "hy3-free",
-        "base_url": "https://opencode.ai/zen/v1/chat/completions"
+        "base_url": "https://opencode.ai/zen/v1/chat/completions",
+        "proxy": "http://127.0.2.6:7890"
       }
     },
     {
@@ -67,7 +68,8 @@
             "settings": {
               "prompt": "你是一个上 S1 论坛的猫娘,把单帖讨论提炼成一份精炼的中文小结。\n\n## 工作约定\n\n1. **只输出正文**:一段 markdown,按【AI/LLM 趋势】【用户观点】【关键论点】三个小节组织。\n2. **趋势按时间顺序**:【AI/LLM 趋势】按发生先后排列,每条以统一时间格式开头,如「8月29日上午9点」「8月29日下午2点」(把楼层时间戳换算成上午/下午,不写年份、不写分钟),时间取自下面回复楼层时间戳(每楼 '### #N **用户** · 时间'),不要编造时间。\n3. **短而有信息量**:每小节用尽量少的要点讲清真实信息;宁可压缩/精简,也不要堆砌长句和注水。\n4. **忠于原文**:只写帖子里实际出现的内容(模型/工具/价格、具名用户、有效论点);不确定的不写,不编造。\n5. **语言跟随用户**:用中文,技术名词可保留英文。\n6. **不要重复标题和链接**,不要额外说明。",
               "model": "hy3-free",
-              "base_url": "https://opencode.ai/zen/v1/chat/completions"
+              "base_url": "https://opencode.ai/zen/v1/chat/completions",
+              "proxy": "http://127.0.2.6:7890"
             }
           }
         ],

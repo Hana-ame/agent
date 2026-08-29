@@ -224,11 +224,19 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         # HTTPS_PROXY from the environment when ``proxy`` is unset. They are
         # independent layers and stack with the gateway URL above.
         self.client = httpx.AsyncClient(
+            proxy=proxy,
             timeout=httpx.Timeout(timeout, connect=10.0),
             limits=httpx.Limits(max_keepalive_connections=50, max_connections=100),
-            proxy=proxy,
             trust_env=trust_env,
         )
+        self._client_kwargs = dict(
+            timeout=httpx.Timeout(timeout, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=50, max_connections=100),
+            trust_env=trust_env,
+        )
+        # Client cache keyed by ``settings["proxy"]`` so each edge/step can
+        # pin its own explicit proxy without touching the default client.
+        self._proxied_clients: dict = {}
         self._closed = False
         # Per-call transport proxy override: edge ``settings`` may carry
         # ``"proxy": "http://..."`` to pin a call to a specific egress proxy.
@@ -298,6 +306,24 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
     # ------------------------------------------------------------------
     # Request execution
     # ------------------------------------------------------------------
+    def _client_for(self, settings: Optional[Dict] = None) -> "httpx.AsyncClient":
+        """Return the HTTP client matching ``settings["proxy"]``.
+
+        When settings explicitly declare a proxy (e.g. ``http://127.0.0.1:7890``)
+        it is honored verbatim via a cached per-proxy client; otherwise the
+        default client (constructor ``proxy``) is used. No fallback guessing.
+        """
+        proxy = (settings or {}).get("proxy") or self.proxy
+        if not proxy or proxy == self.proxy:
+            return self.client
+        client = self._proxied_clients.get(proxy)
+        if client is None:
+            import httpx
+
+            client = httpx.AsyncClient(proxy=proxy, **self._client_kwargs)
+            self._proxied_clients[proxy] = client
+        return client
+
     def _endpoint_url(self, settings: Optional[Dict] = None) -> str:
         """Resolve the chat-completions URL.
 
@@ -342,11 +368,12 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
                 if target != self.proxy:
                     self._build_client(target)
 
-    async def _post(self, payload: Dict[str, Any], url: Optional[str] = None) -> Dict[str, Any]:
+    async def _post(self, payload: Dict[str, Any], url: Optional[str] = None, settings: Optional[Dict] = None) -> Dict[str, Any]:
         """One POST + error split, gated by the per-attempt rate budget."""
         await self._acquire_budget()
-        response = await self.client.post(
-            url or self._endpoint_url(),
+        client = self._client_for(settings)
+        response = await client.post(
+            url or self._endpoint_url(settings),
             json=payload,
             headers=self.headers,
         )
@@ -372,7 +399,7 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
             reraise=True,
         )
         async def _make_request():
-            return await self._post(payload, url=self._endpoint_url(settings))
+            return await self._post(payload, url=self._endpoint_url(settings), settings=settings)
 
         response = await _make_request()
         usage = response.get("usage") or {}
@@ -448,7 +475,8 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         payload = self.build_payload(data, prompt, model, settings, stream=True)
         try:
             async with self._concurrency_gate():
-                async with self.client.stream(
+                client = self._client_for(settings)
+                async with client.stream(
                     "POST",
                     self._endpoint_url(settings),
                     json=payload,
@@ -484,5 +512,6 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
     async def close(self) -> None:
         """Close the underlying HTTP client and release connections."""
         if not self._closed:
-            await self.client.aclose()
+            for c in {id(self.client): self.client, **{id(v): v for v in self._proxied_clients.values()}}.values():
+                await c.aclose()
             self._closed = True

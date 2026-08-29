@@ -42,7 +42,9 @@
       "script": "hn_edges.py:FilterEdge",
       "settings": {
         "prompt": "Here is a list of top Hacker News stories (JSON format):\n{data}\n\nYour task: Select up to 5 stories that are most relevant to AI, LLMs, Machine Learning, or Deep Learning. If fewer than 5 are relevant, just return those.\n\nOutput ONLY a valid JSON array of objects containing 'id', 'title', and 'url'. Do not explain, no markdown formatting. Respond entirely in English.",
-        "model": "hy3-free"
+        "model": "hy3-free",
+        "base_url": "https://opencode.ai/zen/v1/chat/completions",
+        "proxy": "http://127.0.2.6:7890"
       }
     },
     {
@@ -56,14 +58,18 @@
           {
             "type": "fetch",
             "script": "hn_edges.py:FetchCommentsEdge",
-            "settings": {}
+            "settings": {
+              "timeout": 30
+            }
           },
           {
             "type": "llm",
             "script": "hn_edges.py:SummarizeEdge",
             "settings": {
               "prompt": "Summarize the discussion in the following Hacker News post comments.\n{data}\n\nProvide key takeaways, interesting technical details, and general sentiment. Format as markdown. Respond entirely in English.",
-              "model": "hy3-free"
+              "model": "hy3-free",
+              "base_url": "https://opencode.ai/zen/v1/chat/completions",
+              "proxy": "http://127.0.2.6:7890"
             }
           }
         ],
