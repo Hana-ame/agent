@@ -179,6 +179,17 @@ class Graph:
 
             settings = ec.get("settings", {})
 
+            # Resolve MapEdge pipeline step scripts relative to the config dir
+            # (load_class_from_script otherwise resolves them against the CWD).
+            if isinstance(settings, dict):
+                pipeline = settings.get("pipeline")
+                if isinstance(pipeline, list):
+                    for step in pipeline:
+                        if isinstance(step, dict):
+                            step_script = step.get("script")
+                            if step_script and not os.path.isabs(step_script):
+                                step["script"] = os.path.join(base_dir, step_script)
+
             if script:
                 from .utils.script_loader import load_class_from_script, load_script
                 try:

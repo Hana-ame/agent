@@ -1,0 +1,64 @@
+{
+  "metadata": {
+    "name": "S1 AI Report (MapEdge)",
+    "description": "Clone of s1_ai_report using the MapEdge pattern from hn_ai_report: fetch thread list -> LLM filter -> ProcessThreadsMap (concurrent fetch-replies + summarize pipeline) -> report."
+  },
+  "vertices": [
+    {
+      "id": "v_forum",
+      "initial_data": [
+        {
+          "channel": "default",
+          "value": "https://stage1st.com/2b/forum-157-1.html"
+        }
+      ]
+    },
+    { "id": "v_threads" },
+    { "id": "v_router" },
+    { "id": "v_report", "script": "vertex/report_hook.py" }
+  ],
+  "edges": [
+    {
+      "id": "e_fetch_threads",
+      "source": "v_forum",
+      "destination": "v_threads",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "s1_edges.py:FetchThreadsEdge"
+    },
+    {
+      "id": "e_filter",
+      "source": "v_threads",
+      "destination": "v_router",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "s1_edges.py:FilterEdge",
+      "settings": {
+        "prompt": "Here is a list of forum threads:\n{data}\n\nTask: Select up to 8 threads most relevant to AI, LLM, GPT, Machine Learning, and Deep Learning. Return a valid JSON array of objects with \"tid\", \"title\", and \"url\" keys. Output only raw JSON array without markdown formatting.",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e_process_threads",
+      "source": "v_router",
+      "destination": "v_report",
+      "channel": "default",
+      "script": "s1_edges.py:ProcessThreadsMap",
+      "settings": {
+        "pipeline": [
+          {
+            "type": "fetch",
+            "script": "s1_edges.py:FetchEdge"
+          },
+          {
+            "type": "llm",
+            "script": "s1_edges.py:SummarizeEdge",
+            "prompt": "Please summarize the following forum thread discussion content with markdown format, extracting AI/LLM trends, user opinions, and key arguments under [Thread Title](Thread URL).",
+            "model": "hy3-free"
+          }
+        ],
+        "max_concurrency": 5
+      }
+    }
+  ]
+}
