@@ -924,7 +924,7 @@ class TestOpenCodeAgentModelCatalog:
     def test_known_model_does_not_warn(self, caplog):
         agent = OpenCodeAgent()
         with caplog.at_level(logging.WARNING, logger="vertex_edge_agent.agents"):
-            assert agent.resolve_model("gpt-5.5") == "gpt-5.5"
+            assert agent.resolve_model("hy3-free") == "hy3-free"
         assert not [r for r in caplog.records if "known OpenCode Zen catalog" in r.message]
 
     def test_default_fallback_is_not_warned(self, caplog):
