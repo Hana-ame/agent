@@ -97,7 +97,10 @@ async def fetch_thread_replies_md(url: str, hours: int = 24) -> str:
 
 
 def _parse_posts_from_soup(soup):
-    posts = soup.select('div[id^="post_"]')
+    # Real post containers are id="post_<pid>". id="post_rate_div_<pid>"
+    # placeholders are empty rating divs and must NOT be counted as posts.
+    posts = [d for d in soup.select('div[id^="post_"]')
+             if re.match(r"^post_\d+$", d.get("id", ""))]
     result = []
     for i, block in enumerate(posts):
         user = "Unknown"
@@ -110,15 +113,21 @@ def _parse_posts_from_soup(soup):
         em_node = block.select_one('em[id^="authorposton"]')
         if em_node:
             span = em_node.select_one("span[title]")
-            if span:
+            if span and span.get("title"):
                 time_str = span.get("title")
             else:
-                time_str = em_node.get_text(strip=True).replace("Post on", "").replace("Posted at", "").strip()
+                time_str = em_node.get_text(strip=True)
+            # strip locale prefixes: 发表于 / Post on / Posted at
+            time_str = re.sub(r"^(发表于|Post on|Posted at)[\s:：]*", "", time_str).strip()
             try:
-                if re.match(r"\d{4}-\d{1,2}-\d{1,2}", time_str):
-                    dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-                    dt = dt.replace(tzinfo=timezone(timedelta(hours=8)))
-            except:
+                # stage1st uses "2026-8-29 13:10" (single-digit month/day) with
+                # optional 发表于 prefix — search anywhere, don't require a match
+                # at the start of the string.
+                m = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})", time_str)
+                if m:
+                    y, mo, d, h, mi = map(int, m.groups())
+                    dt = datetime(y, mo, d, h, mi, tzinfo=timezone(timedelta(hours=8)))
+            except Exception:
                 pass
 
         msg = block.select_one('td.t_f, [id^="postmessage_"]')
