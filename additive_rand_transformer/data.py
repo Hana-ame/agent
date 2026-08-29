@@ -105,6 +105,127 @@ def gen_expression(
     return tokens
 
 
+def _col_tokens(parts: str) -> List[int]:
+    """Tokenize a column string like '4+6+0=10' into [d,+,d,+,d,=,s...]."""
+    out: List[int] = []
+    for ch in parts:
+        out.append(TOK_TO_ID[ch])
+    return out
+
+
+def gen_expression_cot(
+    rng: random.Random,
+    min_digits: int = DEFAULT_MIN_DIGITS,
+    max_digits: int = DEFAULT_MAX_DIGITS,
+    four_digit_bias: float = 0.0,
+) -> List[int]:
+    """Chain-of-thought arithmetic expression: problem + column-wise carries + answer.
+
+    Format (uses only the 16 tokens; spaces separate columns):
+      <BOS> a op b = d1 op d2 op carry = sum carry  d1 op d2 op carry = sum carry ... c <EOS>
+
+    Columns run least-significant digit first; each is `da op db op carry = sum newcarry`
+    where sum is the full (possibly 2-digit) sum/diff and newcarry the next carry/borrow.
+    The trailing `c` is the actual answer. This decomposes multi-digit arithmetic into
+    single-column operations the tiny model can actually learn.
+
+    `four_digit_bias` (0..1): with this probability both operands are forced to
+    `max_digits` digits — this oversamples the hardest carry/overflow cases
+    (e.g. 4-digit + 4-digit with 5-digit results), which uniform digit-length
+    sampling only produces ~6% of the time.
+    """
+    if rng.random() < four_digit_bias:
+        a = _random_int(rng, min_digits=max_digits, max_digits=max_digits)
+        b = _random_int(rng, min_digits=max_digits, max_digits=max_digits)
+    else:
+        a = _random_int(rng, min_digits=min_digits, max_digits=max_digits)
+        b = _random_int(rng, min_digits=min_digits, max_digits=max_digits)
+    cols: List[Tuple[str, str]] = []  # (column_str, carry_after_this_column)
+    if rng.random() < 0.5:
+        op, opch = PLUS, "+"
+        c = a + b
+        carry = 0
+        n = max(len(str(a)), len(str(b))) + 1   # include final carry position
+        sa, sb = str(a), str(b)
+        for i in range(n):
+            da = int(sa[-1 - i]) if i < len(sa) else 0
+            db = int(sb[-1 - i]) if i < len(sb) else 0
+            s = da + db + carry
+            cols.append((f"{da}+{db}+{carry}={s}", str(s // 10)))
+            carry = s // 10
+    else:
+        op, opch = MINUS, "-"
+        if a < b:
+            a, b = b, a
+        c = a - b
+        borrow = 0
+        n = len(str(a))
+        sa, sb = str(a), str(b)
+        for i in range(n):
+            da = int(sa[-1 - i])
+            db = int(sb[-1 - i]) if i < len(sb) else 0
+            d = da - db - borrow
+            if d < 0:
+                d += 10
+                nb = 1
+            else:
+                nb = 0
+            cols.append((f"{da}-{db}-{borrow}={d}", str(nb)))
+            borrow = nb
+
+    tokens: List[int] = [BOS]
+    tokens += _int_to_tokens(a)
+    tokens += [SP, op, SP]
+    tokens += _int_to_tokens(b)
+    tokens += [SP, EQ, SP]
+    for i, (col, after) in enumerate(cols):
+        if i:
+            tokens.append(SP)
+        tokens += _col_tokens(col)
+        tokens.append(SP)
+        tokens.append(TOK_TO_ID[after])
+    tokens.append(SP)
+    tokens += _int_to_tokens(c)
+    tokens.append(EOS)
+    return tokens
+
+
+def make_single_cot_batch(
+    rng: random.Random,
+    block_size: int,
+    batch_size: int,
+    device: str = "cpu",
+    min_digits: int = DEFAULT_MIN_DIGITS,
+    max_digits: int = DEFAULT_MAX_DIGITS,
+    four_digit_bias: float = 0.0,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Batch of single CoT expressions, left-aligned + EOS padding.
+
+    Rows are padded to a width that fits the longest possible CoT expression
+    for this generator (not block_size), so the loss is not diluted by a huge
+    EOS tail. Width estimate: problem part + (n+1) columns * ~10 tokens + answer.
+    """
+    # Per column: da+db+carry=sum (up to 9+9+1=19 -> 8 chars) + space + carry = ~10 tokens
+    n_cols = max_digits + 1
+    width = min(block_size, 2 + 4 + 3 + 4 + 3 + n_cols * 10 + max_digits + 2)
+    if width < 8:
+        raise ValueError("block_size too small for CoT mode")
+
+    inp_rows: List[torch.Tensor] = []
+    tgt_rows: List[torch.Tensor] = []
+    for _ in range(batch_size):
+        expr = gen_expression_cot(rng, min_digits, max_digits, four_digit_bias)
+        if len(expr) > width:          # guard: never truncate
+            expr = expr[:width - 1] + [EOS]
+        pad = [EOS] * (width - len(expr))
+        full = expr + pad
+        inputs = torch.tensor(full[:-1], dtype=torch.long, device=device)
+        targets = torch.tensor(full[1:], dtype=torch.long, device=device)
+        inp_rows.append(inputs)
+        tgt_rows.append(targets)
+    return torch.stack(inp_rows), torch.stack(tgt_rows)
+
+
 def pack_blocks(
     rng: random.Random,
     block_size: int,
