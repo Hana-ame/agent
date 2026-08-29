@@ -46,6 +46,9 @@ async def main():
         )
         await executor.run()
     finally:
+        usage = agent.get_usage_summary()
+        print("\n=== REAL TOKEN USAGE (from upstream responses) ===")
+        print(usage)
         await agent.close()
 
     report_path = os.path.join(os.path.dirname(__file__), "report.md")

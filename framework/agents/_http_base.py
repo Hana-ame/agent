@@ -230,6 +230,8 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
             trust_env=trust_env,
         )
         self._closed = False
+        # Real per-request token usage from upstream responses (``usage`` field).
+        self.usage_log: list = []
         logger.debug(
             "[%s] ready base_url=%s default_model=%s proxy=%s trust_env=%s",
             self.NAME, self.base_url, self.default_model, proxy, trust_env,
@@ -322,7 +324,26 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         async def _make_request():
             return await self._post(payload)
 
-        return (await _make_request())["choices"][0]["message"]["content"]
+        response = await _make_request()
+        usage = response.get("usage") or {}
+        if usage:
+            self.usage_log.append({
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            })
+        return response["choices"][0]["message"]["content"]
+
+    def get_usage_summary(self) -> dict:
+        """Aggregate real token usage recorded from upstream responses."""
+        prompt = sum(u["prompt_tokens"] for u in self.usage_log)
+        completion = sum(u["completion_tokens"] for u in self.usage_log)
+        return {
+            "calls": len(self.usage_log),
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": prompt + completion,
+        }
 
     # ------------------------------------------------------------------
     # BaseAgent API
