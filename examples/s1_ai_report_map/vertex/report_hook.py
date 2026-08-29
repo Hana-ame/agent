@@ -26,9 +26,9 @@ class ReportVertex(Vertex):
                 title = report.get("title", "Unknown")
                 url = report.get("url", "")
                 summary = report.get("summary", "")
-                lines += [f"## Thread {i + 1}", "", f"# [{title}]({url})", "", summary, "\n---\n"]
+                lines += [f"# [{title}]({url})", "", summary, "\n---\n"]
             else:
-                lines += [f"## Thread {i + 1}", "", str(report), "\n---\n"]
+                lines += [str(report), "\n---\n"]
         content = "\n".join(lines)
 
         out_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # example root

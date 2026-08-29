@@ -76,24 +76,29 @@ async def fetch_thread_replies_md(url: str, hours: int = 24) -> str:
             page_has_recent = False
             for orig_idx, user, timestr, dt, content in page_posts:
                 if dt and dt >= cutoff:
-                    all_posts.insert(0, (orig_idx, user, timestr, content))
+                    # keep dt for sorting (dropped before output)
+                    all_posts.append((dt, orig_idx, user, timestr, content))
                     page_has_recent = True
 
             if not page_has_recent:
                 break
 
-    lines = [f"# {title}", "", f"> Link: <{url}>",
-             f"> Range: Last **{hours} hours**",
-             f"> Result: **{len(all_posts)}** replies", "", "---", ""]
+        # chronological order (oldest -> newest) so the summary LLM can write
+        # the trends section in time order.
+        all_posts.sort(key=lambda x: x[0])
 
-    if not all_posts:
-        lines.append(f"_No replies in the last {hours} hours._")
-        return "\n".join(lines)
+        lines = [f"# {title}", "", f"> Link: <{url}>",
+                 f"> Range: Last **{hours} hours**",
+                 f"> Result: **{len(all_posts)}** replies", "", "---", ""]
 
-    for orig_idx, user, timestr, content in all_posts:
-        lines.extend([f"### #{orig_idx + 1} **{user}** · {timestr}", "", content, "", "---", ""])
+        if not all_posts:
+            lines.append(f"_No replies in the last {hours} hours._")
+            return "\n".join(lines)
 
-    return "\n".join(lines).rstrip() + "\n"
+        for _dt, orig_idx, user, timestr, content in all_posts:
+            lines.extend([f"### #{orig_idx + 1} **{user}** · {timestr}", "", content, "", "---", ""])
+
+        return "\n".join(lines).rstrip() + "\n"
 
 
 def _parse_posts_from_soup(soup):
