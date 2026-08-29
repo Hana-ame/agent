@@ -275,9 +275,7 @@ Pydantic integration via `SchemaRegistry` enforces data consistency across edges
 
 ## 💻 Official Examples
 
-The `examples/` directory provides standalone, runnable demonstrations of the framework's core features. They serve as reference implementations for configuring Nodes, Edges, and the Execution API.
-
-### 1. Available Examples & Capabilities
+The `examples/` directory provides 16 standalone, runnable demonstrations of the framework's core features. They serve as reference implementations for configuring Nodes, Edges, and the Execution API. See [`examples/README.md`](examples/README.md) for the full index; the highlights are:
 
 | Directory | Purpose / Feature Showcased | Command |
 | :--- | :--- | :--- |
@@ -285,6 +283,13 @@ The `examples/` directory provides standalone, runnable demonstrations of the fr
 | **`self_correction/`** | Simulates LLM formatting errors to trigger `retry_policy`. Injects error stack traces back into the Prompt for LLM self-healing. | `python examples/self_correction/demo.py` |
 | **`hitl_approval/`** | Shows how `require_approval` pauses execution at sensitive nodes, saves SQLite state snapshots, and resumes via `approve()`. | `python examples/hitl_approval/demo.py` |
 | **`subgraph/`** | Demonstrates hierarchical nesting. A parent graph imports a `research_team.json` subgraph, routing inputs/outputs via boundary mapping. | `python examples/subgraph/demo.py` |
+| **`opencode_zen/`** | **v3.0** `OpenCodeAgent` (free OpenCode Zen, self-throttled) + `ProxiedLLMAgent` (self-hosted gateway with model aliasing), both wired declaratively from `config.json`. | `python examples/opencode_zen/run.py` |
+| **`race_mode/`** | **v3.0** First-to-finish fan-in: the sink wins on the first response and cancels the losers cleanly. | `python examples/race_mode/demo.py` |
+| **`dynamic_topology/`** | Async hooks and manager-driven runtime graph growth — one worker vertex per task the Manager emits. | `python examples/dynamic_topology/demo.py` |
+| **`simple_chain/`** | Programmatic `LinearChain.build(prompts)` for the shortest path to a working `A->B->C` graph (no JSON). | `python examples/simple_chain/demo.py` |
+| **`real_pi/`** | Real-LLM flow that delegates to the local `pi` CLI subprocess via `PiAgentRunner` (Pi-stdlib counterpart of `real_llm/`). | `python examples/run.py examples/real_pi/config.json` |
+| **`hn_ai_report/`** | End-to-end S1 AI report graph on `SubgraphVertex` delegation. | `python examples/hn_ai_report/demo.py` |
+| **`s1_ai_report/`** | Same S1 report graph on plain `HttpLLMAgent` — a comparison baseline against `hn_ai_report/`. | `python examples/s1_ai_report/demo.py` |
 
 ### 2. Configuring an Example from Scratch
 

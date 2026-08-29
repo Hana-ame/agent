@@ -1,6 +1,6 @@
 # Examples
 
-This directory contains five independent example pipelines demonstrating various core capabilities of the `vertex-edge-agent` framework, from basic concepts to production-grade advanced applications.
+This directory contains 16 independent example pipelines demonstrating the core capabilities of the `vertex-edge-agent` framework, from basic concepts to production-grade advanced applications.
 
 All examples share a unified way of running. You can run the corresponding configuration file directly using `run.py` from the project root:
 
@@ -23,6 +23,12 @@ python examples/run.py examples/<example_directory>/config.json
 | **`self_correction/`** | **v2.0 LLM Business Retry & Self-Correction** | Demonstrates `retry_policy` capturing post-process `KeyError`/`JSONDecodeError`, reflecting error context into the prompt (`[SYSTEM FEEDBACK: ...]`), and retrying with exponential backoff. |
 | **`hitl_approval/`** | **v2.0 Human-in-the-Loop (HITL) Checkpoints** | Demonstrates pausing sensitive operations (`require_approval`), persisting snapshots to SQLite, and resuming the workflow upon human intervention via `gate.approve()`. |
 | **`subgraph/`** | **v3.0 Hierarchical Nested Sub-Graphs** | Demonstrates modular multi-agent team delegation (`SubgraphVertex`) with input/output boundary mapping and real-time nested event bubbling. |
+| **`simple_chain/`** | Programmatic Linear Topology | Builds `A->B->C` graphs with `LinearChain.build(prompts)` instead of hand-writing JSON — the shortest path to a working workflow. |
+| **`dynamic_topology/`** | Async Hooks & Runtime Graph Growth | The Manager vertex emits a task list and the runtime spawns one worker vertex per item, showing that hooks and topology can grow mid-execution. |
+| **`race_mode/`** | **v3.0 Race Mode (First-to-Finish)** | Fan-out fan-in graph where the sink wins on the first arriving response (`Executor(..., race_mode=True)`); the losers are cancelled cleanly. |
+| **`real_pi/`** | Pi Agent CLI Integration | Same real-API story as `real_llm/` but delegates to the local `pi` CLI subprocess via `PiAgentRunner` — for shops that standardise on Pi. |
+| **`hn_ai_report/`** | End-to-End AI Report (SubgraphVertex) | A multi-agent research-team graph that produces `report.md` from scratch; showcases nested sub-graph delegation at production scale. |
+| **`s1_ai_report/`** | End-to-End AI Report (HTTP LLM) | Same S1 report pipeline as `hn_ai_report/` but with plain `HttpLLMAgent` edges — useful as a comparison baseline. |
 
 ### Running the Demos
 
@@ -38,6 +44,24 @@ python examples/hitl_approval/demo.py
 
 # 4. Nested Sub-Graph (Agent Team) delegation
 python examples/subgraph/demo.py
+
+# 5. Race mode — first-to-finish wins, losers are cancelled
+python examples/race_mode/demo.py
+
+# 6. Dynamic topology — manager spawns workers at runtime
+python examples/dynamic_topology/demo.py
+
+# 7. Programmatic linear chain (no JSON)
+python examples/simple_chain/demo.py
+
+# 8. Real LLM via OpenCode Zen + Proxied gateway (self-throttling agents)
+python examples/opencode_zen/run.py
+
+# 9. End-to-end AI report via SubgraphVertex
+python examples/hn_ai_report/demo.py
+
+# 10. End-to-end AI report via HttpLLMAgent (comparison baseline)
+python examples/s1_ai_report/demo.py
 ```
 
 > [!TIP]
