@@ -54,10 +54,17 @@ def _int_to_tokens(n: int) -> List[int]:
 
 
 def _random_int(rng: random.Random, min_digits: int = 1, max_digits: int = 6) -> int:
-    """Uniform integer with `min_digits..max_digits` decimal digits (no leading zeros)."""
-    if min_digits == 1:
-        return rng.randint(0, 10 ** max_digits - 1)
-    return rng.randint(10 ** (min_digits - 1), 10 ** max_digits - 1)
+    """Uniform integer with `min_digits..max_digits` decimal digits (no leading zeros).
+
+    Digit *length* is sampled uniformly first, then a number of that length is
+    sampled uniformly. This guarantees short operands (1-4 digits) are seen as
+    often as long ones — a flat `randint(0, 10**max-1)` would make 1-digit
+    numbers ~0.001% of samples and starve the model on short arithmetic.
+    """
+    n_digits = rng.randint(min_digits, max_digits)
+    if n_digits == 1:
+        return rng.randint(0, 9)
+    return rng.randint(10 ** (n_digits - 1), 10 ** n_digits - 1)
 
 
 def _random_pad(rng: random.Random, max_spaces: int = 3) -> int:

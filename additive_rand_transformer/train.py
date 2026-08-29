@@ -19,14 +19,12 @@ import math
 import os
 import random
 import time
-from typing import List, Tuple
 
 import torch
-import torch.nn.functional as F
 
-from .data import make_batch, stream_batches, decode
+from .data import stream_batches
 from .evaluate import membership_report, print_report
-from .model import TinyGPT, TinyGPTConfig, TOK_TO_ID, VOCAB_SIZE
+from .model import TinyGPT, TinyGPTConfig, VOCAB_SIZE
 
 DEFAULT_RUNS_DIR = "runs"
 

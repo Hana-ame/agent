@@ -36,9 +36,10 @@ def _int_to_tokens(n: int):
 
 
 def _random_int(rng, min_digits=1, max_digits=6):
-    if min_digits == 1:
-        return rng.randint(0, 10 ** max_digits - 1)
-    return rng.randint(10 ** (min_digits - 1), 10 ** max_digits - 1)
+    n_digits = rng.randint(min_digits, max_digits)
+    if n_digits == 1:
+        return rng.randint(0, 9)
+    return rng.randint(10 ** (n_digits - 1), 10 ** n_digits - 1)
 
 
 def _random_pad(rng, max_spaces=3):
@@ -183,10 +184,31 @@ def test_membership_counter_examples(rng, n=100):
     print(f"PASS: {n} counter-examples all violate their target rule")
 
 
+def test_digit_length_distribution(rng, n=2000):
+    """Short operands (1-4 digits) must be well-represented, not starved."""
+    lengths = []
+    for _ in range(n):
+        a = _random_int(rng, min_digits=1, max_digits=6)
+        b = _random_int(rng, min_digits=1, max_digits=6)
+        lengths.append(len(str(a)))
+        lengths.append(len(str(b)))
+    from collections import Counter
+    dist = Counter(lengths)
+    # Each digit length 1..6 should appear at least 5% of the time
+    for d in range(1, 7):
+        frac = dist.get(d, 0) / len(lengths)
+        assert frac > 0.05, f"digit length {d} only {frac:.1%} — too rare"
+    # 1-4 digit operands should collectively be the majority (>= 60%)
+    short_frac = sum(dist.get(d, 0) for d in range(1, 5)) / len(lengths)
+    assert short_frac >= 0.60, f"1-4 digit operands only {short_frac:.1%}, expected >= 60%"
+    print(f"PASS: digit-length distribution uniform — 1-4 digits are {short_frac:.0%} of operands")
+
+
 if __name__ == "__main__":
     rng = random.Random(42)
     test_vocab()
     test_gen_expression(rng, n=1000)
     test_spacing_variation(rng, n=500)
+    test_digit_length_distribution(rng, n=2000)
     test_membership_counter_examples(rng, n=200)
     print("\nAll tests passed.")

@@ -121,11 +121,18 @@ FACTORIES = {
 
 
 def sequence_logprob(model: TinyGPT, tokens: List[int], device: torch.device) -> float:
-    """Total log-likelihood of a token sequence under the model (in nats)."""
+    """Total log-likelihood of a token sequence under the model (in nats).
+
+    Computes  sum_i log P(tokens[i+1] | tokens[0..i])  — the standard
+    autoregressive sequence probability. The model's logits at position i
+    predict the NEXT token, so we must gather targets shifted by 1.
+    """
     idx = torch.tensor([tokens], dtype=torch.long, device=device)
-    logits, _ = model(idx, idx)
+    inputs = idx[:, :-1]     # positions 0..T-2
+    targets = idx[:, 1:]     # positions 1..T-1  (what each position predicts)
+    logits, _ = model(inputs, None)
     log_probs = F.log_softmax(logits, dim=-1)
-    gathered = log_probs.gather(-1, idx.unsqueeze(-1)).squeeze(-1)
+    gathered = log_probs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
     return float(gathered.sum().item())
 
 

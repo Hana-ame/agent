@@ -128,11 +128,12 @@ class TinyGPT(nn.Module):
 
     def configure_optimizers(self, weight_decay: float, learning_rate: float,
                              betas: tuple[float, float], device_type: str) -> dict:
-        # LayerNorm weights, biases, and the head/embedding (tied) get no decay.
+        # LayerNorm weights + biases get no decay; everything else (including
+        # the tied token/head embedding, registered as "token_embedding") does.
         decay = [p for n, p in self.named_parameters()
-                 if p.requires_grad and "bias" not in n and "ln_" not in n and "head" not in n]
+                 if p.requires_grad and "bias" not in n and "ln_" not in n]
         nodecay = [p for n, p in self.named_parameters()
-                   if p.requires_grad and ("bias" in n or "ln_" in n or "head" in n)]
+                   if p.requires_grad and ("bias" in n or "ln_" in n)]
         grouped = [{"params": decay, "weight_decay": weight_decay},
                    {"params": nodecay, "weight_decay": 0.0}]
         # CPU-only AdamW (no fused kernels, no torch.cuda).
