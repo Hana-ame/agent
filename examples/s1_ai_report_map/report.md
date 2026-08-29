@@ -4,38 +4,26 @@
 
 # [Ox Alpha被认领，GLM-5.3-Flash上线|大模型讨论专楼](https://stage1st.com/2b/thread-2275806-1-1.html)
 
-## AI/LLM Trends
+【AI/LLM 趋势】
+- 模型：GLM-5.3-Flash上线；Qwen 3.8 Flash Next、Gemini-3.7-flash、gpt-5.6-sol、Hy4、V4F、dsv4f 0731、Ling-3.0-flash-Fin（蚂蚁）活跃。
+- 工具链：dsh（0.1.2 agent team alpha）、pi-subagents、workbuddy、codebuddy、cherry 2.0、omp；多agent通信向网状演进。
+- 部署：DGX Spark跑Qwen3.8，vllm较sglang快2倍；量化版增多。
 
-- **New model releases & comparisons**: GLM-5.3-Flash launched; Qwen 3.8 Flash Next available with NVFP4 quantization, deployable on DGX Spark via sglang/vllm (vllm ~2× faster); Hy4 preview and V4F discussed. Liang Wen Gu 0813 model referenced as price/performance baseline.
-- **Agent harness ecosystem**: DeepSeek’s `dsh` (0.1.2 alpha) introduced agent‑team / subagent communication akin to Claude Code; `pi` client supports subagents via `pi-subagents` and `pi-antigravity` (Google AI Pro). `workbuddy` (Tencent) and `codebuddy` CLI offer coding UIs; workbuddy uses HY4 with “let me” thinking chains. `omp` harness also in use.
-- **Open‑source & local deployment**: Qwen 3.8 Flash Next architecture (engram) shows potential; community expects Qwen4 for consumer GPUs. Multiple quantized models emerging. DGX Spark runs Qwen at 25 tok/s, 50W power.
-- **New specialized models**: Ling‑3.0‑flash‑Fin (Ant Group financial model) on opencode; GPT‑5.6‑sol and Gemini‑3.7‑flash used in planning/execution pipelines.
-- **Industry moves**: OpenAI terminated Cursor deal due to SpaceX/Musk acquisition; NVIDIA provides DeepSeek NIM with SMS verification.
-- **Tooling & clients**: Cherry Studio 2.0 switched default search to ExaMCP; `pi-extensions` published on npm (workspace approval, balance display, status monitor). Zcode platform gave 300M free tokens weekend; anti‑proxy projects bypass region locks.
-- **Stability issues**: `dsh` pushed breaking update causing startup failures; `omp` broke after update; users debug with other LLMs.
+【用户观点】
+- chenyedgg：Qwen3.8潜力最好，GLM 5.3flash≈V4F，Hy4 preview≈GLM 5.3。
+- tonyunreal：Hy4比梁文谷0813贵比GLM便宜；OpenAI因Cursor归SpaceX而解约。
+- 舞以等：第三方评测不靠谱，一句话生成玩具不实用。
+- 星野あさみ：DGX Spark上vllm跑Qwen3.8达25 token/s（50W），dsv4f满血100W。
+- 七氷：gpt-5.6-sol规划+Gemini-3.7-flash子代理（pi-subagents/agy）。
+- 来都来了：发布pi扩展；DS原生搜索需deepseek-search-mcp。
+- andychen：DSH简陋，头脑风暴智能体刚需。
+- 其他：DS搜索差；zcode周末送3亿token；英伟达deepseek可白嫖。
 
-## User Opinions
-
-- **Search quality**: DeepSeek’s built‑in search widely panned vs Exa/Tavily/GPT; ExaMCP in Cherry 2.0 considered better but costlier. Many prefer external search MCPs.
-- **Coding tools**: Workbuddy praised for vibe‑coding frontend but called laggy; codebuddy CLI deemed better than desktop. HY4 in codebuddy considered weak.
-- **Local LLM enthusiasm**: Qwen 3.8 Flash Next excites local‑deploy users; hope for Qwen4 on consumer GPUs, though DDR5 cost noted. Quantized versions welcomed.
-- **Multi‑agent workflows**: GPT‑5.6‑sol for planning + Gemini‑3.7‑flash subagents found sufficient on Plus; `pi` plugins enable Google subscription reuse.
-- **dsh agent team**: Seen as promising but alpha‑risky; warning that it can spawn 128 subagents and drain balance. Mature harness recommended for PDF/Word tasks.
-- **Vibe coding & publishing**: A user shipped first npm package guided by AI, encouraging “just start.” Others echo that acting with AI help is key.
-- **Benchmark skepticism**: Third‑party model evals deemed less reliable than phone reviews; one‑sentence generation called toy‑level, real use needs iteration.
-- **Pricing sentiment**: Liang’s price hike still top price‑performance; some wish competitors (e.g., Huawei GPUs) would force cuts. Silicon Flow API slowed; account bans frustrate.
-- **Proxy usage**: Domestic users rely on `cpa` or anti‑proxy github for GPT/Gemini; SMS verification via number‑receiving sites. Zcode token “蹬” culture popular.
-- **General vibe**: Open‑source “百花齐放” valued; AI as “cyber leader” for vague requests, but leader skill matters.
-
-## Key Arguments
-
-- **Capability vs cost**: HY4 pricier than Liang Wen Gu 0813, cheaper than GLM; GLM‑5.3‑Flash ≈ V4F, Hy4 preview ≈ GLM‑5.3. Qwen3.8 Flash Next arch potentially best. Liang models remain best value despite涨价.
-- **Agent design philosophy**: Centralized tree‑like subagents vs upcoming mesh/regulator structures. One‑shot generation criticized as impractical (90‑99% gap) vs iterative agent loops; defenders say brainstorming agents make vague leadership work.
-- **Search integration**: DS official search only via API, no cache, low quality; ExaMCP default in Cherry 2.0 better but expensive. Debate on forcing DS native search in clients.
-- **Local deployment tradeoffs**: Qwen3.8 on DGX Spark at 50W, slower than DS v4f 100W; quantization helps but memory capacity bottleneck.
-- **Tooling maturity**: Breaking updates (dsh, omp) cause breakage; early dsh too simple for complex doc tasks, mature harness + skills advised.
-- **Access & proxy ethics/safety**: Reverse proxies (`cpa`, anti‑proxy) discussed for overseas models; VPN need and ban risk questioned. Zcode giveaways encourage heavy use but fear suspension.
-- **Industry drama**: OpenAI‑Cursor split over Musk shows AI as “二游” (otaku game‑like); hope Huawei supplies GPUs to Liang to ease price.
+【关键论点】
+- 价格：梁文谷涨价仍性价比顶级，用户盼友商促降；国产算力宽松致频繁送token。
+- 本地：Qwen3.8助消费级部署，开源量化繁荣。
+- 稳定：dsh破坏性更新致启动失败；workbuddy卡；反代有封号风险（基元律动停号）。
+- 实践：多agent分工有效；vibe coding可行；“赛博领导”许愿机不现实。
 
 ---
 
@@ -43,27 +31,22 @@
 
 # [《时代》AI百大人物出炉 黄仁勋 梁文峰落选](https://stage1st.com/2b/thread-2288779-1-1.html)
 
-## AI/LLM Trends
-- **Shift to application & Agent ecosystem**: The 2026 TIME100 AI list emphasizes AI Agents, application layer, humanoid robots, data centers, and AI safety over pure foundational model or chip leaders.
-- **LLM competitive landscape**: DeepSeek iterations (V3.2, V4, V4 Flash “0731”) drove massive global usage and forced price hikes; Kimi K3 (Moonshot) rattled US stocks by undercutting closed-source flagship premiums. Debate on whether recent Chinese model releases met prior hype.
-- **Hardware & sovereignty**: Spotlight on semiconductor manufacturing (SMIC’s Liang Mengsong, Huawei’s He Tingbo) and Chinese cloud/robotics leaders, reflecting broadening AI supply-chain focus.
-- **AI regulation emerges**: Inclusion of figures like Paris Hilton tied to the DEFIANCE Act (targeting non‑consensual AI‑generated explicit content) shows governance/legal advocacy becoming a listed category.
-- **Market‑driven narrative**: Suspicions that the list aligns with IPO/valuation hype for AI firms (“抬咖造势”).
+【AI/LLM 趋势】
+- 《时代》2026 TIME100 AI榜重心转向应用层与Agent生态，覆盖大模型、芯片算力、人形机器人、数据中心、AI安全。
+- 11位华人上榜（用户东方萃梦想统计中国籍8人）：领导者梁汝波、吴泳铭、何庭波、梁孟松；创新者杨植麟、肖弘等；思考者李飞飞等。
+- 模型进展：DeepSeek V3.2/V4/V4F0731引发全球使用潮；Kimi K3冲击美股；用户qwased指DeepSeek威胁闭源模型总营收，Kimi威胁旗舰溢价。
 
-## User Opinions
-- **List dismissed as “野鸡榜” (joke list)**: Many users argue omitting Jensen Huang and Liang Wenfeng is the list’s loss, not theirs, and question Time’s authority in AI.
-- **Political bias suspicion**: Users allege the list limits prominent Chinese faces to maintain a “US far ahead” image; one asks “why not 80 of 100 Chinese if AI is theirs?”
-- **Ethnic headcounting**: Thread debates counts—11 ethnic Chinese (8 PRC citizens), ~5 Indian citizens but likely more Indian‑origin via US residents; jokes about “80 Indians on the wild list.”
-- **Celebrity pick mockery**: Initial ridicule of Paris Hilton’s presence, later clarified as law‑driven; some posted cover images to imply predetermined “composition.”
-- **Model activity defense**: Others note DeepSeek and Kimi had major 2026 releases (contradicting “no new hits” claim) and that Liang Mengsong’s low‑profile chip work is commendable.
-- **PR/IPO motive**: Several see the issue as a promotional vehicle for AI listings rather than objective merit.
+【用户观点】
+- 多人（rachePatty、舞以、vassiliev等）批榜单为“野榜/野鸡”，认为政治化、圈子化分猪肉。
+- 黄仁勋、梁文锋落选争议：StrangerJ称榜单傻逼；StarForceTi认为俩人今年没新活，飛霞精灵、Awanano以DeepSeek模型进展反驳。
+- 族群比例：loli炮、东方萃梦想讨论“阿三含量”，按籍中国8/英6/阿三5，按裔美籍印度裔数量超中国。
+- 帕丽斯希尔顿因推动《DEFIANCE法案》（反非自愿AI露骨内容）入选，ななひら核实，nukacolamania调侃“AI黄片原脸”。
+- yxydd88推测榜单为a/o/上市抬咖造势；天青色的西风指限华人面孔以维持美AI领先形象。
 
-## Key Arguments
-- **Credibility vs. omission**: Core clash—excluding Huang/Liang while including celebrities suggests political or circle‑jerking bias. Counter‑claim they “had no new hit” is disputed by citations of V4/0731 and Kimi K3 impacts.
-- **Representation politics**: The ethnic tally reflects either skewed Western narrative or actual US workforce demographics; argument that suppressing Chinese prominence serves a US‑leadership storyline.
-- **Real impact vs. list reality**: Market moves (Kimi‑induced US stock drops, DeepSeek‑driven global usage surges) prove Chinese AI exerts outsized influence, so the list fails to mirror true tech‑economic weight.
-- **Strategic purpose**: The list functions as hype for impending AI IPOs and pivots to application/Agent themes that fit investment narratives.
-- **Scope expansion**: Inclusion of legal/policy actors (DEFIANCE Act) signals AI safety/governance now a legitimate criterion, though users initially viewed it as tokenistic.
+【关键论点】
+- 榜单脱离现实：落选具全球影响力的梁文锋（DeepSeek致涨价），入选希尔顿等，权威性受疑。
+- 统计口径差异：国籍华人11（中国籍8），族裔印度裔在美AI人数占优。
+- 梁孟松（中芯）低调实干深耕芯片制造，代表华实力量（ROT评）。
 
 ---
 
@@ -71,23 +54,19 @@
 
 # [16G显卡+qwen3.8 27B上下文200K，个人经验总结](https://stage1st.com/2b/thread-2288655-1-1.html)
 
-## AI/LLM Trends
-- Local deployment of large open LLMs (Qwen3.8 27B, Gemma4 31B) with long context windows (200K–262K tokens) on consumer/prosumer GPUs (16G–48G VRAM).
-- Use of quantization (e.g., q6_K, q8_0) and llama.cpp features (full GPU offload, K/V cache quantization) to fit large models within limited VRAM.
-- Adoption of multi-token prediction (MTP) speculative decoding (`--spec-type draft-mtp`) to improve inference throughput on local setups.
-- Cross-vendor compatibility: llama.cpp provides ROCm builds, enabling AMD (A-card) GPUs to run similar workloads as NVIDIA (N-card) CUDA setups.
-- Vision-capable mid-sized models (Qwen3.8 vision) are being used for image recognition under VRAM constraints.
+【AI/LLM 趋势】
+- 本地推理：qwen3.8-27B 视觉版、gemma4-31B 通过 llamacpp/ollama 实现 200K+ 上下文。
+- llamacpp 提供 ROCm 版，支持 A 卡部署。
 
-## User Opinions
-- **zktz** (48G A6000 owner): Frustrated with current Ollama + Gemma4 31B setup—256K context blows VRAM, 200K is slow (often 5 min thinking), image recognition OOMs, only one concurrent session; open to switching to Qwen3.8.
-- **qwased** (helper): Recommends Qwen3.8 27B vision at q6/q8 quant with MTP on 48G GPU; confirms exact CLI invocation; states AMD cards can use ROCm llama.cpp just like NVIDIA.
-- **ljwlwd**: Curious whether N-card and A-card differences are negligible and if the original 16G GPU + Qwen3.8 200K method can be replicated on AMD hardware.
+【用户观点】
+- zktz：48G A6000 跑 ollama+gemma4-31B，256K 爆显存故限 200K，速度慢（思考5分钟）、识图爆显存、单并发。
+- qwased：建议换 qwen3.8-27B vision q6/q8，视觉回显存，tb4+4 开 262K+MTP 刚好放下；答 ljwlwd 称 A 卡可用 llamacpp ROCm 版部署。
+- ljwlwd：问 N/A 卡是否无差别，能否像楼主（16G 显卡跑 qwen3.8-27B 200K）操作。
 
-## Key Arguments
-- Quantization (q6_K/q8) combined with MTP speculative decoding and full GPU offload (`--n-gpu-layers 99`, `--cache-type-k/v q8_0`) allows Qwen3.8 27B vision with 262K context to fit in 48GB VRAM.
-- Gemma4 31B under Ollama is less efficient: 256K exceeds 48GB, and even 200K causes slowdowns and image-task OOMs, suggesting Qwen3.8 is a better local alternative.
-- AMD and NVIDIA GPUs can both run these local LLM stacks via respective llama.cpp backends; the primary bottleneck is VRAM capacity and quantization strategy, not GPU brand.
-- For MTP draft decoding, setting `--spec-draft-n-max` to 2 or 3 is advised to balance speed gains against resource usage.
+【关键论点】
+- 部署命令示例：`./main -m qwen3.8-27b-vision-q6_k.gguf --spec-type draft-mtp -c 262144 --cache-type-k q8_0 --cache-type-v q8_0 --n-gpu-layers 99`（zktz 拟，qwased 补 `--spec-draft-n-max 2/3`）。
+- 显存约束：48G 跑 31B/27B 长上下文需量化与 MTP 优化；楼主称 16G 显卡可跑 27B 200K。
+- 跨硬件：A 卡通过 llamacpp ROCm 版即可类似操作，无本质区别。
 
 ---
 
@@ -95,33 +74,25 @@
 
 # [和AI辩（圣）经，其乐无穷，收获颇深](https://stage1st.com/2b/thread-2288716-1-1.html)
 
-## AI/LLM Trends
+【AI/LLM 趋势】
+- 用户用AI进行宗教/哲学“辩经”（圣经、佛教、唯心主义等）。
+- AI作方便工具替代厚书；亦用于敏感或架空话题（如40k/30k）。
+- 有提议让AI改写圣经修复“bug”。
 
-- 将LLM作为“辩经”伙伴：用户频繁与AI辩论宗教、哲学与意识形态话题（如圣经矛盾、成佛状态、唯心主义）。
-- 敏感话题沙盒：利用AI探讨国内敏感或易引发人际冲突的议题，以及架空世界观（如40k/30k）讨论，避免现实争吵。
-- 经典文本修订实验：提出让AI完善或重写圣经以修复“bug”，探索AI在宗教文本生成与世俗化改写中的趋势。
-- 便捷知识替代：部分用户以AI替代阅读厚重宗教思想史，视为随问随答的方便工具。
-- 能力边界暴露：AI在回应超验问题（如轮回跳出、神义论）时往往陷入主观归因（“智慧不够”“不可理解”），显示模型在神秘主义领域的局限。
+【用户观点】
+- 吉黑尽阵：AI方便；耶和华屠杀令与耶稣公义矛盾，神善不可知则人易假神作恶。
+- martinoy：宗教是意识形态工具，辩经难改立场；神学异于无神论框架；基教常换题或诉主观。
+- 灰狼：喜用AI问敏感易吵问题及架空世界讨论。
+- 1242599693：用AI辩唯心主义他者、经济学“看不见的手”是否上帝表达。
+- fneasag：问AI成佛状态，AI称跳出轮回不可解释。
+- 绝地潜兵：提议AI完善新圣经修bug。
+- 缪斯替：AI修圣经趋自然神论/无神论；诺斯替者不求真天父只图“润”。
+- cheatdeath1942：宗教史已有答案，质疑为何找AI不看书。
+- 天道悠（被引）：诺提斯体系踩雅威捧耶稣非简单切割。
 
-## User Opinions
-
-- **martinoy**：宗教是意识形态工具，无人通过辩经改变意识形态；传教依赖信任。AI常从无神论/唯物角度框架分析，不同于神学；实际神学会归为因信称义等主观判断。
-- **吉黑尽阵**：青睐AI的便利性，不愿读砖头书；核心质疑耶和华屠杀令与耶稣公义是否矛盾，以及人能否理解神的善而不借神作恶。
-- **灰狼**：喜欢向AI询问敏感易吵问题，欣赏其能安全模拟“40k屁民讨论30k大叛乱”式的设定辩论。
-- **1242599693**：曾问AI唯心主义如何解释他者，以及“看不见的手”是否上帝在经济学中的表达。
-- **绝地潜兵**：提议让AI完善一部新圣经，修复旧约愚昧落后之处。
-- **缪斯替**：认为AI修圣经会趋近自然神论并半步走向无神论；指出诺斯替/净土宗不关心真理真实，只求“润过去”。
-- **fneasag**：与AI辩成佛状态，AI最终无招，称跳出轮回无法用现世思维解释。
-- **cheatdeath1942**：质疑找AI的必要性，认为历史中已有所有诘问答案，苏格拉底辩证法早有问答，AI不比书籍更优。
-- **大神一狼**：以戏谑文风创作新约恩典段子（“恩典，恩典，还是TMD恩典”），调侃律法与恩典对立。
-
-## Key Arguments
-
-1. **辩经效用与认知框架**：martinoy与cheatdeath1942主张宗教辩论不改意识形态且历史已有答案，AI仅持无神论框架；吉黑尽阵等反衬AI的便捷与启发，形成“经典阅读vs AI对话”的分歧。
-2. **神圣公义悖论**：吉黑尽阵提炼核心——耶和华下令屠杀是否即耶稣公义？若神的善不可理解，人如何确认行善还是借神名义作恶？直指一神论道德张力。
-3. **AI修订圣经的世俗化**：绝地潜兵提议AI修典，缪斯替论证此过程必然滑向自然神论/无神论，揭示理性重写在世俗方向的引力。
-4. **宗教的意识形态与逃避功能**：martinoy视宗教为意识形态载体；缪斯替补注诺斯替/净土宗不求真确只求解脱，点明实用主义宗教观。
-5. **AI面对超验问题的天花板**：fneasag与吉黑尽阵案例显示，AI对成佛、轮回等终极问题终以“不可解释”收场，暴露LLM在神秘领域的解释力极限。
-6. **AI作为思想安全阀**：灰狼等强调AI提供无社交风险的敏感话题试验场，体现LLM作为情绪与思辨沙盒的价值。
+【关键论点】
+- 辩经核心在信任与意识形态，非逻辑；AI便利但超验问题（成佛、神义）受限。
+- AI重编圣经会趋向自然神论/无神论，暴露原典矛盾。
+- 架空/敏感议题借AI可自由探询，避现实争端。
 
 ---

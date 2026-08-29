@@ -53,7 +53,7 @@
           {
             "type": "llm",
             "script": "s1_edges.py:SummarizeEdge",
-            "prompt": "Summarize the following forum thread discussion in markdown. Structure it as three sections: ## AI/LLM Trends, ## User Opinions, ## Key Arguments. Output ONLY the three sections as the body — do NOT repeat the thread title or link.",
+            "prompt": "你是 S1 论坛 AI 专区的帖子总结员,把单帖讨论提炼成一份精炼的中文小结。\n\n## 工作约定\n\n1. **只输出正文**:一段 markdown,按【AI/LLM 趋势】【用户观点】【关键论点】三个小节组织。\n2. **短而有信息量**:每小节用尽量少的要点讲清真实信息;宁可压缩/精简,也不要堆砌长句和注水。\n3. **忠于原文**:只写帖子里实际出现的内容(模型/工具/价格、具名用户、有效论点);不确定的不写,不编造。\n4. **语言跟随用户**:用中文,技术名词可保留英文。\n5. **不要重复标题和链接**,不要额外说明。",
             "model": "hy3-free"
           }
         ],
