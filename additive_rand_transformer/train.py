@@ -22,7 +22,7 @@ import time
 
 import torch
 
-from .data import stream_batches
+from .data import make_single_batch, pack_blocks, stream_batches
 from .evaluate import membership_report, print_report
 from .model import TinyGPT, TinyGPTConfig, VOCAB_SIZE
 
@@ -50,6 +50,8 @@ def parse_args() -> argparse.Namespace:
                    help="max operand length (1-4 are always covered; longer allowed)")
     p.add_argument("--max_spaces", type=int, default=3,
                    help="max spaces around an operator (0..max_spaces, uniform)")
+    p.add_argument("--single", action="store_true",
+                   help="train on single expressions (no packing) — stronger arithmetic signal")
     return p.parse_args()
 
 
@@ -81,11 +83,23 @@ def main() -> None:
                                      betas=(0.9, 0.95), device_type=str(device))
 
     steps = 50 if args.quick else args.steps
-    data_iter = stream_batches(args.block_size, args.batch_size, device=str(device), seed=args.seed,
-                                max_digits=args.max_digits, max_spaces=args.max_spaces)
+    if args.single:
+        rng = random.Random(args.seed)
 
-    runs_dir = os.path.join(args.runs_dir, time.strftime("%Y%m%d_%H%M%S"))
-    os.makedirs(runs_dir, exist_ok=True)
+        def _single_iter():
+            while True:
+                yield make_single_batch(rng, args.block_size, args.batch_size, device=str(device),
+                                        max_digits=args.max_digits, max_spaces=args.max_spaces)
+        data_iter = _single_iter()
+    else:
+        data_iter = stream_batches(args.block_size, args.batch_size, device=str(device), seed=args.seed,
+                                   max_digits=args.max_digits, max_spaces=args.max_spaces)
+
+    # Quick smoke test doesn't save anything.
+    runs_dir: str | None = None
+    if not args.quick:
+        runs_dir = os.path.join(args.runs_dir, time.strftime("%Y%m%d_%H%M%S"))
+        os.makedirs(runs_dir, exist_ok=True)
 
     t0 = time.time()
     for step in range(1, steps + 1):

@@ -161,6 +161,44 @@ def make_batch(
     return torch.stack(inp_rows), torch.stack(tgt_rows)
 
 
+def make_single_batch(
+    rng: random.Random,
+    block_size: int,
+    batch_size: int,
+    device: str = "cpu",
+    min_digits: int = DEFAULT_MIN_DIGITS,
+    max_digits: int = DEFAULT_MAX_DIGITS,
+    max_spaces: int = DEFAULT_MAX_SPACES,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Batch of single expressions (no packing), left-aligned + EOS padding.
+
+    Each row is ONE expression so the model attends only to that expression's
+    tokens — a much stronger learning signal for the arithmetic itself, and
+    ~15x fewer tokens per step than packed blocks. Rows are padded to the max
+    possible expression length for this generator (not block_size), so the
+    loss is not diluted by a huge EOS tail.
+    """
+    # Max token length of an expression: BOS + a + (sp op sp) + b + (sp = sp) + c + EOS
+    max_spaces_tok = 1 + max_spaces + 1  # space*L + op + space*R
+    width = min(block_size, 2 + 2 * max_digits + (max_digits + 1) + 2 * max_spaces_tok)
+    if width < 8:
+        raise ValueError("block_size too small for single-expression mode")
+
+    inp_rows: List[torch.Tensor] = []
+    tgt_rows: List[torch.Tensor] = []
+    for _ in range(batch_size):
+        expr = gen_expression(rng, min_digits, max_digits, max_spaces)
+        if len(expr) > width:          # guard: never truncate
+            expr = expr[:width - 1] + [EOS]
+        pad = [EOS] * (width - len(expr))
+        full = expr + pad
+        inputs = torch.tensor(full[:-1], dtype=torch.long, device=device)
+        targets = torch.tensor(full[1:], dtype=torch.long, device=device)
+        inp_rows.append(inputs)
+        tgt_rows.append(targets)
+    return torch.stack(inp_rows), torch.stack(tgt_rows)
+
+
 def stream_batches(
     block_size: int,
     batch_size: int,

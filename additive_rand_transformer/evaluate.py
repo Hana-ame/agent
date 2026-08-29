@@ -37,6 +37,7 @@ from .model import TinyGPT
 
 
 def _tok(*chars: str) -> List[int]:
+    """Map each arg (a full token name) to its id. Digits must come via _int_to_tokens."""
     return [TOK_TO_ID[c] for c in chars]
 
 
@@ -68,11 +69,11 @@ def make_leading_zero(rng: random.Random) -> List[int]:
     a_str = "0" + str(a)          # leading zero — never emitted by the generator
     return (
         _tok("<BOS>")
-        + _tok(a_str)
+        + _tok(*a_str)
         + [SP] * rng.randint(0, 3) + [op] + [SP] * rng.randint(0, 3)
-        + _tok(str(b))
+        + _tok(*str(b))
         + [SP] * rng.randint(0, 3) + [EQ] + [SP] * rng.randint(0, 3)
-        + _tok(str(c))
+        + _tok(*str(c))
         + [EOS]
     )
 
@@ -84,11 +85,11 @@ def make_negative_result(rng: random.Random) -> List[int]:
     c = abs(a - b)               # render |a-b| so the expression is well-formed
     return (
         _tok("<BOS>")
-        + _tok(str(a))
+        + _tok(*str(a))
         + [SP] * rng.randint(0, 3) + [MINUS] + [SP] * rng.randint(0, 3)
-        + _tok(str(b))
+        + _tok(*str(b))
         + [SP] * rng.randint(0, 3) + [EQ] + [SP] * rng.randint(0, 3)
-        + _tok(str(c))
+        + _tok(*str(c))
         + [EOS]
     )
 
@@ -100,11 +101,11 @@ def make_wrong_operator(rng: random.Random) -> List[int]:
     c = a + b
     return (
         _tok("<BOS>")
-        + _tok(str(a))
+        + _tok(*str(a))
         + [SP] * rng.randint(0, 3) + [EQ] + [SP] * rng.randint(0, 3)
-        + _tok(str(b))
+        + _tok(*str(b))
         + [SP] * rng.randint(0, 3) + [EQ] + [SP] * rng.randint(0, 3)
-        + _tok(str(c))
+        + _tok(*str(c))
         + [EOS]
     )
 
@@ -120,12 +121,13 @@ FACTORIES = {
 }
 
 
-def sequence_logprob(model: TinyGPT, tokens: List[int], device: torch.device) -> float:
-    """Total log-likelihood of a token sequence under the model (in nats).
+def sequence_logprob(model: TinyGPT, tokens: List[int], device: torch.device) -> Tuple[float, int]:
+    """(total_ll, n_predicted) of a token sequence under the model (nats).
 
-    Computes  sum_i log P(tokens[i+1] | tokens[0..i])  — the standard
+    total_ll = sum_i log P(tokens[i+1] | tokens[0..i]) — the standard
     autoregressive sequence probability. The model's logits at position i
-    predict the NEXT token, so we must gather targets shifted by 1.
+    predict the NEXT token, so we gather targets shifted by 1. n_predicted
+    is len(tokens)-1 (the number of predictions summed).
     """
     idx = torch.tensor([tokens], dtype=torch.long, device=device)
     inputs = idx[:, :-1]     # positions 0..T-2
@@ -133,39 +135,46 @@ def sequence_logprob(model: TinyGPT, tokens: List[int], device: torch.device) ->
     logits, _ = model(inputs, None)
     log_probs = F.log_softmax(logits, dim=-1)
     gathered = log_probs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
-    return float(gathered.sum().item())
+    return float(gathered.sum().item()), int(gathered.numel())
 
 
 def membership_report(model: TinyGPT, rng: random.Random, device: torch.device,
                       n_per_class: int = 20) -> Dict[str, Tuple[float, List[str]]]:
-    """Return {class_name: (mean_logprob, [sample_decodings])}."""
+    """Return {class_name: (mean_per_token_logprob, [sample_decodings])}.
+
+    Mean is per-token (total ll / number of predicted tokens) so short and
+    long expressions are comparable — otherwise short counter-examples like
+    "5 - 591 = 586" would trivially score higher than long positives purely
+    because they sum fewer (negative) terms.
+    """
     model.eval()
     results: Dict[str, Tuple[float, List[str]]] = {}
     with torch.no_grad():
         for name, factory in FACTORIES.items():
-            lls: List[float] = []
+            per_token: List[float] = []
             samples: List[str] = []
             for _ in range(n_per_class):
                 expr = factory(rng)
-                lls.append(sequence_logprob(model, expr, device))
+                total, n = sequence_logprob(model, expr, device)
+                per_token.append(total / max(1, n))
                 if len(samples) < 2:
                     samples.append(decode(expr))
-            results[name] = (sum(lls) / len(lls), samples)
+            results[name] = (sum(per_token) / len(per_token), samples)
     return results
 
 
 def print_report(report: Dict[str, Tuple[float, List[str]]]) -> None:
     print("\n" + "=" * 72)
-    print("MEMBERSHIP TEST  (mean log-likelihood, higher = more like generator)")
+    print("MEMBERSHIP TEST  (mean PER-TOKEN log-likelihood; higher = more like generator)")
     print("=" * 72)
-    print(f"{'class':<18} {'mean_ll':>10}   sample")
+    print(f"{'class':<18} {'mean_ll/tok':>12}   sample")
     print("-" * 72)
     for name, (mean_ll, samples) in report.items():
-        print(f"{name:<18} {mean_ll:>10.2f}   {samples[0] if samples else ''}")
+        print(f"{name:<18} {mean_ll:>12.3f}   {samples[0] if samples else ''}")
     print("-" * 72)
     pos_ll = report.get("positive", (0.0, []))[0]
     other_means = [v[0] for k, v in report.items() if k != "positive"]
     other_avg = sum(other_means) / len(other_means) if other_means else 0.0
-    print(f"positive mean: {pos_ll:.2f}   others avg: {other_avg:.2f}   "
-          f"margin: {pos_ll - other_avg:.2f}")
+    print(f"positive mean: {pos_ll:.3f}   others avg: {other_avg:.3f}   "
+          f"margin: {pos_ll - other_avg:.3f}")
     print("=" * 72)

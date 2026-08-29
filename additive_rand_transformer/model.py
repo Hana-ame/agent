@@ -35,6 +35,7 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, cfg: TinyGPTConfig) -> None:
         super().__init__()
         assert cfg.n_embd % cfg.n_head == 0
+        self.n_embd = cfg.n_embd
         self.n_head = cfg.n_head
         self.head_dim = cfg.n_embd // cfg.n_head
         self.qkv = nn.Linear(cfg.n_embd, 3 * cfg.n_embd)

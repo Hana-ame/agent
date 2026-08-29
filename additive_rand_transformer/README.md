@@ -5,6 +5,10 @@ generated on the fly. After training, the model can judge whether a given
 expression was produced by *this specific generator* — not merely whether the
 arithmetic is correct.
 
+> **实测结果见 [`RESULTS.md`](RESULTS.md)**：single 模式训练后 membership
+> margin +1.76，强检出格式违规（前导零、运算符位置、减法 a<b）；但 ~1M 参数
+> 的模型**学不会多位进位算术**（1 位减法 74%，多位 ≈0%）。
+
 ## Vocab (16 tokens)
 
 | id | token | id | token | id | token |
@@ -43,8 +47,13 @@ violating exactly one generator rule:
 | `negative_result` | subtraction where `a < b` (generator forbids) |
 | `wrong_operator`  | uses `=` where an operator should be |
 
-A well-trained model assigns **high** log-likelihood to `positive` and **low**
-to all the others. The margin is the membership score.
+A well-trained model assigns **high** log-likelihood to `positive` and lower
+to most of the others. In practice (single mode, ~1M params) the model
+strongly separates the format-rule violations — `wrong_operator`,
+`leading_zero`, `negative_result` — but **not** `wrong_result`: a tiny
+transformer learns the generator's surface distribution, not multi-digit
+arithmetic, so it cannot tell a wrong result from a correct one. See
+[`RESULTS.md`](RESULTS.md) for the measured per-class margins.
 
 ## Model
 
@@ -62,6 +71,11 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 python -m additive_rand_transformer.train --quick
 
 # 3. Full run (checkpoint saved to runs/<timestamp>/checkpoint_final.pt)
+#    Recommended: --single — one expression per row (no packing), which learns
+#    the generator distribution much better and ~20x faster per step.
+python -m additive_rand_transformer.train --single --steps 6000 --n_layer 4 --n_embd 128
+
+#    Alternative: default packed mode (full 1024-context, slower, weaker signal)
 python -m additive_rand_transformer.train --steps 3000
 ```
 
@@ -89,6 +103,7 @@ python -m additive_rand_transformer.train [options]
 | `--save_every` | 1000 | checkpoint interval |
 | `--max_digits` | 6 | max operand length (1-4 always covered) |
 | `--max_spaces` | 3 | max spaces around an operator (0..N, uniform) |
+| `--single` | off | one expression per row (no packing) — stronger signal, faster |
 
 ## Understanding the output
 
