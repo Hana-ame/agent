@@ -27,6 +27,7 @@ FIXTURE = os.path.join(ROOT, "tests", "fixtures", "s1_thread.html")
 EDGE_PATHS = [
     os.path.join(ROOT, "examples", "s1_ai_report_map", "s1_edges.py"),
     os.path.join(ROOT, "examples", "s1_ai_report", "s1_edges.py"),
+    os.path.join(ROOT, "examples", "finance_ai_report", "finance_edges.py"),
 ]
 
 

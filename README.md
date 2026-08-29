@@ -40,9 +40,9 @@ Graph topology and execution rules are entirely JSON-driven, supporting declarat
     {
       "id": "v1",
       "settings": { /* Arbitrary config dictionary */ },
-      "script": "path/to/vertex_script.py",      // Optional: Bind external extension script
+      "script": "path/to/vertex_script.py",      // Optional: Path to a Vertex subclass
       "initial_data": [                          // Optional: Initial injected data
-        { "data_id": "text", "tags": ["en"], "value": "Hello" }
+        { "channel": "text", "value": "Hello" }
       ]
     }
   ],
@@ -51,15 +51,14 @@ Graph topology and execution rules are entirely JSON-driven, supporting declarat
       "id": "e1",
       "source": "v1",
       "destination": "v2",
-      "data_id": "text",
-      "tags": ["en"],
-      "prompt": "Summarize this:",
-      "model": "gemini-pro",
+      "channel": "text",
       "settings": {
+        "prompt": "Summarize this:",             // Computation layer inside settings
+        "model": "gemini-pro",
         "threshold": 80,                         // Optional: Guard threshold config (declarative)
         "operator": ">="
       },
-      "script": "path/to/edge_script.py"         // Optional: Bind external extension script
+      "script": "path/to/edge_script.py"         // Optional: Path to an Edge subclass
     }
   ]
 }
@@ -69,35 +68,47 @@ Graph topology and execution rules are entirely JSON-driven, supporting declarat
 
 By configuring the `script` field, you can instantly upgrade ordinary nodes and edges with complex logic without modifying the core framework source code.
 
+The `script` field loads a Python file and instantiates a **subclass** of `Vertex` or `Edge`; the custom behaviour lives in the methods the subclass overrides (`on_receive`, `on_ready`, `pre_process`, `post_process`, …).
+
 ### Vertex Scripts
 
 ```python
-def on_receive(data, data_id, tags, settings):
-    """[Ingest Phase] Triggered when data arrives. Can transform data or raise exceptions to reject it."""
-    if not valid(data):
-        raise ValueError("rejected")
-    return data.upper()
+# my_vertex.py — defines a Vertex subclass
+from framework.vertex import Vertex
 
-def on_ready(all_data, settings):
-    """[Fuse Phase] Called when the node is ready, right before triggering downstream outgoing edges. Used to fuse multiple inputs into the final output."""
-    return {("output_id", ("tag",)): merged_value}
+class UpperVertex(Vertex):
+    """on_receive: uppercase strings; on_ready: combine all data into result channel."""
+
+    def on_receive(self, data, channel, settings):
+        if isinstance(data, str):
+            return data.upper()
+        return data
+
+    def on_ready(self, all_data, settings):
+        return {"result": " | ".join(str(v) for v in all_data.values())}
 ```
 
 ### Edge Scripts
 
 ```python
-def guard(data, settings):
-    """[Guard Phase] Condition threshold. Returns False to prune the current branch. Also known as evaluate_condition."""
-    return data.get("score", 0) >= 80
+# my_edge.py — defines an Edge subclass
+from framework.edge import Edge
 
-def pre_process(data, settings):
-    """[Pre-process Phase] Transforms data before entering the LLM."""
-    return f"[Please analyze the following content]\n{data}"
+class PrefixEdge(Edge):
+    """pre_process / post_process as overridden methods."""
 
-def post_process(data, settings):
-    """[Post-process Phase] Parses the output of the LLM."""
-    return data.strip()
+    def pre_process(self, data, settings):
+        if isinstance(data, str):
+            return f"{settings.get('prefix', '[PRE]')} {data}"
+        return data
+
+    def post_process(self, result, settings):
+        if isinstance(result, str):
+            return f"{result} {settings.get('suffix', '[POST]')}"
+        return result
 ```
+
+Reference the script in JSON with `"script": "my_vertex.py"` (auto-discovers the subclass), or `"script": "my_vertex.py:UpperVertex"` when the file contains multiple candidate classes.
 
 ```python
 import asyncio
@@ -128,7 +139,6 @@ The framework ships several swappable `BaseAgent` implementations. Pick one per 
 | `MockAgent` | `"mock"` | — | Tests / dry runs. Echoes data with model metadata. |
 | `HttpLLMAgent` | `"http"` | OpenCode Zen | Generic OpenAI-compatible endpoint; **unbounded** — the escape hatch when you drive your own concurrency. |
 | `OpenCodeAgent` | `"opencode"` | `https://opencode.ai/zen/v1` | Free, key-less LLM via OpenCode Zen. **Self-throttled** for the free tier. |
-| `ProxiedLLMAgent` | `"proxy"` / `"proxied"` | `http://localhost:8000/v1` | Route all traffic through a self-hosted gateway (LiteLLM / one-api / internal). Concurrency-bounded, model-aliasing. |
 | `PiAgentRunner` | `"pi"` | local `pi` CLI | Delegate to the installed Pi Agent CLI subprocess. |
 | *custom* | `"path/to/script.py:ClassName"` | — | Subclass `BaseAgent` and load it. |
 
@@ -140,7 +150,7 @@ agent = OpenCodeAgent(max_concurrency=3, requests_per_minute=20.0)
 executor = Executor(graph, agents=agent)
 ```
 
-**Throttling knobs** (`OpenCodeAgent` and `ProxiedLLMAgent`):
+**Throttling knobs** (`OpenCodeAgent`):
 
 * `max_concurrency` — `asyncio.Semaphore` bounding in-flight calls. A graph with 32 concurrent edges queues locally instead of opening 32 simultaneous connections.
 * `requests_per_minute` — token-bucket budget charged **per attempt**, so retries count against the budget rather than re-entering an already-exhausted endpoint. `None` disables it.
@@ -157,9 +167,7 @@ Both gates are agent-local, so each edge's `settings` still decides its own `pro
 
 The edge script owns its agent in Python (e.g. `self.agent = OpenCodeAgentRunner()` in `__init__`); nothing is injected by the runner and no fallback default agent is used.
 
-`ProxiedLLMAgent` resolves its gateway URL/key explicit-first, environment-driven as fallback: `proxy_url` > `LLM_PROXY_BASE_URL` > `OPENAI_BASE_URL` > `http://localhost:8000/v1`, and `api_key` > `LLM_PROXY_API_KEY` > `OPENAI_API_KEY` > `"public"`. A `model_map` rewrites graph-level aliases to upstream ids, applied *after* the `"default"` fallback so the default model may itself be aliased.
-
-**Transport proxy** (HTTP 请求经代理出去): every HTTP agent (`HttpLLMAgent`, `OpenCodeAgent`, `ProxiedLLMAgent`) accepts a `proxy` URL — the HTTP(S)/SOCKS proxy the request *tunnels through* on its way to the endpoint. It is a different layer from `ProxiedLLMAgent.proxy_url`: `proxy_url` is **who** you talk to (the gateway), `proxy` is **how** your TCP gets there (corporate egress / authenticated proxy). They stack — a gateway behind a corporate proxy works as-is.
+**Transport proxy** (HTTP 请求经代理出去): every HTTP agent (`HttpLLMAgent`, `OpenCodeAgent`) accepts a `proxy` URL — the HTTP(S)/SOCKS proxy the request *tunnels through* on its way to the endpoint.
 
 ```python
 from framework import HttpLLMAgent
@@ -188,8 +196,8 @@ Edges can automatically catch domain errors in `post_process`, inject corrective
   "id": "e_extract",
   "source": "v1",
   "destination": "v2",
-  "prompt": "Extract valid JSON",
   "settings": {
+    "prompt": "Extract valid JSON",
     "retry_policy": {
       "max_retries": 3,
       "backoff_factor": 1.0,
@@ -224,7 +232,7 @@ Vertices are the state machine containers. Defined in the `vertices` array:
 | **`id`** | `str` | **Yes** | - | Unique identifier (e.g., `"DataIngest"`). |
 | **`type`** | `str` | No | `"vertex"` | `"vertex"` (standard node) or `"subgraph"` (nested subgraph). |
 | **`initial_data`** | `list[dict]` | No | `[]` | Initial data injected into the node. Each dict must have `channel` and `value`. |
-| **`script`** | `str` | No | `null` | Path to a Python script to inject `on_receive` or `on_ready` hooks. |
+| **`script`** | `str` | No | `null` | Path to a Python script defining a `Vertex` subclass (e.g. `my_vertex.py` or `my_vertex.py:ClassName`). |
 | **`settings`** | `dict` | No | `{}` | Advanced business logic settings. |
 
 **Advanced `settings`:**
@@ -244,7 +252,7 @@ Edges are the 5-stage compute and routing pipelines. Defined in the `edges` arra
 | **`destination`** | `str` | **Yes** | - | Destination Vertex ID. |
 | **`channel`** | `str` | No | `"default"` | Channel name for data flow. |
 | **`max_iterations`** | `int` | No | `0` | **Cycle bound**: Set `> 0` to mark as a back-edge, allowing `N` iterations. |
-| **`script`** | `str` | No | `null` | Path to a Python script to inject `pre_process`/`post_process` hooks. |
+| **`script`** | `str` | No | `null` | Path to a Python script defining an `Edge` subclass (e.g. `my_edge.py` or `my_edge.py:ClassName`). |
 | **`settings`** | `dict` | No | `{}` | Contains `prompt`, `model`, `agent`, and settings for guards, self-correction, and global memory. |
 
 **Advanced `settings`:**
@@ -286,7 +294,7 @@ Pydantic integration via `SchemaRegistry` enforces data consistency across edges
 
 ## 💻 Official Examples
 
-The `examples/` directory provides 16 standalone, runnable demonstrations of the framework's core features. They serve as reference implementations for configuring Nodes, Edges, and the Execution API. See [`examples/README.md`](examples/README.md) for the full index; the highlights are:
+The `examples/` directory provides 18 standalone, runnable demonstrations of the framework's core features. They serve as reference implementations for configuring Nodes, Edges, and the Execution API. See [`examples/README.md`](examples/README.md) for the full index; the highlights are:
 
 | Directory | Purpose / Feature Showcased | Command |
 | :--- | :--- | :--- |
@@ -312,17 +320,20 @@ To build a custom multi-agent workflow from zero:
    my_agent/
    ├── config.json         # Required: Topology definition
    ├── run.py              # Required: Executor entrypoint
-   └── hooks.py            # Optional: Custom logic scripts
+   └── my_nodes.py         # Optional: Custom Vertex/Edge subclasses
    ```
 
 2. **Define Topology (`config.json`)**:
-   Declare source vertices, sink vertices, and connecting edges. To attach python hooks, set `"script": "hooks.py"`.
+   Declare source vertices, sink vertices, and connecting edges. To attach custom logic, set `"script": "my_nodes.py"` (or `"my_nodes.py:ClassName"`) on the node.
 
-3. **Write Scripts (`hooks.py`)**:
+3. **Write Subclasses (`my_nodes.py`)**:
    ```python
-   def pre_process(data, settings):
-       # Process edge data
-       return data
+   from framework.edge import Edge
+
+   class MyEdge(Edge):
+       def pre_process(self, data, settings):
+           # Process edge data
+           return data
    ```
 
 4. **Write Entrypoint (`run.py`)**:
@@ -343,10 +354,10 @@ To build a custom multi-agent workflow from zero:
 
 ### 3. Precautions & Best Practices
 
-1. **Path Resolution**: Paths defined in JSON (`"script"` or `"graph_config"`) are resolved relative to the **Current Working Directory (CWD)** where the script is executed. 
+1. **Path Resolution**: Paths defined in JSON (`"script"` or `"graph_config"`) are resolved relative to the **directory of the config file** that references them. 
 2. **Deadlock Prevention**: If an edge has a conditional guard (`threshold`), ensure there is a fallback edge, or that cascaded `ABORTED` signals are safely handled. Otherwise, downstream nodes may wait infinitely for data that will never arrive.
 3. **Infinite Loop Protection**: Any edge that creates a topological cycle (a back-edge) **must** explicitly configure `"max_iterations": N`. Failure to do so will result in a `GraphCycleError` during initialization.
-4. **LLM Agents**: Many examples use a `MockAgent` for predictable testing. For real-world usage, use `OpenCodeAgent` (free OpenCode Zen, self-throttled), `ProxiedLLMAgent` (through your own gateway), or `HttpLLMAgent` (generic, unbounded) — and provide the necessary environment variables (e.g. `OPENAI_API_KEY`, `LLM_PROXY_BASE_URL`).
+4. **LLM Agents**: Many examples use a `MockAgent` for predictable testing. For real-world usage, use `OpenCodeAgent` (free OpenCode Zen, self-throttled) or `HttpLLMAgent` (generic, unbounded) — and provide the necessary environment variables (e.g. `OPENAI_API_KEY`).
 
 ## Tests
 
@@ -355,7 +366,7 @@ pip install pytest pytest-asyncio
 python -m pytest tests/ -v
 ```
 
-Currently contains **129 fully covered tests**, covering:
+Currently contains **333 fully covered tests**, covering:
 - Actor state machines & `EdgeSignal` unified message passing
 - 5-stage `EdgePipeline` execution & error isolation
 - Declarative threshold control, custom guards, and diamond branch pruning

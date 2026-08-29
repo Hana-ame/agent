@@ -1,12 +1,20 @@
 """Script loader module - Dynamic loading of external Python scripts.
 
-Vertex scripts may export:
-    on_receive(data, data_id, tags, settings) -> data   (may raise to reject)
-    on_ready(all_data, settings) -> {(data_id, (tags,)): value}
+A script is a Python file that defines a **subclass** of the base type
+(``Vertex``, ``Edge``, ``MapEdge``, …). The framework loads the module,
+finds the subclass, and instantiates it. Custom behaviour lives in the
+methods the subclass overrides:
 
-Edge scripts may export:
-    pre_process(data, settings) -> data
-    post_process(data, settings) -> data
+    Vertex subclass may override:
+        on_receive(self, data, channel, settings) -> data   (may raise to reject)
+        on_ready(self, all_data, settings) -> {(data_id, (tags,)): value}
+
+    Edge subclass may override:
+        pre_process(self, data, settings) -> data
+        post_process(self, result, settings) -> result
+
+Scripts may be referenced as ``"path/to/script.py"`` (auto-discover the
+unique subclass) or ``"path/to/script.py:ClassName"`` (explicit).
 """
 
 import importlib.util

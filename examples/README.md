@@ -1,6 +1,6 @@
 # Examples
 
-This directory contains 16 independent example pipelines demonstrating the core capabilities of the `vertex-edge-agent` framework, from basic concepts to production-grade advanced applications.
+This directory contains 18 independent example pipelines demonstrating the core capabilities of the `vertex-edge-agent` framework, from basic concepts to production-grade advanced applications.
 
 All examples share a unified way of running. You can run the corresponding configuration file directly using `run.py` from the project root:
 
@@ -14,9 +14,9 @@ python examples/run.py examples/<example_directory>/config.json
 | Example Directory | Key Features | Description |
 | :--- | :--- | :--- |
 | **`simple/`** | Linear Pipeline | Demonstrates a basic 3-node serial workflow: **Input -> Process -> Output**. It shows simple `Vertex` state transitions and `Edge` processing. |
-| **`complex/`** | Complex DAG & Script Hooks | Demonstrates multi-path concurrent graph computation. Includes **Fan-out** (splitting single node data into multiple paths) and **Fan-in** (converging multiple paths and waiting for dependencies). It also shows how to use basic module-level hooks to pre-process/post-process data. |
+| **`complex/`** | Complex DAG & Script Subclasses | Demonstrates multi-path concurrent graph computation. Includes **Fan-out** (splitting single node data into multiple paths) and **Fan-in** (converging multiple paths and waiting for dependencies). It also shows how to bind `Vertex`/`Edge` subclasses via `script` to pre-process/post-process data. |
 | **`conditional_routing/`** | Conditional Routing | Demonstrates edge-based Guard interception. It shows threshold-based intent classification, dynamically pruning incorrect branches and triggering a cascading abort (`Cascading Abort`), allowing conditional concurrency without causing deadlocks. |
-| **`custom_classes/`** | Native Subclassing | Moving away from traditional module hooks, this showcases the framework's OOP power. It demonstrates how the framework uses the `inspect` module to dynamically recognize and instantiate subclasses of `Vertex` and `Edge` defined in external scripts, facilitating clean data validation and processing logic injection. |
+| **`custom_classes/`** | Native Subclassing | Showcases the framework's OOP power: `script` points to a Python file, and the framework dynamically instantiates the `Vertex`/`Edge` subclass defined in it, facilitating clean data validation and processing logic. |
 | **`real_llm/`** | Real API via transport proxy | Real LLM call (`hy3-free`) routed through an HTTP transport proxy (`https_proxy` in edge settings), overriding any environment `HTTP_PROXY`/`HTTPS_PROXY`. Edge loaded by `script: llm_edge.py:HttpLLMEdge`, which owns `HttpLLMAgent`. |
 | **`opencode_zen/`** | **v3.0 OpenCode Agent Runner** | Launches the local `opencode` CLI (`opencode run`) via `OpenCodeAgentRunner` (the opencode counterpart of `PiAgentRunner`) — edge loaded by `script: zen_edge.py:OpenCodeEdge`, everything declared in the config. |
 | **`realtime_streaming/`** | **v2.0 Real-Time Event Streaming** | Demonstrates live ANSI-colored event streaming via `executor.stream()`, observing vertex state transitions and edge firings non-blockingly as they occur. |
@@ -29,6 +29,9 @@ python examples/run.py examples/<example_directory>/config.json
 | **`real_pi/`** | Pi Agent CLI Integration | Same real-API story as `real_llm/` but delegates to the local `pi` CLI subprocess via `PiAgentRunner` — for shops that standardise on Pi. |
 | **`hn_ai_report/`** | End-to-End AI Report (SubgraphVertex) | A multi-agent research-team graph that produces `report.md` from scratch; showcases nested sub-graph delegation at production scale. |
 | **`s1_ai_report/`** | End-to-End AI Report (HTTP LLM) | Same S1 report pipeline as `hn_ai_report/` but with plain `HttpLLMAgent` edges — useful as a comparison baseline. |
+| **`s1_ai_report_map/`** | End-to-End AI Report (MapEdge) | The same S1 report pipeline expressed with a `MapEdge` per-story pipeline, instead of a hand-expanded fan-out of fetch/summarise edges. |
+| **`finance_ai_report/`** | End-to-End AI Report (MapEdge, finance) | Same MapEdge pipeline as `s1_ai_report_map/` but for finance/trading/politics topics: LLM-filters finance threads from the stage1st board, then concurrently summarizes each into a Chinese report (`report.md`). |
+| **`sensenova/`** | SenseNova LLM Integration | An `Edge` subclass (`SensenovaEdge`) that delegates prompts to the SenseNova endpoint. |
 
 ### Running the Demos
 
