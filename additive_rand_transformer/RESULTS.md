@@ -2,6 +2,8 @@
 
 > 在 `additive-rand-transformer` 分支实际跑通的训练结果。
 > 环境：Python 3.12 + torch 2.5.0+cu124（纯 CPU），miniconda base 环境。
+>
+> **12 配置参数量×层数扫描见 [`SCAN.md`](SCAN.md)**（格式检测、算术完成度随容量/层数的趋势）。
 
 ## 训练配置
 
