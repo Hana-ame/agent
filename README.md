@@ -1,433 +1,299 @@
 # Vertex-Edge Agent Framework
 
-A **non-interactive**, data-driven, highly-scalable DAG (Directed Acyclic Graph) execution engine designed specifically for orchestrating and scheduling production-grade AI Agent pipelines.
+数据驱动、高可扩展的 DAG 执行引擎，用于编排 AI Agent 流水线。所有交互通过统一的
+`EdgeSignal` 消息管道完成（`COMPLETED / ABORTED / FAILED`）。
 
-## Unified Architecture
-
-The framework adopts a highly unified **Actor / Message-Passing** model. There are no scattered method calls between Vertex (node) and Edge (edge); all interactions are completed solely through a single signal pipe, `handle_edge_signal`.
-
-```
-┌──────────┐    ┌───────────────────────────────────────────────┐    ┌──────────┐
-│ Vertex A │───▶│                     Edge 1                    │───▶│ Vertex B │
-│ (Source) │    │ Guard -> PreProcess -> Compute -> PostProcess │    │ (Sink)   │
-└──────────┘    └───────────────────────────────────────────────┘    └──────────┘
-```
-
-### 1. Edge: Unified 5-Stage Pipeline
-
-An `Edge` is no longer differentiated between ordinary or conditional edges, but unified into a standard 5-stage pipeline:
-1. **Guard (Interception)**: Calls `evaluate_condition` for pre-validation (supporting JSON declarative rules or external Python scripts). If the condition is not met, an `ABORTED` signal is directly generated, triggering downstream cascading branch pruning to avoid deadlocks.
-2. **Pre-Process (Preprocessing)**: Triggers the `pre_process` hook to process raw data.
-3. **Compute (Computation)**: If Prompt and Model are configured, it computes via an LLM (PI Agent); if not, it acts as a transparent Pass-through edge, transmitting data directly.
-4. **Post-Process (Postprocessing)**: Triggers the `post_process` hook to parse or format the result.
-5. **Deliver (Delivery)**: Sends a `COMPLETED` signal to the target Vertex and writes the result.
-
-### 2. Vertex: Unified 3-Stage Container
-
-As a pure black-box state machine container, a `Vertex` goes through three lifecycles:
-1. **Ingest**: When a `COMPLETED` signal is received from an edge, the `on_receive` interceptor/hook is triggered.
-2. **Settle (Settlement/Barrier)**: Employs a dynamic Settlement Barrier Check. Real-time statistics are kept for `COMPLETED` and `ABORTED` signals. Once all incoming edges have resolved, it transitions to `READY` if at least one succeeded; if all failed, it transitions to `ABORTED`.
-3. **Fuse (Fusion)**: Once settlement is complete, the engine triggers `prepare_outputs()` (the `on_ready` hook) to fuse scattered data into the states required by outgoing edges.
-
-## Configuration Schema
-
-Graph topology and execution rules are entirely JSON-driven, supporting declarative threshold control, script binding, and LLM configuration:
-
-```jsonc
-{
-  "metadata": { "name": "...", "description": "..." },
-  "vertices": [
-    {
-      "id": "v1",
-      "settings": { /* Arbitrary config dictionary */ },
-      "script": "path/to/vertex_script.py",      // Optional: Path to a Vertex subclass
-      "initial_data": [                          // Optional: Initial injected data
-        { "channel": "text", "value": "Hello" }
-      ]
-    }
-  ],
-  "edges": [
-    {
-      "id": "e1",
-      "source": "v1",
-      "destination": "v2",
-      "channel": "text",
-      "settings": {
-        "prompt": "Summarize this:",             // Computation layer inside settings
-        "model": "gemini-pro",
-        "threshold": 80,                         // Optional: Guard threshold config (declarative)
-        "operator": ">="
-      },
-      "script": "path/to/edge_script.py"         // Optional: Path to an Edge subclass
-    }
-  ]
-}
-```
-
-## External Scripts
-
-By configuring the `script` field, you can instantly upgrade ordinary nodes and edges with complex logic without modifying the core framework source code.
-
-The `script` field loads a Python file and instantiates a **subclass** of `Vertex` or `Edge`; the custom behaviour lives in the methods the subclass overrides (`on_receive`, `on_ready`, `pre_process`, `post_process`, …).
-
-### Vertex Scripts
-
-```python
-# my_vertex.py — defines a Vertex subclass
-from framework.vertex import Vertex
-
-class UpperVertex(Vertex):
-    """on_receive: uppercase strings; on_ready: combine all data into result channel."""
-
-    def on_receive(self, data, channel, settings):
-        if isinstance(data, str):
-            return data.upper()
-        return data
-
-    def on_ready(self, all_data, settings):
-        return {"result": " | ".join(str(v) for v in all_data.values())}
-```
-
-### Edge Scripts
-
-```python
-# my_edge.py — defines an Edge subclass
-from framework.edge import Edge
-
-class PrefixEdge(Edge):
-    """pre_process / post_process as overridden methods."""
-
-    def pre_process(self, data, settings):
-        if isinstance(data, str):
-            return f"{settings.get('prefix', '[PRE]')} {data}"
-        return data
-
-    def post_process(self, result, settings):
-        if isinstance(result, str):
-            return f"{result} {settings.get('suffix', '[POST]')}"
-        return result
-```
-
-Reference the script in JSON with `"script": "my_vertex.py"` (auto-discovers the subclass), or `"script": "my_vertex.py:UpperVertex"` when the file contains multiple candidate classes.
-
-```python
-import asyncio
-from framework import Graph, Executor, MockAgent
-
-async def main():
-    # 1. Parse graph configuration (supports DAGs, loops, and conditional branches)
-    graph = Graph.from_json("config.json")
-    
-    # 2. Option A: Standard run
-    result = await Executor(graph, MockAgent(), max_concurrency=8).run()
-    print(result.summary())
-    
-    # 3. Option B: Real-time event streaming
-    # executor = Executor(graph, MockAgent())
-    # async for event in executor.stream():
-    #     print(f"[{event.timestamp}] {event.event_type} - vertex={event.vertex_id}")
-
-asyncio.run(main())
-```
-
-## Agent Engines
-
-The framework ships several swappable `BaseAgent` implementations. Pick one per graph — or let a script `Edge` subclass own one. The rest of the engine is agent-agnostic.
-
-| Agent | Spec string | Default target | When to use |
-| :--- | :--- | :--- | :--- |
-| `MockAgent` | `"mock"` | — | Tests / dry runs. Echoes data with model metadata. |
-| `HttpLLMAgent` | `"http"` | OpenCode Zen | Generic OpenAI-compatible endpoint; **unbounded** — the escape hatch when you drive your own concurrency. |
-| `OpenCodeAgent` | `"opencode"` | `https://opencode.ai/zen/v1` | Free, key-less LLM via OpenCode Zen. **Self-throttled** for the free tier. |
-| `PiAgentRunner` | `"pi"` | local `pi` CLI | Delegate to the installed Pi Agent CLI subprocess. |
-| *custom* | `"path/to/script.py:ClassName"` | — | Subclass `BaseAgent` and load it. |
-
-```python
-from framework import Graph, Executor, OpenCodeAgent
-
-# Free-tier Zen, self-limited to 3 concurrent calls / 20 per minute.
-agent = OpenCodeAgent(max_concurrency=3, requests_per_minute=20.0)
-executor = Executor(graph, agents=agent)
-```
-
-**Throttling knobs** (`OpenCodeAgent`):
-
-* `max_concurrency` — `asyncio.Semaphore` bounding in-flight calls. A graph with 32 concurrent edges queues locally instead of opening 32 simultaneous connections.
-* `requests_per_minute` — token-bucket budget charged **per attempt**, so retries count against the budget rather than re-entering an already-exhausted endpoint. `None` disables it.
-* `queue_timeout` — fail fast with `ThrottleTimeoutError` (a `ComputeError`) instead of hanging the graph forever.
-
-Both gates are agent-local, so each edge's `settings` still decides its own `prompt`/`model` — only *when* it gets to speak is coordinated.
-
-```jsonc
-// config.json — an edge loads its agent via `script: file:Class`
-{ "id": "e_zen", "source": "v1", "destination": "v2",
-  "settings": { "prompt": "Summarise.", "model": "hy3-free" },
-  "script": "zen_edge.py:OpenCodeEdge" }
-```
-
-The edge script owns its agent in Python (e.g. `self.agent = OpenCodeAgentRunner()` in `__init__`); nothing is injected by the runner and no fallback default agent is used.
-
-**Transport proxy** (HTTP 请求经代理出去): every HTTP agent (`HttpLLMAgent`, `OpenCodeAgent`) accepts a `proxy` URL — the HTTP(S)/SOCKS proxy the request *tunnels through* on its way to the endpoint.
-
-```python
-from framework import HttpLLMAgent
-
-# Every HTTP request physically goes through corp-proxy:3128
-agent = HttpLLMAgent(proxy="http://user:pass@corp-proxy:3128")
-```
-
-**在 graph.json 中设置代理（覆盖环境变量）:** the edge settings accept `proxy`, `https_proxy` or `HTTPS_PROXY` — same meaning — and the script edge forwards them to its agent. Setting it in the graph config **overrides** any `HTTP_PROXY` / `HTTPS_PROXY` from the environment, so a pipeline can pin its own egress proxy regardless of the shell it runs in:
-
-```jsonc
-{ "id": "e_real_llm", "source": "v1", "destination": "v2",
-  "script": "llm_edge.py:HttpLLMEdge",
-  "settings": { "prompt": "Summarise.", "model": "hy3-free",
-                "https_proxy": "http://127.0.1.6:7890" } }
-```
-
-When the graph config leaves `proxy` unset, `trust_env=True` (default) lets httpx fall back to `HTTP_PROXY` / `HTTPS_PROXY` from the environment. Explicit config > environment.
-
-## Advanced Features (v2.0)
-
-### 1. Business Logic Retry & Self-Correction
-Edges can automatically catch domain errors in `post_process`, inject corrective feedback into the LLM prompt, and retry with exponential backoff:
-```jsonc
-{
-  "id": "e_extract",
-  "source": "v1",
-  "destination": "v2",
-  "settings": {
-    "prompt": "Extract valid JSON",
-    "retry_policy": {
-      "max_retries": 3,
-      "backoff_factor": 1.0,
-      "retry_on": ["KeyError", "JSONDecodeError", "ValueError"]
-    }
-  }
-}
-```
-
-### 2. State Checkpointing & Human-in-the-Loop (HITL)
-Workflows can pause for approval either declaratively (`"require_approval": true`) or dynamically via `vertex.pause_for_approval()`. State can be snapshotted to SQLite via `SQLiteStateStore` and resumed via `CheckpointedExecutor.resume()`.
-
-### 3. Stateful Loops & Cycles
-Workflows support cyclic graph topologies for iterative refinement. Cycles are validated against back-edges configured with `max_iterations > 0` to prevent infinite loops.
-
-### 4. Real-Time Non-Blocking Event Streaming
-Observe graph execution live using `async for event in executor.stream()` emitting structured `GraphEvent` records without blocking core execution.
-
+> 本文档按「问题 / 方案 / 修改 / 测试」组织：每个条目是一个真实出现过的问题，
+> 附解决方式与实测证据。用法示例见末尾「快速开始」。
 
 ---
 
-## ⚙️ Configuration Guide (Vertex & Edge)
+## 1. 框架现状（已核实的实现）
 
-The framework is driven by JSON configurations. You can define the topology in a `.json` file and load it via `Graph.from_json()`.
+| 模块 | 现状 |
+|---|---|
+| `Graph` | 纯数据容器 + `from_json()/from_dict()/to_dict()/to_json()` 序列化 |
+| `Vertex` | 状态机容器：`IDLE→READY→AWAITING_EDGES→DONE`，支持 `PAUSED`（HITL）、循环回边 |
+| `Edge` | 5 段管线：Guard → Pre-Process → Compute → Post-Process → Deliver；`MapEdge` 做 fan-in/fan-out |
+| `Executor` | 异步调度，`run()` / `stream()`（非阻塞事件流） |
+| Agent | `MockAgent` / `HttpLLMAgent` / `OpenCodeAgent` / `PiAgentRunner`；spec：`mock|http|opencode|pi` |
+| 扩展 | `script` = `文件名[:类名]`，加载 `Vertex/Edge/MapEdge` 子类（**不是**顶层 hook 函数） |
+| 高级 | `SubgraphVertex`、`MemoryStore`、`TelemetryTracker`、`SchemaRegistry`、`SQLiteStateStore`/`CheckpointedExecutor`、`race_mode`、`GraphBuilder`/`LinearChain` |
 
-### 1. Vertex Configuration
+---
 
-Vertices are the state machine containers. Defined in the `vertices` array:
+## 2. 已解决问题（问题 / 方案 / 修改 / 测试）
 
-| Field | Type | Required | Default | Description & Options |
-| :--- | :--- | :---: | :--- | :--- |
-| **`id`** | `str` | **Yes** | - | Unique identifier (e.g., `"DataIngest"`). |
-| **`type`** | `str` | No | `"vertex"` | `"vertex"` (standard node) or `"subgraph"` (nested subgraph). |
-| **`initial_data`** | `list[dict]` | No | `[]` | Initial data injected into the node. Each dict must have `channel` and `value`. |
-| **`script`** | `str` | No | `null` | Path to a Python script defining a `Vertex` subclass (e.g. `my_vertex.py` or `my_vertex.py:ClassName`). |
-| **`settings`** | `dict` | No | `{}` | Advanced business logic settings. |
+### 问题 1：遗留的顶层 `prompt/model/agent` 字段会被拒绝
 
-**Advanced `settings`:**
-* **Computation Layer**: `"prompt"` (instruction to the LLM), `"model"` (LLM model name, e.g. `"gemini-1.5-pro"`).
-* `"require_approval"`: (`bool`) Set to `true` to enable Human-in-the-Loop (HITL), pausing execution and saving a snapshot.
-* `"graph_config"`: (`str` / `dict`) **Required for `type="subgraph"`**. Path to the subgraph's `.json` configuration file.
-* `"input_map"` / `"output_map"`: Port mapping redirects for nested subgraphs.
+#### 问题
+旧 schema 允许在 edge 顶层写 `prompt`/`model`/`threshold`/`pipeline`；新代码的
+`_reject_legacy_keys()` 会抛 `ValueError` 强制迁移。文档示例仍使用旧写法，
+按文档配会直接报错。
 
-### 2. Edge Configuration
+#### 方案
+把计算层字段统一收进 `settings`：`settings.prompt / settings.model / settings.threshold / settings.operator`。
+顶层只保留 `id / source / destination / channel / max_iterations / script`。
 
-Edges are the 5-stage compute and routing pipelines. Defined in the `edges` array:
+#### 修改
+- `framework/graph.py`：`_LEGACY_EDGE_KEYS` 增加 `script`、`_LEGACY_VERTEX_KEYS` 增加 `script`，
+  迁移提示改为「自定义逻辑改为 Python 子类 + 按 id 注入 / `_class` 键」。
+- `README.md` 全部 JSON 示例：`prompt/model` 移入 `settings`。
 
-| Field | Type | Required | Default | Description & Options |
-| :--- | :--- | :---: | :--- | :--- |
-| **`id`** | `str` | **Yes** | - | Unique identifier (e.g., `"e_analyze"`). |
-| **`source`** | `str` | **Yes** | - | Source Vertex ID. |
-| **`destination`** | `str` | **Yes** | - | Destination Vertex ID. |
-| **`channel`** | `str` | No | `"default"` | Channel name for data flow. |
-| **`max_iterations`** | `int` | No | `0` | **Cycle bound**: Set `> 0` to mark as a back-edge, allowing `N` iterations. |
-| **`script`** | `str` | No | `null` | Path to a Python script defining an `Edge` subclass (e.g. `my_edge.py` or `my_edge.py:ClassName`). |
-| **`settings`** | `dict` | No | `{}` | Contains `prompt`, `model`, and settings for guards, self-correction, and global memory. |
+#### 测试
+**测试方案**：验证顶层旧字段被拒绝、`settings` 内字段被正确消费。
+**测试方法**：构造含顶层 `prompt/model` 的 dict → `Graph.from_dict()`；对照组放 `settings` 内。
+**测试结果**：顶层字段抛 `ValueError: 仍在使用旧 schema 的顶层字段`；`settings` 内字段正常
+（`tests/test_graph.py`、`tests/test_improvements.py`，333→337 全部通过）。
 
-**Advanced `settings`:**
-* **Computation Layer**: `"prompt"` (instruction to the LLM), `"model"` (LLM model name, e.g. `"gemini-1.5-pro"`).
-* **Conditional Routing (Guard)**: `"threshold"`, `"operator"` (e.g., `">="`), `"field"`. Triggers an `ABORTED` prune if conditions fail.
-* **Self-Correction (`retry_policy`)**: E.g., `{"max_retries": 3, "retry_on": ["KeyError"]}`.
-* **Global Memory**: `"memory_read"` (array of keys to read), `"memory_write"` (dict mapping output fields to global keys).
+### 问题 2：文档虚构了不存在的 `ProxiedLLMAgent`
 
-## Enterprise-Grade Features (v3.0)
+#### 问题
+`README.md` 三处引用 `ProxiedLLMAgent`（Agent 表 `"proxy"/"proxied"` spec、节流参数章节、
+最佳实践 #4），但框架中该类型不存在，`get_agent({"type":"proxy"})` 直接抛
+`ValueError: Unsupported agent config type: proxy`。
 
-### 1. Hierarchical Nested Sub-Graphs (`SubgraphVertex`)
-Encapsulate multi-agent teams as single modular nodes in a parent graph. Features automatic `input_map`/`output_map` translation, namespaced checkpoint persistence, and event bubbling (`subgraph_*`).
+#### 方案
+删除文档中所有 `ProxiedLLMAgent` / `LLM_PROXY_BASE_URL` / `model_map` / `proxy_url`
+描述；把节流参数章节收窄到实际存在的 `OpenCodeAgent`，传输代理章节只保留
+`HttpLLMAgent` / `OpenCodeAgent`。
 
-### 2. Global Memory & Shared Context (`MemoryStore`)
-A thread-safe key-value bus allowing distant nodes to read and write shared state without routing clutter:
-```jsonc
-{
-  "id": "e_auth",
-  "source": "Login",
-  "destination": "Dashboard",
-  "settings": {
-    "memory_write": { "session_token": "global_session_id" },
-    "memory_read": [ "user_permissions" ]
-  }
-}
-```
+#### 修改
+- `README.md`：Agent 表删 `ProxiedLLMAgent` 行、删虚构网关/别名段落、改最佳实践 #4。
 
-### 3. Granular Telemetry & Cost Profiling (`TelemetryTracker`)
-Automatically tracks prompt tokens, completion tokens, execution latency, and estimated dollar costs per edge and workflow-wide with built-in model pricing catalogs (OpenAI, Gemini, Claude).
+#### 测试
+**测试方案**：全仓库不再出现 `ProxiedLLMAgent` / `model_map` / `proxy_url`。
+**测试方法**：`grep -rn "ProxiedLLMAgent|model_map|proxy_url" README.md examples/ framework/`。
+**测试结果**：0 处（`_http_base.py` 中的 `_proxied_clients` 是 httpx 客户端缓存变量，无关）。
 
-### 4. Race Mode (First-to-Finish)
-Support for `wait_policy: 'any'` on vertices to aggressively short-circuit execution. Once the first incoming edge satisfies the vertex, it immediately fires downstream routes and actively cancels all pending upstream `asyncio` tasks to minimize API costs and latency.
+### 问题 3：`script` 键被文档描述成「注入 hook」
 
-### 5. Async Hooks & Dynamic Topologies
-Pipeline hooks (`pre_process`, `post_process`) natively support `async def` for I/O bound operations. The `LinearChain.build(prompts)` API enables rapid, programmatic construction of `A->B->C` topologies without JSON configuration.
+#### 问题
+`README.md` 与 `script_loader.py` docstring 声称 script 用于「注入 `on_receive`/`on_ready`
+/`pre_process` 顶层 hook」，实际实现是**加载并实例化子类**。旧顶层 hook 写法已失效，
+会静默降级成基类并打 warning；按文档写等于自定义行为不生效。
 
-### 6. Type-Safe Schema Validation
-Pydantic integration via `SchemaRegistry` enforces data consistency across edges. It provides static graph compilation checks and runtime data validation, automatically routing `ValidationError`s to the LLM self-correction retry policy.
+#### 方案
+文档统一改为：`script` = `文件名[:类名]`，定义 `Vertex/Edge/MapEdge` 子类，行为在
+override 的方法里；删除所有顶层 hook 函数示例。
 
-## 💻 Official Examples
+#### 修改
+- `README.md`：「External Scripts」「Configuring from Scratch」「字段表」重写为子类式。
+- `framework/utils/script_loader.py` docstring：改为子类加载说明。
+- `examples/README.md`：`complex` / `custom_classes` 条目的 `module hooks` 措辞改掉。
 
-The `examples/` directory provides 18 standalone, runnable demonstrations of the framework's core features. They serve as reference implementations for configuring Nodes, Edges, and the Execution API. See [`examples/README.md`](examples/README.md) for the full index; the highlights are:
+#### 测试
+**测试方案**：文档无顶层 hook 残留；子类式示例与真实代码一致。
+**测试方法**：`grep -rnE "^def (on_receive|on_ready|pre_process|post_process|guard)" README.md examples/ framework/`
++ `grep -rni "inject.*hook"`。
+**测试结果**：0 处残留；`examples/scripts/*.py` 实测均为子类（`UpperVertex(Vertex)`、`PrefixEdge(Edge)`）。
+全部测试通过（333→337）。
 
-| Directory | Purpose / Feature Showcased | Command |
-| :--- | :--- | :--- |
-| **`realtime_streaming/`** | Demonstrates the non-blocking `executor.stream()`, capturing `GraphEvent` records and rendering ANSI colored logs. | `python examples/realtime_streaming/demo.py` |
-| **`self_correction/`** | Simulates LLM formatting errors to trigger `retry_policy`. Injects error stack traces back into the Prompt for LLM self-healing. | `python examples/self_correction/demo.py` |
-| **`hitl_approval/`** | Shows how `require_approval` pauses execution at sensitive nodes, saves SQLite state snapshots, and resumes via `approve()`. | `python examples/hitl_approval/demo.py` |
-| **`subgraph/`** | Demonstrates hierarchical nesting. A parent graph imports a `research_team.json` subgraph, routing inputs/outputs via boundary mapping. | `python examples/subgraph/demo.py` |
-| **`opencode_zen/`** | **v3.0** Launches the local `opencode` CLI (`opencode run`) via `OpenCodeAgentRunner`; edge loaded by `script: zen_edge.py:OpenCodeEdge`, everything declared in the config. | `python examples/opencode_zen/run.py` |
-| **`race_mode/`** | **v3.0** First-to-finish fan-in: the sink wins on the first response and cancels the losers cleanly. | `python examples/race_mode/demo.py` |
-| **`dynamic_topology/`** | Async hooks and manager-driven runtime graph growth — one worker vertex per task the Manager emits. | `python examples/dynamic_topology/demo.py` |
-| **`simple_chain/`** | Programmatic `LinearChain.build(prompts)` for the shortest path to a working `A->B->C` graph (no JSON). | `python examples/simple_chain/demo.py` |
-| **`real_pi/`** | Real-LLM flow that delegates to the local `pi` CLI subprocess via `PiAgentRunner` (Pi-stdlib counterpart of `real_llm/`). | `python examples/run.py examples/real_pi/config.json` |
-| **`real_llm/`** | Real-LLM call (`hy3-free`) through a transport `https_proxy` pinned in the edge settings, overriding env proxies — edge loaded by `script: llm_edge.py:HttpLLMEdge` owning `HttpLLMAgent`. | `python examples/run.py examples/real_llm/config.json` |
-| **`hn_ai_report/`** | End-to-end S1 AI report graph on `SubgraphVertex` delegation. | `python examples/hn_ai_report/demo.py` |
-| **`s1_ai_report/`** | Same S1 report graph on plain `HttpLLMAgent` — a comparison baseline against `hn_ai_report/`. | `python examples/s1_ai_report/demo.py` |
+### 问题 4：`GraphBuilder.edge()` 残留 `agent` 参数
 
-### 2. Configuring an Example from Scratch
+#### 问题
+`builder.edge()` 的 `agent` 参数把 `agent` 写进 `settings["agent"]`，但 `Edge.__init__`
+明确不再消费该字段（`# No per-edge agent from config`，`self.agent = None`），agent
+由脚本 Edge 子类 `__init__` 自持或走 Executor 级。该参数是旧 schema 的残留，写进去
+被静默忽略。
 
-To build a custom multi-agent workflow from zero:
+#### 方案
+删除 `builder.edge()` 的 `agent` 参数及其赋值逻辑；`prompt/model` 仍保留（真实被消费）。
 
-1. **Setup Directory Structure**:
-   ```text
-   my_agent/
-   ├── config.json         # Required: Topology definition
-   ├── run.py              # Required: Executor entrypoint
-   └── my_nodes.py         # Optional: Custom Vertex/Edge subclasses
-   ```
+#### 修改
+- `framework/builders/builder.py`：`edge()` 移除 `agent: Any = None` 与 `s["agent"] = agent`。
+- `README.md`：两处「`"agent"` (agent override)」表述删除（`settings` 表与 Advanced settings）。
+- `framework/edge.py` docstring：`agent` 从「parsed from settings」属性列表移除。
 
-2. **Define Topology (`config.json`)**:
-   Declare source vertices, sink vertices, and connecting edges. To attach custom logic, set `"script": "my_nodes.py"` (or `"my_nodes.py:ClassName"`) on the node.
+#### 测试
+**测试方案**：builder 不再写 `settings["agent"]`；全框架无人读取该键。
+**测试方法**：`grep -n "agent" framework/builders/builder.py`；`grep -rn 'get("agent")' framework/`。
+**测试结果**：builder 0 处 agent；框架 0 处读取（`opencode_agent_runner.py` 的
+`settings.get("agent")` 是给 CLI 的 `--agent` 参数，属保留功能）。**337 tests passed**。
 
-3. **Write Subclasses (`my_nodes.py`)**:
-   ```python
-   from framework.edge import Edge
+### 问题 5：Edge 重试时 prompt 跨迭代累积
 
-   class MyEdge(Edge):
-       def pre_process(self, data, settings):
-           # Process edge data
-           return data
-   ```
+#### 问题
+`retry_policy` 反馈直接原地改 `self.prompt`，循环图上多次迭代后 prompt 堆积多个
+`[SYSTEM FEEDBACK]` 块，上下文污染、token 膨胀。
 
-4. **Write Entrypoint (`run.py`)**:
-   ```python
-   import asyncio
-   from framework import Graph, Executor, HttpLLMAgent
-   
-   async def main():
-       # Setup Agent (Requires API Key ENV vars)
-       agent = HttpLLMAgent()
-       
-       graph = Graph.from_json("config.json")
-       executor = Executor(graph, agents=agent)
-       await executor.run()
-   
-   asyncio.run(main())
-   ```
+#### 方案
+把原始 prompt 冻结为 `self._base_prompt`；每次重试从它重建 `active_prompt`，
+执行结束后恢复 `self.prompt`。
 
-### 3. Precautions & Best Practices
+#### 修改
+- `framework/edge.py`：`__init__` 存 `_base_prompt`；重试循环用 `active_prompt` 重建；
+  恢复 `self.prompt`（commit `121ea9e`）。
+- `tests/test_retry_and_stream.py`：新增回归用例断言只有单个 `[SYSTEM FEEDBACK]` 块。
 
-1. **Path Resolution**: Paths defined in JSON (`"script"` or `"graph_config"`) are resolved relative to the **directory of the config file** that references them. 
-2. **Deadlock Prevention**: If an edge has a conditional guard (`threshold`), ensure there is a fallback edge, or that cascaded `ABORTED` signals are safely handled. Otherwise, downstream nodes may wait infinitely for data that will never arrive.
-3. **Infinite Loop Protection**: Any edge that creates a topological cycle (a back-edge) **must** explicitly configure `"max_iterations": N`. Failure to do so will result in a `GraphCycleError` during initialization.
-4. **LLM Agents**: Many examples use a `MockAgent` for predictable testing. For real-world usage, use `OpenCodeAgent` (free OpenCode Zen, self-throttled) or `HttpLLMAgent` (generic, unbounded) — and provide the necessary environment variables (e.g. `OPENAI_API_KEY`).
+#### 测试
+**测试方案**：多次重试/循环迭代后 prompt 不叠加。
+**测试方法**：`pytest tests/test_retry_and_stream.py -q`，断言 feedback 块数量 = 1。
+**测试结果**：通过（回归测试锁定，commit `121ea9e`）。
 
-## Tests
+### 问题 6：`HttpLLMAgent` 资源泄漏与致命错误重试
+
+#### 问题
+`httpx.AsyncClient` 在 `__init__` 创建后从不关闭（长跑进程泄漏连接）；且所有 HTTP 错误
+（含 400/401/403）都走 `raise_for_status()` 触发 tenacity 重试，认证失败被重试
+`max_retries` 次白烧配额。
+
+#### 方案
+- 非重试状态码（400/401/403/404 等）抛 `NonRetryableHTTPError`，不进重试；
+  仅 `429/500/502/503/504` 进入 retry。`ValueError` 不在 `retry_if_exception_type` 内。
+- 给 HTTP agent 增加异步上下文管理（`__aenter__/__aexit__`）与幂等 `close()`。
+
+#### 修改
+- `framework/agents/_http_base.py`：新增 `NonRetryableHTTPError` + 状态码分支（commit `d64aab2`）；
+  增加 `__aenter__/__aexit__`、`close()` 清理客户端与代理缓存。
+- `tests/test_agents.py`：显式 close、幂等、async-with（含异常路径）回归。
+
+#### 测试
+**测试方案**：4xx 立即失败；5xx/429 重试；客户端关闭幂等。
+**测试方法**：mock 响应注入 400 与 500，断言调用次数；`async with HttpLLMAgent(...)` 后断言关闭。
+**测试结果**：通过（`d64aab2` 回归测试锁定）。
+
+### 问题 7：`GraphBuilder.vertex()` 曾用错误 key 存 script
+
+#### 问题
+旧代码把 script 存到 `vc["pipeline"]`，`from_dict()` 读的是 `vc["script"]` → 自定义
+vertex 脚本被静默丢弃。
+
+#### 方案
+`vertex()` 改用 `vc["script"] = script`。
+
+#### 修改
+- `framework/builders/builder.py`：key 修正（已确认当前为 `vc["script"] = script`）。
+- `tests/test_improvements.py`：builder 构建的图含 script 节点，断言类被加载。
+
+#### 测试
+**测试方案**：builder 注入的 script 子类确实生效。
+**测试方法**：`GraphBuilder().vertex("x", script=...).build()` → 断言 vertex 是子类实例。
+**测试结果**：通过（`tests/test_improvements.py`）。
+
+### 问题 8：MapEdge pipeline 步骤的 `script` 相对路径解析错误
+
+#### 问题
+`load_class_from_script` 按 CWD 解析，pipeline step 的 `"script": "hn_edges.py:..."`
+从项目根跑时会 `Script not found`。
+
+#### 方案
+`from_dict()` 里对 `settings.pipeline[].script` 统一按 config 文件目录做 `base_dir` 归一化。
+
+#### 修改
+- `framework/graph.py`：MapEdge step script 相对 config 目录解析。
+- `examples/hn_ai_report` / `examples/s1_ai_report_map` 借此正确加载。
+
+#### 测试
+**测试方案**：任何 CWD 下 pipeline step 都能加载。
+**测试方法**：`cd /` 后跑 `python examples/hn_ai_report/demo.py`（config 内嵌 proxy）。
+**测试结果**：报告成功生成（`report.md` 约 99 行），无 `Script not found`。
+
+### 问题 9：`load_class_from_script` 按字母序选错子类
+
+#### 问题
+`load_class_from_script("s1_edges.py:SummarizeEdge", ...)` 曾靠字母序自动发现，
+`SummarizeEdge` 排在 `FetchEdge` 之后 → 加载了错误的 `FetchEdge`，`post_process` 不执行。
+
+#### 方案
+先 `getattr(module, class_name)` 精确解析显式类名；找不到才降级自动发现。
+
+#### 修改
+- `framework/utils/script_loader.py`：显式类名优先。
+- `tests/test_script_loader.py`：精确定位回归。
+
+#### 测试
+**测试方案**：多子类文件按显式名加载正确类。
+**测试方法**：`load_class_from_script("s1_edges.py:SummarizeEdge", Edge, "SummarizeEdge")`。
+**测试结果**：返回 `SummarizeEdge` 而非 `FetchEdge`（`tests/test_script_loader.py` 锁定）。
+
+### 问题 10：s1 抓取解析 bug（中文时间戳、空占位 div）
+
+#### 问题
+stage1st 帖子时间戳是中文「发表于 …」无 `span[title]`；`div[id^="post_"]` 误匹配空
+`post_rate_div_<pid>` → `dt=None` → 帖子被 24h 过滤 → 全部 `0 replies`，报告空洞。
+
+#### 方案
+- selector 收紧为 `^post_\d+$`；
+- 时间戳 strip 前缀后 `re.search` 解析 `YYYY-M-D H:M`；
+- 多页回帖按 `(dt, …)` 升序排序（旧 `insert(0)` 反向遍历顺序乱）。
+
+#### 修改
+- `examples/s1_ai_report*/s1_edges.py`；`tests/fixtures/s1_thread.html` 离线 fixture。
+- `tests/test_s1_edges.py`：新增回归。
+
+#### 测试
+**测试方案**：真实页面离线 fixture 解析正确（4 帖 21/81/13/5 条）。
+**测试方法**：`pytest tests/test_s1_edges.py -q`（含 `test_s1_edges.py` + map 版）。
+**测试结果**：通过；实机跑出 `report.md` 137 行，与 opencode 直出版同级。
+
+### 问题 11：文档数字与实际不符
+
+#### 问题
+`README.md` 声称 16 个示例、129 个测试；实测 examples 18 个可运行、pytest 收集 333+。
+
+#### 方案
+文档数字改为实测值，并将 `s1_ai_report_map`、`sensenova` 补进示例索引。
+
+#### 修改
+- `README.md`：16→18、129→333；`examples/README.md`：16→18，表格补 2 行。
+
+#### 测试
+**测试方案**：数字与实况一致。
+**测试方法**：`ls -d examples/*/` 计数、`pytest --collect-only -q` 计数。
+**测试结果**：18 个示例（另 scripts/s1profile_collect 为辅助目录）、**337 tests collected**。
+
+---
+
+## 3. 快速开始
 
 ```bash
-pip install pytest pytest-asyncio
+pip install -e .
+python examples/run.py examples/simple/config.json
+python examples/run.py examples/conditional_routing/config.json
+python examples/run.py examples/real_llm/config.json   # 真实 LLM + 传输代理
+```
+
+代码方式构建（无 JSON）：
+
+```python
+import asyncio
+from framework import GraphBuilder, Executor
+
+g = (GraphBuilder("demo")
+     .vertex("input", initial_data=[{"channel": "text", "value": "hello"}])
+     .vertex("process")
+     .edge("input", "process", prompt="Summarize:", model="hy3-free")
+     .build())
+result = asyncio.run(Executor(g).run())
+```
+
+自定义子类（`script` = 文件名[:类名]）：
+
+```python
+# my_vertex.py
+from framework.vertex import Vertex
+
+class UpperVertex(Vertex):
+    def on_receive(self, data, channel, settings):
+        return data.upper() if isinstance(data, str) else data
+```
+
+```jsonc
+{ "id": "v1", "script": "my_vertex.py", "settings": {} }
+```
+
+## 4. 测试
+
+```bash
 python -m pytest tests/ -v
 ```
 
-Currently contains **333 fully covered tests**, covering:
-- Actor state machines & `EdgeSignal` unified message passing
-- 5-stage `EdgePipeline` execution & error isolation
-- Declarative threshold control, custom guards, and diamond branch pruning
-- Bounded stateful cycles & loop-back iteration re-entry
-- SQLite snapshot persistence, crash recovery, and HITL approval resumes
-- Business-logic retry policies & self-correction prompt reflections
-- Real-time sidecar event streaming and concurrency semaphore limits
-- Hierarchical nested sub-graphs (`SubgraphVertex`) & event bubbling
-- Global shared memory bus (`MemoryStore`), TTLs, and scoped namespaces
-- Token usage tracking, latency benchmarking, and cost profiling
-- Race Mode cancellation (`wait_policy: 'any'`), async hooks, and `LinearChain.build`
-- Static and Runtime Pydantic Schema Validation
+当前 **337 tests passed**，覆盖：状态机、管线、循环、checkpoint/HITL、重试自纠错、
+事件流、子图、全局内存、telemetry、race mode、schema 校验、MapEdge、script_loader、
+builder、s1/hn 抓取解析等。
 
-## Testing Custom Edge Subclasses
+## 5. 官方示例
 
-Framework provides a test template for you to write tests against your own Edge subclasses.
-
-### Quick Start
-
-```bash
-# Copy template
-cp tests/test_edge_template.py tests/test_my_edge.py
-
-# Edit test_my_edge.py, fill in your Edge class and test data
-
-# Run
-pytest tests/test_my_edge.py -v
-```
-
-### Template Structure
-
-| Test Class | Purpose |
-|------------|---------|
-| `TestCondition` | Test `condition()` guard logic |
-| `TestHooks` | Test `pre_process` / `post_process` transforms |
-| `TestExecution` | End-to-end execution tests |
-| `TestSettingsCombinations` | Different settings combinations |
-| `TestResetAndRepr` | Reset and repr behavior |
-
-### Core Helper Functions
-
-```python
-from tests.test_edge_template import make_edge, make_source_vertex, make_dest_vertex, echo_agent
-
-# Create Edge instance
-edge = make_edge(MyCustomEdge, channel="score", settings={"threshold": 80})
-
-# Create source Vertex with data
-src = make_source_vertex(90, channel="score")
-
-# Create destination Vertex
-dst = make_dest_vertex(incoming_edges=["e1"])
-
-# Execute and verify
-result = await edge.execute(src, dst, echo_agent())
-assert edge.completed is True
-```
-
-### Writing Your Tests
-
-1. Replace `TODO` comments with your Edge class
-2. Define `INPUT_SCENARIOS` for test data
-3. Define `SETTINGS_SCENARIOS` for configurations
-4. Implement assertions in test methods
+`examples/` 有 **18 个可运行实验**，全量索引与说明见 `examples/README.md`。
+每个实验按「问题/方案/修改/测试」记录在自己的 `README.md` 中。

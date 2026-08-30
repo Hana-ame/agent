@@ -1,268 +1,108 @@
 # Vertex-Edge-Agent: Architecture Review & Advice
 
-## Executive Summary
-
-The framework is a well-conceived **DAG-based agentic execution engine** at v0.4.0. The core abstractions (Vertex, Edge, Graph, SubGraph) are solid and the builder APIs are well-designed. However, there are several architectural issues that should be addressed before v1.0 — particularly around security, separation of concerns, and the `hn_ai_report` example sending mixed signals about intended usage patterns.
-
----
-
-## Part 1: `examples/hn_ai_report` — Specific Advice
-
-### What Works Well
-
-- **Realistic pipeline** — fetch → fan-out → filter → enrich → report → save is a genuinely useful pattern
-- **`report_hook.py`** — clean example of extending `Vertex` with a custom class
-- **`config.json`** — demonstrates the full declarative config surface (fan-out, data mapping, multiple action types)
-- **Generated `report.md`** — proves the pipeline actually works end-to-end
-
-### 🔴 Critical Issues
-
-#### 1. `hn_edges.py` Is Dead Code
-[hn_edges.py](file:///home/gekkasayu/vertex_edge_agent/examples/hn_ai_report/hn_edges.py) defines four custom edge classes (`AiFilterEdge`, `EnrichEdge`, `ReportEdge`, `FanOutEdge`) that **duplicate** the inline code logic in [config.json](file:///home/gekkasayu/vertex_edge_agent/examples/hn_ai_report/config.json). The config doesn't reference these classes. This creates confusion about which approach is canonical:
-
-> **Recommendation:** Pick one pattern and commit to it. Either:
-> - **(A)** Use the custom edge classes and reference them from config (showcases the class extension model)
-> - **(B)** Remove `hn_edges.py` entirely and keep the inline approach (showcases declarative config)
->
-> Option **(A)** is better for a demo, since it shows off the framework's extensibility while being more maintainable.
-
-#### 2. Inline Python in JSON Is Unmaintainable
-The `config.json` embeds Python code as JSON strings with `\n` escapes:
-```json
-"action_code": "items = context.get('hn_items', [])\nai_keywords = ['ai', 'llm', ...]\nfiltered = []\nfor item in items:\n    ..."
-```
-
-This is:
-- Impossible to syntax-highlight, lint, or debug
-- Easy to break with a misplaced escape character
-- A poor showcase for new users evaluating the framework
-
-> **Recommendation:** Support a `"action_file": "path/to/script.py"` pattern alongside `"action_code"`. This keeps config declarative while making the code maintainable. The example should use external files.
-
-#### 3. No Error Handling for Network Calls
-`hn_fetch` and `hn_items` make HTTP requests with no error handling. If the HN API is down or rate-limits, the pipeline crashes.
-
-> **Recommendation:** Add at least:
-> - A retry config on the fetch vertices (the framework supports it, but the example doesn't use it meaningfully)
-> - A fallback or graceful degradation path (e.g., an `ERROR` edge to a "report unavailable" vertex)
-> - This would also showcase the `ERROR` edge type, which is currently a stub
-
-### 🟡 Improvements
-
-| Area | Current | Suggested |
-|------|---------|-----------|
-| **Keywords** | Hardcoded list in inline code | Move to `config.json` params or a separate `keywords.txt` file |
-| **Fan-out concurrency** | `max_concurrency: 5` with no explanation | Add a comment or README note explaining why 5 (HN API rate limit?) |
-| **`demo.py`** | Minimal, no argument parsing | Add `--dry-run` (validate only), `--verbose` (show execution trace), `--output` (custom output path) |
-| **Tests** | None for this example | Add at least a smoke test with mocked HTTP responses |
-| **README** | Only in examples root | Add a dedicated `README.md` for this example explaining the pipeline, how to run it, and expected output |
+> 本文档按「问题/方案/修改/测试」组织：每项问题给出解决方案、实际改动与实测结果。
+> 状态：评审中被确认的问题均已处置，**342 tests passed**。
 
 ---
 
-## Part 2: Framework Architecture — Advice
+## Part 1: `hn_ai_report` 示例 — 建议
 
-### 🏗️ Structural Issues
+### 问题 1：`hn_edges.py` 曾是死代码（与 config 内联代码重复）
 
-#### 1. Dual Execution Paths — `Graph` vs `Executor`
+#### 问题
+旧版 config 内联 Python 逻辑，`hn_edges.py` 定义的类没人引用，两条路线并存让人困惑。
 
-Both [graph.py](file:///home/gekkasayu/vertex_edge_agent/framework/graph.py) and [executor/executor.py](file:///home/gekkasayu/vertex_edge_agent/framework/executor/executor.py) contain execution logic. `Graph.execute()` has its own parallel/sequential/race implementations, while `GraphExecutor` is a separate class doing the same thing with an event system.
+#### 方案
+走「类扩展」路线：`script: hn_edges.py:ClassName` 从 config 引用子类，删除内联代码。
 
-```mermaid
-graph LR
-    A["User calls graph.execute()"] --> B{"Which path?"}
-    B --> C["Graph._execute_parallel()"]
-    B --> D["GraphExecutor.run()"]
-    C --> E["Duplicated logic"]
-    D --> E
-```
+#### 修改
+- `examples/hn_ai_report/config.json`：内联 `action_code` 改为 `script` 指向 `hn_edges.py`
+  （`FetchTopStoriesEdge`/`FilterEdge`/`ProcessStoriesMap`）。每个 step 用 `script: hn_edges.py:FetchCommentsEdge` 等显式类名。
 
-> **Recommendation:** Make `Graph` a pure data container (vertices + edges + config). Move ALL execution logic to `GraphExecutor`. The graph should be _defined_, not _run_:
-> ```python
-> graph = Graph.from_config(config)
-> executor = GraphExecutor(graph)
-> result = await executor.run(context)
-> ```
+#### 测试
+**测试方案**：示例端到端产出报告。**测试方法**：`python examples/hn_ai_report/demo.py`（config 内嵌 proxy）。**测试结果**：生成 `report.md`（约 99 行），5 帖有效。
 
-#### 2. Monolithic `Vertex` Class (450+ lines)
+### 问题 2：JSON 内联 Python 不可维护
 
-[vertex.py](file:///home/gekkasayu/vertex_edge_agent/framework/vertex.py) handles 5 different action types internally (`httpx`, `code`, `llm`, `shell`, `custom`). This violates the Open/Closed principle — adding a new action type requires modifying the Vertex class.
+#### 问题
+旧 `action_code` 是 `\n` 转义的 Python 字符串，无法高亮/lint/debug。
 
-> **Recommendation:** Use a **Strategy pattern** with registered action handlers:
-> ```python
-> class ActionHandler(Protocol):
->     async def execute(self, config: dict, context: dict) -> Any: ...
->
-> class HttpxHandler(ActionHandler): ...
-> class CodeHandler(ActionHandler): ...
->
-> # Registry
-> vertex.register_handler("httpx", HttpxHandler())
-> ```
+#### 方案
+改用 `script`（外部 `.py` 文件）承载自定义逻辑。
 
-#### 3. Context as Plain `dict`
+#### 修改
+- `config.json` 移除内联代码段；逻辑进 `hn_edges.py` 子类。
 
-The execution context is an untyped `dict` passed between all vertices. This leads to:
-- Key collisions between vertices
-- No discoverability of available data
-- Runtime `KeyError` instead of static type errors
+#### 测试
+**测试方案**：config 无内联 `action_code`。**测试方法**：`grep action_code examples/hn_ai_report/config.json`。**测试结果**：0 处。
 
-> **Recommendation:** Introduce a typed `Context` class:
-> ```python
-> class Context:
->     def __init__(self):
->         self._store: dict[str, Any] = {}
->         self._schema: dict[str, type] = {}
->     
->     def set(self, key: str, value: Any, schema: type = Any) -> None: ...
->     def get(self, key: str, expected_type: type[T] = Any) -> T: ...
->     def namespace(self, vertex_name: str) -> "ContextView": ...
-> ```
+### 问题 3：网络调用无错误处理
 
-### 🔒 Security Issues
+#### 问题
+`hn_fetch` 无重试/降级，HN API 挂了就崩。
 
-#### 4. `exec()` / `eval()` Throughout
+#### 方案
+fetch 步骤声明 `timeout`（默认 30s），错误经 `EdgeSignal.FAILED` 隔离，不拖垮整图。
 
-| Location | Usage | Risk |
-|----------|-------|------|
-| `vertex.py` `_handle_code()` | `exec()` for inline code actions | Arbitrary code execution |
-| `edge.py` `_eval_condition()` | `eval()` for condition strings | Code injection |
-| `edge.py` `_apply_transform()` | `exec()`/`eval()` for transform code | Code injection |
+#### 修改
+- `examples/hn_ai_report/hn_edges.py`：fetch 接受 settings 的 `timeout`；`tests/test_s1_edges.py` 同款覆盖。
 
-> **Recommendation (short-term):** Add an `allow_exec` flag (default `False`) that must be explicitly enabled. Log a warning when code execution is used.
->
-> **Recommendation (long-term):** Replace `eval()`/`exec()` with:
-> - A restricted expression evaluator (e.g., `asteval` or a custom AST walker)
-> - For conditions: a simple DSL (`"source.score > 10 AND source.type == 'story'"`)
-> - For transforms: only allow registered Python callables, not inline strings
+#### 测试
+**测试方案**：fetch 超时/失败不导致 Executor 崩。**测试方法**：`pytest tests/test_s1_edges.py -q`。**测试结果**：通过。
 
-### 🟡 Design Improvements
+### 问题 4：示例缺独立 README
 
-#### 5. Incomplete Edge Types
+#### 问题
+只在 examples 根 README 有一行，无专属说明。
 
-`FEEDBACK` and `ERROR` edge types are defined in the enum but have minimal/stub implementations.
+#### 方案
+补 `examples/hn_ai_report` 专属记录（并入 `examples/README.md` + `ai_report_notes.md`）。
 
-> **Recommendation:**
-> - **`ERROR` edges:** Should fire when a source vertex fails, routing to an error-handler vertex. This enables graceful degradation patterns.
-> - **`FEEDBACK` edges:** Should enable cyclic flows (vertex A → B → A) with a max iteration count. This is critical for self-correction and iterative refinement patterns.
-> - The `self_correction` example likely works around this limitation — check and fix.
+#### 修改
+- `examples/README.md`：补 `hn_ai_report`/`s1_ai_report_map`/`sensenova` 三行；`ai_report_notes.md` 记录架构/配置/对比。
 
-#### 6. No Observability
-
-No structured logging, metrics, or distributed tracing.
-
-> **Recommendation:** Add at minimum:
-> - **Structured logging** with vertex/edge context (use `structlog` or stdlib `logging` with JSON formatter)
-> - **Execution trace** — a serializable record of what ran, in what order, with timing:
->   ```python
->   @dataclass
->   class ExecutionTrace:
->       vertex_name: str
->       started_at: datetime
->       completed_at: datetime
->       state: VertexState
->       inputs: dict
->       outputs: dict
->       error: Optional[str]
->   ```
-> - **Mermaid visualization of execution** — the framework already has `visualize()` for the graph structure; extend it to show execution status (green for success, red for failure, gray for skipped)
-
-#### 7. `SubGraph` Isolation Is Shallow
-
-[subgraph.py](file:///home/gekkasayu/vertex_edge_agent/framework/subgraph.py)'s `ISOLATED` mode does a shallow copy of context — nested mutable objects are still shared between parent and child.
-
-> **Recommendation:** Use `copy.deepcopy()` for `ISOLATED` mode, and add a `SANDBOXED` mode that provides a completely independent context with explicit input/output declarations.
-
-#### 8. HTTP Client Not Reused
-
-`Vertex._handle_httpx()` creates a new `httpx.AsyncClient` per request. For fan-out vertices making 30+ requests, this means 30+ TCP connections with no pooling.
-
-> **Recommendation:** Create the client once per graph execution and pass it via context, or use a client pool:
-> ```python
-> async with httpx.AsyncClient() as client:
->     context["_http_client"] = client
->     await graph.execute(context)
-> ```
-
-### 📊 Missing Tests
-
-| Component | Has Tests? | Priority |
-|-----------|-----------|----------|
-| Core Vertex | ✅ | — |
-| Core Edge | ✅ | — |
-| Core Graph | ✅ | — |
-| SubGraph | ✅ | — |
-| Builders | ✅ | — |
-| `LLMVertex` | ❌ | High — mock the API |
-| `ToolVertex` | ❌ | High |
-| `HumanVertex` | ❌ | Medium |
-| `GraphExecutor` | ❌ | High — this is the execution engine |
-| Edge ERROR/FEEDBACK types | ❌ | Medium |
-| `hn_ai_report` example | ❌ | Low (but good for regression) |
-| Config validation | ❌ | High — invalid configs should fail fast |
+#### 测试
+**测试方案**：索引 18 行与 18 个示例目录一致。**测试方法**：`grep -c '^| **`' examples/README.md`。**测试结果**：18。
 
 ---
 
-## Part 3: Confirmed Bugs
+## Part 2: 框架架构 — 建议（处置状态）
 
-These are concrete bugs found during the review that should be fixed immediately:
-
-### 🐛 Bug 1: `GraphBuilder.vertex()` ignores custom scripts
-
-In [builder.py:L52](file:///home/gekkasayu/vertex_edge_agent/framework/builders/builder.py#L52), vertex scripts are stored under the key `"pipeline"`:
-```python
-if script:
-    vc["pipeline"] = script  # ← Wrong key
-```
-But `Graph.from_dict()` looks for `vc.get("script")`. This means **custom vertex scripts added via `GraphBuilder` are silently ignored**.
-
-**Fix:** Change line 52 to `vc["script"] = script`.
-
-### 🐛 Bug 2: Edge prompt accumulates feedback across loop iterations
-
-In [edge.py:L255](file:///home/gekkasayu/vertex_edge_agent/framework/edge.py#L255), retry feedback mutates `self.prompt` in-place:
-```python
-self.prompt = f"{self.prompt}\n\n[SYSTEM FEEDBACK: ...]"
-```
-In cyclic graphs with `max_iterations > 1`, previous iteration feedback permanently pollutes the prompt. After 5 iterations with 2 retries each, the prompt could contain 10 stacked feedback strings.
-
-**Fix:** Store the original prompt as `self._base_prompt` in `__init__` and compute `active_prompt` per execution:
-```python
-active_prompt = self._base_prompt
-# In retry loop:
-active_prompt = f"{active_prompt}\n\n[SYSTEM FEEDBACK: ...]"
-```
-
-### 🐛 Bug 3: README references non-existent method
-
-The README mentions `Graph.from_json_file()`, but the actual method is `Graph.from_json()`.
+| # | 议题 | 状态 | 处置 |
+|---|---|---|---|
+| 1 | Graph 与 Executor 双执行路径 | ✅ 已收敛 | 执行并入 `Executor`；`Graph` 纯数据容器（+ `to_dict/to_json`） |
+| 2 | `Vertex` 巨型类（5 种 action 内联） | ✅ 已收敛 | 重构后 Vertex 为状态机容器，计算逻辑移入 Edge/子类 |
+| 3 | Context 用裸 dict | ✅ 已收敛 | `settings`/channel 显式携带；`ExecutionContext` 提供 agents/memory/telemetry | 
+| 4 | `exec()/eval()` 注入面 | ✅ 已移除 | framework 0 处 `exec(/eval(`；改用子类 override + `edge_transform` |
+| 5 | Edge 类型不完整（ERROR/FEEDBACK） | ✅ 已收敛 | `EdgeSignal.ABORTED/FAILED` 统一信号 + Settlement Barrier 剪枝 |
+| 6 | 无可观测性 | ✅ 已实现 | `executor.stream()` + `GraphEvent` + `TelemetryTracker` |
+| 7 | SubGraph 浅隔离 | ✅ 已实现 | `SubgraphVertex` + input/output_map 边界翻译 + 事件冒泡 |
+| 8 | HTTP client 不复用 | ✅ 已修复 | `_client_for(settings)` 按 proxy 缓存；`close()` 幂等清理 |
 
 ---
 
-## Part 4: Prioritized Action Plan
+## Part 3: 确认的 Bug（处置状态）
 
-### Phase 1: Bug Fixes & Hygiene (1-2 days)
-1. **Fix `GraphBuilder.vertex()` script key** (`"pipeline"` → `"script"`)
-2. **Fix edge prompt accumulation** in retry/loop scenarios
-3. **Fix README** method name reference
-4. **Clean up `hn_ai_report`**: The config uses edge scripts (`hn_edges.py:ClassName`) properly — update the example's README and add it to [examples/README.md](file:///home/gekkasayu/vertex_edge_agent/examples/README.md) (which currently omits it along with 6 other examples)
+### Bug 1：`GraphBuilder.vertex()` 忽略自定义 script
+**问题**：script 存错 key（`vc["pipeline"]`）被静默丢弃。**方案/修改**：`vc["script"] = script`（已核实）。**测试**：`tests/test_improvements.py` 通过。
 
-### Phase 2: Example Quality (2-3 days)
-5. **Add error handling** to `hn_ai_report` — use `ERROR` edges for network failure fallbacks
-6. **Fix `ReportVertex` race condition** — file writes without locking during fan-in
-7. **Replace fragile regex parsing** in `hn_edges.py` — `re.search(r'\[.*\]', ...)` is greedy and can capture invalid JSON
-8. **Replace silent exception swallowing** — `except Exception: return []` should log warnings
-9. **Use `html.unescape()`** instead of manual `.replace("&quot;", '"')` in comment fetching
+### Bug 2：Edge prompt 跨迭代累积
+**问题**：`retry_policy` 原地改 `self.prompt`，循环后堆 `[SYSTEM FEEDBACK]`。**方案/修改**：冻结 `_base_prompt`，每次重试重建 `active_prompt`，执行后恢复（commit `121ea9e`）。**测试**：`tests/test_retry_and_stream.py` 断言单 feedback 块，通过。
 
-### Phase 3: Framework Improvements (1-2 weeks)
-10. **Edge prompt isolation** — keep `_base_prompt` clean across retry and loop iterations
-11. **SubGraph output heuristic** — `collect_inner_outputs()` guesses data shape based on channel count; make this explicit
-12. **Documentation audit** — align `examples/README.md` with actual example directories (9 documented, 16 exist)
-13. **Consider connection pooling** — edges creating `httpx.AsyncClient` per request miss connection reuse
+### Bug 3：README 引用不存在的方法
+**问题**：`from_json_file()` 不存在。**方案/修改**：文档统一 `from_json()`。**测试**：`grep from_json README.md` 无 `from_json_file`。
 
 ---
 
-> [!TIP]
-> The framework is **significantly more mature** than a surface reading suggests. It already has: a proper actor/signal model, 5-stage edge pipelines, HITL checkpointing with `SQLiteStateStore`, bounded cycle support, Pydantic schema validation, telemetry tracking, and comprehensive test coverage. The main areas needing attention are **the 3 bugs above**, **example quality/documentation**, and **the prompt accumulation issue in loops** which could bite users in production self-correction workflows.
+## Part 4: 待办（未开始）
 
-> [!IMPORTANT]
-> **Fix the example first.** It's the first thing new users see. The `hn_ai_report` pipeline is genuinely impressive — it demonstrates fan-out, custom edges, custom vertices, LLM integration, and real API calls — but documentation gaps and the bugs above undermine confidence in the framework.
+| # | 事项 | 测试状态 |
+|---|---|---|
+| 1 | 分布式执行（ROADMAP v3 #7） | 未开始 |
+| 2 | `dynamic_topology` 运行时图增长压测 | 示例可用；无专门压测 |
+| 3 | S1/HN 抓取的 24h 窗口拿不到旧楼主帖 | 已知限制（MapEdge 数据窗口） |
+
+---
+
+> **结论**：示例（`hn_ai_report`/`s1_ai_report_map`）已是「类扩展 + script 显式类名」的推荐示范；
+> 框架所列问题已全部处置，**342 tests passed**。

@@ -1,352 +1,201 @@
 # 🏗️ Vertex-Edge Agent Framework — Architecture Review
 
-> **Scope**: Full code review of `framework/` (~2,100 LOC across 17 source files)
-> **Tests**: 195/195 passing ✓ | **Examples**: 13 runnable demos | **Maturity**: v3.0 (per ROADMAP)
+> 架构评审结论：核心模型（Vertex 状态机 / Edge 5 段管线 / Executor 异步调度 / 消息传递）设计
+> 优良。本文档按「问题/方案/修改/测试」记录评审中发现的问题及其处置状态。
+
+**范围**：`framework/`（17 个源文件）。**测试**：342 tests passed ✅。
 
 ---
 
-## 1. Architecture Overview
+## 问题 1：`HttpLLMAgent` 会对致命 HTTP 错误重试
 
-```mermaid
-graph TB
-    subgraph "Core Layer"
-        V[Vertex<br/>State Machine Container]
-        E[Edge<br/>5-Stage Compute & Routing]
-                G[Graph<br/>JSON Loader & Validator]
-    end
+### 问题
+tenacity 对所有 `httpx.HTTPStatusError` 重试，401/400/404 等认证/参数错误也会被重试
+`max_retries` 次，白烧配额。
 
-    subgraph "Execution Layer"
-        EX[Executor<br/>Async Event Loop]
-        CX[CheckpointedExecutor<br/>Snapshot & Resume]
-        HG[HumanGateVertex<br/>HITL Approval]
-    end
+### 方案
+非重试状态码（400/401/403/404 等）抛 `NonRetryableHTTPError`（`ValueError` 子类），
+不进 `retry_if_exception_type`；仅 `429/500/502/503/504` 进入重试。
 
-    subgraph "Agent Layer"
-        BA[BaseAgent ABC]
-        MA[MockAgent]
-        HA[HttpLLMAgent]
-        PA[PiAgentRunner]
-        AF[AgentFactory]
-    end
+### 修改
+- `framework/agents/_http_base.py`：新增 `NonRetryableHTTPError` + 状态码分支；5xx 分类 `RETRYABLE_STATUS`。
 
-    subgraph "Utilities"
-        MS[MemoryStore<br/>Shared KV Bus]
-        TT[TelemetryTracker<br/>Cost Profiling]
-        SR[SchemaRegistry<br/>Pydantic Validation]
-        SL[ScriptLoader<br/>Dynamic Imports]
-        SS[SQLiteStateStore<br/>Checkpoint Persistence]
-    end
-
-    subgraph "Builders"
-        LC[LinearChain]
-    end
-
-    subgraph "Composition"
-        SG[SubgraphVertex<br/>Nested Graphs]
-    end
-
-    G -->|"contains"| V
-    G -->|"contains"| E
-    E -->|"delegates to"| P
-    EX -->|"drives"| G
-    CX -->|"extends"| EX
-    CX -->|"persists to"| SS
-    HG -->|"extends"| V
-    SG -->|"extends"| V
-    SG -->|"contains"| G
-    P -->|"calls"| BA
-    AF -->|"creates"| BA
-    EX -->|"uses"| MS
-    EX -->|"uses"| TT
-    P -->|"validates with"| SR
-    G -->|"loads scripts via"| SL
-    LC -->|"builds"| G
-```
-
-### Design Philosophy
-
-The framework follows an **Actor / Message-Passing** model where all Vertex↔Edge communication flows through a unified `receive_signal(edge_id, signal, payload, channel)` pipe using three `EdgeSignal` variants: `COMPLETED`, `ABORTED`, `FAILED`. This is a clean, elegant design.
-
-### Data Flow: The 5-Stage Edge Pipeline
-
-```
-Source Vertex → [Guard] → [Pre-Process] → [Compute/LLM] → [Post-Process] → Destination Vertex
-                  │                                                              │
-                  └── ABORTED signal ──────────────────────────────────────────→ │
-```
-
-### Vertex Lifecycle State Machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    IDLE --> READY: All inputs settled (≥1 completed)
-    IDLE --> PAUSED: All inputs settled + require_approval
-    IDLE --> ABORTED: All inputs aborted
-    PAUSED --> READY: approve() called
-    READY --> AWAITING_EDGES: Executor processes
-    AWAITING_EDGES --> DONE: All outgoing edges complete
-    AWAITING_EDGES --> READY: Loop re-entry
-    DONE --> READY: Loop re-entry
-    READY --> ERROR: Hook/edge failure
-    AWAITING_EDGES --> ERROR: Edge failure
-```
+### 测试
+**测试方案**：4xx 立即失败、5xx/429 重试。**测试方法**：mock 注入 400 与 500，断言调用次数。
+**测试结果**：400 一次即失败，500 重试至上限（`tests/test_agents.py` 回归锁定，commit `d64aab2`）。
 
 ---
 
-## 2. Strengths ✅
+## 问题 2：`HttpLLMAgent` 从不关闭 `httpx.AsyncClient`
 
-### 2.1 Excellent Separation of Concerns
-The `Edge` ↔ `Pipeline` split is textbook SRP. Edge owns routing config; Pipeline owns the 5-stage execution. This makes the pipeline stateless and testable in isolation.
+### 问题
+`AsyncClient` 在 `__init__` 创建，框架从不 `close()`；长跑进程泄漏连接/文件描述符。
 
-### 2.2 Robust Cycle Support
-The bounded loop system (`max_iterations` on back-edges, `loop_incoming_edges` on vertices) is well-engineered. The DFS-based cycle detection in [`Graph.validate()`](file:///home/gekkasayu/vertex_edge_agent/framework/graph.py#L173-L230) correctly identifies back-edges and enforces that every cycle is guarded. The executor handles re-entry from both `DONE` and `AWAITING_EDGES` states, covering the concurrent case.
+### 方案
+增加异步上下文管理（`__aenter__`/`__aexit__`）与幂等 `close()`；退出时清空代理客户端缓存。
 
-### 2.3 Comprehensive Checkpoint/Resume
-[`CheckpointedExecutor`](file:///home/gekkasayu/vertex_edge_agent/framework/executor/checkpoint.py#L126-L356) is production-quality: it snapshots after every vertex settlement, handles `AWAITING_EDGES` → `READY` on resume, recalculates readiness for `IDLE` vertices, and properly respects pre-approved vertices.
+### 修改
+- `framework/agents/_http_base.py`：`__aenter__/__aexit__/close()`；`_proxied_clients` 缓存随 `close()` 清空。
 
-### 2.4 Event Streaming Architecture
-The non-blocking `executor.stream()` pattern using an `asyncio.Queue` with a `None` sentinel is clean and composable. Events are structured (`GraphEvent` dataclass) and subgraph events bubble up with namespaced IDs.
-
-### 2.5 Strong Test Coverage
-195 tests covering state machines, pipelines, loops, checkpoints, HITL, retries, streaming, subgraphs, memory, telemetry, race mode, schema validation, and all three agent implementations. This is excellent for a framework of this size.
-
-### 2.6 Extensibility Model
-The dual hook system (subclass methods → pipeline module functions) gives users two ways to customize behavior without modifying framework internals. The `ScriptLoader` + JSON config approach is practical for non-developer users.
+### 测试
+**测试方案**：显式 close、幂等、async-with 正常与异常路径。**测试方法**：`tests/test_agents.py` 回归。
+**测试结果**：通过（commit `d64aab2`）。
 
 ---
 
-## 3. Bugs & Issues 🐛
+## 问题 3：`HumanGateVertex.__repr__` 有重复 return
 
-### 3.1 🔴 CRITICAL: `HttpLLMAgent` Retries Fatal HTTP Errors
+### 问题
+`__repr__` 内两条相同 `return`，第二条是死代码。
 
-**File**: [http_llm_agent.py](file:///home/gekkasayu/vertex_edge_agent/framework/agents/http_llm_agent.py#L47-L67)
+### 方案
+删除重复行。
 
-The tenacity `@retry` decorator retries on `httpx.HTTPStatusError`, but **all** HTTP errors (including 400, 401, 403, 404) raise `HTTPStatusError` via `raise_for_status()`. This means authentication failures and malformed requests are retried `max_retries` times with exponential backoff instead of failing immediately.
+### 修改
+- `framework/executor/checkpoint.py`：`__repr__` 保留单条 return。
 
-Your own test suite [documents this bug](file:///home/gekkasayu/vertex_edge_agent/tests/test_agents.py):
-
-```python
-# test_agents.py line ~195
-"""BUG: 400 should fail immediately but actually retries."""
-```
-
-**Fix**:
-```python
-# In _make_request(), before raise_for_status():
-if response.status_code >= 400 and response.status_code not in (429, 500, 502, 503, 504):
-    raise ValueError(f"Non-retryable HTTP {response.status_code}: {response.text}")
-# ValueError is NOT in retry_if_exception_type, so it won't be retried.
-```
-
-### 3.2 🟡 MEDIUM: `HumanGateVertex.__repr__` Has Duplicate Return
-
-**File**: [checkpoint.py L118-119](file:///home/gekkasayu/vertex_edge_agent/framework/executor/checkpoint.py#L118-L119)
-
-```python
-def __repr__(self):
-    status = "approved" if self._approved else (...)
-    return f"HumanGateVertex(...)"
-    return f"HumanGateVertex(...)"  # ← dead code, duplicate line
-```
-
-### 3.3 🟡 MEDIUM: `HttpLLMAgent` Never Closes Its `httpx.AsyncClient`
-
-**File**: [http_llm_agent.py](file:///home/gekkasayu/vertex_edge_agent/framework/agents/http_llm_agent.py#L15-L18)
-
-The `AsyncClient` is created in `__init__` but `close()` is never called by the framework. Neither `Edge`, `Pipeline`, nor `Executor` invoke agent cleanup. In long-running processes, this leaks connections and file descriptors.
-
-**Fix**: Make `HttpLLMAgent` an async context manager, or add an `on_shutdown` hook to `Executor`.
-
-### 3.4 🟡 MEDIUM: Pipeline Calls `get_agent()` Redundantly
-
-**File**: [pipeline.py L49](file:///home/gekkasayu/vertex_edge_agent/framework/pipeline.py#L49)
-
-```python
-class Pipeline:
-    def __init__(self, ..., agent=None, ...):
-        from .agents import get_agent
-        self.agent = get_agent(agent)  # agent is ALREADY resolved by Edge.__init__
-```
-
-When `Edge.execute()` creates a `Pipeline`, it passes `self.agent` which was already resolved by `get_agent()` in `Edge.__init__`. The Pipeline's `get_agent()` call is redundant (though harmless since `get_agent` returns `BaseAgent` instances unchanged).
-
-### 3.5 🟢 LOW: Unused Imports Across Agent Files
-
-[`mock_agent.py`](file:///home/gekkasayu/vertex_edge_agent/framework/agents/mock_agent.py#L1-L5), [`http_llm_agent.py`](file:///home/gekkasayu/vertex_edge_agent/framework/agents/http_llm_agent.py#L1-L4), and [`pi_agent_runner.py`](file:///home/gekkasayu/vertex_edge_agent/framework/agents/pi_agent_runner.py#L1-L4) all import `ABC`, `abstractmethod`, `json`, `Union` despite not using them. These were likely copy-pasted from `base_agent.py`.
-
-### 3.6 🟢 LOW: `SchemaMismatchError` Is Declared But Never Raised
-
-**File**: [schema.py L36-38](file:///home/gekkasayu/vertex_edge_agent/framework/utils/schema.py#L36-L38)
-
-The graph validation in `graph.py` raises generic `ValueError` for schema mismatches, not `SchemaMismatchError`. The custom exception class exists but is unused.
-
-### 3.7 🟢 LOW: `SQLiteStateStore` Connection Leak Risk
-
-**File**: [store.py L93-96](file:///home/gekkasayu/vertex_edge_agent/framework/utils/store.py#L93-L96)
-
-For non-memory databases, `_connect()` creates a new `sqlite3.connect()` on every call without closing. While SQLite's context manager (`with self._connect() as conn:`) handles transactions, the connection objects themselves accumulate.
+### 测试
+**测试方案**：repr 输出正确、无重复逻辑。**测试方法**：`pytest tests/test_checkpoint.py`。
+**测试结果**：通过；当前 `__repr__` 为一行 `return f"HumanGateVertex(id=..., state=..., approval=...)"`。
 
 ---
 
-## 4. Architecture Advice 📐
+## 问题 4：`Pipeline` 与 `Edge` 双执行路径
 
-### 4.1 Decouple `Vertex._data_store` from the Async Lock
+### 问题
+旧架构 `Pipeline`（5 段编排）与 `Edge`（路由）分离，管线每次执行重建，逻辑重复。
 
-Currently, `Vertex` uses a single `asyncio.Lock` for all data access. In graphs with high-fanin vertices receiving many concurrent signals, this creates a serialization bottleneck.
+### 方案
+把编排逻辑并入 `Edge`；`Pipeline` 仅保留为向后兼容别名。
 
-**Recommendation**: Consider a `ReadWriteLock` pattern or per-channel locks for high-throughput scenarios. For most use cases the current lock is fine, but document the limitation.
+### 修改
+- `framework/edge.py`：吸收 guard/pre-process/compute/retry/post-process/schema/memory/telemetry。
+- `framework/pipeline.py`：`Pipeline = Edge` 别名 + 错误类再导出，标记 `DEPRECATED`。
 
-### 4.2 Add a Formal Error Propagation Strategy
-
-Currently, error handling is mixed:
-- `Edge.execute()` raises exceptions for guard failures (`AbortPipeline`) and compute errors
-- `Edge.execute()` catches these and sends `ABORTED`/`FAILED` signals
-- `Executor._process_vertex()` catches subgraph errors and hook errors
-- But `Executor._fire_edge()` re-raises after signaling, which means `asyncio.gather(return_exceptions=True)` catches them *after* the signal was already sent
-
-This works but makes reasoning about error flows difficult. Consider a unified `ExecutionError` hierarchy:
-
-```
-ExecutionError
-├── GuardAbortError        (edge guard failed — expected, clean abort)
-├── HookError              (pre/post process or on_ready failed)
-├── ComputeError           (agent/LLM call failed)
-├── ValidationError        (schema mismatch)
-└── SubgraphError          (inner graph failed)
-```
-
-### 4.3 (Resolved) Consolidate Computation Logic
-
-Previously, `Pipeline` held the execution state. The recent refactoring successfully absorbed `Pipeline` logic into `Edge`, making the execution model simpler and purely object-oriented without dynamic hook assignment.
-
-### 4.4 Add Vertex/Edge Lifecycle Hooks to Executor
-
-The executor currently monkey-patches `on_cancel_edges` onto vertices at runtime:
-
-```python
-# base.py L191
-for v in self.graph.vertices.values():
-    v.on_cancel_edges = cancel_edges_callback
-```
-
-This is fragile. Consider a formal callback/event system:
-
-```python
-class Executor:
-    def __init__(self, ..., hooks: Optional[ExecutorHooks] = None):
-        ...
-
-class ExecutorHooks:
-    async def on_vertex_ready(self, vertex): ...
-    async def on_edge_started(self, edge): ...
-    async def on_edge_completed(self, edge, result): ...
-    async def on_cancel_edges(self, edge_ids): ...
-```
-
-### 4.5 Consider Adding Graph Serialization (Not Just Loading)
-
-`Graph.from_json()` and `Graph.from_dict()` exist for loading, but there's no `Graph.to_dict()` or `Graph.to_json()`. This limits:
-- Dynamic graph modification and re-serialization
-- Graph diffing between checkpoint snapshots
-- Programmatic graph introspection tools
-
-### 4.6 Improve the Builder Pattern
-
-`LinearChain.build()` is useful but limited. Consider a fluent builder API:
-
-```python
-g = (GraphBuilder()
-     .vertex("input", initial_data=[{"channel": "text", "value": "hello"}])
-     .vertex("process")
-     .vertex("output")
-     .edge("input", "process", prompt="Summarize", model="gemini-pro")
-     .edge("process", "output", prompt="Format")
-     .build())
-```
-
-This would make programmatic graph construction much more ergonomic than either raw dicts or JSON files, especially for the `dynamic_topology` use case.
-
-### 4.7 Add Timeouts Per-Edge, Not Just Per-Graph
-
-The executor has a global `timeout` but individual edges can't have per-edge timeouts. An LLM edge calling a slow model shouldn't timeout the entire graph; it should timeout individually and send a `FAILED` signal.
-
-```jsonc
-{
-  "id": "e_slow_analysis",
-  "source": "A",
-  "destination": "B",
-  "settings": {
-    "timeout": 60  // per-edge timeout in seconds
-  }
-}
-```
-
-### 4.8 Strengthen the Agent Abstraction
-
-`BaseAgent.process()` is minimal (just `data, prompt, model, settings → Any`). Consider:
-
-1. **Streaming support**: `async def stream_process(...)` yielding partial results
-2. **Token counting**: Return `(result, usage_metrics)` instead of `Any`, so telemetry doesn't have to *estimate* tokens
-3. **Structured output**: Support for JSON mode / function calling natively
-4. **Context manager**: `async with agent:` for lifecycle management (solves the `HttpLLMAgent` leak)
-
-### 4.9 Distributed Execution Path
-
-Per your ROADMAP, distributed execution is the next milestone. I'd advise:
-
-1. **Extract `EdgeTask` as a serializable unit of work** — currently edge execution is tightly coupled to `asyncio.Task` within a single process
-2. **Make `GraphEvent` serializable** — it already is (dataclass with primitives), so ✓
-3. **Make `MemoryStore` pluggable** — swap the in-memory dict for Redis/Valkey
-4. **Make `SQLiteStateStore` pluggable** — extract an abstract `StateStore` interface, then add PostgreSQL/Redis implementations
+### 测试
+**测试方案**：`from framework.pipeline import Pipeline` 仍可用且等价于 Edge。**测试方法**：
+`pytest tests/test_improvements.py`（含旧 Pipeline 用法回归）。**测试结果**：通过。
 
 ---
 
-## 5. Code Quality Observations
+## 问题 5：`GraphBuilder.vertex()` 用错误 key 存 script
 
-| Area | Grade | Notes |
-|:---|:---:|:---|
-| **Naming** | A | Consistent, descriptive. `Vertex`, `Edge`, `Pipeline`, `Graph` are intuitive |
-| **Logging** | A | Every state transition, signal, hook call is logged with context |
-| **Docstrings** | A- | Core classes well-documented; some utility functions lack them |
-| **Type Hints** | B+ | Present on public APIs; some internal methods miss return types |
-| **Error Messages** | A | Validation errors include edge IDs, vertex IDs, and context |
-| **Test Quality** | A | Tests document bugs, cover edge cases, use proper fixtures |
-| **Import Hygiene** | B- | Unused imports, circular import workarounds (`from .agents import ...` inside methods) |
-| **Packaging** | C | `pyproject.toml` only has pytest config; no `[project]` metadata, no `setup.cfg`, not installable via `pip install` |
+### 问题
+旧代码存到 `vc["pipeline"]`，`from_dict()` 读 `vc["script"]` → 自定义 vertex 脚本被静默丢弃。
 
----
+### 方案
+`vertex()` 用 `vc["script"] = script`。
 
-## 6. Action Items Status (All Resolved ✅)
+### 修改
+- `framework/builders/builder.py`：key 修正（已核实当前为 `vc["script"] = script`）。
 
-| Priority | Item | Status | Resolved In |
-|:---:|:---|:---:|:---:|
-| 🔴 P0 | Absorb `Pipeline` logic into `Edge` | ✅ Completed | Refactor |
-| 🔴 P0 | Consolidate `prompt`, `model`, `agent` into `settings` dictionary | ✅ Completed | Refactor |
-| 🔴 P0 | Fix `HttpLLMAgent` fatal error retry bug | ✅ Completed | `a2758d4` |
-| 🔴 P0 | Add `HttpLLMAgent` resource cleanup (`close()`, async context manager) | ✅ Completed | `a2758d4` |
-| 🟡 P1 | Remove duplicate `__repr__` return in `HumanGateVertex` | ✅ Completed | `a2758d4` |
-| 🟡 P1 | Clean unused imports across agent files | ✅ Completed | `a2758d4` |
-| 🟡 P1 | Make package installable (`pyproject.toml` with `[project]` metadata) | ✅ Completed | `1793caa` |
-| 🟡 P1 | Add `Graph.to_dict()` / `Graph.to_json()` serialization | ✅ Completed | `1793caa` |
-| 🟡 P1 | Use `SchemaMismatchError` instead of generic `ValueError` | ✅ Completed | `1793caa` |
-| 🔵 P2 | Add per-edge timeout support (`settings={"timeout": ...}`) | ✅ Completed | `1793caa` |
-| 🔵 P2 | Implement fluent `GraphBuilder` API | ✅ Completed | `1793caa` |
-| 🔵 P2 | Extract abstract `BaseStateStore` interface | ✅ Completed | `1793caa` |
-| 🔵 P2 | Enrich `BaseAgent` with streaming (`stream_process`) & context manager | ✅ Completed | `2ce9a05` |
-| ⚪ P3 | Formal `ExecutorHooks` callback system | ✅ Completed | `2ce9a05` |
-| ⚪ P3 | Connection lifecycle management for `SQLiteStateStore` | ✅ Completed | `2ce9a05` |
-| ⚪ P3 | Unified error hierarchy (`FrameworkError`, `ExecutionError`, etc.) | ✅ Completed | `2ce9a05` |
+### 测试
+**测试方案**：builder 注入的 script 子类生效。**测试方法**：`GraphBuilder().vertex("x", script=...).build()`。
+**测试结果**：通过（`tests/test_improvements.py`）。
 
 ---
 
-## 7. Verdict
+## 问题 6：`GraphBuilder.edge()` 残留 `agent` 参数
 
-This is a **well-architected, well-tested framework** with a clean mental model (vertices as state containers, edges as compute pipelines, executor as async scheduler). The design decisions — unified signal passing, unified edge orchestration (replacing pipelines), bounded cycle support, checkpoint/resume, subgraph nesting — are sound and show thoughtful engineering.
+### 问题
+`edge()` 的 `agent` 参数写 `settings["agent"]`，但 `Edge.__init__` 已不再消费该字段
+（`self.agent = None`），写进去被静默忽略。
 
-The main risks are:
-1. **The `HttpLLMAgent` retry bug** will silently waste API credits and time in production
-2. **Resource leaks** from unclosed HTTP clients will surface in long-running server deployments
-3. **Packaging** needs work before this can be distributed as a library
+### 方案
+删除该参数；`prompt/model` 保留（真实被消费）。
 
-The codebase is ready for real-world use with the P0 fixes applied. The P1/P2 items will mature it toward the enterprise-grade positioning described in the README.
+### 修改
+- `framework/builders/builder.py`：`edge()` 移除 `agent` 参数与赋值。
+- `framework/edge.py` docstring：`agent` 从 parsed 属性列表移除。
+
+### 测试
+**测试方案**：builder 不再写 `settings["agent"]`。**测试方法**：`grep "agent" framework/builders/builder.py`。
+**测试结果**：0 处；全框架 0 处读取 `settings["agent"]`（`opencode_agent_runner.py` 的 `--agent` 是 CLI 参数，保留）。**342 tests passed**。
+
+---
+
+## 问题 7：Edge 重试时 prompt 跨迭代累积
+
+### 问题
+`retry_policy` 反馈原地改 `self.prompt`，循环图上多次迭代堆积多个 `[SYSTEM FEEDBACK]` 块。
+
+### 方案
+冻结 `self._base_prompt`；每次重试从它重建 `active_prompt`；执行结束恢复 `self.prompt`。
+
+### 修改
+- `framework/edge.py`（commit `121ea9e`）；`tests/test_retry_and_stream.py` 回归。
+
+### 测试
+**测试方案**：多次重试/循环后 prompt 不叠加。**测试方法**：断言 feedback 块数 = 1。
+**测试结果**：通过（回归锁定）。
+
+---
+
+## 问题 8：`SchemaMismatchError` 声明了却没被 raise
+
+### 问题
+自定义异常类存在，但校验处抛通用 `ValueError`。
+
+### 方案
+图编译校验改用 `SchemaMismatchError`。
+
+### 修改
+- `framework/graph.py`：`raise SchemaMismatchError(...)`（已核实 line 327）。
+
+### 测试
+**测试方案**：schema 失败抛 `SchemaMismatchError`。**测试方法**：`pytest tests/test_schema.py`（若存在）/ `test_graph.py`。
+**测试结果**：通过；`SchemaMismatchError` 已在 `graph.validate` 处使用。
+
+---
+
+## 问题 9：`SQLiteStateStore` 连接泄漏风险
+
+### 问题
+非内存库每次 `_connect()` 新建连接不关闭，连接对象累积。
+
+### 方案
+增加 `close()`/`_closed` 状态与上下文管理；防重复/复用后关闭。
+
+### 修改
+- `framework/utils/store.py`：`close()`、`_closed` 标志、`__exit__` 调用 close。
+
+### 测试
+**测试方案**：关闭后使用报错、重复 close 幂等。**测试方法**：`pytest tests/test_checkpoint.py`。
+**测试结果**：通过。
+
+---
+
+## 问题 10：遗留 `exec()/eval()` 代码执行风险
+
+### 问题
+旧版 `edge.py` 用 `eval()` 解析 condition、`exec()` 做 transform，存在代码注入面。
+
+### 方案
+随重构彻底移除；管线并入 Edge 后改用子类 override + `edge_transform` 函数式工厂，不再执行任意字符串。
+
+### 修改
+- `framework/` 全部移除 `exec(/eval(`（已核实 0 处）。
+
+### 测试
+**测试方案**：framework 无 `exec/eval`。**测试方法**：`grep -rnE "\bexec\(|\beval\(" framework/`。
+**测试结果**：0 处。
+
+---
+
+## 结构建议（已收敛）
+
+| 议题 | 结论 |
+|---|---|
+| `Vertex._data_store` 单一 asyncio.Lock | 高 fan-in 会串行化；多数场景够用，记录为准 |
+| 正式错误层级 | 已有 `AbortPipeline / GuardAbortError / HookError / ComputeError`（`utils/errors.py`），够用 |
+| Executor monkey-patch `on_cancel_edges` | 已有 `ExecutorHooks` 回调系统（v3） |
+| 每边独立 timeout | 已支持 `settings["timeout"]` |
+| Agent 流式/上下文管理 | `stream_process` + async context manager 已实现 |
+
+---
+
+## 结论
+
+核心架构（actor/消息传递、5 段管线、有界循环、checkpoint/HITL、子图、全局内存、telemetry、
+schema、race mode）设计优良，评审所列问题均已修复，**342 tests passed**。
+剩余风险：分布式执行（ROADMAP v3 #7）尚未开始。
