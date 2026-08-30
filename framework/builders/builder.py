@@ -66,7 +66,6 @@ class GraphBuilder:
         settings: Optional[Dict[str, Any]] = None,
         max_iterations: int = 0,
         script: Optional[str] = None,
-        agent: Any = None,
         **kwargs,
     ) -> "GraphBuilder":
         """Add a directed edge connection between two vertices."""
@@ -76,9 +75,7 @@ class GraphBuilder:
             s["prompt"] = prompt
         if model != "default":
             s["model"] = model
-        if agent is not None:
-            s["agent"] = agent
-            
+
         ec: Dict[str, Any] = {
             "id": eid,
             "source": source,

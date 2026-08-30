@@ -236,7 +236,7 @@ Vertices are the state machine containers. Defined in the `vertices` array:
 | **`settings`** | `dict` | No | `{}` | Advanced business logic settings. |
 
 **Advanced `settings`:**
-* **Computation Layer**: `"prompt"` (instruction to the LLM), `"model"` (LLM model name, e.g. `"gemini-1.5-pro"`), `"agent"` (agent override).
+* **Computation Layer**: `"prompt"` (instruction to the LLM), `"model"` (LLM model name, e.g. `"gemini-1.5-pro"`).
 * `"require_approval"`: (`bool`) Set to `true` to enable Human-in-the-Loop (HITL), pausing execution and saving a snapshot.
 * `"graph_config"`: (`str` / `dict`) **Required for `type="subgraph"`**. Path to the subgraph's `.json` configuration file.
 * `"input_map"` / `"output_map"`: Port mapping redirects for nested subgraphs.
@@ -253,10 +253,10 @@ Edges are the 5-stage compute and routing pipelines. Defined in the `edges` arra
 | **`channel`** | `str` | No | `"default"` | Channel name for data flow. |
 | **`max_iterations`** | `int` | No | `0` | **Cycle bound**: Set `> 0` to mark as a back-edge, allowing `N` iterations. |
 | **`script`** | `str` | No | `null` | Path to a Python script defining an `Edge` subclass (e.g. `my_edge.py` or `my_edge.py:ClassName`). |
-| **`settings`** | `dict` | No | `{}` | Contains `prompt`, `model`, `agent`, and settings for guards, self-correction, and global memory. |
+| **`settings`** | `dict` | No | `{}` | Contains `prompt`, `model`, and settings for guards, self-correction, and global memory. |
 
 **Advanced `settings`:**
-* **Computation Layer**: `"prompt"` (instruction to the LLM), `"model"` (LLM model name, e.g. `"gemini-1.5-pro"`), `"agent"` (agent override).
+* **Computation Layer**: `"prompt"` (instruction to the LLM), `"model"` (LLM model name, e.g. `"gemini-1.5-pro"`).
 * **Conditional Routing (Guard)**: `"threshold"`, `"operator"` (e.g., `">="`), `"field"`. Triggers an `ABORTED` prune if conditions fail.
 * **Self-Correction (`retry_policy`)**: E.g., `{"max_retries": 3, "retry_on": ["KeyError"]}`.
 * **Global Memory**: `"memory_read"` (array of keys to read), `"memory_write"` (dict mapping output fields to global keys).

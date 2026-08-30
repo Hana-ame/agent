@@ -54,6 +54,22 @@ def _read_endpoint_from_config(config_path: str) -> str:
     )
 
 
+def _resolve_api_key(base_url: str) -> str:
+    """Pick the right API key env var for the endpoint declared in config.
+
+    sensenova endpoint -> ``SENSENOVA_API_KEY`` (required, no default);
+    anything else (e.g. opencode.ai/zen) -> ``LLM_API_KEY`` (fallback "public").
+    """
+    if "sensenova" in base_url:
+        key = os.environ.get("SENSENOVA_API_KEY")
+        if not key:
+            raise SystemExit(
+                "config uses a sensenova endpoint but SENSENOVA_API_KEY is not set"
+            )
+        return key
+    return os.environ.get("LLM_API_KEY", "public")
+
+
 async def main():
     print("Loading graph from config.json...")
     config_path = os.path.join(os.path.dirname(__file__), "config.json")
@@ -61,10 +77,7 @@ async def main():
 
     # endpoint must be explicit in config.json settings — no default fallback.
     base_url = _read_endpoint_from_config(config_path)
-    agent = HttpLLMAgent(
-        api_key=os.environ.get("LLM_API_KEY", "public"),
-        base_url=base_url,
-    )
+    agent = HttpLLMAgent(api_key=_resolve_api_key(base_url), base_url=base_url)
 
     print("Executing graph with HttpLLMAgent...")
     try:
