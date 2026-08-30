@@ -30,20 +30,23 @@ async def test_loads_explicit_named_class_not_first_subclass():
         dir_path=os.path.join(REPO, "examples", "s1_ai_report_map"),
         script="s1_edges.py:SummarizeEdge",
         data={"title": "帖子A", "url": "https://x", "content": "回帖内容"},
+        skip_compute=True,
     )
     assert report["ok"] is True
     assert report["class"] == "SummarizeEdge", \
         f"expected SummarizeEdge, got {report['class']}"
-    assert report["agent"] == "MockAgent"
+    assert report["skip_compute"] is True
+    assert report["agent"] is None  # no mock fallback — compute skipped
 
 
 @pytest.mark.asyncio
 async def test_post_process_preserves_structured_title():
-    """Mock path: title/url remembered in pre_process survive post_process."""
+    """skip-compute path: title/url remembered in pre_process survive post_process."""
     report = await run_edge(
         dir_path=os.path.join(REPO, "examples", "s1_ai_report_map"),
         script="s1_edges.py:SummarizeEdge",
         data={"title": "帖子A", "url": "https://x", "content": "回帖内容"},
+        skip_compute=True,
     )
     result = report["result"]
     assert isinstance(result, dict)
@@ -59,9 +62,23 @@ async def test_script_path_resolves_relative_to_dir_not_cwd():
         dir_path=os.path.join(REPO, "examples", "hn_ai_report"),
         script="hn_edges.py:SummarizeEdge",
         data={"title": "Story", "url": "https://y", "content": "comments"},
+        skip_compute=True,
     )
     assert report["ok"] is True
     assert report["class"] == "SummarizeEdge"
+
+
+@pytest.mark.asyncio
+async def test_compute_without_endpoint_or_skip_compute_raises():
+    """No MockAgent fallback: a compute run with no base_url must raise, not
+    silently fall back to a mock agent."""
+    with pytest.raises(ValueError) as exc:
+        await run_edge(
+            dir_path=os.path.join(REPO, "examples", "s1_ai_report_map"),
+            script="s1_edges.py:SummarizeEdge",
+            data={"title": "A", "url": "https://x", "content": "c"},
+        )
+    assert "base-url" in str(exc.value) or "compute" in str(exc.value)
 
 
 @pytest.mark.asyncio
@@ -91,6 +108,111 @@ async def test_bad_script_raises_reported_failure():
         dir_path=os.path.join(REPO, "examples", "s1_ai_report_map"),
         script="does_not_exist.py:WhateverEdge",
         data="x",
+        skip_compute=True,
     )
     assert report["ok"] is False
     assert "not found" in report["result"].lower() or "ScriptNot" in report["result"]
+
+
+@pytest.mark.asyncio
+async def test_graph_edge_skip_compute_does_not_call_llm():
+    """Graph-level: an edge with settings.skip_compute=true runs pre->post
+    without invoking the LLM (no MockAgent fallback, no real call). The mock
+    response_fn must never be called."""
+    from framework import Graph, Executor, MockAgent
+
+    calls = []
+
+    def never_called(data, prompt, model, settings):
+        calls.append(prompt)
+        return "SHOULD NOT HAPPEN"
+
+    config = {
+        "vertices": [
+            {"id": "A", "initial_data": [{"channel": "in", "value": "hi"}]},
+            {"id": "B"},
+        ],
+        "edges": [
+            {
+                "id": "e_skip",
+                "source": "A",
+                "destination": "B",
+                "channel": "in",
+                "settings": {"skip_compute": True},  # no prompt/model needed
+            }
+        ],
+    }
+    g = Graph.from_dict(config)
+    result = await Executor(g, MockAgent(response_fn=never_called)).run()
+
+    assert result.success, result.summary()
+    assert calls == []  # LLM never invoked
+    assert await g.vertices["B"].fetch_data("in") == "hi"  # pre->post passthrough
+
+
+@pytest.mark.asyncio
+async def test_graph_skip_compute_still_runs_post_process():
+    """Graph-level: skip_compute still runs the edge's post_process hook."""
+    from framework import Graph, Executor, Edge, MockAgent
+
+    class TransformEdge(Edge):
+        def post_process(self, result, settings):
+            return f"wrapped:{result}"
+
+    config = {
+        "vertices": [
+            {"id": "A", "initial_data": [{"channel": "in", "value": "raw"}]},
+            {"id": "B"},
+        ],
+        "edges": [
+            {
+                "id": "e_skip2",
+                "source": "A",
+                "destination": "B",
+                "channel": "in",
+                "settings": {"skip_compute": True},
+            }
+        ],
+    }
+    g = Graph.from_dict(config)
+    # swap in our post-processing subclass
+    old = g.edges["e_skip2"]
+    g.edges["e_skip2"] = TransformEdge(
+        edge_id=old.id, source_id=old.source_id, destination_id=old.destination_id,
+        channel=old.channel, settings=old.settings,
+        concurrency_type=old.concurrency_type, max_iterations=old.max_iterations,
+    )
+    result = await Executor(g, MockAgent(response_fn=lambda d, p, m, s: "nope")).run()
+
+    assert result.success
+    assert await g.vertices["B"].fetch_data("in") == "wrapped:raw"
+
+
+@pytest.mark.asyncio
+async def test_graph_edge_without_prompt_model_is_passthrough():
+    """A plain edge with no prompt/model already passes data straight through
+    (no mock, no LLM) — this is exactly why skip_compute is the *explicit*
+    graph-level spelling for the same intent: pure-data edges never invoke an
+    agent. The response_fn must not be called."""
+    from framework import Graph, Executor, MockAgent
+
+    config = {
+        "vertices": [
+            {"id": "A", "initial_data": [{"channel": "in", "value": 5}]},
+            {"id": "B"},
+        ],
+        "edges": [
+            {"id": "e_plain", "source": "A", "destination": "B", "channel": "in"}
+        ],
+    }
+    calls = []
+
+    def fn(data, prompt, model, settings):
+        calls.append(data)
+        return data * 10
+
+    g = Graph.from_dict(config)
+    result = await Executor(g, MockAgent(response_fn=fn)).run()
+    assert result.success
+    assert calls == []  # agent never invoked for a data edge
+    assert await g.vertices["B"].fetch_data("in") == 5  # passthrough

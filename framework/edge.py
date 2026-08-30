@@ -78,6 +78,11 @@ class Edge:
         self.prompt = s.get("prompt", "")
         self._base_prompt = self.prompt
         self.model = s.get("model", "default")
+        # ``skip_compute`` — offline / pure-data edge: skip the LLM compute
+        # stage entirely. pre_process output flows straight to post_process
+        # (config: ``"settings": {"skip_compute": true}``). Generic edges
+        # (fetch/parse/transform) use this instead of a mock agent.
+        self.skip_compute = bool(s.get("skip_compute", False))
         # No per-edge agent from config. Script Edge subclasses may set their
         # own agent (e.g. ``self.agent = OpenCodeAgentRunner()`` in ``__init__``);
         # plain edges fall back to the executor agent, then MockAgent.
@@ -223,7 +228,12 @@ class Edge:
             while True:
                 try:
                     self.prompt = active_prompt
-                    result = await self.compute(data, agents, self.settings)
+                    if self.skip_compute:
+                        # No LLM call: pre_process output is the compute result.
+                        # Post-process/schema/telemetry still run unchanged.
+                        result = data
+                    else:
+                        result = await self.compute(data, agents, self.settings)
                     result = await self._run_post_process(result)
 
                     # ── Schema validation ──

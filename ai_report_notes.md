@@ -257,17 +257,28 @@ HTTPS_PROXY=http://127.0.1.6:7890 opencode run --model opencode/hy3-free "$(cat 
 
 ### 测试（离线 + 真实 LLM）
 ```bash
-# 离线（MockAgent，确定性、免费）：
+# 离线、确定性、免费（跳过 compute，无需 mock —— 通用 edge 的正确离线方式）：
 python -m framework.utils.run_edge --dir examples/s1_ai_report_map \
-  --script s1_edges.py:SummarizeEdge \
-  --data '{"title":"T","url":"U","content":"..."}'
+  --script s1_edges.py:SummarizeEdge --data '{"title":"T","url":"U","content":"..."}' \
+  --skip-compute
 
-# 真实 LLM（sensenova）：
+# 真实 LLM（sensenova，compute 正常执行）：
 python -m framework.utils.run_edge --dir examples/hn_ai_report \
   --script hn_edges.py:SummarizeEdge --data '{...}' \
   --base-url https://token.sensenova.cn/v1/chat/completions \
   --api-key "$SENSENOVA_API_KEY"
 ```
 
+**无 mock fallback**：不传 LLM 端点也不传 `--skip-compute` → exit 2 报错（
+"either give --base-url+--api-key or --skip-compute; no mock fallback"）。
+
+**graph 层同机制**：edge `settings` 可声明 `"skip_compute": true`，执行器跑图时
+该边直接 pre→post，不调 LLM —— 与 driver 的 `--skip-compute` 共用 edge 内同一短路
+（数据/抓取型通用边不再需要也不应该走 mock）。
+
 ### 测试结果
-离线跑 SummarizeEdge 正确加载为 `SummarizeEdge`（非 FetchEdge）、结构化 `title/url` 保留（MockAgent 下 `summary` fallback 为整个 dict——预期，真实 LLM 才产摘要）；坏脚本返回 `ok=False`（含 "Script not found"）。**349 tests passed**。
+`--skip-compute` 跑 SummarizeEdge 正确加载为 `SummarizeEdge`（非 FetchEdge）、
+结构化 `title/url` 保留；坏脚本返回 `ok=False`（含 "Script not found"）；
+graph 层 `settings.skip_compute=true` 的边执行器不调 LLM（mock response_fn 零调用）、
+post_process 照跑；无 prompt/model 的普通边本就走 passthrough（不碰 agent）。
+**353 tests passed**。
