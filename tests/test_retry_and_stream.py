@@ -84,6 +84,76 @@ class TestPipelineBusinessRetry:
         assert await g.vertices["B"].fetch_data("in") == "valid_data"
 
     @pytest.mark.asyncio
+    async def test_retry_feedback_is_not_stacked_across_attempts(self):
+        """Self-correction feedback must not accumulate into a stacked prompt.
+
+        Scenario: post_process always raises KeyError -> every attempt retries.
+        Each retry must rebuild the active prompt from the frozen base template,
+        so every intercepted prompt carries exactly ONE [SYSTEM FEEDBACK] block
+        (no duplicate error stack), and the edge prompt is restored afterwards.
+        """
+        captured = []
+
+        def always_bad(data, prompt, model, settings):
+            captured.append(prompt)
+            return {"wrong_key": "bad"}
+
+        class RetryEdge(Edge):
+            def post_process(self, result, settings):
+                return result["target_key"]  # always KeyError
+
+        config = {
+            "vertices": [
+                {"id": "A", "initial_data": [{"channel": "in", "value": "x"}]},
+                {"id": "B"},
+            ],
+            "edges": [
+                {
+                    "id": "e_retry_stack",
+                    "source": "A",
+                    "destination": "B",
+                    "channel": "in",
+                    "settings": {
+                        "prompt": "extract target_key",
+                        "retry_policy": {
+                            "max_retries": 3,
+                            "backoff_factor": 0.01,
+                            "retry_on": ["KeyError"],
+                        },
+                    },
+                }
+            ],
+        }
+
+        g = Graph.from_dict(config)
+        old = g.edges["e_retry_stack"]
+        e_retry = RetryEdge(
+            edge_id=old.id, source_id=old.source_id,
+            destination_id=old.destination_id, channel=old.channel,
+            settings=old.settings, concurrency_type=old.concurrency_type,
+            max_iterations=old.max_iterations,
+        )
+        g.edges["e_retry_stack"] = e_retry
+
+        agent = MockAgent(response_fn=always_bad)
+        result = await Executor(g, agent).run()
+
+        assert not result.success
+        # 1 initial attempt + 3 retries
+        assert len(captured) == 4
+        # First call: pristine base prompt, no feedback
+        assert captured[0] == "extract target_key"
+        assert "[SYSTEM FEEDBACK:" not in captured[0]
+        # Every retried prompt carries exactly ONE feedback block, never a stack.
+        for i in range(1, 4):
+            assert captured[i].count("[SYSTEM FEEDBACK:") == 1, (
+                f"attempt {i} stacked feedback: {captured[i]!r}"
+            )
+            assert captured[i].startswith("extract target_key")
+        # Edge prompt restored to base after execution (no state pollution).
+        assert e_retry.prompt == "extract target_key"
+
+    @pytest.mark.asyncio
     async def test_retry_exceeds_max_retries_fails_gracefully(self):
         """If exceptions continue past max_retries, it should raise and signal FAILED."""
         def always_failing_agent(data, prompt, model, settings):

@@ -35,7 +35,7 @@ class Edge:
         concurrency_type, max_iterations
 
     Attributes (Computation layer, parsed from settings):
-        prompt, model, agent, retry_policy, timeout, output_schema,
+        prompt, model, retry_policy, timeout, output_schema,
         memory_read, memory_write, _match, _threshold, _operator, _field
 
     Subclass hooks (override to customise computation):
@@ -210,57 +210,74 @@ class Edge:
         prompt_tokens_est = 0
         completion_tokens_est = 0
 
-        attempt = 0
-        while True:
-            try:
-                result = await self.compute(data, agents, self.settings)
-                result = await self._run_post_process(result)
+        # ── Prompt state isolation ──
+        # ``_base_prompt`` is the frozen template captured in ``__init__``.  Each
+        # retry rebuilds the active prompt from it (single [SYSTEM FEEDBACK]
+        # block) instead of appending onto ``self.prompt``, so self-correction
+        # feedback can never accumulate into an irreversible stacked stack.
+        # ``self.prompt`` is restored afterwards, keeping the edge reusable.
+        orig_prompt = self.prompt
+        active_prompt = self._base_prompt
+        try:
+            attempt = 0
+            while True:
+                try:
+                    self.prompt = active_prompt
+                    result = await self.compute(data, agents, self.settings)
+                    result = await self._run_post_process(result)
 
-                # ── Schema validation ──
-                if self.output_schema:
-                    from .utils.schema import SchemaRegistry
-                    schema_model = SchemaRegistry.get(self.output_schema)
-                    if schema_model:
-                        try:
-                            if hasattr(schema_model, "model_validate"):
-                                validated_obj = schema_model.model_validate(result)
-                            else:
-                                validated_obj = schema_model.parse_obj(result)
-                            result = validated_obj.model_dump()
-                        except Exception as e:
-                            raise e
+                    # ── Schema validation ──
+                    if self.output_schema:
+                        from .utils.schema import SchemaRegistry
+                        schema_model = SchemaRegistry.get(self.output_schema)
+                        if schema_model:
+                            try:
+                                if hasattr(schema_model, "model_validate"):
+                                    validated_obj = schema_model.model_validate(result)
+                                else:
+                                    validated_obj = schema_model.parse_obj(result)
+                                result = validated_obj.model_dump()
+                            except Exception as e:
+                                raise e
 
-                # Token estimation (for telemetry)
-                if telemetry:
-                    from .utils.telemetry import estimate_tokens
-                    prompt_tokens_est += estimate_tokens(str(self.prompt) + str(data))
-                    completion_tokens_est += estimate_tokens(str(result))
+                    # Token estimation (for telemetry)
+                    if telemetry:
+                        from .utils.telemetry import estimate_tokens
+                        prompt_tokens_est += estimate_tokens(str(active_prompt) + str(data))
+                        completion_tokens_est += estimate_tokens(str(result))
 
-                break
+                    break
 
-            except Exception as compute_or_hook_exc:
-                err_name = compute_or_hook_exc.__class__.__name__
-                matched = any(
-                    r_exc == "Exception" or r_exc == err_name
-                    for r_exc in retry_on_exc
-                )
-
-                if matched and attempt < max_retries:
-                    attempt += 1
-                    delay = backoff_factor * (2 ** (attempt - 1))
-                    err_detail = str(compute_or_hook_exc)
-                    logger.warning(
-                        "[Edge:%s] Business retry attempt %d/%d after %s: %s. Backing off for %.2fs...",
-                        self.id, attempt, max_retries, err_name, err_detail, delay,
+                except Exception as compute_or_hook_exc:
+                    err_name = compute_or_hook_exc.__class__.__name__
+                    matched = any(
+                        r_exc == "Exception" or r_exc == err_name
+                        for r_exc in retry_on_exc
                     )
-                    self.prompt = f"{self.prompt}\n\n[SYSTEM FEEDBACK: Your previous output produced a {err_name}]: {err_detail}"
-                    await asyncio.sleep(delay)
-                else:
-                    logger.error(
-                        "[Edge:%s] FAILED (no more retries): %s",
-                        self.id, compute_or_hook_exc, exc_info=True,
-                    )
-                    raise compute_or_hook_exc
+
+                    if matched and attempt < max_retries:
+                        attempt += 1
+                        delay = backoff_factor * (2 ** (attempt - 1))
+                        err_detail = str(compute_or_hook_exc)
+                        logger.warning(
+                            "[Edge:%s] Business retry attempt %d/%d after %s: %s. Backing off for %.2fs...",
+                            self.id, attempt, max_retries, err_name, err_detail, delay,
+                        )
+                        # Rebuild from the frozen template — a fresh, single
+                        # feedback block referencing the latest error only.
+                        active_prompt = (
+                            f"{self._base_prompt}\n\n"
+                            f"[SYSTEM FEEDBACK: Your previous output produced a {err_name}]: {err_detail}"
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(
+                            "[Edge:%s] FAILED (no more retries): %s",
+                            self.id, compute_or_hook_exc, exc_info=True,
+                        )
+                        raise compute_or_hook_exc
+        finally:
+            self.prompt = orig_prompt
 
         # ── Telemetry record ──
         if telemetry:
