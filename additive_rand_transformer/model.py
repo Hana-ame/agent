@@ -29,6 +29,8 @@ class TinyGPTConfig:
     n_head: int = 4
     n_embd: int = 64               # "d 无所谓" — keep it tiny
     dropout: float = 0.0
+    attn_type: str = "causal"      # "causal" | "linear" | "dsa"
+    attn_topk: int = 8             # for "dsa": keys kept per query
 
 
 class CausalSelfAttention(nn.Module):
@@ -71,11 +73,101 @@ class MLP(nn.Module):
         return self.dropout(self.c_proj(self.act(self.c_fc(x))))
 
 
+class LinearAttention(nn.Module):
+    """Katharopoulos et al. linear attention (vectorized cumsum form).
+
+    phi(x) = elu(x) + 1 applied to q/k; O(T * d_head^2) instead of O(T^2).
+    Uses a running cumulative (phi(k)^T v) accumulator — the classic linear KV
+    cache: per-step generation cost O(d^2) regardless of context, memory O(d^2).
+    The vectorized cumsum builds an intermediate [.., T, d, d] (fine at our
+    training widths ~44 tokens); a chunked form would be needed for very long
+    sequences.
+    """
+
+    def __init__(self, cfg: TinyGPTConfig) -> None:
+        super().__init__()
+        assert cfg.n_embd % cfg.n_head == 0
+        self.n_embd = cfg.n_embd
+        self.n_head = cfg.n_head
+        self.head_dim = cfg.n_embd // cfg.n_head
+        self.qkv = nn.Linear(cfg.n_embd, 3 * cfg.n_embd)
+        self.proj = nn.Linear(cfg.n_embd, cfg.n_embd)
+        self.resid_drop = nn.Dropout(cfg.dropout)
+
+    @staticmethod
+    def _phi(x: torch.Tensor) -> torch.Tensor:
+        return F.elu(x) + 1.0
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, C = x.shape
+        q, k, v = self.qkv(x).split(self.n_embd, dim=2)
+        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        q, k = self._phi(q), self._phi(k)
+        # kv_cum[t] = cumsum over t'<=t of phi(k[t']) * v[t'] : [B,H,T,d,d]
+        kvt = torch.einsum("bhtd,bhte->bhtde", k, v)
+        kv_cum = torch.cumsum(kvt, dim=2)
+        z_cum = torch.cumsum(k, dim=2)
+        num = torch.einsum("bhtd,bhtde->bhte", q, kv_cum)
+        den = torch.einsum("bhtd,bhtd->bht", q, z_cum).unsqueeze(-1)
+        y = num / (den + 1e-6)
+        y = y.transpose(1, 2).reshape(B, T, C)
+        return self.resid_drop(self.proj(y))
+
+
+class DSAAttention(nn.Module):
+    """Data-dependent Sparse Attention: keep only the top-k most relevant keys
+    per query (selected by score), softmax over those, sparsify the rest.
+
+    The sparsity mask is *data-dependent* (differs per query from the input),
+    like DSA-style sparse attention. Cost is still O(T^2) for score computation
+    on CPU here (torch lacks an efficient top-k scatter), but the attention
+    matrix is sparsified to k/T density, which matters for KV-cache generation.
+    """
+
+    def __init__(self, cfg: TinyGPTConfig) -> None:
+        super().__init__()
+        assert cfg.n_embd % cfg.n_head == 0
+        self.n_embd = cfg.n_embd
+        self.n_head = cfg.n_head
+        self.head_dim = cfg.n_embd // cfg.n_head
+        self.topk = cfg.attn_topk
+        self.qkv = nn.Linear(cfg.n_embd, 3 * cfg.n_embd)
+        self.proj = nn.Linear(cfg.n_embd, cfg.n_embd)
+        self.attn_drop = nn.Dropout(cfg.dropout)
+        self.resid_drop = nn.Dropout(cfg.dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, C = x.shape
+        q, k, v = self.qkv(x).split(self.n_embd, dim=2)
+        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        att = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        mask = torch.tril(torch.ones(T, T, device=x.device), diagonal=0).view(1, 1, T, T)
+        att = att.masked_fill(mask == 0, float("-inf"))
+        # data-dependent top-k selection per query
+        k = min(self.topk, T)
+        topk_vals, topk_idx = att.topk(k, dim=-1)
+        att = torch.full_like(att, float("-inf"))
+        att.scatter_(-1, topk_idx, topk_vals)
+        att = F.softmax(att, dim=-1)
+        att = self.attn_drop(att)
+        y = (att @ v).transpose(1, 2).reshape(B, T, C)
+        return self.resid_drop(self.proj(y))
+
+
 class Block(nn.Module):
     def __init__(self, cfg: TinyGPTConfig) -> None:
         super().__init__()
         self.ln_1 = nn.LayerNorm(cfg.n_embd)
-        self.attn = CausalSelfAttention(cfg)
+        if cfg.attn_type == "linear":
+            self.attn = LinearAttention(cfg)
+        elif cfg.attn_type == "dsa":
+            self.attn = DSAAttention(cfg)
+        else:
+            self.attn = CausalSelfAttention(cfg)
         self.ln_2 = nn.LayerNorm(cfg.n_embd)
         self.mlp = MLP(cfg)
 
