@@ -39,6 +39,15 @@ class NonRetryableHTTPError(Exception):
         super().__init__(f"HTTP {status_code}: {message}")
 
 
+class MalformedResponseError(Exception):
+    """Raised when an HTTP 200 body lacks the expected ``choices`` shape.
+
+    Free-tier upstreams occasionally return an error envelope (``{"error": ...}``)
+    or an empty body with status 200. Treating that as fatal (KeyError crash)
+    killed whole report pipelines; it should be retried like a transient 5xx.
+    """
+
+
 class ThrottleTimeoutError(ComputeError):
     """Raised when an agent cannot get its own concurrency slot / rate budget.
 
@@ -394,7 +403,9 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         @retry(
             stop=stop_after_attempt(self.max_retries),
             wait=wait_exponential(multiplier=1, min=2, max=10),
-            retry=retry_if_exception_type((httpx.RequestError, httpx.HTTPStatusError)),
+            retry=retry_if_exception_type(
+                (httpx.RequestError, httpx.HTTPStatusError, MalformedResponseError)
+            ),
             before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
         )
@@ -411,7 +422,17 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
                 "reasoning_tokens": details.get("reasoning_tokens", 0),
                 "total_tokens": usage.get("total_tokens", 0),
             })
-        return response["choices"][0]["message"]["content"]
+        try:
+            choices = response["choices"]
+            content = choices[0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            # 免费档偶发 200 但 body 是错误包/空 choices:当作瞬时错误重试,
+            # 而不是让整条报告管线因 KeyError 崩溃(2026-08-30 hn 实测踩到)。
+            provider = (response or {}).get("model") or (response or {}).get("error")
+            raise MalformedResponseError(
+                f"upstream returned 200 without choices (model/err={provider!r}); raw={str(response)[:200]}"
+            ) from None
+        return content
 
     def get_usage_summary(self) -> dict:
         """Aggregate real token usage recorded from upstream responses.
@@ -509,9 +530,28 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+    async def __aenter__(self) -> "_HTTPAgentBase":
+        """Async context-manager entry: return self as the managed resource."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Async context-manager exit: release all network handles.
+
+        Idempotent — safe to use with ``async with`` even if the client was
+        already closed explicitly via :meth:`close`.
+        """
+        await self.close()
+        return False
+
     async def close(self) -> None:
-        """Close the underlying HTTP client and release connections."""
+        """Close the underlying HTTP client and release connections.
+
+        Idempotent: repeated calls are a safe no-op (``_closed`` guards the
+        second teardown). Closes the default client plus every cached
+        per-proxy client held in ``_proxied_clients``.
+        """
         if not self._closed:
             for c in {id(self.client): self.client, **{id(v): v for v in self._proxied_clients.values()}}.values():
                 await c.aclose()
             self._closed = True
+        self._proxied_clients.clear()

@@ -728,3 +728,52 @@ class TestPiAgentRunnerExtra:
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await runner.process("d", "p", "m")
             assert result == "caf\u00e9_resum\u00e9"
+
+
+# ====================================================================
+# HttpLLMAgent — lifecycle (defect 4 regression): async context manager,
+# explicit close(), idempotence
+# ====================================================================
+class TestHttpLLMAgentLifecycle:
+    """Lifecycle cleanup: __aenter__/__aexit__ + idempotent close()."""
+
+    @pytest.mark.asyncio
+    async def test_explicit_close_sets_closed_and_releases_client(self):
+        agent = HttpLLMAgent()
+        with patch.object(agent.client, "aclose", new=AsyncMock()) as mock_aclose:
+            await agent.close()
+            mock_aclose.assert_awaited_once()
+        assert agent._closed is True
+
+    @pytest.mark.asyncio
+    async def test_close_is_idempotent(self):
+        agent = HttpLLMAgent()
+        with patch.object(agent.client, "aclose", new=AsyncMock()) as mock_aclose:
+            await agent.close()
+            await agent.close()  # second call must be a safe no-op
+            mock_aclose.assert_awaited_once()  # exactly one teardown
+        assert agent._closed is True
+
+    @pytest.mark.asyncio
+    async def test_context_manager_closes_on_exit(self):
+        # ``close`` is mocked here so the real flag-setter does not run; the
+        # assertion is that ``__aexit__`` awaits ``close`` exactly once.
+        with patch.object(HttpLLMAgent, "close", new=AsyncMock()) as mock_close:
+            async with HttpLLMAgent() as agent:
+                mock_close.assert_not_awaited()
+            mock_close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_context_manager_closes_even_on_exception(self):
+        with patch.object(HttpLLMAgent, "close", new=AsyncMock()) as mock_close:
+            with pytest.raises(RuntimeError):
+                async with HttpLLMAgent() as agent:
+                    raise RuntimeError("boom inside context")
+            mock_close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_context_manager_sets_closed_with_real_close(self):
+        """With the real (unmocked) close(), exiting the context sets _closed."""
+        async with HttpLLMAgent() as agent:
+            assert not agent._closed
+        assert agent._closed is True
