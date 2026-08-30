@@ -234,5 +234,40 @@ HTTPS_PROXY=http://127.0.1.6:7890 opencode run --model opencode/hy3-free "$(cat 
 | `f4f7e17` | script_loader 显式类名 + 结构化标题 |
 | `6a4d4e1` | 解析 bug + 测试 |
 | `4cfedec` | 克隆 + MapEdge 修复 |
+| `121ea9e` | 缺陷三修复：retry 循环 prompt 状态隔离（基于 `_base_prompt` 重建单条 feedback，`finally` 恢复，无叠加堆栈）；回归测试断言单条 `[SYSTEM FEEDBACK]` |
+| `d64aab2` | 缺陷四修复：HttpLLMAgent 异步上下文管理器 `__aenter__/__aexit__`（`__aexit__` 幂等 `close()`，清 `_proxied_clients` 缓存）；回归测试 5 个（显式 close / 幂等 / async-with 含异常路径） |
+| `eac55f8` | hn/s1/finance 示例切 sensenova（`token.sensenova.cn`、`SENSENOVA_API_KEY` 必填、去 proxy、max_concurrency 1）；demo.py `_resolve_api_key` 按端点分流；report_hook env 覆盖输出 + `##→###` 降级；GraphBuilder.edge() 删遗留 `agent` 参数；README 删 agent 字段 |
+| `(待提交)` | 单 edge 调试工具（见下） |
 
-**当前测试**：**342 tests passed**。
+**当前测试**：**349 tests passed**。
+
+---
+
+## 问题 10：没有「任意单 edge」独立测试工具
+
+### 问题
+想单独验证某个边（如 `hn_edges.py:SummarizeEdge`），之前只能：搭整图跑 demo、或手写一个 pytest。没有「加载指定 `file.py:Class` → 喂数据 → 跑完整 pre→compute→post 链 → 看结果」的即插即用入口；缺陷一（SummarizeEdge 被加载成 FetchEdge）就是靠整图跑才暴露的。
+
+### 方案
+`framework/utils/run_edge.py`：通用单边驱动器。`--script` 相对 `--dir` 解析、`file.py:Class` 按类名精确解析（与 graph.py 解析 MapEdge pipeline step 同规则），驱动 `pre_process → compute → post_process`（与 `Edge._run_compute` 同路径），打印类名/agent/耗时/token/结果。坏脚本以 `ok=False` 进 report，不崩出。
+
+### 修改
+- `framework/utils/run_edge.py`（新）：`run_edge()` + `_resolve_class()` + CLI。
+- `tests/test_run_edge.py`（新）：5 个回归测试（按名加载正确类、结构化标题保留、相对 dir 解析不依赖 CWD、网络边只验证加载+构造、坏脚本报 `ok=False`）。
+
+### 测试（离线 + 真实 LLM）
+```bash
+# 离线（MockAgent，确定性、免费）：
+python -m framework.utils.run_edge --dir examples/s1_ai_report_map \
+  --script s1_edges.py:SummarizeEdge \
+  --data '{"title":"T","url":"U","content":"..."}'
+
+# 真实 LLM（sensenova）：
+python -m framework.utils.run_edge --dir examples/hn_ai_report \
+  --script hn_edges.py:SummarizeEdge --data '{...}' \
+  --base-url https://token.sensenova.cn/v1/chat/completions \
+  --api-key "$SENSENOVA_API_KEY"
+```
+
+### 测试结果
+离线跑 SummarizeEdge 正确加载为 `SummarizeEdge`（非 FetchEdge）、结构化 `title/url` 保留（MockAgent 下 `summary` fallback 为整个 dict——预期，真实 LLM 才产摘要）；坏脚本返回 `ok=False`（含 "Script not found"）。**349 tests passed**。
