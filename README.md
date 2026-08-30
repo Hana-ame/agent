@@ -1,19 +1,27 @@
-# simpleAI — additive-rand-transformer 本地工作区
+# simpleAI — 研究本地工作区（HF submodule 集合）
 
-本仓库是 `additive-rand-transformer` 研究的**本地工作区**：父仓库极简，全部实际内容
-（模型代码、实验文档、权重）挂在 Hugging Face submodule 上。
+本仓库是研究的**本地工作区**：父仓库极简，全部实际内容（模型代码、实验文档、权重）
+挂在 Hugging Face submodule 上。
 
 ```
 simpleAI/
-├── .gitmodules                    # submodule 注册
-├── additive-rand-transformer/     # ← HF submodule（唯一事实源）
-│   ├── additive_rand_transformer/ # Python 包 (model/data/train/rl/...)
-│   ├── checkpoints/               # 7 个训练好的权重（已落真文件，非 LFS 指针）
-│   ├── README.md                  # 项目使用手册 / model card
-│   └── *.md                       # 全部研究文档 (RESEARCH/EXPLORE/IMPROVE/...)
-├── README.md                      # 本文件
-└── .env                           # 本地密钥（gitignored，永不提交）
+├── .gitmodules                       # submodule 注册
+├── additive-rand-transformer/        # ← HF submodule #1（加法算术探针）
+│   ├── additive_rand_transformer/    # Python 包 (model/data/train/rl/...)
+│   ├── checkpoints/                  # 7 个训练好的权重（已落真文件，非 LFS 指针）
+│   ├── README.md                     # 项目使用手册 / model card
+│   └── *.md                          # 全部研究文档 (RESEARCH/EXPLORE/IMPROVE/...)
+├── maze-transformer/                 # ← HF submodule #2（反应式 2D 迷宫导航）
+│   ├── maze_transformer/             # Python 包 (model/data/evaluate/train/...)
+│   ├── checkpoints/                  # 训练好的权重（LFS）
+│   └── README.md                     # 项目使用手册 / model card
+├── README.md                         # 本文件
+└── .env                              # 本地密钥（gitignored，永不提交）
 ```
+
+> `maze-transformer` 的任务规格：智能体**每一步只看四周四格（路 `.` / 墙 `#`）**，
+> 输出 **U/D/L/R** 之一；**指向墙 / 越界即为非法，非法则直接不动**（环境拒绝动作，
+> 原地停留），到达终点 **G** 成功。训练目标是 BFS 最短路径动作序列，详见其 README。
 
 ---
 
@@ -100,6 +108,9 @@ export HF_ENDPOINT=https://hf-mirror.com
 ```
 
 git / LFS 仓库地址：`https://hf-mirror.com/Hana-ame/additive-rand-transformer.git`
+（`maze-transformer` 同理：`https://hf-mirror.com/Hana-ame/maze-transformer.git`；
+推送走 git 代理 `http://172.29.80.1:10809`，或对 API 设 `HTTPS_PROXY` 后用
+`huggingface_hub` 上传。）
 
 ---
 

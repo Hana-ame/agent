@@ -1,3 +1,7 @@
 [submodule "additive-rand-transformer"]
 	path = additive-rand-transformer
 	url = https://huggingface.co/Hana-ame/additive-rand-transformer
+
+[submodule "maze-transformer"]
+	path = maze-transformer
+	url = https://huggingface.co/Hana-ame/maze-transformer
