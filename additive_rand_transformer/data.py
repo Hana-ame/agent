@@ -53,15 +53,28 @@ def _int_to_tokens(n: int) -> List[int]:
     return [TOK_TO_ID[ch] for ch in str(n)]
 
 
-def _random_int(rng: random.Random, min_digits: int = 1, max_digits: int = 6) -> int:
+def _random_int(
+    rng: random.Random,
+    min_digits: int = 1,
+    max_digits: int = 6,
+    sparse_from: int = 3,
+    density: float = 0.5,
+) -> int:
     """Uniform integer with `min_digits..max_digits` decimal digits (no leading zeros).
 
-    Digit *length* is sampled uniformly first, then a number of that length is
-    sampled uniformly. This guarantees short operands (1-4 digits) are seen as
-    often as long ones — a flat `randint(0, 10**max-1)` would make 1-digit
-    numbers ~0.001% of samples and starve the model on short arithmetic.
+    Digit *length* is weighted: 1-2 digit operands keep weight 1 (they fully
+    cover the 0..99 space), and length d >= `sparse_from` gets weight
+    `density ** (d - sparse_from + 1)` — so 3-digit is density, 4-digit is
+    density^2, ... i.e. **progressively sparser**: we no longer enumerate every
+    combination of longer operands, just sample a shrinking fraction of them.
     """
-    n_digits = rng.randint(min_digits, max_digits)
+    weights = []
+    for d in range(min_digits, max_digits + 1):
+        if d < sparse_from:
+            weights.append(1.0)
+        else:
+            weights.append(density ** (d - sparse_from + 1))
+    n_digits = rng.choices(range(min_digits, max_digits + 1), weights=weights, k=1)[0]
     if n_digits == 1:
         return rng.randint(0, 9)
     return rng.randint(10 ** (n_digits - 1), 10 ** n_digits - 1)
@@ -77,14 +90,21 @@ def gen_expression(
     min_digits: int = DEFAULT_MIN_DIGITS,
     max_digits: int = DEFAULT_MAX_DIGITS,
     max_spaces: int = DEFAULT_MAX_SPACES,
+    sparse_from: int = 3,
+    density: float = 0.5,
 ) -> List[int]:
     """One arithmetic expression, as a list of token ids.
 
     Returns: [<BOS>, a..., spaces, op, spaces, b..., spaces, =, spaces, c..., <EOS>]
     Spacing around each operator is independently random in 0..max_spaces.
+    `sparse_from`/`density`: digit lengths >= sparse_from are sampled at a
+    shrinking rate (see `_random_int`), so longer operands do not enumerate
+    the full combination space.
     """
-    a = _random_int(rng, min_digits=min_digits, max_digits=max_digits)
-    b = _random_int(rng, min_digits=min_digits, max_digits=max_digits)
+    a = _random_int(rng, min_digits=min_digits, max_digits=max_digits,
+                    sparse_from=sparse_from, density=density)
+    b = _random_int(rng, min_digits=min_digits, max_digits=max_digits,
+                    sparse_from=sparse_from, density=density)
 
     if rng.random() < 0.5:
         op = PLUS
@@ -118,6 +138,8 @@ def gen_expression_cot(
     min_digits: int = DEFAULT_MIN_DIGITS,
     max_digits: int = DEFAULT_MAX_DIGITS,
     four_digit_bias: float = 0.0,
+    sparse_from: int = 3,
+    density: float = 0.5,
 ) -> List[int]:
     """Chain-of-thought arithmetic expression: problem + column-wise carries + answer.
 
@@ -133,13 +155,21 @@ def gen_expression_cot(
     `max_digits` digits — this oversamples the hardest carry/overflow cases
     (e.g. 4-digit + 4-digit with 5-digit results), which uniform digit-length
     sampling only produces ~6% of the time.
+
+    `sparse_from`/`density`: as in `gen_expression`, operands with digit length
+    >= sparse_from are sampled at a decaying rate (progressively sparse), so the
+    datasource does not enumerate every long-operand combination.
     """
     if rng.random() < four_digit_bias:
-        a = _random_int(rng, min_digits=max_digits, max_digits=max_digits)
-        b = _random_int(rng, min_digits=max_digits, max_digits=max_digits)
+        a = _random_int(rng, min_digits=max_digits, max_digits=max_digits,
+                        sparse_from=sparse_from, density=density)
+        b = _random_int(rng, min_digits=max_digits, max_digits=max_digits,
+                        sparse_from=sparse_from, density=density)
     else:
-        a = _random_int(rng, min_digits=min_digits, max_digits=max_digits)
-        b = _random_int(rng, min_digits=min_digits, max_digits=max_digits)
+        a = _random_int(rng, min_digits=min_digits, max_digits=max_digits,
+                        sparse_from=sparse_from, density=density)
+        b = _random_int(rng, min_digits=min_digits, max_digits=max_digits,
+                        sparse_from=sparse_from, density=density)
     cols: List[Tuple[str, str]] = []  # (column_str, carry_after_this_column)
     if rng.random() < 0.5:
         op, opch = PLUS, "+"
@@ -198,6 +228,8 @@ def make_single_cot_batch(
     min_digits: int = DEFAULT_MIN_DIGITS,
     max_digits: int = DEFAULT_MAX_DIGITS,
     four_digit_bias: float = 0.0,
+    sparse_from: int = 3,
+    density: float = 0.5,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Batch of single CoT expressions, left-aligned + EOS padding.
 
@@ -214,7 +246,8 @@ def make_single_cot_batch(
     inp_rows: List[torch.Tensor] = []
     tgt_rows: List[torch.Tensor] = []
     for _ in range(batch_size):
-        expr = gen_expression_cot(rng, min_digits, max_digits, four_digit_bias)
+        expr = gen_expression_cot(rng, min_digits, max_digits, four_digit_bias,
+                                  sparse_from, density)
         if len(expr) > width:          # guard: never truncate
             expr = expr[:width - 1] + [EOS]
         pad = [EOS] * (width - len(expr))
@@ -234,6 +267,8 @@ def pack_blocks(
     min_digits: int = DEFAULT_MIN_DIGITS,
     max_digits: int = DEFAULT_MAX_DIGITS,
     max_spaces: int = DEFAULT_MAX_SPACES,
+    sparse_from: int = 3,
+    density: float = 0.5,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Build one (inputs, targets) batch by packing expressions into block_size blocks.
 
@@ -247,7 +282,8 @@ def pack_blocks(
     inp: List[int] = []
     # Cap the number of gen_expression calls so packing never loops forever.
     for _ in range(block_size + 8):
-        expr = gen_expression(rng, min_digits, max_digits, max_spaces)
+        expr = gen_expression(rng, min_digits, max_digits, max_spaces,
+                              sparse_from, density)
         if len(inp) + len(expr) > block_size:
             break
         inp.extend(expr)
@@ -271,12 +307,15 @@ def make_batch(
     min_digits: int = DEFAULT_MIN_DIGITS,
     max_digits: int = DEFAULT_MAX_DIGITS,
     max_spaces: int = DEFAULT_MAX_SPACES,
+    sparse_from: int = 3,
+    density: float = 0.5,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """A full (inputs, targets) batch, each row of shape (block_size,)."""
     inp_rows: List[torch.Tensor] = []
     tgt_rows: List[torch.Tensor] = []
     for _ in range(batch_size):
-        i, t = pack_blocks(rng, block_size, 1, device, min_digits, max_digits, max_spaces)
+        i, t = pack_blocks(rng, block_size, 1, device, min_digits, max_digits, max_spaces,
+                           sparse_from, density)
         inp_rows.append(i)
         tgt_rows.append(t)
     return torch.stack(inp_rows), torch.stack(tgt_rows)
@@ -290,6 +329,8 @@ def make_single_batch(
     min_digits: int = DEFAULT_MIN_DIGITS,
     max_digits: int = DEFAULT_MAX_DIGITS,
     max_spaces: int = DEFAULT_MAX_SPACES,
+    sparse_from: int = 3,
+    density: float = 0.5,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Batch of single expressions (no packing), left-aligned + EOS padding.
 
@@ -308,7 +349,8 @@ def make_single_batch(
     inp_rows: List[torch.Tensor] = []
     tgt_rows: List[torch.Tensor] = []
     for _ in range(batch_size):
-        expr = gen_expression(rng, min_digits, max_digits, max_spaces)
+        expr = gen_expression(rng, min_digits, max_digits, max_spaces,
+                              sparse_from, density)
         if len(expr) > width:          # guard: never truncate
             expr = expr[:width - 1] + [EOS]
         pad = [EOS] * (width - len(expr))
@@ -328,11 +370,14 @@ def stream_batches(
     min_digits: int = DEFAULT_MIN_DIGITS,
     max_digits: int = DEFAULT_MAX_DIGITS,
     max_spaces: int = DEFAULT_MAX_SPACES,
+    sparse_from: int = 3,
+    density: float = 0.5,
 ) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
     """Endless stream of (inputs, targets) batches."""
     rng = random.Random(seed)
     while True:
-        yield make_batch(rng, block_size, batch_size, device, min_digits, max_digits, max_spaces)
+        yield make_batch(rng, block_size, batch_size, device, min_digits, max_digits, max_spaces,
+                         sparse_from, density)
 
 
 def decode(tokens: List[int]) -> str:
