@@ -2,8 +2,16 @@ scratch/
 *.pyc
 __pycache__/
 *.db
+*.db-shm
+*.db-wal
+*.log
 .coverage
 .pytest_cache/
 examples/s1profile_collect/data/
 .venv_libs/
 runs/
+
+# secrets / local state — never commit
+moonchan_cookies.txt
+.last_upload_url
+.opencode/
