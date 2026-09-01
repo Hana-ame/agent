@@ -492,10 +492,11 @@ def build_and_save_workbooks():
     all_rows = build_all_granular_rows()
     print(f"Total granular rows constructed: {len(all_rows)}")
 
+    ROOT = os.path.dirname(os.path.abspath(__file__))
     out_paths = [
-        "/home/luminovoez/agent/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx",
-        "/home/luminovoez/agent/additive-rand-transformer/EXPERIMENTS_ALL.xlsx",
-        "/home/luminovoez/agent/maze-transformer/EXPERIMENTS_ALL.xlsx"
+        os.path.join(ROOT, "ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx"),
+        os.path.join(ROOT, "additive-rand-transformer/EXPERIMENTS_ALL.xlsx"),
+        os.path.join(ROOT, "maze-transformer/EXPERIMENTS_ALL.xlsx")
     ]
 
     for out_path in out_paths:
@@ -565,6 +566,5 @@ def build_and_save_workbooks():
         adjust_master_widths(ws5)
 
         wb.save(out_path)
-        print(f"Workbook successfully saved to: {out_path}")
-
-build_and_save_workbooks()
+if __name__ == "__main__":
+    build_and_save_workbooks()

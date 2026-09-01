@@ -10,7 +10,8 @@
 
 | 资源 | 文件路径 | 说明 |
 |---|---|---|
-| **Excel 实验全景总库** | [`ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) | **58 列超大宽表**：覆盖 138 项实验，逐 L / 逐 d / 逐步数 / 24 项训练方式打勾全景 |
+| **Excel 实验全景总库** | [`ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) | **全景宽表**：覆盖 220 项加法实验与 10 项迷宫实验，18 项训练方式打勾与细分定量指标 |
+| **接棒 Agent 操作手册** | [`AGENT_EXPERIMENT_EXECUTION_GUIDE.md`](AGENT_EXPERIMENT_EXECUTION_GUIDE.md) | **零本地运行红线**、197–220待跑实验任务池、Colab 执行 SOP 与指标回填规范 |
 | **加法 Colab 手册** | [`Colab_Run_Additive_Transformer.ipynb`](Colab_Run_Additive_Transformer.ipynb) | Google Colab 一键训练、探针诊断、INT8量化与 Drive 自动同步 |
 | **迷宫 Colab 手册** | [`Colab_Run_Maze_Transformer.ipynb`](Colab_Run_Maze_Transformer.ipynb) | 反应式 2D 迷宫纯 RL (GRPO) 导航一键训练与可视化 |
 | **加法训练入口** | [`additive-rand-transformer/additive_rand_transformer/train.py`](additive-rand-transformer/additive_rand_transformer/train.py) | 支持 `train.py --config config.json` 灵活拉起 |
