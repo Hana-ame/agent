@@ -1,7 +1,7 @@
 from .executor import Executor, ExecutionResult, GraphEvent, CheckpointedExecutor, HumanGateVertex, ExecutorHooks
 from .agents import (
     BaseAgent,
-    
+    MockAgent,
     HttpLLMAgent,
     NonRetryableHTTPError,
     ThrottleTimeoutError,
@@ -36,7 +36,7 @@ __all__ = [
     'LinearChain', 'GraphBuilder',
     'BaseStateStore', 'SQLiteStateStore', 'GraphSnapshot',
     'CheckpointedExecutor', 'HumanGateVertex',
-    'BaseAgent', 'HttpLLMAgent', 'HttpLLMAgent', 'NonRetryableHTTPError',
+    'BaseAgent', 'MockAgent', 'HttpLLMAgent', 'NonRetryableHTTPError',
     'ThrottleTimeoutError',
     'load_script',
 ]

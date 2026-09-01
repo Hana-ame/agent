@@ -5,9 +5,12 @@ from .pi_agent_runner import PiAgentRunner
 from .factory import get_agent
 from .opencode_agent_runner import OpenCodeAgentRunner
 
+from .mock_agent import MockAgent
+
 __all__ = [
     'BaseAgent',
     'HttpLLMAgent',
+    'MockAgent',
     'NonRetryableHTTPError',
     'ThrottleTimeoutError',
     'PiAgentRunner',
