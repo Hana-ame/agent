@@ -26,7 +26,9 @@
 ### 1. 打开 Notebook
 - 在 Cloud Shell 中下载 Notebook：
   ```bash
-  cloudshell download /home/luminovoez/agent/Colab_Run_Additive_Transformer.ipynb
+  cloudshell download Colab_Run_Additive_Transformer.ipynb
+  # 或迷宫 Notebook：
+  cloudshell download Colab_Run_Maze_Transformer.ipynb
   ```
 - 访问 [Google Colab](https://colab.research.google.com/) -> 点击 **上传 (Upload)** -> 选择该 `.ipynb` 文件打开。
 
