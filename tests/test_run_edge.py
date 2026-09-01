@@ -73,18 +73,18 @@ async def test_self_owning_agent_edge_gets_no_driver_http_client(tmp_path):
     """Fix: when a script edge owns its own agent (``self.agent`` in __init__),
     run_edge must NOT create an unused driver HttpLLMAgent just because
     --base-url was given. Edge.compute precedence is self.agent > driver agent,
-    so the report's agent field must reflect the OWNED agent (MockAgent), and
+    so the report's agent field must reflect the OWNED agent (HttpLLMAgent), and
     the result must come from it — no throwaway HTTP client, no LLM call."""
     script = tmp_path / "self_owned.py"
     script.write_text(
         "from framework.edge import Edge\n"
-        "from framework.agents import MockAgent\n"
+        "from framework.agents import HttpLLMAgent\n"
         "\n"
         "class SelfOwnedEdge(Edge):\n"
         "    def __init__(self, **kw):\n"
         "        super().__init__(**kw)\n"
         "        # owns its agent — driver must not hand it another one\n"
-        "        self.agent = MockAgent(response_fn=lambda d, p, m, s: 'own:' + str(d))\n"
+        "        self.agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: 'own:' + str(d))\n"
         "        self.prompt = 'owned prompt'\n"
         "        self.model = 'owned-model'\n"
         "\n"
@@ -102,7 +102,7 @@ async def test_self_owning_agent_edge_gets_no_driver_http_client(tmp_path):
         api_key="k",
     )
     assert report["ok"] is True, report["result"]
-    assert report["agent"] == "MockAgent"  # owned agent, NOT a driver HttpLLMAgent
+    assert report["agent"] == "HttpLLMAgent"  # owned agent, NOT a driver HttpLLMAgent
     assert report["result"]["via"] == "self_owned_agent"
     assert report["result"]["result"] == "own:payload"  # answer came from own agent
     assert "usage" not in report  # no real LLM call was made
@@ -110,7 +110,7 @@ async def test_self_owning_agent_edge_gets_no_driver_http_client(tmp_path):
 
 @pytest.mark.asyncio
 async def test_compute_without_endpoint_or_skip_compute_raises():
-    """No MockAgent fallback: a compute run with no base_url must raise, not
+    """No HttpLLMAgent fallback: a compute run with no base_url must raise, not
     silently fall back to a mock agent."""
     with pytest.raises(ValueError) as exc:
         await run_edge(
@@ -157,9 +157,9 @@ async def test_bad_script_raises_reported_failure():
 @pytest.mark.asyncio
 async def test_graph_edge_skip_compute_does_not_call_llm():
     """Graph-level: an edge with settings.skip_compute=true runs pre->post
-    without invoking the LLM (no MockAgent fallback, no real call). The mock
+    without invoking the LLM (no HttpLLMAgent fallback, no real call). The mock
     response_fn must never be called."""
-    from framework import Graph, Executor, MockAgent
+    from framework import Graph, Executor, HttpLLMAgent
 
     calls = []
 
@@ -183,7 +183,7 @@ async def test_graph_edge_skip_compute_does_not_call_llm():
         ],
     }
     g = Graph.from_dict(config)
-    result = await Executor(g, MockAgent(response_fn=never_called)).run()
+    result = await Executor(g, HttpLLMAgent(mock=True, mock_handler=never_called)).run()
 
     assert result.success, result.summary()
     assert calls == []  # LLM never invoked
@@ -193,7 +193,7 @@ async def test_graph_edge_skip_compute_does_not_call_llm():
 @pytest.mark.asyncio
 async def test_graph_skip_compute_still_runs_post_process():
     """Graph-level: skip_compute still runs the edge's post_process hook."""
-    from framework import Graph, Executor, Edge, MockAgent
+    from framework import Graph, Executor, Edge, HttpLLMAgent
 
     class TransformEdge(Edge):
         def post_process(self, result, settings):
@@ -222,7 +222,7 @@ async def test_graph_skip_compute_still_runs_post_process():
         channel=old.channel, settings=old.settings,
         concurrency_type=old.concurrency_type, max_iterations=old.max_iterations,
     )
-    result = await Executor(g, MockAgent(response_fn=lambda d, p, m, s: "nope")).run()
+    result = await Executor(g, HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: "nope")).run()
 
     assert result.success
     assert await g.vertices["B"].fetch_data("in") == "wrapped:raw"
@@ -234,7 +234,7 @@ async def test_graph_edge_without_prompt_model_is_passthrough():
     (no mock, no LLM) — this is exactly why skip_compute is the *explicit*
     graph-level spelling for the same intent: pure-data edges never invoke an
     agent. The response_fn must not be called."""
-    from framework import Graph, Executor, MockAgent
+    from framework import Graph, Executor, HttpLLMAgent
 
     config = {
         "vertices": [
@@ -252,7 +252,7 @@ async def test_graph_edge_without_prompt_model_is_passthrough():
         return data * 10
 
     g = Graph.from_dict(config)
-    result = await Executor(g, MockAgent(response_fn=fn)).run()
+    result = await Executor(g, HttpLLMAgent(mock=True, mock_handler=fn)).run()
     assert result.success
     assert calls == []  # agent never invoked for a data edge
     assert await g.vertices["B"].fetch_data("in") == 5  # passthrough

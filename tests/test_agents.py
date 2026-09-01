@@ -1,4 +1,4 @@
-"""Tests for framework.agents — MockAgent, HttpLLMAgent, PiAgentRunner.
+"""Tests for framework.agents — HttpLLMAgent, HttpLLMAgent, PiAgentRunner.
 
 Real unit tests with mocked external dependencies (httpx, subprocess).
 """
@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework.agents import BaseAgent, MockAgent, HttpLLMAgent, PiAgentRunner
+from framework.agents import BaseAgent, HttpLLMAgent, HttpLLMAgent, PiAgentRunner
 
 
 # ====================================================================
@@ -25,7 +25,7 @@ class TestBaseAgent:
             BaseAgent()
 
     def test_mock_agent_is_subclass(self):
-        assert issubclass(MockAgent, BaseAgent)
+        assert issubclass(HttpLLMAgent, BaseAgent)
 
     def test_http_agent_is_subclass(self):
         assert issubclass(HttpLLMAgent, BaseAgent)
@@ -35,20 +35,20 @@ class TestBaseAgent:
 
 
 # ====================================================================
-# MockAgent
+# HttpLLMAgent
 # ====================================================================
-class TestMockAgentDefault:
-    """Default MockAgent echoes data with model metadata."""
+class TestHttpLLMAgentDefault:
+    """Default HttpLLMAgent echoes data with model metadata."""
 
     @pytest.mark.asyncio
     async def test_string_echo(self):
-        agent = MockAgent()
+        agent = HttpLLMAgent(mock=True)
         result = await agent.process("hello", "prompt", "test-model")
         assert result == "[test-model] hello"
 
     @pytest.mark.asyncio
     async def test_dict_echo(self):
-        agent = MockAgent()
+        agent = HttpLLMAgent(mock=True)
         result = await agent.process({"key": "val"}, "prompt", "m")
         assert result["_processed"] is True
         assert result["_model"] == "m"
@@ -57,36 +57,36 @@ class TestMockAgentDefault:
 
     @pytest.mark.asyncio
     async def test_int_echo(self):
-        agent = MockAgent()
+        agent = HttpLLMAgent(mock=True)
         result = await agent.process(42, "p", "m")
         assert result == "[m] 42"
 
     @pytest.mark.asyncio
     async def test_none_echo(self):
-        agent = MockAgent()
+        agent = HttpLLMAgent(mock=True)
         result = await agent.process(None, "p", "m")
         assert "None" in result
 
     @pytest.mark.asyncio
     async def test_list_echo(self):
-        agent = MockAgent()
+        agent = HttpLLMAgent(mock=True)
         result = await agent.process([1, 2, 3], "p", "m")
         assert "[m]" in result
 
     @pytest.mark.asyncio
     async def test_settings_ignored_by_default(self):
-        agent = MockAgent()
+        agent = HttpLLMAgent(mock=True)
         result = await agent.process("d", "p", "m", settings={"extra": True})
         assert result == "[m] d"
 
 
-class TestMockAgentCustomFn:
-    """MockAgent with custom response_fn."""
+class TestHttpLLMAgentCustomFn:
+    """HttpLLMAgent with custom response_fn."""
 
     @pytest.mark.asyncio
     async def test_sync_response_fn(self):
         fn = lambda d, p, m, s: f"echo:{d}:{p}"
-        agent = MockAgent(response_fn=fn)
+        agent = HttpLLMAgent(mock=True, mock_handler=fn)
         result = await agent.process("data", "ask", "model")
         assert result == "echo:data:ask"
 
@@ -95,7 +95,7 @@ class TestMockAgentCustomFn:
         async def afn(d, p, m, s):
             await asyncio.sleep(0)
             return f"async:{d}"
-        agent = MockAgent(response_fn=afn)
+        agent = HttpLLMAgent(mock=True, mock_handler=afn)
         result = await agent.process("x", "", "")
         assert result == "async:x"
 
@@ -108,25 +108,25 @@ class TestMockAgentCustomFn:
             captured["m"] = m
             captured["s"] = s
             return "ok"
-        agent = MockAgent(response_fn=capture)
+        agent = HttpLLMAgent(mock=True, mock_handler=capture)
         await agent.process("data", "prompt", "model", {"k": "v"})
         assert captured == {"d": "data", "p": "prompt", "m": "model", "s": {"k": "v"}}
 
     @pytest.mark.asyncio
     async def test_fn_returning_dict(self):
-        agent = MockAgent(response_fn=lambda d, p, m, s: {"result": d})
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: {"result": d})
         result = await agent.process("inp", "", "", None)
         assert result == {"result": "inp"}
 
     @pytest.mark.asyncio
     async def test_fn_returning_none(self):
-        agent = MockAgent(response_fn=lambda d, p, m, s: None)
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: None)
         result = await agent.process("d", "", "", None)
         assert result is None
 
     @pytest.mark.asyncio
     async def test_fn_returning_list(self):
-        agent = MockAgent(response_fn=lambda d, p, m, s: [d, d])
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: [d, d])
         result = await agent.process(1, "", "", None)
         assert result == [1, 1]
 
@@ -134,7 +134,7 @@ class TestMockAgentCustomFn:
     async def test_fn_exception_propagates(self):
         def boom(d, p, m, s):
             raise ValueError("boom")
-        agent = MockAgent(response_fn=boom)
+        agent = HttpLLMAgent(mock=True, mock_handler=boom)
         with pytest.raises(ValueError, match="boom"):
             await agent.process("d", "", "", None)
 
@@ -145,7 +145,7 @@ class TestMockAgentCustomFn:
 class TestHttpLLMAgentConstruction:
     def test_default_values(self):
         agent = HttpLLMAgent()
-        assert agent.base_url == "https://opencode.ai/zen/v1"
+        assert agent.base_url == "https://opencode.ai/zen/v1/chat/completions"
         assert agent.api_key == "public"
         assert agent.max_retries == 3
         assert agent.client is not None

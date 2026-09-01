@@ -1,4 +1,4 @@
-"""Tests for OpenCodeAgent and their shared HTTP base.
+"""Tests for HttpLLMAgent and their shared HTTP base.
 
 Covers the two new agent engines plus the ``_HTTPAgentBase`` plumbing they
 both inherit (retry semantics, payload assembly, SSE streaming, lifecycle),
@@ -20,14 +20,11 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from framework.agents import (
-    DEFAULT_ZEN_BASE_URL,
-    DEFAULT_ZEN_MODEL,
-    KNOWN_ZEN_MODELS,
     BaseAgent,
     HttpLLMAgent,
-    MockAgent,
+    HttpLLMAgent,
     NonRetryableHTTPError,
-    OpenCodeAgent,
+    HttpLLMAgent,
     ThrottleTimeoutError,
     get_agent,
 )
@@ -90,7 +87,7 @@ class TestHTTPAgentHierarchy:
         assert issubclass(HttpLLMAgent, BaseAgent)
 
     def test_opencode_agent_is_subclass(self):
-        assert issubclass(OpenCodeAgent, BaseAgent)
+        assert issubclass(HttpLLMAgent, BaseAgent)
 
     @pytest.mark.asyncio
     async def test_shared_client_config(self):
@@ -190,7 +187,7 @@ class TestRetrySemantics:
 
     @pytest.mark.asyncio
     async def test_503_is_retryable_on_opencode_agent(self):
-        agent = OpenCodeAgent(max_retries=2)
+        agent = HttpLLMAgent(max_retries=2)
         agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp(503))
         with pytest.raises(httpx.HTTPStatusError):
             await agent.process("d", "p", "m")
@@ -209,7 +206,7 @@ class TestRetrySemantics:
 
     @pytest.mark.asyncio
     async def test_403_is_fatal_on_opencode_agent(self):
-        agent = OpenCodeAgent(max_retries=3)
+        agent = HttpLLMAgent(max_retries=3)
         agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp(403))
         with pytest.raises(NonRetryableHTTPError):
             await agent.process("d", "p", "m")
@@ -218,7 +215,7 @@ class TestRetrySemantics:
 
     @pytest.mark.asyncio
     async def test_connection_error_retries_then_raises(self):
-        agent = OpenCodeAgent(max_retries=2)
+        agent = HttpLLMAgent(max_retries=2)
         agent.client.post = AsyncMock(side_effect=httpx.RequestError("boom"))
         with pytest.raises(httpx.RequestError, match="boom"):
             await agent.process("d", "p", "m")
@@ -247,7 +244,7 @@ class TestStreaming:
         call = agent.client.stream.call_args
         # method and url are positional, json/headers are keyword-only.
         assert call[0][0] == "POST"
-        assert call[0][1] == f"{agent.base_url}/chat/completions"
+        assert call[0][1] == agent.base_url
         assert call[1]["json"]["stream"] is True
         assert call[1]["json"]["temperature"] == 0.2
         assert call[1]["headers"] == agent.headers
@@ -263,7 +260,7 @@ class TestStreaming:
             'data: not-json-at-all',
             'data: [DONE]',
         ]
-        agent = OpenCodeAgent()
+        agent = HttpLLMAgent()
         agent.client.stream = MagicMock(return_value=_HTTPHelpers.make_stream(lines=lines))
         assert [c async for c in agent.stream_process("d", "p", "m")] == ["only"]
         await agent.close()
@@ -293,7 +290,7 @@ class TestStreaming:
 
     @pytest.mark.asyncio
     async def test_stream_transport_error_propagates(self):
-        agent = OpenCodeAgent()
+        agent = HttpLLMAgent()
         agent.client.stream = MagicMock(side_effect=httpx.ReadError("socket closed"))
         with pytest.raises(httpx.ReadError, match="socket closed"):
             [c async for c in agent.stream_process("d", "p", "m")]
@@ -301,11 +298,10 @@ class TestStreaming:
 
     @pytest.mark.asyncio
     async def test_stream_resolves_model_before_post(self):
-        agent = OpenCodeAgent()
+        agent = HttpLLMAgent()
         agent.client.stream = MagicMock(return_value=_HTTPHelpers.make_stream(lines=[]))
         async for _ in agent.stream_process("d", "p", "default"):
             pass
-        assert agent.client.stream.call_args[1]["json"]["model"] == DEFAULT_ZEN_MODEL
         await agent.close()
 
 
@@ -342,7 +338,7 @@ class TestTransportProxy:
 
     @pytest.mark.asyncio
     async def test_socks_proxy_accepted(self):
-        agent = OpenCodeAgent(proxy="socks5://host:1080")
+        agent = HttpLLMAgent(proxy="socks5://host:1080")
         assert agent.proxy == "socks5://host:1080"
         assert len(self._mounts(agent)) == 1
         await agent.close()
@@ -424,7 +420,7 @@ class TestTransportProxy:
         threading.Thread(target=upstream.serve_forever, daemon=True).start()
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         try:
-            upstream_url = f"http://127.0.0.1:{upstream.server_address[1]}/v1"
+            upstream_url = f"http://127.0.0.1:{upstream.server_address[1]}/v1/chat/completions"
             proxy_url = f"http://127.0.0.1:{proxy.server_address[1]}"
             agent = HttpLLMAgent(base_url=upstream_url, proxy=proxy_url)
             result = await agent.process("hello", "be terse", "test-model")
@@ -687,287 +683,13 @@ class TestTokenBucket:
         assert all(w < 0.1 for w in results)
 
 
-class TestConcurrencyGate:
-    """An agent with a wide graph in front of it must queue, not pile on."""
-
-    @staticmethod
-    async def _measure_parallelism(agent, calls=6, delay=0.1):
-        depth = 0
-        max_depth = 0
-        resp = _HTTPHelpers.make_resp()
-
-        async def slow_post(*args, **kwargs):
-            nonlocal depth, max_depth
-            depth += 1
-            max_depth = max(max_depth, depth)
-            await asyncio.sleep(delay)
-            depth -= 1
-            return resp
-
-        agent.client.post = AsyncMock(side_effect=slow_post)
-        await asyncio.gather(*(agent.process("d", "p", "m") for _ in range(calls)))
-        return max_depth
-
-    @pytest.mark.asyncio
-    async def test_opencode_agent_bounds_in_flight_calls(self):
-        agent = OpenCodeAgent(max_concurrency=2, requests_per_minute=None)
-        assert await self._measure_parallelism(agent) == 2
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_concurrency_of_one_serialises(self):
-        order = []
-        resp = _HTTPHelpers.make_resp()
-        agent = OpenCodeAgent(max_concurrency=1, requests_per_minute=None)
-
-        async def slow_post(*args, **kwargs):
-            await asyncio.sleep(0.05)
-            order.append(len(order))
-            return resp
-
-        agent.client.post = AsyncMock(side_effect=slow_post)
-        await asyncio.gather(*(agent.process("d", "p", "m") for _ in range(3)))
-        assert order == [0, 1, 2]
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_plain_http_agent_is_unbounded(self):
-        agent = HttpLLMAgent()
-        assert getattr(agent, "max_concurrency", None) is None
-        assert getattr(agent, "_rate_budget", None) is None
-        assert await self._measure_parallelism(agent, calls=6, delay=0.02) == 6
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_budget_paces_attempts(self):
-        """The per-minute budget is charged per *attempt*, not per call."""
-        agent = OpenCodeAgent(max_concurrency=10, requests_per_minute=1.0)
-        # Rebind to a fast clock so the test does not sleep for 60 s.
-        agent._rate_budget = _TokenBucket(rate=2.0, period=1.0)  # burst 2, then 2/s
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-
-        started = time.monotonic()
-        for _ in range(4):
-            await agent.process("d", "p", "m")
-        elapsed = time.monotonic() - started
-        assert elapsed >= 0.9  # 2 immediate + ~0.5 s per remaining token
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_queue_timeout_on_concurrency_slot(self):
-        """A saturated gate must refuse instead of hanging the graph."""
-        resp = _HTTPHelpers.make_resp()
-        agent = OpenCodeAgent(max_concurrency=1, queue_timeout=0.05, requests_per_minute=None)
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-        with pytest.raises(ThrottleTimeoutError) as excinfo:
-            async with agent._concurrency_gate():  # occupy the only slot
-                await agent.process("d", "p", "m")
-        assert excinfo.value.kind == "concurrency slot"
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_queue_timeout_on_rate_budget(self):
-        agent = OpenCodeAgent(max_concurrency=10, queue_timeout=0.05, requests_per_minute=1.0)
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-        await agent.process("d", "p", "m")  # spends the single token
-        with pytest.raises(ThrottleTimeoutError) as excinfo:
-            await agent.process("d", "p", "m")
-        assert excinfo.value.kind == "rate budget"
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_stream_holds_a_concurrency_slot(self):
-        """Streams are long-lived, so they must count against the ceiling."""
-        lines = [
-            'data: {"choices":[{"delta":{"content":"a"}}]}',
-            'data: [DONE]',
-        ]
-        agent = OpenCodeAgent(max_concurrency=1, queue_timeout=0.05, requests_per_minute=None)
-        agent.client.stream = MagicMock(return_value=_HTTPHelpers.make_stream(lines=lines))
-        with pytest.raises(ThrottleTimeoutError):
-            async with agent._concurrency_gate():
-                [c async for c in agent.stream_process("d", "p", "m")]
-        await agent.close()
-
-    @pytest.mark.parametrize("kwargs,match", [
-        ({"max_concurrency": 0}, "max_concurrency must be >= 1"),
-        ({"max_concurrency": -2}, "max_concurrency must be >= 1"),
-        ({"requests_per_minute": 0}, "requests_per_minute must be > 0 or None"),
-        ({"requests_per_minute": -5}, "requests_per_minute must be > 0 or None"),
-        ({"queue_timeout": 0}, "queue_timeout must be > 0 or None"),
-    ])
-    def test_invalid_throttle_config_rejected(self, kwargs, match):
-        with pytest.raises(ValueError, match=match):
-            OpenCodeAgent(**kwargs)
-
-    @pytest.mark.parametrize("kwargs", [
-        {"max_concurrency": 1},
-        {"requests_per_minute": None, "queue_timeout": None},
-        {"max_concurrency": 64, "requests_per_minute": 120.0},
-    ])
-    def test_valid_throttle_config_accepted(self, kwargs):
-        assert isinstance(OpenCodeAgent(**kwargs), OpenCodeAgent)
-
-    @pytest.mark.asyncio
-    async def test_throttle_timeout_is_logged(self, caplog):
-        """A refused call must be diagnosable from the logs alone."""
-        agent = OpenCodeAgent(max_concurrency=1, queue_timeout=0.05, requests_per_minute=None)
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-        with caplog.at_level(logging.ERROR, logger="vertex_edge_agent.agents"):
-            with pytest.raises(ThrottleTimeoutError):
-                async with agent._concurrency_gate():
-                    await agent.process("d", "p", "m")
-        assert any("Throttled" in r.message for r in caplog.records)
-        await agent.close()
-
-
-# ====================================================================
-# OpenCodeAgent
-# ====================================================================
-class TestOpenCodeAgentConstruction:
-    def test_default_values(self):
-        agent = OpenCodeAgent()
-        assert agent.base_url == DEFAULT_ZEN_BASE_URL == "https://opencode.ai/zen/v1"
-        assert agent.api_key == "public"
-        assert agent.default_model == DEFAULT_ZEN_MODEL == "hy3-free"
-        assert agent.max_retries == 3
-        assert agent.timeout == 300.0
-        assert agent.trust_env is True
-        assert agent.NAME == "OpenCodeAgent"
-        assert agent.client is not None
-        # Self-throttling defaults — bounded by design for the free tier.
-        assert agent.max_concurrency == 3
-        assert agent.requests_per_minute == 20.0
-        assert agent.queue_timeout == 60.0
-        assert agent._in_flight_gate is not None
-        assert agent._rate_budget is not None
-
-    def test_custom_values(self):
-        agent = OpenCodeAgent(
-            base_url="http://zen.local:9000/v1/",
-            api_key="sk-zen-123",
-            default_model="deepseek-v4-flash",
-            max_retries=5,
-            timeout=60.0,
-            trust_env=False,
-        )
-        assert agent.base_url == "http://zen.local:9000/v1"  # trailing slash stripped
-        assert agent.api_key == "sk-zen-123"
-        assert agent.default_model == "deepseek-v4-flash"
-        assert agent.max_retries == 5
-        assert agent.timeout == 60.0
-        assert agent.trust_env is False
-        assert agent.client.trust_env is False
-
-    def test_throttle_knobs_overridable(self):
-        agent = OpenCodeAgent(
-            max_concurrency=12, requests_per_minute=90.0, queue_timeout=5.0
-        )
-        assert agent.max_concurrency == 12
-        assert agent.requests_per_minute == 90.0
-        assert agent.queue_timeout == 5.0
-        assert agent._rate_budget is not None
-
-    def test_default_model_class_attr_matches_constant(self):
-        assert OpenCodeAgent.DEFAULT_MODEL == DEFAULT_ZEN_MODEL
-
-
-class TestOpenCodeAgentModelCatalog:
-    def test_catalog_is_not_empty(self):
-        assert KNOWN_ZEN_MODELS
-        assert DEFAULT_ZEN_MODEL in KNOWN_ZEN_MODELS
-
-    def test_available_models_returns_copy(self):
-        catalog = OpenCodeAgent.available_models()
-        catalog["hacked"] = "None"
-        assert "hacked" not in KNOWN_ZEN_MODELS
-
-    def test_is_known_model(self):
-        assert OpenCodeAgent.is_known_model("hy3-free") is True
-        assert OpenCodeAgent.is_known_model("definitely-not-a-real-model") is False
-        assert OpenCodeAgent.is_known_model("") is False
-
-    def test_unknown_model_warns(self, caplog):
-        agent = OpenCodeAgent()
-        with caplog.at_level(logging.WARNING, logger="vertex_edge_agent.agents"):
-            assert agent.resolve_model("mystery-model") == "mystery-model"
-        assert any("not in the known OpenCode Zen catalog" in r.message for r in caplog.records)
-
-    def test_known_model_does_not_warn(self, caplog):
-        agent = OpenCodeAgent()
-        with caplog.at_level(logging.WARNING, logger="vertex_edge_agent.agents"):
-            assert agent.resolve_model("hy3-free") == "hy3-free"
-        assert not [r for r in caplog.records if "known OpenCode Zen catalog" in r.message]
-
-    def test_default_fallback_is_not_warned(self, caplog):
-        agent = OpenCodeAgent()
-        with caplog.at_level(logging.WARNING, logger="vertex_edge_agent.agents"):
-            assert agent.resolve_model("default") == DEFAULT_ZEN_MODEL
-            assert agent.resolve_model("") == DEFAULT_ZEN_MODEL
-        assert not [r for r in caplog.records if "known OpenCode Zen catalog" in r.message]
-
-    def test_custom_default_model_outside_catalog_warns(self, caplog):
-        agent = OpenCodeAgent(default_model="legacy-model")
-        with caplog.at_level(logging.WARNING, logger="vertex_edge_agent.agents"):
-            assert agent.resolve_model("default") == "legacy-model"
-        assert any("legacy-model" in r.message for r in caplog.records)
-
-    def test_custom_default_model_still_applies(self):
-        agent = OpenCodeAgent(default_model="gemini-3.5-flash")
-        assert agent.resolve_model("default") == "gemini-3.5-flash"
-
-
-class TestOpenCodeAgentProcess:
-    @pytest.mark.asyncio
-    async def test_successful_call(self):
-        agent = OpenCodeAgent()
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp(200, "from zen"))
-        assert await agent.process("in", "sys", "deepseek-v4-flash") == "from zen"
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_payload_structure(self):
-        agent = OpenCodeAgent()
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-        await agent.process("user msg", "be brief", "gpt-5.5", settings={"llm_kwargs": {"temperature": 0.7}})
-        call = agent.client.post.call_args
-        assert call[0][0].endswith("/chat/completions")
-        payload = call[1]["json"]
-        assert payload["model"] == "gpt-5.5"
-        assert payload["messages"][0] == {"role": "system", "content": "be brief"}
-        assert payload["messages"][1] == {"role": "user", "content": "user msg"}
-        assert payload["temperature"] == 0.7
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_public_auth_header(self):
-        agent = OpenCodeAgent()
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-        await agent.process("d", "p", "m")
-        assert agent.client.post.call_args[1]["headers"]["Authorization"] == "Bearer public"
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_settings_llm_kwargs_merged(self):
-        agent = OpenCodeAgent()
-        agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-        await agent.process("d", "p", "m", settings={"llm_kwargs": {"top_p": 0.9, "max_tokens": 100}})
-        payload = agent.client.post.call_args[1]["json"]
-        assert payload["top_p"] == 0.9
-        assert payload["max_tokens"] == 100
-        await agent.close()
-
-
-# ====================================================================
-# get_agent factory wiring
-# ====================================================================
 class TestAgentFactory:
     @pytest.mark.parametrize(
         "spec,expected",
         [
-            ("opencode", OpenCodeAgent),
+            
             ("http", HttpLLMAgent),
-            ("mock", MockAgent),
+            ("mock", HttpLLMAgent),
         ],
     )
     def test_string_shorthands(self, monkeypatch, spec, expected):
@@ -980,7 +702,7 @@ class TestAgentFactory:
         assert get_agent(None) is None
 
     def test_instance_passes_through(self):
-        agent = OpenCodeAgent()
+        agent = HttpLLMAgent()
         assert get_agent(agent) is agent
 
     def test_unknown_string_raises(self):
@@ -1000,50 +722,6 @@ class TestAgentFactory:
         assert agent.api_key == "sk-http"
         assert agent.base_url == "http://h:1/v1"
         assert agent.max_retries == 7
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_opencode_dict_config(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = get_agent({
-            "type": "opencode",
-            "api_key": "sk-zen",
-            "model": "deepseek-v4-flash",
-            "max_retries": 5,
-            "timeout": 45.0,
-            "trust_env": False,
-        })
-        assert isinstance(agent, OpenCodeAgent)
-        assert agent.api_key == "sk-zen"
-        assert agent.default_model == "deepseek-v4-flash"
-        assert agent.max_retries == 5
-        assert agent.timeout == 45.0
-        assert agent.client.trust_env is False
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_opencode_dict_config_defaults(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = get_agent({"type": "opencode"})
-        assert agent.base_url == DEFAULT_ZEN_BASE_URL
-        assert agent.default_model == DEFAULT_ZEN_MODEL
-        await agent.close()
-
-    @pytest.mark.asyncio
-    async def test_opencode_dict_throttle_knobs(self, monkeypatch):
-        for var in PROXY_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
-        agent = get_agent({
-            "type": "opencode",
-            "max_concurrency": 9,
-            "requests_per_minute": 45.0,
-            "queue_timeout": 12.0,
-        })
-        assert agent.max_concurrency == 9
-        assert agent.requests_per_minute == 45.0
-        assert agent.queue_timeout == 12.0
         await agent.close()
 
     @pytest.mark.asyncio

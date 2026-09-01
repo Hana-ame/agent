@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework import Vertex, VertexState, Edge, Graph, Executor, MockAgent
+from framework import Vertex, VertexState, Edge, Graph, Executor, HttpLLMAgent
 from framework.vertex import EdgeSignal
 
 
@@ -71,7 +71,7 @@ class TestEdgeExecution:
         v2.incoming_edges = ["g1"]
 
         gate = Edge("g1", "v1", "v2", channel="score", settings={"threshold": 80, "operator": ">="})
-        agent = MockAgent()
+        agent = HttpLLMAgent(mock=True)
 
         result = await gate.execute(v1, v2, agent)
         assert result == 90
@@ -87,7 +87,7 @@ class TestEdgeExecution:
         v2.incoming_edges = ["g1"]
 
         gate = Edge("g1", "v1", "v2", channel="score", settings={"threshold": 80, "operator": ">="})
-        agent = MockAgent()
+        agent = HttpLLMAgent(mock=True)
 
         result = await gate.execute(v1, v2, agent)
         assert result is None
@@ -153,7 +153,7 @@ class TestConditionalDiamondRouting:
         }
 
         g = Graph.from_dict(config)
-        agent = MockAgent(response_fn=lambda d, p, m, s: f"PROCESSED:{p}:{d}")
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: f"PROCESSED:{p}:{d}")
         executor = Executor(g, agent, timeout=5)
         result = await executor.run()
 
@@ -222,7 +222,7 @@ class TestConditionalDiamondRouting:
         }
 
         g = Graph.from_dict(config)
-        result = await Executor(g, MockAgent(), timeout=5).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=5).run()
 
         assert result.success
         assert len(result.errors) == 0
@@ -251,7 +251,7 @@ class TestConditionalDiamondRouting:
         }
 
         g = Graph.from_dict(config)
-        result = await Executor(g, MockAgent(), timeout=5).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=5).run()
 
         assert result.success
         assert g.vertices["A"].state == VertexState.DONE

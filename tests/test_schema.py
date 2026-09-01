@@ -9,7 +9,7 @@ from pydantic import BaseModel, ValidationError
 from framework import (
     Graph,
     Executor,
-    MockAgent,
+    HttpLLMAgent,
     SchemaRegistry,
     SchemaMismatchError
 )
@@ -88,7 +88,7 @@ class TestRuntimeSchemaValidation:
         g = Graph.from_dict(config)
         
         # Agent correctly outputs the expected dict
-        agent = MockAgent(response_fn=lambda d, p, m, s: {"user_id": 42, "name": "Alice"})
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: {"user_id": 42, "name": "Alice"})
         executor = Executor(g, agents=agent)
         res = await executor.run()
         
@@ -132,7 +132,7 @@ class TestRuntimeSchemaValidation:
                 assert "user_id" in p
                 return {"user_id": 99, "name": "Bob"}
 
-        agent = MockAgent(response_fn=flawed_agent)
+        agent = HttpLLMAgent(mock=True, mock_handler=flawed_agent)
         executor = Executor(g, agents=agent)
         res = await executor.run()
         

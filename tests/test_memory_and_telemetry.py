@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from framework import (
     Graph,
     Executor,
-    MockAgent,
+    HttpLLMAgent,
     MemoryStore,
     TelemetryTracker,
     UsageMetrics,
@@ -110,7 +110,7 @@ class TestMemoryGraphIntegration:
 
         memory = MemoryStore()
         g = Graph.from_dict(config)
-        agent = MockAgent(response_fn=mock_llm_fn)
+        agent = HttpLLMAgent(mock=True, mock_handler=mock_llm_fn)
         executor = Executor(g, agents=agent, memory=memory)
 
         result = await executor.run()
@@ -160,7 +160,7 @@ class TestTelemetryAndCostProfiling:
         }
 
         g = Graph.from_dict(config)
-        agent = MockAgent(response_fn=lambda d, p, m, s: "AI is artificial intelligence that simulates human cognition.")
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: "AI is artificial intelligence that simulates human cognition.")
         executor = Executor(g, agents=agent)
 
         events = []

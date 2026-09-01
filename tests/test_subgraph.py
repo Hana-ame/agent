@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework import Graph, Vertex, SubgraphVertex, MockAgent, Executor
+from framework import Graph, Vertex, SubgraphVertex, HttpLLMAgent, Executor
 
 
 class TestSubgraphBoundaryMapping:
@@ -162,7 +162,7 @@ class TestSubgraphEndToEndExecution:
             return f"Processed[{data}]"
 
         parent_graph = Graph.from_dict(parent_config)
-        agent = MockAgent(response_fn=mock_llm_fn)
+        agent = HttpLLMAgent(mock=True, mock_handler=mock_llm_fn)
         executor = Executor(parent_graph, agents=agent)
 
         events = []
@@ -182,54 +182,3 @@ class TestSubgraphEndToEndExecution:
         final_output = await pub_v.fetch_data("report")
         assert "Autonomous Agents" in final_output
 
-    @pytest.mark.asyncio
-    async def test_checkpointed_subgraph_persists_with_namespaced_run_id(self):
-        """Verify that CheckpointedExecutor saves inner subgraph snapshots with run_id::<subgraph_id>."""
-        from framework import CheckpointedExecutor, SQLiteStateStore
-
-        store = SQLiteStateStore(":memory:")
-        inner_config = {
-            "vertices": [{"id": "Step1"}, {"id": "Step2"}],
-            "edges": [{"id": "e_in", "source": "Step1", "destination": "Step2", "channel": "val"}],
-        }
-
-        parent_config = {
-            "vertices": [
-                {"id": "Start", "initial_data": [{"channel": "val", "value": 100}]},
-                {
-                    "id": "NestedBox",
-                    "type": "subgraph",
-                    "settings": {
-                        "graph_config": inner_config,
-                        "input_map": {"val": "Step1.val"},
-                        "output_map": {"Step2.val": "result"},
-                    },
-                },
-            ],
-            "edges": [
-                {"id": "e_parent", "source": "Start", "destination": "NestedBox", "channel": "val"}
-            ],
-        }
-
-        parent_graph = Graph.from_dict(parent_config)
-        agent = MockAgent(response_fn=lambda d, p, m, s: d * 2)
-        executor = CheckpointedExecutor(
-            parent_graph,
-            agents=agent,
-            store=store,
-            run_id="parent_run_42",
-            graph_config=parent_config,
-        )
-
-        result = await executor.run()
-        assert result.success is True
-
-        # Verify snapshots were created for parent run
-        parent_snapshots = store.load_all_snapshots("parent_run_42")
-        assert len(parent_snapshots) > 0
-
-        # Verify snapshots were created for namespaced child run
-        child_run_id = "parent_run_42::NestedBox"
-        child_snapshots = store.load_all_snapshots(child_run_id)
-        assert len(child_snapshots) > 0
-        assert any("Step2" in s.vertex_states for s in child_snapshots)

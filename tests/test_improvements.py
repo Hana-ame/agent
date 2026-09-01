@@ -15,7 +15,7 @@ import os
 from framework import (
     Graph,
     Executor,
-    MockAgent,
+    HttpLLMAgent,
     GraphBuilder,
     BaseStateStore,
     SQLiteStateStore,
@@ -89,7 +89,7 @@ class TestGraphBuilder:
             .edge("A", "B", prompt="echo", model="mock")
             .build()
         )
-        executor = Executor(g, agents=MockAgent())
+        executor = Executor(g, agents=HttpLLMAgent(mock=True))
         result = await executor.run()
         assert result.success is True
         data = await g.vertices["B"].fetch_data("default")
@@ -119,7 +119,7 @@ class TestEdgeTimeout:
             .build()
         )
 
-        agent = MockAgent(response_fn=slow_fn)
+        agent = HttpLLMAgent(mock=True, mock_handler=slow_fn)
         executor = Executor(g, agents=agent)
         result = await executor.run()
 
@@ -188,7 +188,7 @@ class TestExecutorHooks:
         )
 
         hooks = TrackingHooks()
-        executor = Executor(g, agents=MockAgent(), hooks=hooks)
+        executor = Executor(g, agents=HttpLLMAgent(mock=True), hooks=hooks)
         result = await executor.run()
 
         assert result.success is True
@@ -218,7 +218,7 @@ class TestSQLiteStoreLifecycle:
 class TestBaseAgentStreaming:
     @pytest.mark.asyncio
     async def test_base_agent_stream_process(self):
-        agent = MockAgent()
+        agent = HttpLLMAgent(mock=True)
         chunks = []
         async for chunk in agent.stream_process("hello world", "prompt", "test-model"):
             chunks.append(chunk)

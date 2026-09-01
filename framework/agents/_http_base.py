@@ -203,14 +203,17 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
     def __init__(
         self,
         base_url: str,
-        api_key: str = "public",
+        api_key: Optional[str] = None,
         max_retries: int = 3,
         timeout: float = 300.0,
         extra_headers: Optional[Dict[str, str]] = None,
         default_model: Optional[str] = None,
         proxy: Optional[str] = None,
         trust_env: bool = True,
+        mock: bool = False,
+        mock_handler = None,
     ) -> None:
+        super().__init__(mock=mock, mock_handler=mock_handler)
         import httpx
 
         self.base_url = base_url.rstrip("/")
@@ -223,9 +226,11 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
 
         self.headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
             **(extra_headers or {}),
         }
+        if self.api_key:
+            self.headers["Authorization"] = f"Bearer {self.api_key}"
+
 
         # Transport proxy: ``proxy`` is the explicit HTTP(S) proxy the request
         # *tunnels through* (corporate egress / SOCKS / authenticated proxy).
@@ -334,21 +339,15 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         return client
 
     def _endpoint_url(self, settings: Optional[Dict] = None) -> str:
-        """Resolve the chat-completions URL.
+        """Resolve the complete chat-completions URL.
 
         ``settings["base_url"]`` (or ``settings["endpoint"]``) is honored
-        verbatim when present — it must be the *complete* URL including
-        ``/chat/completions``. Otherwise fall back to ``self.base_url`` +
-        ``_CHAT_COMPLETIONS`` (legacy: ``base_url`` is the API root).
-        Never double-append the path.
+        verbatim when present. It should be the full endpoint URL.
         """
         base = None
         if settings:
             base = settings.get("base_url") or settings.get("endpoint")
-        base = (base or self.base_url).rstrip("/")
-        if base.endswith(_CHAT_COMPLETIONS):
-            return base
-        return f"{base}{_CHAT_COMPLETIONS}"
+        return (base or self.base_url).rstrip("/")
 
     def _build_client(self, proxy: Optional[str]) -> None:
         """(Re)create the underlying httpx client, routing through ``proxy``."""
@@ -464,6 +463,8 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         model: str,
         settings: Optional[Dict] = None,
     ) -> Any:
+        if self.mock:
+            return await self._mock_process(data, prompt, model, settings)
         await self._apply_settings_proxy(settings)
         payload = self.build_payload(data, prompt, model, settings)
         logger.debug("[%s] -> %s model=%s", self.NAME, self._endpoint_url(settings), payload["model"])
@@ -487,6 +488,10 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         model: str,
         settings: Optional[Dict] = None,
     ) -> AsyncGenerator[str, None]:
+        if self.mock:
+            res = await self._mock_process(data, prompt, model, settings)
+            yield str(res)
+            return
         """Yield content deltas from the OpenAI SSE stream.
 
         Streams are not retried (a partial stream is not replayable); a

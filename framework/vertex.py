@@ -292,7 +292,13 @@ class Vertex:
                         if eid in self.completed_incoming_edges
                         or eid in self.aborted_incoming_edges
                     ]
-                    if len(settled_required) == len(required):
+                    wait_policy = self.settings.get("wait_policy", "all")
+                    if wait_policy == "any":
+                        is_ready = (len(self.completed_incoming_edges) > 0 or len(required) == 0)
+                    else:
+                        is_ready = (len(settled_required) == len(required))
+
+                    if is_ready:
                         if self._require_approval and not self._approved:
                             self.state = VertexState.PAUSED
                         else:

@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework import Graph, Executor, MockAgent, Vertex, Edge
+from framework import Graph, Executor, HttpLLMAgent, Vertex, Edge
 from framework.vertex import VertexState
 
 
@@ -113,7 +113,7 @@ class TestTwoVertexLoop:
         }
 
         g = Graph.from_dict(config)
-        agent = MockAgent(response_fn=counting_agent)
+        agent = HttpLLMAgent(mock=True, mock_handler=counting_agent)
         result = await Executor(g, agent, timeout=10).run()
 
         assert result.success, result.summary()
@@ -141,7 +141,7 @@ class TestTwoVertexLoop:
             ],
         }
         g = Graph.from_dict(config)
-        agent = MockAgent(response_fn=lambda d, p, m, s: (d or 0) + 1)
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: (d or 0) + 1)
         result = await Executor(g, agent, timeout=10).run()
 
         assert result.success
@@ -164,7 +164,7 @@ class TestTwoVertexLoop:
             ],
         }
         g = Graph.from_dict(config)
-        result = await Executor(g, MockAgent(), timeout=5).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=5).run()
         assert result.success
         assert g.vertices["A"].iteration_count == 1
 
@@ -203,7 +203,7 @@ class TestThreeVertexLoop:
         }
 
         g = Graph.from_dict(config)
-        agent = MockAgent(response_fn=tracking_agent)
+        agent = HttpLLMAgent(mock=True, mock_handler=tracking_agent)
         result = await Executor(g, agent, timeout=10).run()
 
         assert result.success, result.summary()
@@ -242,7 +242,7 @@ class TestThreeVertexLoop:
             ],
         }
         g = Graph.from_dict(config)
-        agent = MockAgent(response_fn=lambda d, p, m, s: (d or 0) + 1)
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: (d or 0) + 1)
         result = await Executor(g, agent, timeout=10).run()
 
         assert result.success, result.summary()
@@ -278,7 +278,7 @@ class TestGuardTerminatedLoop:
             ],
         }
         g = Graph.from_dict(config)
-        agent = MockAgent(response_fn=lambda d, p, m, s: (d or 0) + 1)
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: (d or 0) + 1)
         result = await Executor(g, agent, timeout=10).run()
 
         assert result.success, result.summary()
@@ -306,7 +306,7 @@ class TestLoopResultsMetadata:
             ],
         }
         g = Graph.from_dict(config)
-        result = await Executor(g, MockAgent(), timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=10).run()
 
         assert result.success
         assert result.vertex_results["A"]["iterations"] == 4
@@ -347,7 +347,7 @@ class TestMixedInputLoop:
             ],
         }
         g = Graph.from_dict(config)
-        result = await Executor(g, MockAgent(), timeout=8).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=8).run()
 
         assert result.success, result.summary()
         assert g.vertices["A"].state == VertexState.DONE
@@ -381,7 +381,7 @@ class TestMixedInputLoop:
             ],
         }
         g = Graph.from_dict(config)
-        result = await Executor(g, MockAgent(), timeout=8).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=8).run()
 
         assert result.success, result.summary()
         assert g.vertices["X"].iteration_count == 5

@@ -13,6 +13,8 @@ class PiAgentRunner(BaseAgent):
         model: str,
         settings: Optional[Dict] = None,
     ) -> Any:
+        if self.mock:
+            return await self._mock_process(data, prompt, model, settings)
         import asyncio
         import json
         

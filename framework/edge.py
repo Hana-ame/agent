@@ -19,7 +19,7 @@ import logging
 import time
 from typing import Any, Dict, Optional, Union
 
-from .agents import MockAgent, BaseAgent
+from .agents import HttpLLMAgent, BaseAgent
 from .utils.errors import AbortPipeline, GuardAbortError, HookError, ComputeError
 
 logger = logging.getLogger("vertex_edge_agent.edge")
@@ -90,7 +90,7 @@ class Edge:
         self.skip_compute = bool(s.get("skip_compute", False))
         # No per-edge agent from config. Script Edge subclasses may set their
         # own agent (e.g. ``self.agent = OpenCodeAgentRunner()`` in ``__init__``);
-        # plain edges fall back to the executor agent, then MockAgent.
+        # plain edges fall back to the executor agent, then HttpLLMAgent.
         self.agent = None
         self.retry_policy = s.get("retry_policy", {})
         self.timeout = float(s.get("timeout", 0))
@@ -162,10 +162,10 @@ class Edge:
         Agent precedence (most specific first):
         1. ``self.agent`` — set by a script ``Edge`` subclass (e.g. ``OpenCodeEdge``)
         2. ``agent``      — the executor-level agent passed in
-        3. ``MockAgent()`` — the deterministic fallback
+        3. ``HttpLLMAgent()`` — the deterministic fallback
         """
         if self.prompt or (self.model and self.model != "default"):
-            active_agent = self.agent or agent or MockAgent()
+            active_agent = self.agent or agent or HttpLLMAgent()
             if self.timeout > 0:
                 result = await asyncio.wait_for(
                     active_agent.process(

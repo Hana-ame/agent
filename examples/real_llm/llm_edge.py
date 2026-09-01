@@ -21,7 +21,7 @@ class HttpLLMEdge(Edge):
         super().__init__(*args, **kwargs)
         self.agent = HttpLLMAgent(
             base_url=self.settings.get(
-                "base_url", "https://opencode.ai/zen/v1"
+                "base_url", "https://opencode.ai/zen/v1/chat/completions"
             ),
             proxy=self.settings.get("https_proxy"),
         )

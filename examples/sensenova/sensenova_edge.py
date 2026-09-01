@@ -22,8 +22,8 @@ class SensenovaEdge(Edge):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.agent = HttpLLMAgent(
-            base_url=self.settings.get("base_url", "https://token.sensenova.cn/v1"),
-            api_key=os.environ.get("SENSENOVA_API_KEY", "public"),
+            base_url=self.settings.get("base_url", "https://token.sensenova.cn/v1/chat/completions"),
+            api_key=os.environ.get("SENSENOVA_API_KEY", ""),
         )
 
     async def execute(self, source_vertex, dest_vertex, agents, **kwargs):

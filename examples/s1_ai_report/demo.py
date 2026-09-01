@@ -18,7 +18,7 @@ async def main():
 
     agent = HttpLLMAgent(
         api_key=os.environ.get("LLM_API_KEY", "public"),
-        base_url=os.environ.get("LLM_BASE_URL", "https://opencode.ai/zen/v1"),
+        base_url=os.environ.get("LLM_BASE_URL", "https://opencode.ai/zen/v1/chat/completions"),
     )
 
     print("Executing graph with HttpLLMAgent...")

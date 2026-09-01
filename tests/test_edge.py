@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from framework.edge import Edge
 from framework.vertex import Vertex, DataRejectedError, EdgeSignal
-from framework.agents import MockAgent
+from framework.agents import HttpLLMAgent
 
 
 # ── construction ─────────────────────────────────────────────────
@@ -83,7 +83,7 @@ class TestEdgeExecution:
 
         src = Vertex("src", initial_data=[{"data_id": "d", "value": "x"}])
         dst = Vertex("dst")
-        agent = MockAgent(response_fn=boom)
+        agent = HttpLLMAgent(mock=True, mock_handler=boom)
         e = Edge("e", "src", "dst", channel="d", settings={"prompt": "trigger"})
 
         with pytest.raises(RuntimeError, match="agent error"):

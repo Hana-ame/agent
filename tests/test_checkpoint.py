@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from framework import (
-    Graph, MockAgent, Vertex, VertexState,
+    Graph, HttpLLMAgent, Vertex, VertexState,
     SQLiteStateStore, GraphSnapshot,
     CheckpointedExecutor, HumanGateVertex,
 )
@@ -147,7 +147,7 @@ class TestCheckpointedExecutorBasic:
     async def test_run_succeeds_same_as_base(self):
         g = Graph.from_dict(SIMPLE_CONFIG)
         store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="run-basic")
+        ex = CheckpointedExecutor(g, HttpLLMAgent(mock=True), store=store, run_id="run-basic")
         result = await ex.run()
         assert result.success
 
@@ -155,7 +155,7 @@ class TestCheckpointedExecutorBasic:
     async def test_run_saves_snapshots(self):
         g = Graph.from_dict(SIMPLE_CONFIG)
         store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="run-snaps")
+        ex = CheckpointedExecutor(g, HttpLLMAgent(mock=True), store=store, run_id="run-snaps")
         await ex.run()
 
         # Expect: 1 initial + 1 per vertex (3 vertices) = at least 4
@@ -166,7 +166,7 @@ class TestCheckpointedExecutorBasic:
     async def test_run_updates_status_to_completed(self):
         g = Graph.from_dict(SIMPLE_CONFIG)
         store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="run-status")
+        ex = CheckpointedExecutor(g, HttpLLMAgent(mock=True), store=store, run_id="run-status")
         await ex.run()
         assert store.get_run("run-status")["status"] == "completed"
 
@@ -174,7 +174,7 @@ class TestCheckpointedExecutorBasic:
     async def test_final_snapshot_shows_all_done(self):
         g = Graph.from_dict(SIMPLE_CONFIG)
         store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="run-final")
+        ex = CheckpointedExecutor(g, HttpLLMAgent(mock=True), store=store, run_id="run-final")
         await ex.run()
 
         snap = store.load_latest_snapshot("run-final")
@@ -186,7 +186,7 @@ class TestCheckpointedExecutorBasic:
     async def test_snapshot_captures_data(self):
         g = Graph.from_dict(SIMPLE_CONFIG)
         store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="run-data")
+        ex = CheckpointedExecutor(g, HttpLLMAgent(mock=True), store=store, run_id="run-data")
         await ex.run()
 
         snap = store.load_latest_snapshot("run-data")
@@ -197,7 +197,7 @@ class TestCheckpointedExecutorBasic:
     async def test_diamond_run_succeeds(self):
         g = Graph.from_dict(DIAMOND_CONFIG)
         store = _mem_store()
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id="run-diamond")
+        ex = CheckpointedExecutor(g, HttpLLMAgent(mock=True), store=store, run_id="run-diamond")
         result = await ex.run()
         assert result.success
 
@@ -217,14 +217,14 @@ class TestResume:
 
         # First pass — run normally
         g1 = Graph.from_dict(SIMPLE_CONFIG)
-        ex1 = CheckpointedExecutor(g1, MockAgent(), store=store, run_id=run_id)
+        ex1 = CheckpointedExecutor(g1, HttpLLMAgent(mock=True), store=store, run_id=run_id)
         r1 = await ex1.run()
         assert r1.success
 
         # Resume on a fresh graph — should succeed trivially (all DONE)
         g2 = Graph.from_dict(SIMPLE_CONFIG)
         r2 = await CheckpointedExecutor.resume(
-            run_id, g2, MockAgent(), store=store
+            run_id, g2, HttpLLMAgent(mock=True), store=store
         )
         assert r2.success
 
@@ -234,7 +234,7 @@ class TestResume:
         store.create_run("ghost-run")   # run exists but no snapshots
         g = Graph.from_dict(SIMPLE_CONFIG)
         with pytest.raises(ValueError, match="No snapshot"):
-            await CheckpointedExecutor.resume("ghost-run", g, MockAgent(), store=store)
+            await CheckpointedExecutor.resume("ghost-run", g, HttpLLMAgent(mock=True), store=store)
 
     @pytest.mark.asyncio
     async def test_resume_from_partial_snapshot(self):
@@ -295,7 +295,7 @@ class TestResume:
         # be processed, and C should follow.
         g = Graph.from_dict(g_config)
         result = await CheckpointedExecutor.resume(
-            run_id, g, MockAgent(), store=store
+            run_id, g, HttpLLMAgent(mock=True), store=store
         )
         assert result.success, result.summary()
         assert g.vertices["B"].state == VertexState.DONE
@@ -306,12 +306,12 @@ class TestResume:
         store = _mem_store()
         run_id = "run-id-preserve"
         g1 = Graph.from_dict(SIMPLE_CONFIG)
-        ex = CheckpointedExecutor(g1, MockAgent(), store=store, run_id=run_id)
+        ex = CheckpointedExecutor(g1, HttpLLMAgent(mock=True), store=store, run_id=run_id)
         await ex.run()
 
         g2 = Graph.from_dict(SIMPLE_CONFIG)
         ex2 = await CheckpointedExecutor.resume.__func__(
-            CheckpointedExecutor, run_id, g2, MockAgent(), store=store
+            CheckpointedExecutor, run_id, g2, HttpLLMAgent(mock=True), store=store
         )
         # Just verify run exists in store
         assert store.get_run(run_id) is not None
@@ -394,7 +394,7 @@ class TestHumanGateVertex:
         run_id = "hitl-pause-resume"
 
         # Step 1: Initial run -> processes source, then pauses at review
-        ex1 = CheckpointedExecutor(g, MockAgent(), store=store, run_id=run_id)
+        ex1 = CheckpointedExecutor(g, HttpLLMAgent(mock=True), store=store, run_id=run_id)
         res1 = await ex1.run()
         # A clean HITL pause is NOT a failure: no errors, paused flag set,
         # summary says PAUSED instead of FAILED.
@@ -416,7 +416,7 @@ class TestHumanGateVertex:
         # Step 2: Human approves and resumes
         g2 = _make_hitl_graph()
         g2.vertices["review"].approve({"doc": "human_approved_content"})
-        res2 = await CheckpointedExecutor.resume(run_id, g2, MockAgent(), store=store)
+        res2 = await CheckpointedExecutor.resume(run_id, g2, HttpLLMAgent(mock=True), store=store)
 
         assert res2.success, res2.summary()
         assert g2.vertices["review"].state == VertexState.DONE
@@ -445,7 +445,7 @@ class TestHumanGateVertex:
         store = _mem_store()
         run_id = "run-settings-hitl"
 
-        ex = CheckpointedExecutor(g, MockAgent(), store=store, run_id=run_id)
+        ex = CheckpointedExecutor(g, HttpLLMAgent(mock=True), store=store, run_id=run_id)
         await ex.run()
 
         assert g.vertices["A"].state == VertexState.DONE

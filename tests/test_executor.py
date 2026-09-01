@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework import Graph, Executor, MockAgent
+from framework import Graph, Executor, HttpLLMAgent
 from framework.vertex import VertexState
 
 
@@ -17,7 +17,7 @@ class TestLinearExecution:
     @pytest.mark.asyncio
     async def test_linear_succeeds(self, linear_config):
         g = Graph.from_dict(linear_config)
-        result = await Executor(g, MockAgent(), timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=10).run()
 
         assert result.success
         assert len(result.errors) == 0
@@ -28,7 +28,7 @@ class TestLinearExecution:
     @pytest.mark.asyncio
     async def test_edge_results_populated(self, linear_config):
         g = Graph.from_dict(linear_config)
-        result = await Executor(g, MockAgent(), timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=10).run()
 
         assert "e1" in result.edge_results
         assert "e2" in result.edge_results
@@ -36,7 +36,7 @@ class TestLinearExecution:
     @pytest.mark.asyncio
     async def test_data_flows_through(self, linear_config):
         g = Graph.from_dict(linear_config)
-        agent = MockAgent(response_fn=lambda d, p, m, s: f"[{d}]")
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: f"[{d}]")
         result = await Executor(g, agent, timeout=10).run()
 
         # A had "hello", e1 wraps it → "[hello]", e2 wraps that → "[[hello]]"
@@ -49,13 +49,13 @@ class TestDiamondExecution:
     @pytest.mark.asyncio
     async def test_diamond_succeeds(self, diamond_config):
         g = Graph.from_dict(diamond_config)
-        result = await Executor(g, MockAgent(), timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=10).run()
         assert result.success
 
     @pytest.mark.asyncio
     async def test_fan_in_vertex_gets_both_inputs(self, diamond_config):
         g = Graph.from_dict(diamond_config)
-        result = await Executor(g, MockAgent(), timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=10).run()
 
         d_data = result.vertex_results["D"]["data"]
         assert len(d_data) >= 1  # received from both B and C
@@ -67,7 +67,7 @@ class TestConcurrency:
     async def test_max_concurrency_1(self, diamond_config):
         """Serial execution (concurrency=1) should still succeed."""
         g = Graph.from_dict(diamond_config)
-        result = await Executor(g, MockAgent(), max_concurrency=1, timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), max_concurrency=1, timeout=10).run()
         assert result.success
 
     @pytest.mark.asyncio
@@ -84,7 +84,7 @@ class TestConcurrency:
             ],
         }
         g = Graph.from_dict(config)
-        result = await Executor(g, MockAgent(), max_concurrency=5, timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), max_concurrency=5, timeout=10).run()
         assert result.success
         assert len(result.edge_results) == 10
 
@@ -98,7 +98,7 @@ class TestTimeout:
             await asyncio.sleep(10)
             return data
 
-        class SlowAgent(MockAgent):
+        class SlowAgent(HttpLLMAgent):
             async def process(self, data, prompt, model, settings=None):
                 return await slow_process(data, prompt, model, settings)
 
@@ -137,7 +137,7 @@ class TestErrorHandling:
             ],
         }
         g = Graph.from_dict(config)
-        result = await Executor(g, MockAgent(response_fn=fail_agent), timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True, mock_handler=fail_agent), timeout=10).run()
 
         assert not result.success
         assert any("boom" in e for e in result.errors)
@@ -149,7 +149,7 @@ class TestExecutionResult:
     @pytest.mark.asyncio
     async def test_summary_contains_info(self, linear_config):
         g = Graph.from_dict(linear_config)
-        result = await Executor(g, MockAgent(), timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=10).run()
         s = result.summary()
         assert "SUCCESS" in s
         assert "e1" in s
@@ -158,7 +158,7 @@ class TestExecutionResult:
     @pytest.mark.asyncio
     async def test_execution_time_positive(self, linear_config):
         g = Graph.from_dict(linear_config)
-        result = await Executor(g, MockAgent(), timeout=10).run()
+        result = await Executor(g, HttpLLMAgent(mock=True), timeout=10).run()
         assert result.execution_time > 0
 
 
@@ -167,7 +167,7 @@ async def test_second_run_raises_instead_of_silent_stale(linear_config):
     """Re-running the SAME executor must raise clearly instead of silently
     returning stale results (fix #6)."""
     g = Graph.from_dict(linear_config)
-    ex = Executor(g, MockAgent(), timeout=10)
+    ex = Executor(g, HttpLLMAgent(mock=True), timeout=10)
     r1 = await ex.run()
     assert r1.success
     with pytest.raises(RuntimeError, match="already been run"):

@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from framework import Graph, Executor, MockAgent, Vertex, Edge, Pipeline, GraphEvent
+from framework import Graph, Executor, HttpLLMAgent, Vertex, Edge, Pipeline, GraphEvent
 from framework.vertex import VertexState
 
 
@@ -72,7 +72,7 @@ class TestPipelineBusinessRetry:
         )
         g.edges["e_retry"] = e_retry
 
-        agent = MockAgent(response_fn=flaking_agent)
+        agent = HttpLLMAgent(mock=True, mock_handler=flaking_agent)
         result = await Executor(g, agent).run()
 
         assert result.success, result.summary()
@@ -135,7 +135,7 @@ class TestPipelineBusinessRetry:
         )
         g.edges["e_retry_stack"] = e_retry
 
-        agent = MockAgent(response_fn=always_bad)
+        agent = HttpLLMAgent(mock=True, mock_handler=always_bad)
         result = await Executor(g, agent).run()
 
         assert not result.success
@@ -198,7 +198,7 @@ class TestPipelineBusinessRetry:
         g.edges["e_fail"] = e_fail
         edge = e_fail
 
-        agent = MockAgent(response_fn=always_failing_agent)
+        agent = HttpLLMAgent(mock=True, mock_handler=always_failing_agent)
         result = await Executor(g, agent).run()
 
         assert not result.success
@@ -238,7 +238,7 @@ class TestPipelineBusinessRetry:
         }
 
         g = Graph.from_dict(config)
-        agent = MockAgent(response_fn=bad_agent)
+        agent = HttpLLMAgent(mock=True, mock_handler=bad_agent)
         result = await Executor(g, agent).run()
 
         assert not result.success
@@ -266,7 +266,7 @@ class TestExecutorEventStreaming:
             ],
         }
         g = Graph.from_dict(config)
-        ex = Executor(g, MockAgent())
+        ex = Executor(g, HttpLLMAgent(mock=True))
 
         collected_events = []
         async for event in ex.stream():
@@ -294,7 +294,7 @@ class TestExecutorEventStreaming:
                 {"id": "ab", "source": "A", "destination": "B", "channel": "val", "settings": {"prompt": "+5"}}
             ],
         }
-        agent = MockAgent(response_fn=lambda d, p, m, s: d + 5)
+        agent = HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: d + 5)
 
         # 1. Via stream()
         g1 = Graph.from_dict(config)

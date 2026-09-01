@@ -82,7 +82,7 @@ async def main():
 
     try:
         agent = HttpLLMAgent(
-            base_url=f"http://127.0.0.1:{upstream.server_address[1]}/v1",  # 真实 LLM 端点
+            base_url=f"http://127.0.0.1:{upstream.server_address[1]}/v1/chat/completions",  # 真实 LLM 端点
             proxy=f"http://127.0.0.1:{proxy.server_address[1]}",          # HTTP 请求经它出去
         )
         print(f"LLM 端点: {agent.base_url}")

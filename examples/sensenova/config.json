@@ -34,7 +34,7 @@
       "settings": {
         "prompt": "You are a creative poet.",
         "model": "sensenova-6.8-flash-lite",
-        "base_url": "https://token.sensenova.cn/v1"
+        "base_url": "https://sensenova.moonchan.xyz/v1/chat/completions"
       }
     }
   ]

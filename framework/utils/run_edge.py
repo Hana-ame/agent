@@ -15,7 +15,7 @@ non-idempotent post_process hook.
 Agent ownership: an edge that owns its own agent (``self.agent`` set in
 ``__init__``) takes precedence over a driver-provided ``--base-url``
 ``HttpLLMAgent`` (``Edge.compute`` precedence: ``self.agent > driver agent>
-MockAgent``). Such an edge is responsible for closing its own agent; the
+HttpLLMAgent``). Such an edge is responsible for closing its own agent; the
 driver only closes the ``HttpLLMAgent`` it created itself.
 
 This driver is generic over edges — it does NOT assume an LLM compute. A real
@@ -107,7 +107,7 @@ async def run_edge(
     if skip_compute and base_url:
         raise ValueError("--skip-compute and --base-url are mutually exclusive")
     if not skip_compute and not base_url:
-        # No silent MockAgent fallback (framework Edge.compute would use one):
+        # No silent HttpLLMAgent fallback (framework Edge.compute would use one):
         # a compute run must have a real LLM endpoint, or skip compute.
         raise ValueError(
             "compute requires --base-url; use skip_compute=True for offline "
@@ -133,7 +133,7 @@ async def run_edge(
         )
 
         # Only hand the edge a driver-level LLM agent when it doesn't own one
-        # (``Edge.compute`` precedence is ``self.agent or agent or MockAgent``,
+        # (``Edge.compute`` precedence is ``self.agent or agent or HttpLLMAgent``,
         # so instantiating an unused HttpLLMAgent for a self-owning script edge
         # would just create+close a client we never use). If the edge already
         # owns an agent, an explicit --base-url is intentionally ignored — warn
@@ -145,7 +145,7 @@ async def run_edge(
                 script, cls.__name__, type(edge.agent).__name__,
             )
         elif base_url:
-            agent = HttpLLMAgent(api_key=api_key or "", base_url=base_url)
+            agent = HttpLLMAgent(api_key=api_key or "", base_url=base_url, mock=skip_compute)
 
         res = await edge._run_pre_process(data)
         res = await edge._run_compute(res, agent)  # includes post_process internally

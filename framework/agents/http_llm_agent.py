@@ -52,12 +52,14 @@ class HttpLLMAgent(_HTTPAgentBase):
     def __init__(
         self,
         api_key: str = "public",
-        base_url: str = "https://opencode.ai/zen/v1",
+        base_url: str = "https://opencode.ai/zen/v1/chat/completions",
         max_retries: int = 3,
         timeout: float = 300.0,
         extra_headers: Optional[Dict[str, str]] = None,
         proxy: Optional[str] = None,
         trust_env: bool = True,
+        mock: bool = False,
+        mock_handler=None,
     ) -> None:
         super().__init__(
             base_url=base_url,
@@ -67,4 +69,6 @@ class HttpLLMAgent(_HTTPAgentBase):
             extra_headers=extra_headers,
             proxy=proxy,
             trust_env=trust_env,
+            mock=mock,
+            mock_handler=mock_handler,
         )

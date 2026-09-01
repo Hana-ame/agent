@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from framework.edge import Edge
 from framework.vertex import Vertex
-from framework.agents import MockAgent
+from framework.agents import HttpLLMAgent
 
 
 # ===================================================================
@@ -178,22 +178,22 @@ def make_edge(
     )
 
 
-def echo_agent() -> MockAgent:
+def echo_agent() -> HttpLLMAgent:
     """Return an agent that echoes data back."""
-    return MockAgent(response_fn=lambda d, p, m, s: d)
+    return HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: d)
 
 
-def fixed_response_agent(response: Any) -> MockAgent:
+def fixed_response_agent(response: Any) -> HttpLLMAgent:
     """Return an agent that produces a fixed response."""
-    return MockAgent(response_fn=lambda d, p, m, s: response)
+    return HttpLLMAgent(mock=True, mock_handler=lambda d, p, m, s: response)
 
 
-def failing_agent(exc: Exception) -> MockAgent:
+def failing_agent(exc: Exception) -> HttpLLMAgent:
     """Return an agent that always raises ``exc``."""
     def _raise(d, p, m, s):
         raise exc
 
-    return MockAgent(response_fn=_raise)
+    return HttpLLMAgent(mock=True, mock_handler=_raise)
 
 
 # ===================================================================
