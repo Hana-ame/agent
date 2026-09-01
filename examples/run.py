@@ -38,8 +38,10 @@ async def main():
     logger.info("Loading graph from %s", config_path)
     graph = Graph.from_json(config_path)
 
-    # Agent selection is now delegated to the Graph configuration (per-edge 'agent' field)
-    # The Executor and EdgePipeline will automatically fallback to MockAgent if no agents are specified.
+    # Generic runner: unless the graph config injects an agent, a plain
+    # Edge with prompt/model falls back to MockAgent (deterministic, offline).
+    # Real LLM / subprocess agents live in script Edge subclasses that own
+    # their agent in __init__.
     executor = Executor(graph, agents=None, max_concurrency=4, timeout=30)
 
     result = await executor.run()

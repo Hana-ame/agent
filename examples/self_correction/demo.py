@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Example 2: LLM Output Error Self-Correction via Retry Policy.
 
-Demonstrates how `EdgePipeline` intercepts business logic exceptions (e.g. JSON schema errors,
-missing keys in post-process), automatically reflects the error back into the prompt
-(`[SYSTEM FEEDBACK: ...]`), and retries with exponential backoff until success.
+Demonstrates how `Edge` (via its retry_policy) intercepts business logic exceptions
+(e.g. JSON schema errors, missing keys in post-process), automatically reflects the
+error back into the prompt (`[SYSTEM FEEDBACK: ...]`), and retries with exponential
+backoff until success.
 
 Run:
     python examples/self_correction/demo.py
