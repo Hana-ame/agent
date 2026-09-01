@@ -1,6 +1,6 @@
 # Examples
 
-本目录包含 **18 个可运行实验**（另有 `scripts`、`s1profile_collect` 为辅助目录）。每个实验的
+本目录包含 **19 个可运行实验**（另有 `scripts`、`s1profile_collect` 为辅助目录）。每个实验的
 `README.md` 按「问题 / 方案 / 修改 / 测试」四段式记录：实验要解决的问题、方案、实际修改与实测结果。
 
 > 所有示例统一入口：`python examples/run.py <示例>/config.json`（或该目录自带的 `demo.py/run.py`）。
@@ -27,26 +27,27 @@
 | `hn_ai_report/` | HN 端到端 AI 日报（MapEdge） | `python examples/hn_ai_report/demo.py` |
 | `s1_ai_report/` | S1 直连版 AI 日报（8 路扇出） | `python examples/s1_ai_report/demo.py` |
 | `s1_ai_report_map/` | S1 MapEdge 版 AI 日报 | `python examples/s1_ai_report_map/demo.py` |
+| `finance_ai_report/` | 财经版 AI 日报（MapEdge 克隆，finance/politics 筛选） | `python examples/finance_ai_report/demo.py` |
 
 辅助目录：`scripts/`（公共子类脚本）、`s1profile_collect/`（S1 数据收集，gitignored）。
 
 ---
 
-## 问题：示例数曾与实际不符（16 vs 实际 18）
+## 问题：示例数曾与实际不符（16 → 实际 19）
 
 ### 问题
-README 曾写「16 个示例」，漏掉 `s1_ai_report_map`、`sensenova` 两个已存在目录；且
+README 曾写「16 个示例」，漏掉 `s1_ai_report_map`、`sensenova`、`finance_ai_report` 三个已存在目录；且
 `complex`/`custom_classes` 描述用「module hooks」旧措辞。
 
 ### 方案
 数字改为实机统计；措辞改为「script 加载子类」。
 
 ### 修改
-- 本索引：16→18，补 `s1_ai_report_map`/`sensenova` 两行；`complex`/`custom_classes` 条目改子类措辞。
+- 本索引：16→19，补 `s1_ai_report_map`/`sensenova`/`finance_ai_report` 三行；`complex`/`custom_classes` 条目改子类措辞。
 
 ### 测试
-**测试方案**：索引行数=目录数。**测试方法**：`ls -d examples/*/ | wc -l`（18，排除 scripts/s1profile_collect
-后为 18 个实验 + 2 辅助）与表格行数对比。**测试结果**：一致。
+**测试方案**：索引行数=目录数。**测试方法**：`ls -d examples/*/ | wc -l`（21，排除 scripts/s1profile_collect
+后为 19 个实验 + 2 辅助）与表格行数对比。**测试结果**：一致（19 行 = 19 目录）。
 
 ---
 

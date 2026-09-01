@@ -1,7 +1,7 @@
 # Vertex-Edge-Agent: Architecture Review & Advice
 
 > 本文档按「问题/方案/修改/测试」组织：每项问题给出解决方案、实际改动与实测结果。
-> 状态：评审中被确认的问题均已处置，**342 tests passed**。
+> 状态：评审中被确认的问题均已处置，**355 tests passed**。
 
 ---
 
@@ -62,7 +62,7 @@ fetch 步骤声明 `timeout`（默认 30s），错误经 `EdgeSignal.FAILED` 隔
 - `examples/README.md`：补 `hn_ai_report`/`s1_ai_report_map`/`sensenova` 三行；`ai_report_notes.md` 记录架构/配置/对比。
 
 #### 测试
-**测试方案**：索引 18 行与 18 个示例目录一致。**测试方法**：`grep -c '^| **`' examples/README.md`。**测试结果**：18。
+**测试方案**：索引 19 行与 19 个示例目录一致。**测试方法**：`grep -c '^| **`' examples/README.md`。**测试结果**：19。
 
 ---
 
@@ -105,4 +105,4 @@ fetch 步骤声明 `timeout`（默认 30s），错误经 `EdgeSignal.FAILED` 隔
 ---
 
 > **结论**：示例（`hn_ai_report`/`s1_ai_report_map`）已是「类扩展 + script 显式类名」的推荐示范；
-> 框架所列问题已全部处置，**342 tests passed**。
+> 框架所列问题已全部处置，**355 tests passed**。

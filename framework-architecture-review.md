@@ -3,7 +3,7 @@
 > 架构评审结论：核心模型（Vertex 状态机 / Edge 5 段管线 / Executor 异步调度 / 消息传递）设计
 > 优良。本文档按「问题/方案/修改/测试」记录评审中发现的问题及其处置状态。
 
-**范围**：`framework/`（17 个源文件）。**测试**：342 tests passed ✅。
+**范围**：`framework/`（17 个源文件）。**测试**：355 tests passed ✅。
 
 ---
 
@@ -110,7 +110,7 @@ tenacity 对所有 `httpx.HTTPStatusError` 重试，401/400/404 等认证/参数
 
 ### 测试
 **测试方案**：builder 不再写 `settings["agent"]`。**测试方法**：`grep "agent" framework/builders/builder.py`。
-**测试结果**：0 处；全框架 0 处读取 `settings["agent"]`（`opencode_agent_runner.py` 的 `--agent` 是 CLI 参数，保留）。**342 tests passed**。
+**测试结果**：0 处；全框架 0 处读取 `settings["agent"]`（`opencode_agent_runner.py` 的 `--agent` 是 CLI 参数，保留）。**355 tests passed**。
 
 ---
 
@@ -197,5 +197,5 @@ tenacity 对所有 `httpx.HTTPStatusError` 重试，401/400/404 等认证/参数
 ## 结论
 
 核心架构（actor/消息传递、5 段管线、有界循环、checkpoint/HITL、子图、全局内存、telemetry、
-schema、race mode）设计优良，评审所列问题均已修复，**342 tests passed**。
+schema、race mode）设计优良，评审所列问题均已修复，**355 tests passed**。
 剩余风险：分布式执行（ROADMAP v3 #7）尚未开始。

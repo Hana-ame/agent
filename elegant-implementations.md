@@ -2,7 +2,7 @@
 
 > 本文档按「问题 / 方案 / 修改 / 测试」组织框架重构建议，标注落地状态。
 > 状态：**#1 已落地（MapEdge）**、**#2 部分落地（edge_transform 函数式工厂）**、**#7 已落地（ExecutionContext/async agent）**，
-> 其余为可选改进。**342 tests passed**。
+> 其余为可选改进。**355 tests passed**。
 
 ---
 

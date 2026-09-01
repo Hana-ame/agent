@@ -43,7 +43,7 @@
 **测试**：
 - 测试方案：多子类文件按显式名加载正确类。
 - 测试方法：`load_class_from_script("s1_edges.py:SummarizeEdge", Edge, "SummarizeEdge")`。
-- 测试结果：返回 `SummarizeEdge` 而非 `FetchEdge`（`tests/test_script_loader.py` 锁定）；337 tests passed。
+- 测试结果：返回 `SummarizeEdge` 而非 `FetchEdge`（`tests/test_script_loader.py` 锁定）；355 tests passed。
 
 ### 特性 6：并发控制
 **问题**：高扇出无界并发，打爆 API/连接。

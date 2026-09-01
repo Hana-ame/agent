@@ -237,9 +237,11 @@ HTTPS_PROXY=http://127.0.1.6:7890 opencode run --model opencode/hy3-free "$(cat 
 | `121ea9e` | 缺陷三修复：retry 循环 prompt 状态隔离（基于 `_base_prompt` 重建单条 feedback，`finally` 恢复，无叠加堆栈）；回归测试断言单条 `[SYSTEM FEEDBACK]` |
 | `d64aab2` | 缺陷四修复：HttpLLMAgent 异步上下文管理器 `__aenter__/__aexit__`（`__aexit__` 幂等 `close()`，清 `_proxied_clients` 缓存）；回归测试 5 个（显式 close / 幂等 / async-with 含异常路径） |
 | `eac55f8` | hn/s1/finance 示例切 sensenova（`token.sensenova.cn`、`SENSENOVA_API_KEY` 必填、去 proxy、max_concurrency 1）；demo.py `_resolve_api_key` 按端点分流；report_hook env 覆盖输出 + `##→###` 降级；GraphBuilder.edge() 删遗留 `agent` 参数；README 删 agent 字段 |
-| `(待提交)` | 单 edge 调试工具（见下） |
+| `73416c3` | 单 edge 调试工具 `run_edge`：standalone 驱动器（`file.py:Class` 按名加载 + 相对 dir 解析 + 回归测试锁定） |
+| `16d0071` | graph 层 `skip_compute`（settings 快捷短路）+ `run_edge --skip-compute` 替代 MockAgent，`run_edge` 去掉 mock fallback（compute 必给 endpoint） |
+| `（本轮修复，待提交）` | `run_edge` 三项修复：① 脚本边自带 agent 时不再创建闲置 driver `HttpLLMAgent`，对显式 `--base-url` 加 `logger.warning` 把静默忽略转为可观测；② 驱动层仅走 `_run_compute` 一次（`post_process` 内部执行），docstring 明确关闭责任归边自身；③ 新增回归测试：`test_self_owning_agent_edge_gets_no_driver_http_client`（run_edge）、`TestPiAgentRunnerCleanup`（超时/取消杀进程）、`test_free_tier_model_has_zero_cost`（hy3-free 计费 $0.00） |
 
-**当前测试**：**349 tests passed**。
+**当前测试**：**358 tests passed**。
 
 ---
 
@@ -281,4 +283,4 @@ python -m framework.utils.run_edge --dir examples/hn_ai_report \
 结构化 `title/url` 保留；坏脚本返回 `ok=False`（含 "Script not found"）；
 graph 层 `settings.skip_compute=true` 的边执行器不调 LLM（mock response_fn 零调用）、
 post_process 照跑；无 prompt/model 的普通边本就走 passthrough（不碰 agent）。
-**353 tests passed**。
+**355 tests passed**。
