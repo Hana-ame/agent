@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 1. Consolidate Excel sheets into ONE single table per workbook.
-2. Number all experiments sequentially: 001, 002, 003... in column 1 (no L, D, NHEAD, DP prefixes).
-3. Generate all JSON configs named '{序号}_{描述}.json' (e.g. '001_layer1_d128.json') matching the Excel table.
+2. Number all experiments sequentially with ZERO PADDING (001, 002, 003...) in column 1 (formatted as Text '@').
+3. Generate all JSON configs named '{序号}_{描述}.json' (e.g. '001_n_layer_1_d128.json') matching the Excel table.
 """
 
 import os
@@ -125,6 +125,8 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
             cell.font = FONT_CODE if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 16, 18, 19) else FONT_REGULAR
             cell.alignment = Alignment(horizontal="center" if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19) else "left", vertical="center")
             cell.border = THIN_BORDER
+            if c_idx == 1:
+                cell.number_format = "@"  # Force text format to preserve leading zero padding
             if is_zebra: cell.fill = FILL_ZEBRA_LIGHT
             
         active_m = set(r.get("methods", []))
@@ -364,6 +366,8 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
             cell.font = FONT_CODE if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 14) else FONT_REGULAR
             cell.alignment = Alignment(horizontal="center" if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 14) else "left", vertical="center")
             cell.border = THIN_BORDER
+            if c_idx == 1:
+                cell.number_format = "@"  # Force text format
             if is_zebra: cell.fill = FILL_ZEBRA_LIGHT
             
         active_m = set(r["methods"])
