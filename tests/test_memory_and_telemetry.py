@@ -135,6 +135,12 @@ class TestTelemetryAndCostProfiling:
         cost = calculate_cost(prompt_tokens=1_000_000, completion_tokens=1_000_000, model="gemini-1.5-pro")
         assert cost == (3.50 + 10.50)
 
+    def test_free_tier_model_has_zero_cost(self):
+        """Free-tier models (hy3-free) must bill $0.00 — never fall back to
+        the 'default' paid rates, which would inflate report figures."""
+        assert calculate_cost(1_000_000, 1_000_000, "hy3-free") == 0.0
+        assert calculate_cost(500_000, 200_000, "hy3-free") == 0.0
+
     @pytest.mark.asyncio
     async def test_executor_records_telemetry_metrics_and_events(self):
         config = {

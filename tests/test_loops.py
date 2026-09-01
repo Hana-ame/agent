@@ -310,3 +310,79 @@ class TestLoopResultsMetadata:
 
         assert result.success
         assert result.vertex_results["A"]["iterations"] == 4
+
+
+# ── Mixed-input loop: one-shot seed + loop-back into the same vertex ─
+
+class TestMixedInputLoop:
+    @pytest.mark.asyncio
+    async def test_seed_plus_loop_back_does_not_deadlock(self):
+        """
+        Topology:  A(seed) --ax--> X --xy--> Y --yx(loop,max=3)--> X --xz--> Z
+
+        X is fed by TWO inputs: a one-shot seed (A->X) and a loop-back
+        (Y->X). Regression: the loop-back edge used to be counted as a
+        required input, so X could never become READY on the first round
+        (the back-edge can only fire AFTER X has already run) — the whole
+        graph silently deadlocked. A loop-back is a re-entry TRIGGER, not
+        a required input.
+
+        Expect: 3 clean loop rounds (X re-enters 3 times), X/Y/Z all DONE,
+        no deadlock/error.
+        """
+        config = {
+            "vertices": [
+                {"id": "A", "initial_data": [{"channel": "in", "value": "go"}]},
+                {"id": "X"}, {"id": "Y"}, {"id": "Z"},
+            ],
+            "edges": [
+                {"id": "ax", "source": "A", "destination": "X", "channel": "in",
+                 "settings": {"skip_compute": True}},
+                {"id": "xy", "source": "X", "destination": "Y", "channel": "in",
+                 "settings": {"skip_compute": True}},
+                {"id": "yx", "source": "Y", "destination": "X", "channel": "in",
+                 "settings": {"skip_compute": True}, "max_iterations": 3},
+                {"id": "xz", "source": "X", "destination": "Z", "channel": "in",
+                 "settings": {"skip_compute": True}},
+            ],
+        }
+        g = Graph.from_dict(config)
+        result = await Executor(g, MockAgent(), timeout=8).run()
+
+        assert result.success, result.summary()
+        assert g.vertices["A"].state == VertexState.DONE
+        assert g.vertices["X"].state == VertexState.DONE
+        assert g.vertices["Y"].state == VertexState.DONE
+        assert g.vertices["Z"].state == VertexState.DONE
+        # 3 loop re-entries -> 3 completed rounds, no silent deadlock
+        assert g.vertices["X"].iteration_count == 3
+        # Z received a delivery on every round
+        assert await g.vertices["Z"].fetch_data("in") == "go"
+        assert not any("deadlock" in e.lower() for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_seed_plus_loop_back_honours_iteration_limit(self):
+        """The same mixed topology must stop cleanly once max_iterations is hit
+        (the loop-back stays blocked, X stops firing, everything settles)."""
+        config = {
+            "vertices": [
+                {"id": "A", "initial_data": [{"channel": "in", "value": 1}]},
+                {"id": "X"}, {"id": "Y"}, {"id": "Z"},
+            ],
+            "edges": [
+                {"id": "ax", "source": "A", "destination": "X", "channel": "in",
+                 "settings": {"skip_compute": True}},
+                {"id": "xy", "source": "X", "destination": "Y", "channel": "in",
+                 "settings": {"skip_compute": True}},
+                {"id": "yx", "source": "Y", "destination": "X", "channel": "in",
+                 "settings": {"skip_compute": True}, "max_iterations": 5},
+                {"id": "xz", "source": "X", "destination": "Z", "channel": "in",
+                 "settings": {"skip_compute": True}},
+            ],
+        }
+        g = Graph.from_dict(config)
+        result = await Executor(g, MockAgent(), timeout=8).run()
+
+        assert result.success, result.summary()
+        assert g.vertices["X"].iteration_count == 5
+        assert g.vertices["Z"].state == VertexState.DONE

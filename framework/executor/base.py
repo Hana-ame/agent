@@ -44,6 +44,10 @@ class ExecutionResult:
 
     def __init__(self):
         self.success: bool = False
+        #: ``True`` when the run stopped at a PAUSED vertex (HITL) waiting for
+        #: approval — a clean pause, NOT a failure. ``success`` stays ``False``
+        #: because the graph has not completed, but ``errors`` is empty.
+        self.paused: bool = False
         self.vertex_results: Dict[str, Dict] = {}
         self.edge_results: Dict[str, Any] = {}
         self.errors: List[str] = []
@@ -61,9 +65,13 @@ class ExecutionResult:
 
     def summary(self) -> str:
         """Human-readable summary."""
+        if self.paused:
+            title = "PAUSED ⏸ (waiting for human approval)"
+        else:
+            title = "SUCCESS ✓" if self.success else "FAILED ✗"
         lines = [
             "=" * 60,
-            f"  Execution Result: {'SUCCESS ✓' if self.success else 'FAILED ✗'}",
+            f"  Execution Result: {title}",
             f"  Time: {self.execution_time:.3f}s",
             f"  Vertices processed: {len(self.vertex_results)}",
             f"  Edges completed: {len(self.edge_results)}",
@@ -174,6 +182,10 @@ class Executor:
         self._result = ExecutionResult()
         self.active_edge_tasks = {}
         self._event_queue: asyncio.Queue[Optional[GraphEvent]] = asyncio.Queue()
+        # Guards against silently re-returning stale results on a second
+        # run()/stream() of the same instance (vertex/edge states are already
+        # terminal; a naive re-run would "succeed" without executing anything).
+        self._has_run = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -227,6 +239,13 @@ class Executor:
 
     async def stream(self) -> AsyncGenerator[GraphEvent, None]:
         """Stream execution events asynchronously as they occur without blocking execution."""
+        if self._has_run:
+            raise RuntimeError(
+                "This Executor has already been run. Build a fresh Executor for "
+                "a second execution (or use Graph/Vertex reset + a new Executor); "
+                "re-running this instance would silently return stale results."
+            )
+        self._has_run = True
         run_task = asyncio.create_task(self._run_internal())
         try:
             while True:
@@ -268,8 +287,12 @@ class Executor:
         try:
             self._init_sources()
             await asyncio.wait_for(self._loop(), timeout=self.timeout)
+            self._result.paused = any(
+                v.state == VertexState.PAUSED for v in self.graph.vertices.values()
+            )
             self._result.success = (
                 len(self._result.errors) == 0
+                and not self._result.paused
                 and all(v.state in (VertexState.DONE, VertexState.ABORTED) for v in self.graph.vertices.values())
             )
         except asyncio.TimeoutError:

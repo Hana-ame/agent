@@ -62,7 +62,26 @@ class OpenCodeAgentRunner(BaseAgent):
             )
             raise
 
-        stdout, stderr = await proc.communicate()
+        # ``settings["timeout"]`` bounds the CLI call; when the enclosing task
+        # is cancelled (executor/edge timeout) we kill the child so no orphaned
+        # ``opencode`` process is left behind.
+        timeout = settings.get("timeout")
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+            raise RuntimeError(
+                f"opencode run timed out after {timeout}s, killed."
+            ) from None
+        except asyncio.CancelledError:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+            raise
 
         if proc.returncode != 0:
             err = stderr.decode("utf-8", "replace").strip()

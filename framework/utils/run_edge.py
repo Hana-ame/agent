@@ -1,10 +1,22 @@
 """Single-edge driver — run any script edge (``file.py:ClassName``) standalone.
 
-Drives one edge's full orchestration chain — ``pre_process -> compute ->
-post_process`` (the same path ``Edge._run_compute`` uses inside the graph) —
+Drives one edge's full orchestration chain — ``pre_process -> compute`` —
+using the exact same path the graph executor runs (``Edge._run_compute``,
+which already includes post_process / schema / memory / telemetry inside it) —
 without building a whole Graph. Useful for debugging a single edge in
 isolation: verify the right class is loaded (script-loader by-name bug), feed
 it arbitrary data, and see the result without wiring up vertices/executor.
+
+Note: post_process is NOT applied a second time here — it runs once inside
+``_run_compute``, exactly as it does under the graph's ``Edge.execute``.
+Re-applying it at the driver level would double-wrap results for any
+non-idempotent post_process hook.
+
+Agent ownership: an edge that owns its own agent (``self.agent`` set in
+``__init__``) takes precedence over a driver-provided ``--base-url``
+``HttpLLMAgent`` (``Edge.compute`` precedence: ``self.agent > driver agent>
+MockAgent``). Such an edge is responsible for closing its own agent; the
+driver only closes the ``HttpLLMAgent`` it created itself.
 
 This driver is generic over edges — it does NOT assume an LLM compute. A real
 LLM call is only made when ``--base-url``/``--api-key`` are given; otherwise
@@ -35,15 +47,24 @@ framework resolves MapEdge pipeline steps (relative to the config dir).
 
 Return code: 0 on success, 1 when the edge itself failed, 2 on CLI misuse
 (no LLM endpoint given and ``--skip-compute`` absent).
+
+Skip-compute semantics: ``pre_process`` output becomes the compute result, so
+``post_process`` / schema validation / memory writes still run unchanged. In
+that mode the ``retry_policy`` can only trigger on post_process/schema errors
+(no LLM call to retry), and telemetry still records an *estimated* token count
+for prompt+data even though no request was sent.
 """
 
 import argparse
 import asyncio
 import json as _json
+import logging
 import os
 import sys
 import time
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger("run_edge")
 
 # Allow running as ``python -m framework.utils.run_edge`` from the repo root
 # or from an example dir: add framework root to sys.path when missing.
@@ -111,12 +132,23 @@ async def run_edge(
             settings={"skip_compute": skip_compute} if skip_compute else None,
         )
 
-        if base_url:
-            agent = HttpLLMAgent(api_key=api_key or "", base_url=base_url)  # type: ignore[call-arg]
+        # Only hand the edge a driver-level LLM agent when it doesn't own one
+        # (``Edge.compute`` precedence is ``self.agent or agent or MockAgent``,
+        # so instantiating an unused HttpLLMAgent for a self-owning script edge
+        # would just create+close a client we never use). If the edge already
+        # owns an agent, an explicit --base-url is intentionally ignored — warn
+        # so the user isn't silently surprised.
+        if base_url and getattr(edge, "agent", None):
+            logger.warning(
+                "[run_edge] edge %s:%s owns its own agent (%s) — ignoring "
+                "--base-url (self.agent wins in Edge.compute precedence)",
+                script, cls.__name__, type(edge.agent).__name__,
+            )
+        elif base_url:
+            agent = HttpLLMAgent(api_key=api_key or "", base_url=base_url)
 
         res = await edge._run_pre_process(data)
-        res = await edge._run_compute(res, agent)
-        res = await edge._run_post_process(res)
+        res = await edge._run_compute(res, agent)  # includes post_process internally
         ok = True
     except Exception as e:  # surfaced same way the executor reports edge failure
         res = f"{type(e).__name__}: {e}"
@@ -129,7 +161,10 @@ async def run_edge(
     report: Dict[str, Any] = {
         "script": script,
         "class": class_name,
-        "agent": None if skip_compute else ("HttpLLMAgent" if isinstance(agent, HttpLLMAgent) else "none"),
+        "agent": None if skip_compute else (
+            "HttpLLMAgent" if isinstance(agent, HttpLLMAgent)
+            else (type(edge.agent).__name__ if edge and getattr(edge, "agent", None) else "none")
+        ),
         "skip_compute": skip_compute,
         "ok": ok,
         "latency_s": round(latency, 2),

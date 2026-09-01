@@ -777,3 +777,51 @@ class TestHttpLLMAgentLifecycle:
         async with HttpLLMAgent() as agent:
             assert not agent._closed
         assert agent._closed is True
+
+
+# ====================================================================
+# PiAgentRunner — subprocess timeout / cancellation cleanup
+# ====================================================================
+class TestPiAgentRunnerCleanup:
+    """Verify settings['timeout'] kills the child and CancelledError
+    repropagates cleanly (no orphaned subprocess)."""
+
+    @staticmethod
+    async def _hang():
+        await asyncio.Event().wait()
+
+    @pytest.mark.asyncio
+    async def test_timeout_kills_process_and_raises(self):
+        """settings['timeout'] bounds the CLI call; on timeout the child is
+        killed (kill + wait) and a clear RuntimeError is raised."""
+        runner = PiAgentRunner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.communicate = AsyncMock(side_effect=self._hang)
+        mock_proc.kill = MagicMock()  # real Popen.kill() is synchronous
+        mock_proc.wait = AsyncMock()  # real Popen.wait() is awaited
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await runner.process("d", "p", "m", settings={"timeout": 0.05})
+
+        mock_proc.kill.assert_called_once()
+        mock_proc.wait.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_kills_process_and_repropagates(self):
+        """When the enclosing task is cancelled, kill + wait the child and
+        re-raise CancelledError (no orphaned subprocess)."""
+        runner = PiAgentRunner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.communicate = AsyncMock(side_effect=asyncio.CancelledError())
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(asyncio.CancelledError):
+                await runner.process("d", "p", "m")
+
+        mock_proc.kill.assert_called_once()
+        mock_proc.wait.assert_awaited_once()

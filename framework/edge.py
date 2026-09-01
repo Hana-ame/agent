@@ -82,6 +82,11 @@ class Edge:
         # stage entirely. pre_process output flows straight to post_process
         # (config: ``"settings": {"skip_compute": true}``). Generic edges
         # (fetch/parse/transform) use this instead of a mock agent.
+        # Side effects: post_process / schema validation / memory writes still
+        # run unchanged; the retry_policy can then only trigger on
+        # post_process/schema errors (no LLM call to retry); telemetry still
+        # records an *estimated* prompt+data token count even though no
+        # request was sent.
         self.skip_compute = bool(s.get("skip_compute", False))
         # No per-edge agent from config. Script Edge subclasses may set their
         # own agent (e.g. ``self.agent = OpenCodeAgentRunner()`` in ``__init__``);

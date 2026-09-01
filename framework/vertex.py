@@ -264,13 +264,15 @@ class Vertex:
                         return True  # Stay in current state, loop is exhausted
 
                     self.iteration_count += 1
-
-                    # Reset per-iteration tracking for the new round
-                    self.completed_incoming_edges.clear()
-                    self.aborted_incoming_edges.clear()
-                    self._received_input_count = 0
-                    self.completed_incoming_edges.add(edge_id)
                     self._data_store[key] = data
+
+                    # The loop-back edge is the *re-entry trigger*, not a
+                    # required input for the round. Already-settled non-loop
+                    # inputs (e.g. a one-shot seed) must stay settled — clearing
+                    # them here would make the vertex wait forever for an edge
+                    # that already fired once and will never fire again
+                    # (silent deadlock on mixed seed+loop topologies).
+                    self.completed_incoming_edges.add(edge_id)
 
                     logger.debug(
                         "[Vertex:%s] ↺ Loop re-entry (iteration %d/%s) via '%s'",
@@ -279,18 +281,23 @@ class Vertex:
                         edge_id,
                     )
 
-                    # If this is the only incoming edge (simple cycle), go READY/PAUSED.
-                    # Otherwise fall to IDLE and wait for remaining inputs.
-                    total_settled = (
-                        len(self.completed_incoming_edges)
-                        + len(self.aborted_incoming_edges)
-                    )
-                    if total_settled >= len(self.incoming_edges):
+                    # Ready once all NON-LOOP inputs are settled; the loop-back
+                    # only re-arms the next round.
+                    required = [
+                        eid for eid in self.incoming_edges
+                        if eid not in self.loop_incoming_edges
+                    ]
+                    settled_required = [
+                        eid for eid in required
+                        if eid in self.completed_incoming_edges
+                        or eid in self.aborted_incoming_edges
+                    ]
+                    if len(settled_required) == len(required):
                         if self._require_approval and not self._approved:
                             self.state = VertexState.PAUSED
                         else:
                             self.state = VertexState.READY
-                    # else: remain IDLE, other non-loop edges still pending
+                    # else: remain IDLE, still waiting for non-loop inputs
                     return True
                 # ── End loop re-entry ─────────────────────────────────────
 
@@ -310,6 +317,16 @@ class Vertex:
                 is_ready = False
                 if self.incoming_edges:
                     total_settled = len(self.completed_incoming_edges) + len(self.aborted_incoming_edges)
+                    # Loop-back edges are *re-entry triggers*, not required
+                    # inputs for the round: a vertex fed by a one-shot seed
+                    # PLUS a loop-back must be able to become READY once its
+                    # non-loop inputs settle — the loop-back can only fire
+                    # after this vertex has already run once (otherwise the
+                    # topology deadlocks on the very first round).
+                    required = [
+                        eid for eid in self.incoming_edges
+                        if eid not in self.loop_incoming_edges
+                    ]
                     
                     wait_policy = self.settings.get("wait_policy", "all")
                     if wait_policy == "any" and len(self.completed_incoming_edges) > 0:
@@ -319,7 +336,12 @@ class Vertex:
                         if pending and hasattr(self, "on_cancel_edges") and callable(self.on_cancel_edges):
                             self.on_cancel_edges(pending)
                     else:
-                        is_ready = total_settled >= len(self.incoming_edges) and len(self.completed_incoming_edges) > 0
+                        settled_required = [
+                            eid for eid in required
+                            if eid in self.completed_incoming_edges
+                            or eid in self.aborted_incoming_edges
+                        ]
+                        is_ready = len(settled_required) == len(required) and len(self.completed_incoming_edges) > 0
                 elif self.required_input_count > 0:
                     is_ready = self._received_input_count >= self.required_input_count
 

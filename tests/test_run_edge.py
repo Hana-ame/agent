@@ -69,6 +69,46 @@ async def test_script_path_resolves_relative_to_dir_not_cwd():
 
 
 @pytest.mark.asyncio
+async def test_self_owning_agent_edge_gets_no_driver_http_client(tmp_path):
+    """Fix: when a script edge owns its own agent (``self.agent`` in __init__),
+    run_edge must NOT create an unused driver HttpLLMAgent just because
+    --base-url was given. Edge.compute precedence is self.agent > driver agent,
+    so the report's agent field must reflect the OWNED agent (MockAgent), and
+    the result must come from it — no throwaway HTTP client, no LLM call."""
+    script = tmp_path / "self_owned.py"
+    script.write_text(
+        "from framework.edge import Edge\n"
+        "from framework.agents import MockAgent\n"
+        "\n"
+        "class SelfOwnedEdge(Edge):\n"
+        "    def __init__(self, **kw):\n"
+        "        super().__init__(**kw)\n"
+        "        # owns its agent — driver must not hand it another one\n"
+        "        self.agent = MockAgent(response_fn=lambda d, p, m, s: 'own:' + str(d))\n"
+        "        self.prompt = 'owned prompt'\n"
+        "        self.model = 'owned-model'\n"
+        "\n"
+        "    def post_process(self, result, settings):\n"
+        "        return {'via': 'self_owned_agent', 'result': result}\n"
+        ,
+        encoding="utf-8",
+    )
+
+    report = await run_edge(
+        dir_path=str(tmp_path),
+        script="self_owned.py:SelfOwnedEdge",
+        data="payload",
+        base_url="https://fake.example/v1/chat/completions",
+        api_key="k",
+    )
+    assert report["ok"] is True, report["result"]
+    assert report["agent"] == "MockAgent"  # owned agent, NOT a driver HttpLLMAgent
+    assert report["result"]["via"] == "self_owned_agent"
+    assert report["result"]["result"] == "own:payload"  # answer came from own agent
+    assert "usage" not in report  # no real LLM call was made
+
+
+@pytest.mark.asyncio
 async def test_compute_without_endpoint_or_skip_compute_raises():
     """No MockAgent fallback: a compute run with no base_url must raise, not
     silently fall back to a mock agent."""

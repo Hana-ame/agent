@@ -160,3 +160,15 @@ class TestExecutionResult:
         g = Graph.from_dict(linear_config)
         result = await Executor(g, MockAgent(), timeout=10).run()
         assert result.execution_time > 0
+
+
+@pytest.mark.asyncio
+async def test_second_run_raises_instead_of_silent_stale(linear_config):
+    """Re-running the SAME executor must raise clearly instead of silently
+    returning stale results (fix #6)."""
+    g = Graph.from_dict(linear_config)
+    ex = Executor(g, MockAgent(), timeout=10)
+    r1 = await ex.run()
+    assert r1.success
+    with pytest.raises(RuntimeError, match="already been run"):
+        await ex.run()

@@ -396,6 +396,13 @@ class TestHumanGateVertex:
         # Step 1: Initial run -> processes source, then pauses at review
         ex1 = CheckpointedExecutor(g, MockAgent(), store=store, run_id=run_id)
         res1 = await ex1.run()
+        # A clean HITL pause is NOT a failure: no errors, paused flag set,
+        # summary says PAUSED instead of FAILED.
+        assert res1.paused is True
+        assert res1.success is False
+        assert res1.errors == []
+        assert "PAUSED" in res1.summary()
+        assert "FAILED" not in res1.summary()
         assert g.vertices["source"].state == VertexState.DONE
         assert g.vertices["review"].state == VertexState.PAUSED
         assert g.vertices["publish"].state == VertexState.IDLE

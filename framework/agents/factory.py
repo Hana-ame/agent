@@ -23,7 +23,7 @@ _STRING_AGENTS = {
 
 
 def _build_from_dict(agent_spec: Dict) -> BaseAgent:
-    """Build an agent from a JSON config block: ``{"type": "http|opencode|proxy", ...}``."""
+    """Build an agent from a JSON config block: ``{"type": "http|opencode", ...}``."""
     agent_type = agent_spec.get("type")
 
     # Transport proxy, graph.json style. Accepts `proxy`, `https_proxy` or
@@ -77,7 +77,7 @@ def get_agent(agent_spec: Union[str, BaseAgent, Dict, None]) -> Optional[BaseAge
     * shorthand string -> ``"mock"``, ``"http"``, ``"opencode"``,
       ``"pi"``
     * ``"path:ClassName"`` -> class loaded from an external script
-    * ``dict`` -> ``{"type": "http"|"opencode"|"proxy", ...}`` config block
+    * ``dict`` -> ``{"type": "http"|"opencode", ...}`` config block
     """
     if agent_spec is None:
         return None
