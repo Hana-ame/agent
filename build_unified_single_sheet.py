@@ -3,9 +3,12 @@
 """
 1. Consolidate Excel sheets into ONE single table per workbook.
 2. Merge '实验类别' and '实验标识/描述' into ONE unified column: '实验测试目的'.
-3. Add step scaling experiments: 4000, 8000, 16000, 32000, 128000, 1024000, marked as '未跑'.
+3. Add comprehensive step scaling experiments:
+   - Micro/Low Steps: 20, 50, 100, 200, 500, 1000, 2000
+   - Long/Scaling Steps: 4000, 8000, 16000, 32000, 64000, 128000, 256000, 512000, 1024000
+   All marked as '未跑'.
 4. Number all experiments sequentially with ZERO PADDING (001, 002, 003...) in column 1 (formatted as Text '@').
-5. Generate all JSON configs named '{序号}_{描述}.json' (e.g. '001_n_layer_1_d128.json') matching the Excel table.
+5. Generate all JSON configs named '{序号}_{描述}.json' matching the Excel table.
 """
 
 import os
@@ -77,68 +80,39 @@ ADD_METHODS = [
     "RoPE旋转", "INT8动态量化", "INT4低比特"
 ]
 
-NEW_STEP_ROWS = [
-    {
-        "category": "步数扩展-长周期训练",
-        "desc": "L4_D128 CoT 4,000步基线 (待运行)",
-        "l": 4, "d": 128, "steps": 4000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
-        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
-        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
-        "unique": "未跑", "loss": "未跑", "time_s": "—",
-        "conclusion": "【待运行 / 未跑】计划验证 4,000 步基线收敛表现。"
-    },
-    {
-        "category": "步数扩展-长周期训练",
-        "desc": "L4_D128 CoT 8,000步扩展 (待运行)",
-        "l": 4, "d": 128, "steps": 8000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
-        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
-        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
-        "unique": "未跑", "loss": "未跑", "time_s": "—",
-        "conclusion": "【待运行 / 未跑】计划验证 8,000 步翻倍训练对4位减法与难例进位的增益。"
-    },
-    {
-        "category": "步数扩展-长周期训练",
-        "desc": "L4_D128 CoT 16,000步扩展 (待运行)",
-        "l": 4, "d": 128, "steps": 16000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
-        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
-        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
-        "unique": "未跑", "loss": "未跑", "time_s": "—",
-        "conclusion": "【待运行 / 未跑】计划验证 16,000 步长程训练下的损失下限与稳定性。"
-    },
-    {
-        "category": "步数扩展-长周期训练",
-        "desc": "L4_D128 CoT 32,000步扩展 (待运行)",
-        "l": 4, "d": 128, "steps": 32000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
-        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
-        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
-        "unique": "未跑", "loss": "未跑", "time_s": "—",
-        "conclusion": "【待运行 / 未跑】计划验证 32,000 步下是否存在过拟合或退化现象。"
-    },
-    {
-        "category": "步数扩展-长周期训练",
-        "desc": "L4_D128 CoT 128,000步超长训练 (待运行)",
-        "l": 4, "d": 128, "steps": 128000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
-        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
-        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
-        "unique": "未跑", "loss": "未跑", "time_s": "—",
-        "conclusion": "【待运行 / 未跑】计划验证 128,000 步超长训练的缩放定律（Scaling Law）。"
-    },
-    {
-        "category": "步数扩展-长周期训练",
-        "desc": "L4_D128 CoT 1,024,000步极限吞吐测试 (待运行)",
-        "l": 4, "d": 128, "steps": 1024000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
-        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
-        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
-        "unique": "未跑", "loss": "未跑", "time_s": "—",
-        "conclusion": "【待运行 / 未跑】计划验证 1,024,000 步（1M+ 步）极限算力下的泛化上限。"
-    }
+STEP_SWEEP_CONFIGS = [
+    # Low / Early steps
+    (20, "20步 极速收敛探针"),
+    (50, "50步 冒烟基线探针"),
+    (100, "100步 初期对齐探针"),
+    (200, "200步 早期学习探针"),
+    (500, "500步 初步收敛探针"),
+    (1000, "1,000步 早期阶段基线"),
+    (2000, "2,000步 半程收敛探针"),
+    # Standard & Scaling steps
+    (4000, "4,000步 标准基线"),
+    (8000, "8,000步 翻倍扩展"),
+    (16000, "16,000步 长程扩展"),
+    (32000, "32,000步 深度训练"),
+    (64000, "64,000步 超长训练"),
+    (128000, "128,000步 缩放扫描"),
+    (256000, "256,000步 大算力训练"),
+    (512000, "512,000步 极限吞吐训练"),
+    (1024000, "1,024,000步 百万步极限泛化")
 ]
+
+NEW_STEP_ROWS = []
+for st, desc_suffix in STEP_SWEEP_CONFIGS:
+    NEW_STEP_ROWS.append({
+        "category": "步数扩展-梯度扫描",
+        "desc": f"L4_D128 CoT {desc_suffix} (待运行)",
+        "l": 4, "d": 128, "steps": st, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "未跑", "loss": "未跑", "time_s": "—",
+        "conclusion": f"【待运行 / 未跑】计划在 Colab 上评估 {st:,} 步训练的损失收敛与多位算术准确率。"
+    })
 
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
     num_cols = 18 + len(ADD_METHODS) + 13
@@ -193,7 +167,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
             steps, bs, steps, f"{steps*bs/1000:.1f}" if steps and bs else "—", steps*bs if steps and bs else "—",
             "动态生成器 (加减竖式)" if "CoT" in str(r.get("methods")) else "动态生成器 (无中间草稿)",
             "1-4位", "0.5" if "0.5" in str(r.get("desc")) else "0.0", "无衰减", "0..3 随机",
-            r.get("lr", "3e-4"), "Cosine + Warmup", 200, 0.1
+            r.get("lr", "3e-4"), "Cosine + Warmup", min(200, steps // 4) if steps else 200, 0.1
         ]
         for c_idx, val in enumerate(v_base, 1):
             cell = ws.cell(r_idx, c_idx, value=val)
@@ -259,7 +233,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
                 "batch_size": bs if bs else 32,
                 "lr": 3e-4,
                 "wd": 0.1,
-                "warmup": 200,
+                "warmup": min(200, steps // 4) if steps else 200,
                 "datasource": {
                     "type": "cot" if is_cot else "plain",
                     "max_digits": 4,
