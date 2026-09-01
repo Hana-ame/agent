@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 1. Consolidate Excel sheets into ONE single table per workbook.
-2. Number all experiments sequentially with ZERO PADDING (001, 002, 003...) in column 1 (formatted as Text '@').
-3. Generate all JSON configs named '{序号}_{描述}.json' (e.g. '001_n_layer_1_d128.json') matching the Excel table.
+2. Merge '实验类别' and '实验标识/描述' into ONE unified column: '实验测试目的'.
+3. Number all experiments sequentially with ZERO PADDING (001, 002, 003...) in column 1 (formatted as Text '@').
+4. Generate all JSON configs named '{序号}_{描述}.json' (e.g. '001_n_layer_1_d128.json') matching the Excel table.
 """
 
 import os
@@ -74,20 +75,23 @@ ADD_METHODS = [
 ]
 
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
-    num_cols = 19 + len(ADD_METHODS) + 13
+    # Columns: 序号(1), 实验测试目的(2), 层数L(3), 宽度d(4), 训练步数(5), 批量(6), 总批次数(7), 等效Epochs(8), 样本吞吐量(9),
+    # 数据源类型(10), 操作数位数(11), 4位偏置比例(12), 稀疏衰减(13), 空格扰动(14), 学习率LR(15), 调度(16), 预热步数(17), 权重衰减(18),
+    # 18 Checkmark cols (19..36), 13 Result cols (37..49)
+    num_cols = 18 + len(ADD_METHODS) + 13
     create_title_block(ws, title, subtitle, num_cols)
 
-    h_base = ["序号", "实验类别", "实验描述与具体配置", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "样本吞吐量 (Samples)",
+    h_base = ["序号", "实验测试目的", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "样本吞吐量 (Samples)",
               "数据源类型", "操作数位数 (Digits)", "4位偏置比例 (Bias)", "稀疏衰减 (Sparse)", "空格扰动 (Spaces)",
               "学习率 LR", "调度 (Schedule)", "预热步数", "权重衰减 (WD)"]
     for idx, h in enumerate(h_base, 1):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
-        c.fill = FILL_HEADER_CFG if idx <= 5 else (FILL_HEADER_DATA if idx <= 15 else FILL_HEADER_OPT)
+        c.fill = FILL_HEADER_CFG if idx <= 4 else (FILL_HEADER_DATA if idx <= 14 else FILL_HEADER_OPT)
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = HEADER_BORDER
         
-    m_start = 20
+    m_start = 19
     for idx, m in enumerate(ADD_METHODS, m_start):
         c = ws.cell(3, idx, value=m)
         c.font = FONT_HEADER_CHECK
@@ -104,7 +108,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = HEADER_BORDER
     ws.row_dimensions[3].height = 30
-    ws.freeze_panes = "D4"
+    ws.freeze_panes = "C4"
 
     for idx_num, r in enumerate(rows, 1):
         r_idx = idx_num + 3
@@ -113,8 +117,17 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         
         steps = int(r.get("steps", 0) or 0)
         bs = int(r.get("bs", 0) or 0)
+        
+        # Merge 类别 + 描述 into 实验测试目的
+        cat = r.get("category", "")
+        desc = r.get("desc", "")
+        if cat and desc:
+            purpose = f"【{cat}】{desc}"
+        else:
+            purpose = desc or cat
+            
         v_base = [
-            seq_id, r.get("category"), r.get("desc"), r.get("l"), r.get("d"),
+            seq_id, purpose, r.get("l"), r.get("d"),
             steps, bs, steps, f"{steps*bs/1000:.1f}" if steps and bs else "—", steps*bs if steps and bs else "—",
             "动态生成器 (加减竖式)" if "CoT" in str(r.get("methods")) else "动态生成器 (无中间草稿)",
             "1-4位", "0.5" if "0.5" in str(r.get("desc")) else "0.0", "无衰减", "0..3 随机",
@@ -122,11 +135,11 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         ]
         for c_idx, val in enumerate(v_base, 1):
             cell = ws.cell(r_idx, c_idx, value=val)
-            cell.font = FONT_CODE if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 16, 18, 19) else FONT_REGULAR
-            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19) else "left", vertical="center")
+            cell.font = FONT_CODE if c_idx in (1, 3, 4, 5, 6, 7, 8, 9, 15, 17, 18) else FONT_REGULAR
+            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 17, 18) else "left", vertical="center")
             cell.border = THIN_BORDER
             if c_idx == 1:
-                cell.number_format = "@"  # Force text format to preserve leading zero padding
+                cell.number_format = "@"  # Force text format
             if is_zebra: cell.fill = FILL_ZEBRA_LIGHT
             
         active_m = set(r.get("methods", []))
@@ -171,9 +184,8 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
                 is_cot = False
                 
             cfg_dict = {
-                "id": seq_id,
-                "category": r.get("category"),
-                "description": r.get("desc"),
+                "seq_id": seq_id,
+                "test_objective": purpose,
                 "layers": int(r.get("l")) if str(r.get("l")).isdigit() else 2,
                 "d": int(r.get("d")) if str(r.get("d")).isdigit() else 64,
                 "heads": 4,
@@ -195,10 +207,10 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
 
     for col in range(1, num_cols + 1):
         let = get_column_letter(col)
-        if col in (1, 4, 5): ws.column_dimensions[let].width = 9
-        elif col in (2, 3): ws.column_dimensions[let].width = 24
-        elif col in range(6, 11): ws.column_dimensions[let].width = 12
-        elif col in range(11, 20): ws.column_dimensions[let].width = 14
+        if col in (1, 3, 4): ws.column_dimensions[let].width = 9
+        elif col == 2: ws.column_dimensions[let].width = 38
+        elif col in range(5, 10): ws.column_dimensions[let].width = 12
+        elif col in range(10, 19): ws.column_dimensions[let].width = 14
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 11
         elif col in range(r_start, num_cols): ws.column_dimensions[let].width = 10
         elif col == num_cols: ws.column_dimensions[let].width = 65
@@ -317,21 +329,21 @@ MAZE_EXP_DATA = [
 ]
 
 def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
-    num_cols = 16 + len(MAZE_METHODS) + 12
+    num_cols = 15 + len(MAZE_METHODS) + 12
     create_title_block(ws, title, subtitle, num_cols)
 
-    h_base = ["序号", "实验类别", "实验描述与具体配置", "层数 L", "宽度 d", "头数 H", 
+    h_base = ["序号", "实验测试目的", "层数 L", "宽度 d", "头数 H", 
               "训练步数 (Steps)", "批量 (Batch Size)", "总轨迹数 (Episodes)", "总环境交互步数",
               "迷宫尺寸/拓扑", "观测视场 (Observation)", "动作空间 (Action Space)",
               "学习率 LR", "调度 (Schedule)", "奖励/损失函数设计"]
     for idx, h in enumerate(h_base, 1):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
-        c.fill = FILL_HEADER_CFG if idx <= 6 else (FILL_HEADER_DATA if idx <= 13 else FILL_HEADER_OPT)
+        c.fill = FILL_HEADER_CFG if idx <= 5 else (FILL_HEADER_DATA if idx <= 12 else FILL_HEADER_OPT)
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = HEADER_BORDER
         
-    m_start = 17
+    m_start = 16
     for idx, m in enumerate(MAZE_METHODS, m_start):
         c = ws.cell(3, idx, value=m)
         c.font = FONT_HEADER_CHECK
@@ -348,23 +360,30 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = HEADER_BORDER
     ws.row_dimensions[3].height = 30
-    ws.freeze_panes = "D4"
+    ws.freeze_panes = "C4"
 
     for idx_num, r in enumerate(rows, 1):
         r_idx = idx_num + 3
         is_zebra = (r_idx % 2 == 0)
         seq_id = f"{idx_num:03d}"
         
+        cat = r.get("cat", "")
+        desc = r.get("desc", "")
+        if cat and desc:
+            purpose = f"【{cat}】{desc}"
+        else:
+            purpose = desc or cat
+
         v_base = [
-            seq_id, r["cat"], r["desc"], r["l"], r["d"], r["h"],
+            seq_id, purpose, r["l"], r["d"], r["h"],
             r["steps"], r["bs"], r["episodes"], r["env_steps"],
             r["grid"], r["obs"], r["actions"],
             r["lr"], r["schedule"], r["reward"]
         ]
         for c_idx, val in enumerate(v_base, 1):
             cell = ws.cell(r_idx, c_idx, value=val)
-            cell.font = FONT_CODE if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 14) else FONT_REGULAR
-            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 14) else "left", vertical="center")
+            cell.font = FONT_CODE if c_idx in (1, 3, 4, 5, 6, 7, 8, 9, 13) else FONT_REGULAR
+            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 3, 4, 5, 6, 7, 8, 9, 13) else "left", vertical="center")
             cell.border = THIN_BORDER
             if c_idx == 1:
                 cell.number_format = "@"  # Force text format
@@ -407,9 +426,8 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
             clean_desc = sanitize(r["desc"])
             cfg_filename = f"{seq_id}_{clean_desc}.json"
             cfg_dict = {
-                "id": seq_id,
-                "category": r["cat"],
-                "description": r["desc"],
+                "seq_id": seq_id,
+                "test_objective": purpose,
                 "layers": r["l"],
                 "d": r["d"],
                 "heads": r["h"],
@@ -430,10 +448,10 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
 
     for col in range(1, num_cols + 1):
         let = get_column_letter(col)
-        if col in (1, 4, 5, 6): ws.column_dimensions[let].width = 9
-        elif col in (2, 3): ws.column_dimensions[let].width = 24
-        elif col in range(7, 11): ws.column_dimensions[let].width = 12
-        elif col in range(11, 17): ws.column_dimensions[let].width = 16
+        if col in (1, 3, 4, 5): ws.column_dimensions[let].width = 9
+        elif col == 2: ws.column_dimensions[let].width = 38
+        elif col in range(6, 10): ws.column_dimensions[let].width = 12
+        elif col in range(10, 16): ws.column_dimensions[let].width = 16
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 12
         elif col in range(r_start, num_cols): ws.column_dimensions[let].width = 11
         elif col == num_cols: ws.column_dimensions[let].width = 65
