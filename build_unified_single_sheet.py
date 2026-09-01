@@ -3,8 +3,9 @@
 """
 1. Consolidate Excel sheets into ONE single table per workbook.
 2. Merge '实验类别' and '实验标识/描述' into ONE unified column: '实验测试目的'.
-3. Number all experiments sequentially with ZERO PADDING (001, 002, 003...) in column 1 (formatted as Text '@').
-4. Generate all JSON configs named '{序号}_{描述}.json' (e.g. '001_n_layer_1_d128.json') matching the Excel table.
+3. Add step scaling experiments: 4000, 8000, 16000, 32000, 128000, 1024000, marked as '未跑'.
+4. Number all experiments sequentially with ZERO PADDING (001, 002, 003...) in column 1 (formatted as Text '@').
+5. Generate all JSON configs named '{序号}_{描述}.json' (e.g. '001_n_layer_1_d128.json') matching the Excel table.
 """
 
 import os
@@ -25,6 +26,7 @@ FONT_REGULAR = Font(name="Segoe UI", size=9, color="000000")
 FONT_CODE = Font(name="Consolas", size=8.5, color="1F3864")
 FONT_CHECK = Font(name="Segoe UI", size=11, bold=True, color="1B5E20")
 FONT_EMPTY = Font(name="Segoe UI", size=9, color="D0D0D0")
+FONT_UNRUN = Font(name="Segoe UI", size=9, bold=True, color="B25900")
 
 FILL_NAVY = PatternFill("solid", fgColor="1F4E78")
 FILL_HEADER_CFG = PatternFill("solid", fgColor="2F5597")
@@ -38,6 +40,7 @@ FILL_ZEBRA_LIGHT = PatternFill("solid", fgColor="F9FBFD")
 FILL_CHECK_BG = PatternFill("solid", fgColor="E8F5E9")
 FILL_SUCCESS = PatternFill("solid", fgColor="E2EFDA")
 FILL_ALERT = PatternFill("solid", fgColor="FCE4D6")
+FILL_UNRUN = PatternFill("solid", fgColor="FFF2CC")
 
 THIN_BORDER = Border(
     left=Side(style='thin', color='E0E0E0'), right=Side(style='thin', color='E0E0E0'),
@@ -74,10 +77,70 @@ ADD_METHODS = [
     "RoPE旋转", "INT8动态量化", "INT4低比特"
 ]
 
+NEW_STEP_ROWS = [
+    {
+        "category": "步数扩展-长周期训练",
+        "desc": "L4_D128 CoT 4,000步基线 (待运行)",
+        "l": 4, "d": 128, "steps": 4000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "未跑", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行 / 未跑】计划验证 4,000 步基线收敛表现。"
+    },
+    {
+        "category": "步数扩展-长周期训练",
+        "desc": "L4_D128 CoT 8,000步扩展 (待运行)",
+        "l": 4, "d": 128, "steps": 8000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "未跑", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行 / 未跑】计划验证 8,000 步翻倍训练对4位减法与难例进位的增益。"
+    },
+    {
+        "category": "步数扩展-长周期训练",
+        "desc": "L4_D128 CoT 16,000步扩展 (待运行)",
+        "l": 4, "d": 128, "steps": 16000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "未跑", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行 / 未跑】计划验证 16,000 步长程训练下的损失下限与稳定性。"
+    },
+    {
+        "category": "步数扩展-长周期训练",
+        "desc": "L4_D128 CoT 32,000步扩展 (待运行)",
+        "l": 4, "d": 128, "steps": 32000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "未跑", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行 / 未跑】计划验证 32,000 步下是否存在过拟合或退化现象。"
+    },
+    {
+        "category": "步数扩展-长周期训练",
+        "desc": "L4_D128 CoT 128,000步超长训练 (待运行)",
+        "l": 4, "d": 128, "steps": 128000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "未跑", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行 / 未跑】计划验证 128,000 步超长训练的缩放定律（Scaling Law）。"
+    },
+    {
+        "category": "步数扩展-长周期训练",
+        "desc": "L4_D128 CoT 1,024,000步极限吞吐测试 (待运行)",
+        "l": 4, "d": 128, "steps": 1024000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "未跑", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行 / 未跑】计划验证 1,024,000 步（1M+ 步）极限算力下的泛化上限。"
+    }
+]
+
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
-    # Columns: 序号(1), 实验测试目的(2), 层数L(3), 宽度d(4), 训练步数(5), 批量(6), 总批次数(7), 等效Epochs(8), 样本吞吐量(9),
-    # 数据源类型(10), 操作数位数(11), 4位偏置比例(12), 稀疏衰减(13), 空格扰动(14), 学习率LR(15), 调度(16), 预热步数(17), 权重衰减(18),
-    # 18 Checkmark cols (19..36), 13 Result cols (37..49)
     num_cols = 18 + len(ADD_METHODS) + 13
     create_title_block(ws, title, subtitle, num_cols)
 
@@ -118,7 +181,6 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         steps = int(r.get("steps", 0) or 0)
         bs = int(r.get("bs", 0) or 0)
         
-        # Merge 类别 + 描述 into 实验测试目的
         cat = r.get("category", "")
         desc = r.get("desc", "")
         if cat and desc:
@@ -164,11 +226,13 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         for idx, val in enumerate(v_res, r_start):
             cell = ws.cell(r_idx, idx, value=val)
             is_concl = (idx == r_start + len(v_res) - 1)
-            cell.font = FONT_REGULAR if is_concl else FONT_CODE
+            cell.font = FONT_REGULAR if is_concl else (FONT_UNRUN if val == "未跑" else FONT_CODE)
             cell.border = THIN_BORDER
             cell.alignment = Alignment(horizontal="left" if is_concl else "center", vertical="center", wrap_text=is_concl)
             if not is_concl:
-                if str(val).endswith("%"):
+                if val == "未跑":
+                    cell.fill = FILL_UNRUN
+                elif str(val).endswith("%"):
                     fval = float(str(val).replace("%", ""))
                     if fval >= 90.0: cell.fill = FILL_SUCCESS
                     elif fval == 0.0: cell.fill = FILL_ALERT
@@ -179,12 +243,14 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         if cfg_dir:
             clean_desc = sanitize(r.get("desc"))
             cfg_filename = f"{seq_id}_{clean_desc}.json"
-            is_cot = "CoT" in str(r.get("desc")) or "cot" in str(r.get("id")).lower() or "L-" in str(r.get("id")) or "D-" in str(r.get("id"))
-            if "Plain" in str(r.get("category")) or "PLAIN" in str(r.get("id")):
+            is_cot = "CoT" in str(r.get("desc")) or "cot" in str(r.get("id", "")).lower() or "L-" in str(r.get("id", "")) or "D-" in str(r.get("id", ""))
+            if "Plain" in str(r.get("category")) or "PLAIN" in str(r.get("id", "")):
                 is_cot = False
                 
+            status_flag = "unrun" if r.get("add1") == "未跑" else "completed"
             cfg_dict = {
                 "seq_id": seq_id,
+                "status": status_flag,
                 "test_objective": purpose,
                 "layers": int(r.get("l")) if str(r.get("l")).isdigit() else 2,
                 "d": int(r.get("d")) if str(r.get("d")).isdigit() else 64,
@@ -208,7 +274,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
     for col in range(1, num_cols + 1):
         let = get_column_letter(col)
         if col in (1, 3, 4): ws.column_dimensions[let].width = 9
-        elif col == 2: ws.column_dimensions[let].width = 38
+        elif col == 2: ws.column_dimensions[let].width = 44
         elif col in range(5, 10): ws.column_dimensions[let].width = 12
         elif col in range(10, 19): ws.column_dimensions[let].width = 14
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 11
@@ -410,11 +476,13 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
         for idx, val in enumerate(v_res, r_start):
             cell = ws.cell(r_idx, idx, value=val)
             is_concl = (idx == r_start + len(v_res) - 1)
-            cell.font = FONT_REGULAR if is_concl else FONT_CODE
+            cell.font = FONT_REGULAR if is_concl else (FONT_UNRUN if val == "未跑" else FONT_CODE)
             cell.border = THIN_BORDER
             cell.alignment = Alignment(horizontal="left" if is_concl else "center", vertical="center", wrap_text=is_concl)
             if not is_concl:
-                if str(val).endswith("%"):
+                if val == "未跑":
+                    cell.fill = FILL_UNRUN
+                elif str(val).endswith("%"):
                     fval = float(str(val).replace("%", ""))
                     if fval >= 80.0: cell.fill = FILL_SUCCESS
                     elif fval == 0.0: cell.fill = FILL_ALERT
@@ -427,6 +495,7 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
             cfg_filename = f"{seq_id}_{clean_desc}.json"
             cfg_dict = {
                 "seq_id": seq_id,
+                "status": "completed",
                 "test_objective": purpose,
                 "layers": r["l"],
                 "d": r["d"],
@@ -459,7 +528,7 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
 def build_all():
     from generate_full_granular_excel import build_all_granular_rows
     all_raw = build_all_granular_rows()
-    add_rows = [r for r in all_raw if "迷宫" not in r["category"] and "MAZE" not in r["id"]]
+    add_rows = [r for r in all_raw if "迷宫" not in r["category"] and "MAZE" not in r["id"]] + NEW_STEP_ROWS
 
     # 1. Additive Workbook (Single Sheet)
     wb_add = Workbook()
