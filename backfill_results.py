@@ -88,7 +88,7 @@ def patch_mechanism_rows():
                 i += 1
                 seq += 1
                 continue
-            loss_s = f"{met['loss']:.4f}" if met["loss"] is not None else "未跑"
+            loss_s = f"{met['loss']:.4f}" if met["loss"] is not None else "—"
             new_slot = (
                 f'{m.group(1)}"{pct(met["add1"])}", "{pct(met["add2"])}", '
                 f'"{pct(met["add3"])}", "{pct(met["add4"])}", '
