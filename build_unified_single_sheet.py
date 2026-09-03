@@ -358,7 +358,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
     create_title_block(ws, title, subtitle, num_cols)
 
     h_base = ["序号", "实验测试目的", "基座模型 (Base Model)", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "samples",
-              "数据源参数 (data.py)", "4位偏置比例 (Bias)", "稀疏衰减 (Sparse)", "空格扰动 (Spaces)",
+              "输入数据 (data.py)", "4位偏置比例 (Bias)", "稀疏衰减 (Sparse)", "空格扰动 (Spaces)",
               "学习率 LR", "调度 (Schedule)", "预热步数", "权重衰减 (WD)"]
     for idx, h in enumerate(h_base, 1):
         c = ws.cell(3, idx, value=h)
@@ -376,7 +376,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         c.border = HEADER_BORDER
         
     r_start = m_start + len(ADD_METHODS)
-    h_res = ["Add1 %", "Add2 %", "Add3 %", "Add4 %", "Sub1 %", "Sub2 %", "Sub3 %", "Sub4 %", "唯一式 (Unique)", "Loss 损失", "评测协议", "耗时 (s)", "实测现象与表现记载"]
+    h_res = ["Add1 %", "Add2 %", "Add3 %", "Add4 %", "Sub1 %", "Sub2 %", "Sub3 %", "Sub4 %", "唯一式 (Unique)", "Loss 损失", "检测数据", "耗时 (s)", "实测现象与表现记载"]
     for idx, h in enumerate(h_res, r_start):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
