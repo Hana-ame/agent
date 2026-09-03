@@ -15,6 +15,8 @@
 | **全实验归档总库** | [`archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) | 历史跨模块统一归档宽表 |
 | **接棒 Agent 操作手册** | [`AGENTS.md`](AGENTS.md) | **零本地运行红线**、197–220待跑实验任务池、Colab 执行 SOP 与指标回填规范 |
 | **加法 Colab 手册** | [`Colab_Run_Additive_Transformer.ipynb`](Colab_Run_Additive_Transformer.ipynb) | Google Colab 一键训练、探针诊断、INT8量化与 Drive 自动同步 |
+| **Colab T4 并行手册** | [`Colab_T4_Parallel_Train.ipynb`](Colab_T4_Parallel_Train.ipynb) | 单卡 T4 8~32 路多线程并发训练与 40 题严格评测（速度提升 8~10 倍） |
+| **T4 并行技术指南** | [`COLAB_T4_PARALLEL_GUIDE.md`](COLAB_T4_PARALLEL_GUIDE.md) | Colab 单卡多流并发加速原理、API 调用与操作指南 |
 | **迷宫 Colab 手册** | [`Colab_Run_Maze_Transformer.ipynb`](Colab_Run_Maze_Transformer.ipynb) | 反应式 2D 迷宫纯 RL (GRPO) 导航一键训练与可视化 |
 | **加法训练入口** | [`additive-rand-transformer/additive_rand_transformer/train.py`](additive-rand-transformer/additive_rand_transformer/train.py) | 支持 `train.py --config config.json` 灵活拉起 |
 | **迷宫训练入口** | [`maze-transformer/maze_transformer/train.py`](maze-transformer/maze_transformer/train.py) | 支持 `train.py --config maze_config.json` 灵活拉起 |

@@ -27,6 +27,8 @@
 | **加法实验子表** | `additive-rand-transformer/EXPERIMENTS_ALL.xlsx` | 加法专用的单表全景矩阵，包含 18 项打勾方式与细分指标。 |
 | **实验配置池** | `additive-rand-transformer/configs/` | 包含 `001_...json` 到 `220_...json` 的标准启动配置文件。 |
 | **Colab 启动手册** | `Colab_Run_Additive_Transformer.ipynb` | Google Colab 一键训练、探针诊断与 Drive 自动同步 Notebook。 |
+| **Colab T4 并行手册** | `Colab_T4_Parallel_Train.ipynb` | 单卡 T4 8~32 路多线程并发训练与 40 题严格评测。 |
+| **T4 并行技术指南** | `COLAB_T4_PARALLEL_GUIDE.md` | Colab 单卡多流并发加速原理、API 调用与操作指南。 |
 | **Excel 编译引擎** | `expand_and_update_all_excels.py` | 本地执行，用于自动重新编译生成上述全部 Excel 表格与 JSON 配置。 |
 
 ---
@@ -89,6 +91,8 @@ drive.mount('/content/drive')
 ```
 
 ### Step 3: 根据配置文件拉起指定实验
+
+#### 选项 A：单实验串行调试（针对特定机制深度跟踪）
 使用 `train.py` 直接读取 `configs/` 下对应的 JSON 配置文件：
 ```bash
 # 示例 1：运行 197 号前沿机制突破实验
@@ -96,6 +100,15 @@ python -m additive_rand_transformer.train --config configs/197_l4_d128_lsd.json
 
 # 示例 2：运行 201 号循环权重共享实验
 python -m additive_rand_transformer.train --config configs/201_looped-ut_block_4.json
+```
+
+#### 选项 B：⚡ 单卡 T4 多路并发批量跑（强烈推荐，速度提升 8~10 倍）
+直接打开 [`Colab_T4_Parallel_Train.ipynb`](Colab_T4_Parallel_Train.ipynb) 或在 Python 中调用并行引擎（详见 [`COLAB_T4_PARALLEL_GUIDE.md`](COLAB_T4_PARALLEL_GUIDE.md)）：
+```python
+from additive_rand_transformer.parallel_train import run_parallel_batch
+
+# 8 路并发，几分钟内一键跑完 197-204 并完成 40 题严格评测
+reports = run_parallel_batch(run_mode="FRONTIER_197_204", parallel=8)
 ```
 
 ### Step 4: 记录产出指标
