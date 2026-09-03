@@ -1136,7 +1136,7 @@ def build_all_expanded():
     for r in all_add_rows_16:
         r["vocab_size"] = 16
 
-    # 4. Generate parallel Vocab 32 experiments (1-to-1 counterpart for systematic comparison):
+    # 4. Generate counterpart Vocab 32 experiments (1-to-1 counterpart for systematic comparison):
     all_add_rows_32 = []
     for r in all_add_rows_16:
         r32 = dict(r)
