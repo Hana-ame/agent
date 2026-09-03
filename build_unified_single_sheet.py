@@ -858,6 +858,7 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
 
 def build_all():
     from generate_full_granular_excel import build_all_granular_rows
+    ROOT = os.path.dirname(os.path.abspath(__file__))
     all_raw = build_all_granular_rows()
     add_rows = [r for r in all_raw if "迷宫" not in r["category"] and "MAZE" not in r["id"]] + NEW_STEP_ROWS
 
@@ -865,13 +866,12 @@ def build_all():
     wb_add = Workbook()
     ws_add = wb_add.active
     ws_add.title = "全部加法实验总表"
-    cfg_add = "/home/luminovoez/agent/additive-rand-transformer/configs"
-    if os.path.exists(cfg_add): shutil.rmtree(cfg_add)
+    cfg_add = os.path.join(ROOT, "additive-rand-transformer", "configs")
     os.makedirs(cfg_add, exist_ok=True)
     render_additive_table(ws_add, "TinyGPT 加法算术探针全量实验总表 (单表全景矩阵)",
                           f"共 {len(add_rows)} 项实验统一按序号 001..{len(add_rows):03d} 顺序排列，包含 18 项打勾方式与细分结果指标",
                           add_rows, cfg_dir=cfg_add)
-    out_add = "/home/luminovoez/agent/additive-rand-transformer/EXPERIMENTS_ALL.xlsx"
+    out_add = os.path.join(ROOT, "additive-rand-transformer", "EXPERIMENTS_ALL.xlsx")
     wb_add.save(out_add)
     print(f"✓ Additive Workbook (Single Sheet: 001..{len(add_rows):03d}) saved: {out_add}")
 
@@ -879,13 +879,12 @@ def build_all():
     wb_maze = Workbook()
     ws_maze = wb_maze.active
     ws_maze.title = "全部迷宫实验总表"
-    cfg_maze = "/home/luminovoez/agent/maze-transformer/configs"
-    if os.path.exists(cfg_maze): shutil.rmtree(cfg_maze)
+    cfg_maze = os.path.join(ROOT, "maze-transformer", "configs")
     os.makedirs(cfg_maze, exist_ok=True)
     render_maze_table(ws_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
                       f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列，包含 10 项强化学习打勾与到达率指标",
                       MAZE_EXP_DATA, cfg_dir=cfg_maze)
-    out_maze = "/home/luminovoez/agent/maze-transformer/EXPERIMENTS_ALL.xlsx"
+    out_maze = os.path.join(ROOT, "maze-transformer", "EXPERIMENTS_ALL.xlsx")
     wb_maze.save(out_maze)
     print(f"✓ Maze Workbook (Single Sheet: 001..{len(MAZE_EXP_DATA):03d}) saved: {out_maze}")
 
@@ -900,7 +899,7 @@ def build_all():
     render_maze_table(ws_m_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
                       f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列",
                       MAZE_EXP_DATA, cfg_dir=None)
-    out_master = "/home/luminovoez/agent/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx"
+    out_master = os.path.join(ROOT, "archive", "ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx")
     wb_master.save(out_master)
     print(f"✓ Master Workbook saved: {out_master}")
 
