@@ -617,32 +617,28 @@ def build_all_expanded():
     wb_add = Workbook()
     ws_add = wb_add.active
     ws_add.title = "全部加法实验总表"
-    cfg_add = os.path.join(ROOT, "additive-rand-transformer/configs")
-    if os.path.exists(cfg_add):
-        shutil.rmtree(cfg_add)
-    os.makedirs(cfg_add, exist_ok=True)
 
     render_additive_table(ws_add, "TinyGPT 加法算术探针全量实验总表 (单表全景矩阵)",
                           f"共 {len(all_add_rows)} 项实验统一按序号 001..{len(all_add_rows):03d} 顺序排列，包含 18 项打勾方式、完整定量指标与是否符合预期归因",
-                          all_add_rows, cfg_dir=cfg_add)
+                          all_add_rows, cfg_dir=None)
     out_add = os.path.join(ROOT, "additive-rand-transformer/EXPERIMENTS_ALL.xlsx")
     wb_add.save(out_add)
-    print(f"✓ Additive Workbook saved: {out_add}")
+    out_root_add = os.path.join(ROOT, "加法实验总表.xlsx")
+    wb_add.save(out_root_add)
+    print(f"✓ Additive Workbook saved: {out_add} & {out_root_add}")
 
     # 2. Maze Workbook
     wb_maze = Workbook()
     ws_maze = wb_maze.active
     ws_maze.title = "全部迷宫实验总表"
-    cfg_maze = os.path.join(ROOT, "maze-transformer/configs")
-    if os.path.exists(cfg_maze):
-        shutil.rmtree(cfg_maze)
-    os.makedirs(cfg_maze, exist_ok=True)
     render_maze_table(ws_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
                       f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列，包含 10 项强化学习打勾与到达率指标",
-                      MAZE_EXP_DATA, cfg_dir=cfg_maze)
+                      MAZE_EXP_DATA, cfg_dir=None)
     out_maze = os.path.join(ROOT, "maze-transformer/EXPERIMENTS_ALL.xlsx")
     wb_maze.save(out_maze)
-    print(f"✓ Maze Workbook saved: {out_maze}")
+    out_root_maze = os.path.join(ROOT, "迷宫实验总表.xlsx")
+    wb_maze.save(out_root_maze)
+    print(f"✓ Maze Workbook saved: {out_maze} & {out_root_maze}")
 
     # 3. Master Root Workbook
     wb_master = Workbook()
