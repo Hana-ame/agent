@@ -608,7 +608,7 @@ def eval_row_40(r):
 
 
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
-    q_headers = [spec[3] for spec in TEST_40_SPECS]
+    q_headers = [f"Q{spec[0]:02d}: {spec[3]}" for spec in TEST_40_SPECS]
     sum_headers = ["总得分 (40题)", "唯一式 (Unique)", "Loss 损失", "耗时 (s)", "实测现象与表现记载 (符合预期/机制归因)"]
     h_res = q_headers + sum_headers
     num_cols = 17 + len(ADD_METHODS) + len(h_res)
@@ -782,7 +782,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         elif col == 11: ws.column_dimensions[let].width = 40
         elif col in range(12, 18): ws.column_dimensions[let].width = 14
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 11
-        elif col in range(r_start, r_start + 40): ws.column_dimensions[let].width = 11
+        elif col in range(r_start, r_start + 40): ws.column_dimensions[let].width = 14
         elif col == r_start + 40: ws.column_dimensions[let].width = 14
         elif col in range(r_start + 41, num_cols): ws.column_dimensions[let].width = 12
         elif col == num_cols: ws.column_dimensions[let].width = 65
