@@ -1,0 +1,17 @@
+{
+  "seq": 199,
+  "config": "199_k_0_4.json",
+  "rc": 0,
+  "elapsed": 1758.0,
+  "metrics": {
+    "add1_pct": 100.0,
+    "add2_pct": 95.0,
+    "add3_pct": 87.5,
+    "add4_pct": 10.0,
+    "sub1_pct": 100.0,
+    "sub2_pct": 85.0,
+    "sub3_pct": 72.5,
+    "sub4_pct": 20.0,
+    "loss": 0.2235
+  }
+}

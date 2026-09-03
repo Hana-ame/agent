@@ -1,0 +1,18 @@
+{
+  "seq": 208,
+  "config": "208_step_200.json",
+  "rc": 0,
+  "steps": 200,
+  "elapsed": 94.0,
+  "metrics": {
+    "add1_pct": 2.5,
+    "add2_pct": 0.0,
+    "add3_pct": 0.0,
+    "add4_pct": 0.0,
+    "sub1_pct": 22.5,
+    "sub2_pct": 2.5,
+    "sub3_pct": 0.0,
+    "sub4_pct": 0.0,
+    "loss": 0.6842
+  }
+}

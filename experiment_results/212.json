@@ -1,0 +1,18 @@
+{
+  "seq": 212,
+  "config": "212_step_4000.json",
+  "rc": 0,
+  "steps": 4000,
+  "elapsed": 609.6,
+  "metrics": {
+    "add1_pct": 97.5,
+    "add2_pct": 95.0,
+    "add3_pct": 75.0,
+    "add4_pct": 20.0,
+    "sub1_pct": 100.0,
+    "sub2_pct": 100.0,
+    "sub3_pct": 90.0,
+    "sub4_pct": 37.5,
+    "loss": 0.1728
+  }
+}

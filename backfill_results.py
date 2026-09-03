@@ -147,7 +147,18 @@ def patch_step_rows():
         met = load_metrics(seq)
         if met is None:
             missing.append(seq)
-            rows.append(None)
+            # Honest placeholder: keep this row as an unrun experiment (未跑),
+            # NOT dropping it from the Excel. Same dict shape as NEW_STEP_ROWS.
+            rows.append({
+                "category": "步数扩展-梯度扫描",
+                "desc": f"L4_D128 CoT {desc_suffix} (待运行)",
+                "l": 4, "d": 128, "steps": st, "bs": 32, "lr": "3e-4",
+                "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+                "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+                "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+                "unique": "未跑", "loss": "未跑", "time_s": "—",
+                "conclusion": f"【待运行 / 未跑】连续训练曲线尚未推进到 {st:,} 步,评测待曲线完成该步数后回填。",
+            })
             continue
         loss_s = f"{met['loss']:.4f}" if met["loss"] is not None else "未跑"
         concl = (
@@ -172,8 +183,6 @@ def patch_step_rows():
 
     # Build new NEW_STEP_ROWS block text
     def fmt_row(r):
-        if r is None:
-            return None
         def q(x):
             return json.dumps(x, ensure_ascii=False)
         return (
@@ -191,12 +200,11 @@ def patch_step_rows():
 
     block_lines = ["NEW_STEP_ROWS = ["]
     for r in rows:
-        if r is None:
-            block_lines.append("    # (unrun placeholder)")
-            continue
         block_lines.append(fmt_row(r))
         block_lines.append(",")
     block_lines.append("]")
+    if missing:
+        print(f"  [info] steps without results kept as 未跑 rows: {missing}")
 
     new_block = "\n".join(block_lines)
     start = src.index("NEW_STEP_ROWS = [")

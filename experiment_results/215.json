@@ -1,0 +1,18 @@
+{
+  "seq": 215,
+  "config": "215_step_32000.json",
+  "rc": 0,
+  "steps": 32000,
+  "elapsed": 3695.8,
+  "metrics": {
+    "add1_pct": 100.0,
+    "add2_pct": 100.0,
+    "add3_pct": 95.0,
+    "add4_pct": 35.0,
+    "sub1_pct": 100.0,
+    "sub2_pct": 100.0,
+    "sub3_pct": 97.5,
+    "sub4_pct": 90.0,
+    "loss": 0.1687
+  }
+}

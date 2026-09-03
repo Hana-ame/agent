@@ -1,0 +1,25 @@
+/home/lumin/miniconda3/lib/python3.12/site-packages/torch/autograd/graph.py:825: UserWarning: CUDA initialization: Unexpected error from cudaGetDeviceCount(). Did you run some cuda functions before calling NumCudaDevices() that might have already set an error? Error 304: OS call failed or operation not supported on this OS (Triggered internally at ../c10/cuda/CUDAFunctions.cpp:108.)
+  return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+Using device: cpu (CPU)
+======================================================================
+TinyGPT Initialized:
+  Architecture: L=4, d=128, Heads=4, Attn=causal, Block=1024
+  Total Parameters: 926,464
+  Training Steps: 200 (Batch Size: 32, Grad Accum: 1)
+  Datasource: CoT竖式, Max Digits: 4, 4-Digit Bias: 0.0
+======================================================================
+step     1 | loss 2.6848 | lr 1.20e-05 | cot_acc [add10% | add20% | add30% | add40% | sub110% | sub20% | sub30% | sub40%] | 0.4s
+step   200 | loss 0.6636 | lr 0.00e+00 | cot_acc [add10% | add20% | add30% | add40% | sub10% | sub20% | sub30% | sub40%] | 97.1s
+saved runs/runs_parallel/208/20260902_220038/checkpoint_000200.pt
+
+Final checkpoint successfully saved -> runs/runs_parallel/208/20260902_220038/checkpoint_final.pt
+
+=== CoT completion accuracy (greedy, from '<BOS> a op b =') ===
+   add1:   2.5%
+   add2:   0.0%
+   add3:   0.0%
+   add4:   0.0%
+   sub1:   7.5%
+   sub2:   0.0%
+   sub3:   0.0%
+   sub4:   0.0%

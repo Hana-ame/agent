@@ -1,0 +1,21 @@
+{
+  "seq": 204,
+  "config": "204_reader.json",
+  "rc": 0,
+  "steps": 200,
+  "elapsed": 351,
+  "metrics": {
+    "add1_pct": 72.5,
+    "add2_pct": 32.5,
+    "add3_pct": 2.5,
+    "add4_pct": 2.5,
+    "sub1_pct": 35.0,
+    "sub2_pct": 2.5,
+    "sub3_pct": 0.0,
+    "sub4_pct": 0.0,
+    "loss": null,
+    "obey_error_start": 1.0,
+    "obey_error_end": 1.0,
+    "obey_error_min": 0.12
+  }
+}

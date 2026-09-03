@@ -1,0 +1,18 @@
+{
+  "seq": 206,
+  "config": "206_step_50.json",
+  "rc": 0,
+  "steps": 50,
+  "elapsed": 6.1,
+  "metrics": {
+    "add1_pct": 2.5,
+    "add2_pct": 0.0,
+    "add3_pct": 0.0,
+    "add4_pct": 0.0,
+    "sub1_pct": 7.5,
+    "sub2_pct": 2.5,
+    "sub3_pct": 0.0,
+    "sub4_pct": 0.0,
+    "loss": 1.6165
+  }
+}

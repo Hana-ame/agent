@@ -1,0 +1,17 @@
+{
+  "seq": 198,
+  "config": "198_l2_d64_lsd.json",
+  "rc": 0,
+  "elapsed": 540.0,
+  "metrics": {
+    "add1_pct": 35.0,
+    "add2_pct": 0.0,
+    "add3_pct": 0.0,
+    "add4_pct": 0.0,
+    "sub1_pct": 12.5,
+    "sub2_pct": 0.0,
+    "sub3_pct": 0.0,
+    "sub4_pct": 0.0,
+    "loss": 0.372
+  }
+}
