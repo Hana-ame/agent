@@ -10,7 +10,9 @@
 
 | 资源 | 文件路径 | 说明 |
 |---|---|---|
-| **Excel 实验全景总库** | [`ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) | **全景宽表**：覆盖 220 项加法实验与 10 项迷宫实验，18 项训练方式打勾与细分定量指标 |
+| **加法实验总表** | [`加法实验总表.xlsx`](加法实验总表.xlsx) | **加法专用总表**：覆盖 220 项加法实验，18 项训练方式打勾与细分定量指标 |
+| **迷宫实验总表** | [`迷宫实验总表.xlsx`](迷宫实验总表.xlsx) | **迷宫专用总表**：覆盖 10 项迷宫强化学习实验与导航到达率指标 |
+| **全实验归档总库** | [`archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) | 历史跨模块统一归档宽表 |
 | **接棒 Agent 操作手册** | [`AGENT_EXPERIMENT_EXECUTION_GUIDE.md`](AGENT_EXPERIMENT_EXECUTION_GUIDE.md) | **零本地运行红线**、197–220待跑实验任务池、Colab 执行 SOP 与指标回填规范 |
 | **加法 Colab 手册** | [`Colab_Run_Additive_Transformer.ipynb`](Colab_Run_Additive_Transformer.ipynb) | Google Colab 一键训练、探针诊断、INT8量化与 Drive 自动同步 |
 | **迷宫 Colab 手册** | [`Colab_Run_Maze_Transformer.ipynb`](Colab_Run_Maze_Transformer.ipynb) | 反应式 2D 迷宫纯 RL (GRPO) 导航一键训练与可视化 |
@@ -146,4 +148,4 @@ python -m additive_rand_transformer.explore_h1
 ## 五、原 README 内容归档位置
 
 原 README 中的全部历史说明、7 个 Checkpoint 详细配置、Git LFS 与镜像环境配置，已全部整理并入 Excel 工作簿：
-👉 请打开 [`ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) 之 **`【仓库架构与项目说明_原README】`** 工作表进行查阅。
+👉 请打开 [`archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) 之 **`【仓库架构与项目说明_原README】`** 工作表进行查阅。

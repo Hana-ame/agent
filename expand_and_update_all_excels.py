@@ -621,11 +621,11 @@ def build_all_expanded():
     render_additive_table(ws_add, "TinyGPT 加法算术探针全量实验总表 (单表全景矩阵)",
                           f"共 {len(all_add_rows)} 项实验统一按序号 001..{len(all_add_rows):03d} 顺序排列，包含 18 项打勾方式、完整定量指标与是否符合预期归因",
                           all_add_rows, cfg_dir=None)
-    out_add = os.path.join(ROOT, "additive-rand-transformer/EXPERIMENTS_ALL.xlsx")
-    wb_add.save(out_add)
     out_root_add = os.path.join(ROOT, "加法实验总表.xlsx")
     wb_add.save(out_root_add)
-    print(f"✓ Additive Workbook saved: {out_add} & {out_root_add}")
+    out_archive_add = os.path.join(ROOT, "additive-rand-transformer/archive/EXPERIMENTS_ALL.xlsx")
+    wb_add.save(out_archive_add)
+    print(f"✓ Additive Workbook saved: {out_root_add} (archived: {out_archive_add})")
 
     # 2. Maze Workbook
     wb_maze = Workbook()
@@ -634,13 +634,13 @@ def build_all_expanded():
     render_maze_table(ws_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
                       f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列，包含 10 项强化学习打勾与到达率指标",
                       MAZE_EXP_DATA, cfg_dir=None)
-    out_maze = os.path.join(ROOT, "maze-transformer/EXPERIMENTS_ALL.xlsx")
-    wb_maze.save(out_maze)
     out_root_maze = os.path.join(ROOT, "迷宫实验总表.xlsx")
     wb_maze.save(out_root_maze)
-    print(f"✓ Maze Workbook saved: {out_maze} & {out_root_maze}")
+    out_archive_maze = os.path.join(ROOT, "maze-transformer/archive/EXPERIMENTS_ALL.xlsx")
+    wb_maze.save(out_archive_maze)
+    print(f"✓ Maze Workbook saved: {out_root_maze} (archived: {out_archive_maze})")
 
-    # 3. Master Root Workbook
+    # 3. Master Root Workbook (Archived)
     wb_master = Workbook()
     ws_m_add = wb_master.active
     ws_m_add.title = "加法探针_全实验总表"
@@ -651,9 +651,10 @@ def build_all_expanded():
     render_maze_table(ws_m_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
                       f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列",
                       MAZE_EXP_DATA, cfg_dir=None)
-    out_master = os.path.join(ROOT, "ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx")
+    os.makedirs(os.path.join(ROOT, "archive"), exist_ok=True)
+    out_master = os.path.join(ROOT, "archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx")
     wb_master.save(out_master)
-    print(f"✓ Master Workbook saved: {out_master}")
+    print(f"✓ Master Workbook archived: {out_master}")
 
 if __name__ == "__main__":
     build_all_expanded()
