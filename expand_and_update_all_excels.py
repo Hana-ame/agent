@@ -450,7 +450,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
     num_cols = 18 + len(ADD_METHODS) + 13
     create_title_block(ws, title, subtitle, num_cols)
 
-    h_base = ["序号", "实验测试目的", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "样本吞吐量 (Samples)",
+    h_base = ["序号", "实验测试目的", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "samples",
               "数据源类型", "操作数位数 (Digits)", "4位偏置比例 (Bias)", "稀疏衰减 (Sparse)", "空格扰动 (Spaces)",
               "学习率 LR", "调度 (Schedule)", "预热步数", "权重衰减 (WD)"]
     for idx, h in enumerate(h_base, 1):
