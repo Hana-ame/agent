@@ -535,7 +535,7 @@ def format_eval_protocol(r: dict) -> str:
 
 
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
-    num_cols = 17 + len(ADD_METHODS) + 13
+    num_cols = 17 + len(ADD_METHODS) + 12
     create_title_block(ws, title, subtitle, num_cols)
 
     h_base = ["序号", "实验测试目的", "基座模型 (Base Model)", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "samples",
@@ -557,7 +557,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         c.border = HEADER_BORDER
         
     r_start = m_start + len(ADD_METHODS)
-    h_res = ["Add1 %", "Add2 %", "Add3 %", "Add4 %", "Sub1 %", "Sub2 %", "Sub3 %", "Sub4 %", "唯一式 (Unique)", "Loss 损失", "检测数据", "耗时 (s)", "实测现象与表现记载 (符合预期/机制归因)"]
+    h_res = ["Add1 %", "Add2 %", "Add3 %", "Add4 %", "Sub1 %", "Sub2 %", "Sub3 %", "Sub4 %", "唯一式 (Unique)", "Loss 损失", "耗时 (s)", "实测现象与表现记载 (符合预期/机制归因)"]
     for idx, h in enumerate(h_res, r_start):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
@@ -616,7 +616,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         v_res = [
             r.get("add1", "—"), r.get("add2", "—"), r.get("add3", "—"), r.get("add4", "—"),
             r.get("sub1", "—"), r.get("sub2", "—"), r.get("sub3", "—"), r.get("sub4", "—"),
-            r.get("unique", "—"), r.get("loss", "—"), format_eval_protocol(r), r.get("time_s", "—"), r.get("conclusion", "")
+            r.get("unique", "—"), r.get("loss", "—"), r.get("time_s", "—"), r.get("conclusion", "")
         ]
         for idx, val in enumerate(v_res, r_start):
             cell = ws.cell(r_idx, idx, value=val)
@@ -687,7 +687,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         elif col in range(12, 18): ws.column_dimensions[let].width = 14
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 11
         elif col in range(r_start, num_cols):
-            ws.column_dimensions[let].width = 34 if col == r_start + 10 else 10
+            ws.column_dimensions[let].width = 10
         elif col == num_cols: ws.column_dimensions[let].width = 65
 
 def build_all_expanded():
