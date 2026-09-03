@@ -370,20 +370,21 @@ def format_eval_protocol(r: dict) -> str:
 
 
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
-    num_cols = 17 + len(ADD_METHODS) + 12
+    num_cols = 18 + len(ADD_METHODS) + 12
     create_title_block(ws, title, subtitle, num_cols)
 
-    h_base = ["序号", "实验测试目的", "基座模型 (Base Model)", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "samples",
+    h_base = ["序号", "实验测试目的", "基座模型 (Base Model)", "层数 L", "宽度 d", "词表大小 (Vocab)",
+              "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "samples",
               "输入数据 (data.py)", "4位偏置比例 (Bias)", "稀疏衰减 (Sparse)",
               "学习率 LR", "调度 (Schedule)", "预热步数", "权重衰减 (WD)"]
     for idx, h in enumerate(h_base, 1):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
-        c.fill = FILL_HEADER_CFG if idx <= 5 else (FILL_HEADER_DATA if idx <= 13 else FILL_HEADER_OPT)
+        c.fill = FILL_HEADER_CFG if idx <= 6 else (FILL_HEADER_DATA if idx <= 14 else FILL_HEADER_OPT)
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = HEADER_BORDER
         
-    m_start = 18
+    m_start = 19
     for idx, m in enumerate(ADD_METHODS, m_start):
         c = ws.cell(3, idx, value=m)
         c.font = FONT_HEADER_CHECK
@@ -418,7 +419,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
             purpose = desc or cat
             
         v_base = [
-            seq_id, purpose, get_base_model(r), r.get("l"), r.get("d"),
+            seq_id, purpose, get_base_model(r), r.get("l"), r.get("d"), r.get("vocab_size", 16),
             steps, bs, steps, f"{steps*bs/1000:.1f}" if steps and bs else "—", steps*bs if steps and bs else "—",
             format_data_param(r),
             "0.5" if "0.5" in str(r.get("desc")) else "0.0", "无衰减",
@@ -426,8 +427,8 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         ]
         for c_idx, val in enumerate(v_base, 1):
             cell = ws.cell(r_idx, c_idx, value=val)
-            cell.font = FONT_CODE if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 11, 14, 16, 17) else FONT_REGULAR
-            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17) else "left", vertical="center")
+            cell.font = FONT_CODE if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 17, 18) else FONT_REGULAR
+            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18) else "left", vertical="center")
             cell.border = THIN_BORDER
             if c_idx == 1:
                 cell.number_format = "@"  # Force text format
@@ -507,12 +508,12 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
 
     for col in range(1, num_cols + 1):
         let = get_column_letter(col)
-        if col in (1, 4, 5): ws.column_dimensions[let].width = 9
+        if col in (1, 4, 5, 6): ws.column_dimensions[let].width = 9
         elif col == 2: ws.column_dimensions[let].width = 44
         elif col == 3: ws.column_dimensions[let].width = 25
-        elif col in range(6, 11): ws.column_dimensions[let].width = 12
-        elif col == 11: ws.column_dimensions[let].width = 40
-        elif col in range(12, 18): ws.column_dimensions[let].width = 14
+        elif col in range(7, 12): ws.column_dimensions[let].width = 12
+        elif col == 12: ws.column_dimensions[let].width = 40
+        elif col in range(13, 19): ws.column_dimensions[let].width = 14
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 11
         elif col in range(r_start, num_cols):
             ws.column_dimensions[let].width = 10
