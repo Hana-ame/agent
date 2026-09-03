@@ -748,14 +748,17 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
                 bias_val = 0.5 if ("4位加权" in active_m or "bias" in str(r.get("desc")).lower() or "0.5" in str(r.get("desc"))) else 0.0
 
             status_flag = "unrun" if r.get("add1") == "未跑" else "completed"
+            l_val = int(r.get("l")) if str(r.get("l")).isdigit() else 2
+            d_val = int(r.get("d")) if str(r.get("d")).isdigit() else 64
+            heads_val = 2 if d_val <= 32 else 4
             cfg_dict = {
                 "seq_id": seq_id,
                 "status": status_flag,
                 "test_objective": purpose,
                 "vocab_size": int(r.get("vocab_size", 16)),
-                "layers": int(r.get("l")) if str(r.get("l")).isdigit() else 2,
-                "d": int(r.get("d")) if str(r.get("d")).isdigit() else 64,
-                "heads": 4,
+                "layers": l_val,
+                "d": d_val,
+                "heads": heads_val,
                 "steps": steps if steps else 4000,
                 "batch_size": bs if bs else 32,
                 "lr": r.get("lr", 3e-4),
@@ -770,6 +773,21 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
                 },
                 "mechanistic_conclusion": r.get("conclusion", "")
             }
+            title_lower = purpose.lower()
+            if "lsd" in title_lower or "逆序" in title_lower:
+                cfg_dict["answer_order"] = "lsd"
+            if "looped" in title_lower or "循环" in title_lower:
+                cfg_dict["looped_ut"] = True
+                cfg_dict["looped_ut_steps"] = 7 if ("7" in cfg_filename or "7步" in title_lower or "7 步" in title_lower) else 4
+            if "雪崩" in title_lower or "9999+1" in title_lower:
+                cfg_dict["avalanche"] = True
+            if "课程" in title_lower or "k=0..4" in title_lower:
+                cfg_dict["carry_curriculum"] = True
+            if "自验算" in title_lower:
+                cfg_dict["self_verify"] = True
+            if cfg_dict["vocab_size"] == 32:
+                cfg_dict["use_ans_tags"] = True
+
             with open(os.path.join(cfg_dir, cfg_filename), "w", encoding="utf-8") as f:
                 json.dump(cfg_dict, f, indent=2, ensure_ascii=False)
 
@@ -880,6 +898,229 @@ def create_40_questions_sheet(wb):
     ws.freeze_panes = "C4"
 
 
+TINY_PARAM_STEP_SWEEP_ROWS = [
+    # Group A: L1_D32 (~10K 参数, 2 Heads) - 极微型单层极限
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L1_D32 CoT 4,000步 (10K超微参数基线)",
+        "l": 1, "d": 32, "steps": 4000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/容量下限探针】检验10K极微单层网络在标准4,000步下的容量瓶颈，观察是否只能拟合1位加减法。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L1_D32 CoT 16,000步 (4倍长训算力补偿)",
+        "l": 1, "d": 32, "steps": 16000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/算力补偿假说】给予4倍步数，检验10K极小网络能否通过过拟合训练分布突破2位进位。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L1_D32 CoT 64,000步 (16倍长训深度过拟合)",
+        "l": 1, "d": 32, "steps": 64000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/极端训练比探针】在超小参数上推向64k步，检验单层注意力在极长训练下是否会发生崩溃或饱和。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L1_D32 CoT 128,000步 (32倍长训极限泛化)",
+        "l": 1, "d": 32, "steps": 128000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/算力饱和上限】单层极小网络在12.8万步下的终极表现，检验算力补偿的绝对理论天花板。"
+    },
+
+    # Group B: L2_D32 (~25K 参数, 2 Heads) - 极微型双层
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L2_D32 CoT 4,000步 (25K极微双层基线)",
+        "l": 2, "d": 32, "steps": 4000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/双层极小基线】引入第2层注意力，检验25K模型在常规4,000步下的初始进位涌现能力。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L2_D32 CoT 16,000步 (4倍长训涌现探针)",
+        "l": 2, "d": 32, "steps": 16000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/双层进位学习】4倍训练步数下，检验25K模型能否解锁2~3位进位状态机。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L2_D32 CoT 64,000步 (16倍长训深度泛化)",
+        "l": 2, "d": 32, "steps": 64000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/小模型深度训练】观察25K小模型在64k步充分训练后是否逼近L4大模型性能。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L2_D32 CoT 128,000步 (32倍极限算力扫描)",
+        "l": 2, "d": 32, "steps": 128000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/过训练极限】检验极微双层模型在超长步数下的收敛边界与遗忘特性。"
+    },
+
+    # Group C: L1_D64 (~35K 参数, 4 Heads) - 轻量单层
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L1_D64 CoT 4,000步 (35K轻量单层基线)",
+        "l": 1, "d": 64, "steps": 4000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/单层宽度探针】保持L=1单层，增加隐层宽度至d=64，观察头数增加对进位单步拟合的影响。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L1_D64 CoT 16,000步 (4倍长训单层增强)",
+        "l": 1, "d": 64, "steps": 16000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/单层长训】验证单层较宽模型在长步数下能否部分弥补深度的不足。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L1_D64 CoT 64,000步 (16倍长训过拟合测试)",
+        "l": 1, "d": 64, "steps": 64000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/单层天花板】单层网络在64,000步下的加法与减法表现，探查无多层递归时的表征硬上限。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L1_D64 CoT 128,000步 (32倍长训极限探针)",
+        "l": 1, "d": 64, "steps": 128000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/极限单层】12.8万步下检验单层宽模型是否出现Loss平台期与注意力崩塌。"
+    },
+
+    # Group D: L2_D64 (~160K 参数, 4 Heads) - 轻量双层
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L2_D64 CoT 8,000步 (2倍长训基线跨越)",
+        "l": 2, "d": 64, "steps": 8000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/双层进阶】16万参数小模型在8,000步下能否突破3位加法瓶颈。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L2_D64 CoT 16,000步 (4倍长训充分拟合)",
+        "l": 2, "d": 64, "steps": 16000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/轻量级强基线】检验16万参数模型在16k步下能否逼近L4_D128标准基线的准确率。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L2_D64 CoT 32,000步 (8倍长训规模化)",
+        "l": 2, "d": 64, "steps": 32000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/小参数长程】检验持续供给样本是否能促使L2_D64建立完整的4位进位注意力回路。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L2_D64 CoT 64,000步 (16倍长训高阶跃迁)",
+        "l": 2, "d": 64, "steps": 64000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/过训练极限探索】检验L2_D64在64k步时是否达到容量饱和平台期。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】L2_D64 CoT 128,000步 (32倍大算力验证)",
+        "l": 2, "d": 64, "steps": 128000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/百万Token长训】小参数架构在巨量步数下的最终泛化与多位雪崩表现。"
+    },
+
+    # Group E: Looped-UT L1_D64 (展开7步, ~35K 参数, 4 Heads) - 循环递归
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】Looped-UT L1_D64 展开7步 8,000步 (2倍长训递归)",
+        "l": 1, "d": 64, "steps": 8000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/极小循环长训】35K权重共享网络展开7步，在8,000步下检验单Block算法递归学习效果。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】Looped-UT L1_D64 展开7步 16,000步 (4倍长训状态机)",
+        "l": 1, "d": 64, "steps": 16000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/状态机成熟探针】给足16k步训练，检验极小循环网络能否彻底学会多位进位状态转移。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】Looped-UT L1_D64 展开7步 32,000步 (8倍长训稳定性)",
+        "l": 1, "d": 64, "steps": 32000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/长程递归训练】验证权重共享小模型在32k步下是否保持稳定收敛而不发生梯度弥散。"
+    },
+    {
+        "category": "极小参数-长步数探索",
+        "desc": "【极小参数长训】Looped-UT L1_D64 展开7步 64,000步 (16倍算力终极探针)",
+        "l": 1, "d": 64, "steps": 64000, "bs": 32, "lr": "3e-4",
+        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
+        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
+        "unique": "—", "loss": "未跑", "time_s": "—",
+        "conclusion": "【待运行/极致参数效率】35K参数以64,000步大算力训练，检验能否超越92.6万参数的标准L4模型。"
+    }
+]
+
+
 def build_all_expanded():
     from generate_full_granular_excel import build_all_granular_rows
     from build_unified_single_sheet import render_maze_table, MAZE_EXP_DATA, NEW_STEP_ROWS
@@ -891,7 +1132,7 @@ def build_all_expanded():
     extra_rows = get_searched_and_designed_rows()
 
     # 3. Combine Vocab 16 rows:
-    all_add_rows_16 = orig_add_rows + extra_rows + NEW_STEP_ROWS
+    all_add_rows_16 = orig_add_rows + extra_rows + NEW_STEP_ROWS + TINY_PARAM_STEP_SWEEP_ROWS
     for r in all_add_rows_16:
         r["vocab_size"] = 16
 
