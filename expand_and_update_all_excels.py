@@ -925,6 +925,8 @@ def build_all_expanded():
     ws_add.title = "全部加法实验总表"
 
     cfg_dir = os.path.join(ROOT, "additive-rand-transformer/configs")
+    if not os.path.exists(cfg_dir):
+        cfg_dir = os.path.join(ROOT, "configs")
     render_additive_table(ws_add, "TinyGPT 加法算术探针全量实验总表 (单表全景矩阵)",
                           f"共 {len(all_add_rows)} 项实验（包含 001..220 词表16基线与 221..{len(all_add_rows):03d} 词表32对照组），全量40道题实测结果按绿色正确/红色错误标色",
                           all_add_rows, cfg_dir=cfg_dir)
@@ -932,37 +934,42 @@ def build_all_expanded():
     out_root_add = os.path.join(ROOT, "加法实验总表.xlsx")
     wb_add.save(out_root_add)
     out_archive_add = os.path.join(ROOT, "additive-rand-transformer/archive/EXPERIMENTS_ALL.xlsx")
+    if not os.path.exists(os.path.dirname(os.path.dirname(out_archive_add))):
+        out_archive_add = os.path.join(ROOT, "archive/EXPERIMENTS_ALL.xlsx")
+    os.makedirs(os.path.dirname(out_archive_add), exist_ok=True)
     wb_add.save(out_archive_add)
     print(f"✓ Additive Workbook saved: {out_root_add} (archived: {out_archive_add})")
 
-    # 2. Maze Workbook
-    wb_maze = Workbook()
-    ws_maze = wb_maze.active
-    ws_maze.title = "全部迷宫实验总表"
-    render_maze_table(ws_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
-                      f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列，包含 10 项强化学习打勾与到达率指标",
-                      MAZE_EXP_DATA, cfg_dir=None)
-    out_root_maze = os.path.join(ROOT, "迷宫实验总表.xlsx")
-    wb_maze.save(out_root_maze)
-    out_archive_maze = os.path.join(ROOT, "maze-transformer/archive/EXPERIMENTS_ALL.xlsx")
-    wb_maze.save(out_archive_maze)
-    print(f"✓ Maze Workbook saved: {out_root_maze} (archived: {out_archive_maze})")
+    # 2. Maze Workbook (if in parent repo or maze directory available)
+    if os.path.exists(os.path.join(ROOT, "maze-transformer")) or os.path.basename(ROOT) != "additive-rand-transformer":
+        wb_maze = Workbook()
+        ws_maze = wb_maze.active
+        ws_maze.title = "全部迷宫实验总表"
+        render_maze_table(ws_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
+                          f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列，包含 10 项强化学习打勾与到达率指标",
+                          MAZE_EXP_DATA, cfg_dir=None)
+        out_root_maze = os.path.join(ROOT, "迷宫实验总表.xlsx")
+        wb_maze.save(out_root_maze)
+        out_archive_maze = os.path.join(ROOT, "maze-transformer/archive/EXPERIMENTS_ALL.xlsx")
+        os.makedirs(os.path.dirname(out_archive_maze), exist_ok=True)
+        wb_maze.save(out_archive_maze)
+        print(f"✓ Maze Workbook saved: {out_root_maze} (archived: {out_archive_maze})")
 
-    # 3. Master Root Workbook (Archived)
-    wb_master = Workbook()
-    ws_m_add = wb_master.active
-    ws_m_add.title = "加法探针_全实验总表"
-    render_additive_table(ws_m_add, "TinyGPT 加法算术探针全量实验总表 (单表全景矩阵)",
-                          f"共 {len(all_add_rows)} 项实验统一按序号 001..{len(all_add_rows):03d} 顺序排列",
-                          all_add_rows, cfg_dir=None)
-    ws_m_maze = wb_master.create_sheet("迷宫导航_全实验总表")
-    render_maze_table(ws_m_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
-                      f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列",
-                      MAZE_EXP_DATA, cfg_dir=None)
-    os.makedirs(os.path.join(ROOT, "archive"), exist_ok=True)
-    out_master = os.path.join(ROOT, "archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx")
-    wb_master.save(out_master)
-    print(f"✓ Master Workbook archived: {out_master}")
+        # 3. Master Root Workbook (Archived)
+        wb_master = Workbook()
+        ws_m_add = wb_master.active
+        ws_m_add.title = "加法探针_全实验总表"
+        render_additive_table(ws_m_add, "TinyGPT 加法算术探针全量实验总表 (单表全景矩阵)",
+                              f"共 {len(all_add_rows)} 项实验统一按序号 001..{len(all_add_rows):03d} 顺序排列",
+                              all_add_rows, cfg_dir=None)
+        ws_m_maze = wb_master.create_sheet("迷宫导航_全实验总表")
+        render_maze_table(ws_m_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
+                          f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列",
+                          MAZE_EXP_DATA, cfg_dir=None)
+        os.makedirs(os.path.join(ROOT, "archive"), exist_ok=True)
+        out_master = os.path.join(ROOT, "archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx")
+        wb_master.save(out_master)
+        print(f"✓ Master Workbook archived: {out_master}")
 
 if __name__ == "__main__":
     build_all_expanded()
