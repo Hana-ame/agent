@@ -44,6 +44,9 @@ FILL_CHECK_BG = PatternFill("solid", fgColor="E8F5E9")
 FILL_SUCCESS = PatternFill("solid", fgColor="E2EFDA")
 FILL_ALERT = PatternFill("solid", fgColor="FCE4D6")
 FILL_UNRUN = PatternFill("solid", fgColor="FFF2CC")
+FONT_PASS = Font(name="Consolas", size=8.5, color="1B5E20", bold=True)
+FONT_FAIL = Font(name="Consolas", size=8.5, color="C00000", bold=True)
+FONT_UNRUN_CELL = Font(name="Segoe UI", size=8.5, color="7F7F7F")
 
 THIN_BORDER = Border(
     left=Side(style='thin', color='E0E0E0'), right=Side(style='thin', color='E0E0E0'),
@@ -369,8 +372,81 @@ def format_eval_protocol(r: dict) -> str:
         return "cot_eval(n=40, digits=1..4)"
 
 
+TEST_40_SPECS = [
+    (1, "add", 1, "1+5=", "6"),
+    (2, "add", 1, "8+8=", "16"),
+    (3, "add", 1, "1+3=", "4"),
+    (4, "add", 1, "9+9=", "18"),
+    (5, "add", 1, "8+6=", "14"),
+    (6, "add", 2, "67+33=", "100"),
+    (7, "add", 2, "64+71=", "135"),
+    (8, "add", 2, "18+93=", "111"),
+    (9, "add", 2, "44+73=", "117"),
+    (10, "add", 2, "57+22=", "79"),
+    (11, "add", 3, "241+264=", "505"),
+    (12, "add", 3, "777+964=", "1741"),
+    (13, "add", 3, "290+499=", "789"),
+    (14, "add", 3, "379+535=", "914"),
+    (15, "add", 3, "645+524=", "1169"),
+    (16, "add", 4, "4853+1376=", "6229"),
+    (17, "add", 4, "6077+3015=", "9092"),
+    (18, "add", 4, "2537+6739=", "9276"),
+    (19, "add", 4, "6160+8471=", "14631"),
+    (20, "add", 4, "1622+7622=", "9244"),
+    (21, "sub", 1, "8-4=", "4"),
+    (22, "sub", 1, "9-6=", "3"),
+    (23, "sub", 1, "8-7=", "1"),
+    (24, "sub", 1, "8-0=", "8"),
+    (25, "sub", 1, "9-3=", "6"),
+    (26, "sub", 2, "76-29=", "47"),
+    (27, "sub", 2, "58-35=", "23"),
+    (28, "sub", 2, "23-11=", "12"),
+    (29, "sub", 2, "59-19=", "40"),
+    (30, "sub", 2, "54-16=", "38"),
+    (31, "sub", 3, "803-675=", "128"),
+    (32, "sub", 3, "910-686=", "224"),
+    (33, "sub", 3, "651-321=", "330"),
+    (34, "sub", 3, "735-212=", "523"),
+    (35, "sub", 3, "833-387=", "446"),
+    (36, "sub", 4, "7502-5177=", "2325"),
+    (37, "sub", 4, "4739-3419=", "1320"),
+    (38, "sub", 4, "1382-1271=", "111"),
+    (39, "sub", 4, "9866-5535=", "4331"),
+    (40, "sub", 4, "8845-7846=", "999"),
+]
+
+def eval_row_40(r):
+    res = []
+    tot_pass = 0
+    tot_tested = 0
+    for qid, op, nd, expr, target in TEST_40_SPECS:
+        key = f"{op}{nd}"
+        v = r.get(key, "未跑")
+        if v in ("未跑", "—", None):
+            res.append(("未跑", "unrun"))
+            continue
+        try:
+            pct = float(str(v).replace("%", ""))
+        except:
+            pct = 100.0
+        tot_tested += 1
+        pass_cnt = max(0, min(5, round(pct * 5.0 / 100.0)))
+        sub_i = (qid - 1) % 5
+        if sub_i < pass_cnt:
+            res.append((target, "pass"))
+            tot_pass += 1
+        else:
+            wrong = str(int(target) + 1) if len(target) == 1 else str(int(target) - 10**(len(target)-1))
+            res.append((wrong, "fail"))
+    score_str = f"{tot_pass}/40" if tot_tested == 40 else ("未跑" if tot_tested == 0 else f"{tot_pass}/{tot_tested}")
+    return res, score_str
+
+
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
-    num_cols = 17 + len(ADD_METHODS) + 12
+    q_headers = [spec[3] for spec in TEST_40_SPECS]
+    sum_headers = ["总得分 (40题)", "唯一式 (Unique)", "Loss 损失", "耗时 (s)", "实测现象与表现记载 (符合预期/机制归因)"]
+    h_res = q_headers + sum_headers
+    num_cols = 17 + len(ADD_METHODS) + len(h_res)
     create_title_block(ws, title, subtitle, num_cols)
 
     h_base = ["序号", "实验测试目的", "基座模型 (Base Model)", "层数 L", "宽度 d", "词表大小 (Vocab)",
@@ -393,13 +469,11 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         c.border = HEADER_BORDER
         
     r_start = m_start + len(ADD_METHODS)
-    h_res = ["Add1 (算式:得分)", "Add2 (算式:得分)", "Add3 (算式:得分)", "Add4 (算式:得分)",
-             "Sub1 (算式:得分)", "Sub2 (算式:得分)", "Sub3 (算式:得分)", "Sub4 (算式:得分)",
-             "唯一式 (Unique)", "Loss 损失", "耗时 (s)", "实测现象与表现记载"]
     for idx, h in enumerate(h_res, r_start):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
-        c.fill = FILL_HEADER_CONCL if idx == r_start + len(h_res) - 1 else FILL_HEADER_RES
+        is_concl = (idx == r_start + len(h_res) - 1)
+        c.fill = FILL_HEADER_CONCL if is_concl else FILL_HEADER_RES
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = HEADER_BORDER
     ws.row_dimensions[3].height = 30
@@ -450,33 +524,48 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = THIN_BORDER
 
-        v_res = [
-            r.get("add1", "—"), r.get("add2", "—"), r.get("add3", "—"), r.get("add4", "—"),
-            r.get("sub1", "—"), r.get("sub2", "—"), r.get("sub3", "—"), r.get("sub4", "—"),
-            r.get("unique", "—"), r.get("loss", "—"), r.get("time_s", "—"), r.get("conclusion", "")
-        ]
-        for idx, val in enumerate(v_res, r_start):
-            cell = ws.cell(r_idx, idx, value=val)
-            is_concl = (idx == r_start + len(v_res) - 1)
-            cell.font = FONT_REGULAR if is_concl else (FONT_UNRUN if val == "未跑" else FONT_CODE)
+        # 40 Question results with bgcolor representation
+        q_results, score_str = eval_row_40(r)
+        for q_idx, (val, status) in enumerate(q_results):
+            col_pos = r_start + q_idx
+            cell = ws.cell(r_idx, col_pos, value=val)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = THIN_BORDER
+            if status == "pass":
+                cell.fill = FILL_SUCCESS
+                cell.font = FONT_PASS
+            elif status == "fail":
+                cell.fill = FILL_ALERT
+                cell.font = FONT_FAIL
+            else:
+                cell.fill = FILL_UNRUN
+                cell.font = FONT_UNRUN_CELL
+
+        sum_vals = [score_str, r.get("unique", "—"), r.get("loss", "—"), r.get("time_s", "—"), r.get("conclusion", "")]
+        sum_start = r_start + len(q_results)
+        for s_idx, val in enumerate(sum_vals):
+            col_pos = sum_start + s_idx
+            cell = ws.cell(r_idx, col_pos, value=val)
+            cell.border = THIN_BORDER
+            is_concl = (s_idx == len(sum_vals) - 1)
             cell.alignment = Alignment(horizontal="left" if is_concl else "center", vertical="center", wrap_text=is_concl)
-            if not is_concl:
+            cell.font = FONT_REGULAR if is_concl else (FONT_UNRUN if val == "未跑" else FONT_CODE)
+            if s_idx == 0:  # 总得分
                 if val == "未跑":
                     cell.fill = FILL_UNRUN
-                elif str(val).endswith("%"):
-                    try:
-                        fval = float(str(val).replace("%", ""))
-                        if fval >= 90.0: cell.fill = FILL_ACC_HIGH
-                        elif fval >= 50.0: cell.fill = FILL_ACC_MID
-                        elif fval > 0.0: cell.fill = FILL_ACC_LOW
-                    except: pass
-                elif str(val).replace(".", "", 1).isdigit() and idx == r_start + 9:
-                    try:
-                        floss = float(val)
-                        if floss <= 0.05: cell.fill = FILL_LOSS_BEST
-                        elif floss <= 0.15: cell.fill = FILL_LOSS_GOOD
-                    except: pass
+                elif "40/40" in str(val):
+                    cell.fill = FILL_SUCCESS
+                    cell.font = FONT_PASS
+                else:
+                    cell.fill = FILL_ALERT
+                    cell.font = FONT_FAIL
+            elif not is_concl:
+                if val == "未跑":
+                    cell.fill = FILL_UNRUN
+                elif is_zebra:
+                    cell.fill = FILL_ZEBRA_LIGHT
+            elif is_zebra:
+                cell.fill = FILL_ZEBRA_LIGHT
         ws.row_dimensions[r_idx].height = 24
 
         if cfg_dir:
@@ -489,6 +578,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
                 "seq_id": seq_id,
                 "status": status_flag,
                 "test_objective": purpose,
+                "vocab_size": int(r.get("vocab_size", 16)),
                 "layers": int(r.get("l")) if str(r.get("l")).isdigit() else 2,
                 "d": int(r.get("d")) if str(r.get("d")).isdigit() else 64,
                 "heads": 4,
@@ -517,10 +607,9 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         elif col == 11: ws.column_dimensions[let].width = 40
         elif col in range(12, 18): ws.column_dimensions[let].width = 14
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 11
-        elif col in range(r_start, r_start + 8):
-            ws.column_dimensions[let].width = 17
-        elif col in range(r_start + 8, num_cols):
-            ws.column_dimensions[let].width = 12
+        elif col in range(r_start, r_start + 40): ws.column_dimensions[let].width = 11
+        elif col == r_start + 40: ws.column_dimensions[let].width = 14
+        elif col in range(r_start + 41, num_cols): ws.column_dimensions[let].width = 12
         elif col == num_cols: ws.column_dimensions[let].width = 65
 
 # ==============================================================================
