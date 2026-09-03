@@ -445,36 +445,52 @@ def get_searched_and_designed_rows():
         })
 
     return new_rows
+def get_spaces_str(r: dict) -> str:
+    desc = str(r.get("desc", ""))
+    sp_val = str(r.get("spaces", ""))
+    if "max_spaces = 0" in desc or sp_val == "0..0 随机":
+        return "spaces=0"
+    elif "max_spaces = 1" in desc or sp_val == "0..1 随机":
+        return "spaces=0..1"
+    elif "max_spaces = 2" in desc or sp_val == "0..2 随机":
+        return "spaces=0..2"
+    elif "1 空格" in sp_val or "1空格" in sp_val:
+        return "spaces=1"
+    else:
+        return "spaces=0..3"
+
+
 def format_data_param(r: dict) -> str:
     desc_str = str(r.get("desc", ""))
     meth_str = str(r.get("methods", []))
     digits = str(r.get("digits", "1-4位"))
+    sp = get_spaces_str(r)
 
     if "LSD" in desc_str or "逆序" in desc_str:
-        return "cot(digits=1..4, answer_order='lsd')"
+        return f"cot(digits=1..4, lsd=True, {sp})"
     elif "雪崩" in desc_str or "9999+1" in desc_str:
-        return "cot(digits=1..4, avalanche=True)"
+        return f"cot(digits=1..4, avalanche=True, {sp})"
     elif "K=0..4" in desc_str or "进位链深度" in desc_str:
-        return "cot(digits=1..4, carry_curriculum=True)"
+        return f"cot(digits=1..4, carry_curriculum=True, {sp})"
     elif "自验算" in desc_str:
-        return "cot(digits=1..4, self_verify=True)"
+        return f"cot(digits=1..4, self_verify=True, {sp})"
     elif "草稿篡改" in desc_str or "Reader" in desc_str:
-        return "cot(digits=1..4, tamper_p=0.2)"
+        return f"cot(digits=1..4, tamper_p=0.2, {sp})"
     elif "Looped-UT" in desc_str or "循环" in desc_str:
         steps = "7" if "7" in desc_str else "4"
-        return f"cot(digits=1..4, looped_steps={steps})"
+        return f"cot(digits=1..4, looped_steps={steps}, {sp})"
     elif "sum_only" in desc_str:
-        return "cot(digits=1..4, fmt='sum_only')"
+        return f"cot(digits=1..4, fmt='sum_only', {sp})"
     elif "full_col" in desc_str:
-        return "cot(digits=1..4, fmt='full_col')"
+        return f"cot(digits=1..4, fmt='full_col', {sp})"
     elif "外推" in digits or "外测" in digits:
-        return "cot(digits=1..4, eval=5..7)"
+        return f"cot(digits=1..4, eval=5..7, {sp})"
     elif "Plain" in meth_str or "Plain" in desc_str or "无CoT" in meth_str or "无草稿" in meth_str or "无中间草稿" in desc_str:
-        return "plain(min_digits=1, max_digits=4)"
+        return f"plain(digits=1..4, {sp})"
     elif "自问自答" in desc_str or "Selfplay" in desc_str or "自博弈" in desc_str or "破坍缩" in desc_str or "RL" in meth_str:
-        return "selfplay(digits=1..4)"
+        return f"selfplay(digits=1..4, {sp})"
     else:
-        return "cot(min_digits=1, max_digits=4)"
+        return f"cot(digits=1..4, {sp})"
 
 
 def get_base_model(r: dict) -> str:
@@ -519,20 +535,20 @@ def format_eval_protocol(r: dict) -> str:
 
 
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
-    num_cols = 18 + len(ADD_METHODS) + 13
+    num_cols = 17 + len(ADD_METHODS) + 13
     create_title_block(ws, title, subtitle, num_cols)
 
     h_base = ["序号", "实验测试目的", "基座模型 (Base Model)", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "samples",
-              "输入数据 (data.py)", "4位偏置比例 (Bias)", "稀疏衰减 (Sparse)", "空格扰动 (Spaces)",
+              "输入数据 (data.py)", "4位偏置比例 (Bias)", "稀疏衰减 (Sparse)",
               "学习率 LR", "调度 (Schedule)", "预热步数", "权重衰减 (WD)"]
     for idx, h in enumerate(h_base, 1):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
-        c.fill = FILL_HEADER_CFG if idx <= 5 else (FILL_HEADER_DATA if idx <= 14 else FILL_HEADER_OPT)
+        c.fill = FILL_HEADER_CFG if idx <= 5 else (FILL_HEADER_DATA if idx <= 13 else FILL_HEADER_OPT)
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = HEADER_BORDER
         
-    m_start = 19
+    m_start = 18
     for idx, m in enumerate(ADD_METHODS, m_start):
         c = ws.cell(3, idx, value=m)
         c.font = FONT_HEADER_CHECK
@@ -571,13 +587,13 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
             steps, bs, steps, f"{steps*bs/1000:.1f}" if steps and bs else "—", steps*bs if steps and bs else "—",
             format_data_param(r),
             r.get("bias", "0.5" if "0.5" in str(r.get("desc")) else "0.0"), 
-            r.get("sparse", "无衰减"), r.get("spaces", "0..3 随机"),
+            r.get("sparse", "无衰减"),
             r.get("lr", "3e-4"), r.get("schedule", "Cosine + Warmup"), r.get("warmup", min(200, steps // 4) if steps else 200), r.get("wd", 0.1)
         ]
         for c_idx, val in enumerate(v_base, 1):
             cell = ws.cell(r_idx, c_idx, value=val)
-            cell.font = FONT_CODE if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 11, 15, 17, 18) else FONT_REGULAR
-            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18) else "left", vertical="center")
+            cell.font = FONT_CODE if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 11, 14, 16, 17) else FONT_REGULAR
+            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17) else "left", vertical="center")
             cell.border = THIN_BORDER
             if c_idx == 1:
                 cell.number_format = "@"  # Force text format
@@ -667,8 +683,8 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         elif col == 2: ws.column_dimensions[let].width = 44
         elif col == 3: ws.column_dimensions[let].width = 25
         elif col in range(6, 11): ws.column_dimensions[let].width = 12
-        elif col == 11: ws.column_dimensions[let].width = 32
-        elif col in range(12, 19): ws.column_dimensions[let].width = 14
+        elif col == 11: ws.column_dimensions[let].width = 40
+        elif col in range(12, 18): ws.column_dimensions[let].width = 14
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 11
         elif col in range(r_start, num_cols):
             ws.column_dimensions[let].width = 34 if col == r_start + 10 else 10
