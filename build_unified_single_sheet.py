@@ -393,7 +393,9 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         c.border = HEADER_BORDER
         
     r_start = m_start + len(ADD_METHODS)
-    h_res = ["Add1 %", "Add2 %", "Add3 %", "Add4 %", "Sub1 %", "Sub2 %", "Sub3 %", "Sub4 %", "唯一式 (Unique)", "Loss 损失", "耗时 (s)", "实测现象与表现记载"]
+    h_res = ["Add1 (算式:得分)", "Add2 (算式:得分)", "Add3 (算式:得分)", "Add4 (算式:得分)",
+             "Sub1 (算式:得分)", "Sub2 (算式:得分)", "Sub3 (算式:得分)", "Sub4 (算式:得分)",
+             "唯一式 (Unique)", "Loss 损失", "耗时 (s)", "实测现象与表现记载"]
     for idx, h in enumerate(h_res, r_start):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
@@ -515,8 +517,10 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         elif col == 11: ws.column_dimensions[let].width = 40
         elif col in range(12, 18): ws.column_dimensions[let].width = 14
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 11
-        elif col in range(r_start, num_cols):
-            ws.column_dimensions[let].width = 10
+        elif col in range(r_start, r_start + 8):
+            ws.column_dimensions[let].width = 17
+        elif col in range(r_start + 8, num_cols):
+            ws.column_dimensions[let].width = 12
         elif col == num_cols: ws.column_dimensions[let].width = 65
 
 # ==============================================================================
