@@ -26,9 +26,7 @@
 | **全实验总台账** | `ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx` | 49 列超大宽表，统一记录加法（001–220）与迷宫（001–010）全部实验。 |
 | **加法实验子表** | `additive-rand-transformer/EXPERIMENTS_ALL.xlsx` | 加法专用的单表全景矩阵，包含 18 项打勾方式与细分指标。 |
 | **实验配置池** | `additive-rand-transformer/configs/` | 包含 `001_...json` 到 `220_...json` 的标准启动配置文件。 |
-| **Colab 启动手册** | `Colab_Run_Additive_Transformer.ipynb` | Google Colab 一键训练、探针诊断与 Drive 自动同步 Notebook。 |
-| **Colab T4 并行手册** | `Colab_T4_Parallel_Train.ipynb` | 单卡 T4 8~32 路多线程并发训练与 40 题严格评测。 |
-| **T4 并行技术指南** | `COLAB_T4_PARALLEL_GUIDE.md` | Colab 单卡多流并发加速原理、API 调用与操作指南。 |
+| **Colab 批量实测手册** | `Colab_OneClick_Train_and_Verify_All.ipynb` | 一键顺序批量训练与 40 题严格评测 Notebook（稳健防崩溃）。 |
 | **Excel 编译引擎** | `expand_and_update_all_excels.py` | 本地执行，用于自动重新编译生成上述全部 Excel 表格与 JSON 配置。 |
 
 ---
@@ -102,13 +100,13 @@ python -m additive_rand_transformer.train --config configs/197_l4_d128_lsd.json
 python -m additive_rand_transformer.train --config configs/201_looped-ut_block_4.json
 ```
 
-#### 选项 B：⚡ 单卡 T4 多路并发批量跑（强烈推荐，速度提升 8~10 倍）
-直接打开 [`Colab_T4_Parallel_Train.ipynb`](Colab_T4_Parallel_Train.ipynb) 或在 Python 中调用并行引擎（详见 [`COLAB_T4_PARALLEL_GUIDE.md`](COLAB_T4_PARALLEL_GUIDE.md)）：
+#### 选项 B：🚀 一键批量顺序实测（强烈推荐，单实验 8~10 秒，零崩溃）
+直接打开 [`Colab_OneClick_Train_and_Verify_All.ipynb`](Colab_OneClick_Train_and_Verify_All.ipynb) 或在 Python 中调用批量引擎：
 ```python
-from additive_rand_transformer.parallel_train import run_parallel_batch
+from additive_rand_transformer.batch_train import run_batch_experiments
 
-# 8 路并发，几分钟内一键跑完 197-204 并完成 40 题严格评测
-reports = run_parallel_batch(run_mode="FRONTIER_197_204", parallel=8)
+# 纯顺序流式执行，8 个实验约 80 秒跑完并现场严格评测 40 题
+reports = run_batch_experiments(run_mode="FRONTIER_197_204", max_experiments=8)
 ```
 
 ### Step 4: 记录产出指标
