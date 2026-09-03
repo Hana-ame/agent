@@ -477,21 +477,62 @@ def format_data_param(r: dict) -> str:
         return "cot(min_digits=1, max_digits=4)"
 
 
+def get_base_model(r: dict) -> str:
+    desc = str(r.get("desc", ""))
+    cat = str(r.get("category", ""))
+    r_id = str(r.get("id", ""))
+    if "LoRA" in desc or "LORA" in r_id or "LoRA" in cat:
+        return "EXP-086 (L4_D128 CoT基线)"
+    elif "自问自答" in desc or "RL" in r_id or "强化学习" in cat or "自博弈" in desc or "破坍缩" in desc or "GRPO" in desc:
+        return "EXP-086 (L4_D128 CoT基线)"
+    elif "204" in r_id or "草稿篡改" in desc or "Reader" in desc:
+        return "EXP-086 (L4_D128 CoT基线)"
+    else:
+        return "Scratch (从零初始化)"
+
+
+def format_eval_protocol(r: dict) -> str:
+    desc = str(r.get("desc", ""))
+    meth = str(r.get("methods", []))
+    digits = str(r.get("digits", ""))
+    r_id = str(r.get("id", ""))
+    if "LSD" in desc or "逆序" in desc:
+        return "cot_eval(n=40, digits=1..4, lsd=True)"
+    elif "雪崩" in desc or "9999+1" in desc:
+        return "cot_eval(n=40, avalanche=True)"
+    elif "K=0..4" in desc or "进位链深度" in desc:
+        return "cot_eval(n=40, carry_curriculum=True)"
+    elif "自验算" in desc:
+        return "cot_eval(n=40, self_verify=True)"
+    elif "草稿篡改" in desc or "Reader" in desc:
+        return "reader_eval(n=40, tamper_p=0.2)"
+    elif "外推" in digits or "外测" in digits or "184" in r_id or "202" in r_id:
+        return "cot_eval(n=40, digits=1..4 + eval=5..7)"
+    elif "Looped-UT" in desc or "循环" in desc:
+        return "cot_eval(n=40, digits=1..4, looped=True)"
+    elif "Plain" in meth or "Plain" in desc or "无CoT" in meth or "无草稿" in meth or "无中间草稿" in desc:
+        return "plain_eval(n=40, digits=1..4)"
+    elif "自问自答" in desc or "Selfplay" in desc or "自博弈" in desc or "破坍缩" in desc:
+        return "selfplay_eval(n=40, digits=1..4)"
+    else:
+        return "cot_eval(n=40, digits=1..4)"
+
+
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
-    num_cols = 17 + len(ADD_METHODS) + 13
+    num_cols = 18 + len(ADD_METHODS) + 13
     create_title_block(ws, title, subtitle, num_cols)
 
-    h_base = ["序号", "实验测试目的", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "samples",
+    h_base = ["序号", "实验测试目的", "基座模型 (Base Model)", "层数 L", "宽度 d", "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "等效 Epochs", "samples",
               "数据源参数 (data.py)", "4位偏置比例 (Bias)", "稀疏衰减 (Sparse)", "空格扰动 (Spaces)",
               "学习率 LR", "调度 (Schedule)", "预热步数", "权重衰减 (WD)"]
     for idx, h in enumerate(h_base, 1):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
-        c.fill = FILL_HEADER_CFG if idx <= 4 else (FILL_HEADER_DATA if idx <= 13 else FILL_HEADER_OPT)
+        c.fill = FILL_HEADER_CFG if idx <= 5 else (FILL_HEADER_DATA if idx <= 14 else FILL_HEADER_OPT)
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = HEADER_BORDER
         
-    m_start = 18
+    m_start = 19
     for idx, m in enumerate(ADD_METHODS, m_start):
         c = ws.cell(3, idx, value=m)
         c.font = FONT_HEADER_CHECK
@@ -526,7 +567,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
             purpose = desc or cat
             
         v_base = [
-            seq_id, purpose, r.get("l"), r.get("d"),
+            seq_id, purpose, get_base_model(r), r.get("l"), r.get("d"),
             steps, bs, steps, f"{steps*bs/1000:.1f}" if steps and bs else "—", steps*bs if steps and bs else "—",
             format_data_param(r),
             r.get("bias", "0.5" if "0.5" in str(r.get("desc")) else "0.0"), 
@@ -535,8 +576,8 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         ]
         for c_idx, val in enumerate(v_base, 1):
             cell = ws.cell(r_idx, c_idx, value=val)
-            cell.font = FONT_CODE if c_idx in (1, 3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 17) else FONT_REGULAR
-            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17) else "left", vertical="center")
+            cell.font = FONT_CODE if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 11, 15, 17, 18) else FONT_REGULAR
+            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18) else "left", vertical="center")
             cell.border = THIN_BORDER
             if c_idx == 1:
                 cell.number_format = "@"  # Force text format
@@ -559,7 +600,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
         v_res = [
             r.get("add1", "—"), r.get("add2", "—"), r.get("add3", "—"), r.get("add4", "—"),
             r.get("sub1", "—"), r.get("sub2", "—"), r.get("sub3", "—"), r.get("sub4", "—"),
-            r.get("unique", "—"), r.get("loss", "—"), "固定测试集 (n=40)", r.get("time_s", "—"), r.get("conclusion", "")
+            r.get("unique", "—"), r.get("loss", "—"), format_eval_protocol(r), r.get("time_s", "—"), r.get("conclusion", "")
         ]
         for idx, val in enumerate(v_res, r_start):
             cell = ws.cell(r_idx, idx, value=val)
@@ -622,13 +663,15 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
 
     for col in range(1, num_cols + 1):
         let = get_column_letter(col)
-        if col in (1, 3, 4): ws.column_dimensions[let].width = 9
+        if col in (1, 4, 5): ws.column_dimensions[let].width = 9
         elif col == 2: ws.column_dimensions[let].width = 44
-        elif col in range(5, 10): ws.column_dimensions[let].width = 12
-        elif col == 10: ws.column_dimensions[let].width = 32
-        elif col in range(11, 18): ws.column_dimensions[let].width = 14
+        elif col == 3: ws.column_dimensions[let].width = 25
+        elif col in range(6, 11): ws.column_dimensions[let].width = 12
+        elif col == 11: ws.column_dimensions[let].width = 32
+        elif col in range(12, 19): ws.column_dimensions[let].width = 14
         elif col in range(m_start, r_start): ws.column_dimensions[let].width = 11
-        elif col in range(r_start, num_cols): ws.column_dimensions[let].width = 10
+        elif col in range(r_start, num_cols):
+            ws.column_dimensions[let].width = 34 if col == r_start + 10 else 10
         elif col == num_cols: ws.column_dimensions[let].width = 65
 
 def build_all_expanded():
