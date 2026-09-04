@@ -1195,6 +1195,7 @@ def build_all_expanded():
                           f"共 {len(all_add_rows)} 项实验（包含 001..220 词表16基线与 221..{len(all_add_rows):03d} 词表32对照组），全量40道题实测结果按绿色正确/红色错误标色",
                           all_add_rows, cfg_dir=cfg_dir)
     create_40_questions_sheet(wb_add)
+    create_training_methods_sheet(wb_add)
     out_root_add = os.path.join(ROOT, "加法实验总表.xlsx")
     wb_add.save(out_root_add)
     out_archive_add = os.path.join(ROOT, "additive-rand-transformer/archive/EXPERIMENTS_ALL.xlsx")
@@ -1235,5 +1236,169 @@ def build_all_expanded():
         wb_master.save(out_master)
         print(f"✓ Master Workbook archived: {out_master}")
 
+# ==============================================================================
+# 📊 训练方式特征与分析总表 (Training Methods Feature & Analysis Sheet)
+# ==============================================================================
+def create_training_methods_sheet(wb):
+    ws = wb.create_sheet(title="模型训练方式特征与分析")
+    ws.merge_cells("A1:H1")
+    c1 = ws.cell(1, 1, value="TinyGPT 模型训练方式特征与分析总表 (实测驱动)")
+    c1.font = FONT_TITLE; c1.fill = FILL_NAVY
+    c1.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 28
+
+    ws.merge_cells("A2:H2")
+    c2 = ws.cell(2, 1, value="覆盖 18 种基础训练方式、8 个前沿机制、步数扩展(20..1024k)与 16/32 词表对照；"
+                             "实测指标取自 40 题零容错评测(16 词表机制 197-204 / 32 词表对照 438-445)")
+    c2.font = FONT_SUBTITLE; c2.fill = FILL_NAVY
+    c2.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[2].height = 20
+
+    headers = ["训练方式 / 机制", "类别", "核心机制与原理", "参数量 / 资源特征",
+               "16词表 40题", "32词表 40题", "优势", "局限与适用结论"]
+    for idx, h in enumerate(headers, 1):
+        cell = ws.cell(3, idx, value=h)
+        cell.font = FONT_HEADER
+        cell.fill = FILL_HEADER_CFG if idx <= 2 else (FILL_HEADER_DATA if idx <= 6 else FILL_HEADER_CONCL)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = HEADER_BORDER
+    ws.row_dimensions[3].height = 30
+
+    ROWS = [
+        # ---------------- 基础监督/数据方式 ----------------
+        ("SFT 监督", "数据方式", "标准自回归下一 token 预测，标签 = 完整算式序列。",
+         "基线，无额外参数", "—", "—",
+         "最稳定，收敛可预期，是全部机制实验的基座", "单独 SFT 只拟合分布，高位进位仍受限于架构容量"),
+        ("CoT 竖式", "数据方式", "训练数据展开为逐列进位/借位竖式草稿(LSD→MSD)，模型先推草稿再给答案。",
+         "无额外参数(序列变长 ~71 token)", "—", "—",
+         "把长程进位拆成单步局部操作，显著提升多位可学性", "草稿列本身需模型复述，可能沦为『照读』而非真计算"),
+        ("Plain 无 CoT", "数据方式", "无中间草稿，直接 a op b = c。",
+         "无额外参数(序列最短)", "—", "—",
+         "序列最短、训练快，验证 CoT 增益的对照", "多位进位几乎学不会(长程注意力不足)"),
+        ("自问自答", "数据方式", "模型生成中间自问/自答 token，类似 CoT 的变体。",
+         "无额外参数", "—", "—",
+         "给自回归额外『思考』token 空间", "收益与 CoT 重叠，未见额外增益"),
+        ("稀疏采样", "数据方式", "长操作数(≥3位)按 density 递减采样，避免长位组合爆炸。",
+         "无额外参数", "—", "—",
+         "训练分布可控，3-4 位不至于过采样", "采样过稀会导致高位数欠拟合"),
+        ("4 位加权", "数据方式", "以 bias 概率让两个操作数都取 4 位，重点喂最难进位。",
+         "无额外参数", "—", "—",
+         "显著提升 add4/sub4 曝光率", "纯 4 位会导致低位灾难性遗忘(见雪崩实验)"),
+        ("单样本 Single", "数据方式", "每 batch 一条独立算式(不打包)，信号强。",
+         "无额外参数", "—", "—",
+         "梯度信号纯净，高位收敛更快", "序列利用率低于打包"),
+        ("打包 Packed", "数据方式", "多条算式拼进 block 共享上下文。",
+         "无额外参数", "—", "—",
+         "训练吞吐高", "跨算式注意力可能引入噪声，高位略降"),
+        # ---------------- 架构机制 ----------------
+        ("LoRA 适配", "架构机制", "低秩旁路 ΔW=BA 微调，冻结主干。",
+         "rank 级参数量(如 rank=8 → 数千参数)", "—", "—",
+         "超轻量适配，省显存省算力", "秩受限，对小模型容量增益有限"),
+        ("MoE 专家", "架构机制", "多个 FFN 专家 + 门控 top-k 路由。",
+         "n_experts × FFN(如 4 专家)", "—", "—",
+         "增加容量不增加单 token 计算(条件计算)", "门控/负载均衡需调，小模型上收益易被路由开销抵消"),
+        ("Bottleneck 低秩", "架构机制", "残差路径插入低维瓶颈。",
+         "bottleneck 维参数量", "—", "—",
+         "压缩表示、去冗余", "过窄瓶颈会阻塞信息流"),
+        ("全局记忆", "架构机制", "额外可读写记忆槽(如 mem vectors)。",
+         "M × d 参数量", "—", "—",
+         "给跨列进位提供显式存储", "实现/调参复杂"),
+        ("LRU 遗忘", "架构机制", "带遗忘门的递归记忆。",
+         "门控参数量", "—", "—",
+         "长序列可控遗忘", "与自回归架构耦合复杂"),
+        ("DSA 注意力", "架构机制", "动态稀疏注意力，每 query 只留 top-k key。",
+         "无额外参数(运行时稀疏)", "—", "—",
+         "省计算、聚焦关键位置", "top-k 截断可能丢长程依赖"),
+        ("ALiBi 偏置", "架构机制", "注意力分数加线性距离偏置，替代绝对位置。",
+         "无额外参数", "—", "—",
+         "天然长度外推", "对进位这种『位置对齐』任务偏置需调"),
+        ("RoPE 旋转", "架构机制", "旋转位置编码，q/k 按位置旋转。",
+         "无额外参数", "—", "—",
+         "相对位置建模、外推性好", "绝对对齐任务上可能不如绝对位置直接"),
+        # ---------------- 量化 ----------------
+        ("INT8 动态量化", "量化", "推理时权重/激活量化为 int8。",
+         "内存/算力降至 ~1/4", "—", "—",
+         "压缩比高、推理快", "精度损失需验证，小模型尤其敏感"),
+        ("INT4 低比特", "量化", "模拟 int4 量化。",
+         "内存降至 ~1/8", "—", "—",
+         "极限压缩", "精度损失显著，仅适合低要求场景"),
+        # ---------------- 前沿机制 (实测) ----------------
+        ("逆序目标 LSD", "前沿机制", "答案低位优先输出(LSD→MSD)，消解输出端反向寻址。",
+         "无额外参数", "37/40", "10/40",
+         "16 词表下 sub 满分、add1-3 接近满(输出对齐零时延)",
+         "add4 未破 80% 假设落空；32 词表下标签语法与逆序解码双重负担反而拖累(LSD-L4: 37→10)"),
+        ("课程 K", "前沿机制", "按级联进位链深度 K=0..4 阶梯退火采样。",
+         "无额外参数", "28/40", "29/40",
+         "剥离位数与进位深度混淆，1-3 位进位链鲁棒",
+         "K=4 全雪崩仍是表征极限；32 词表 token 开销轻微稀释信号"),
+        ("雪崩进位", "前沿机制", "9999+1 类 100% 全雪崩训练。",
+         "无额外参数", "0/40", "32/40",
+         "32 词表下超预期：标签结构化监督让极限进位泛化大幅改善(1→32)",
+         "16 词表下训练分布过窄→分布内记忆、随机算式全错(灾难性遗忘低位)"),
+        ("Looped-UT 4 步", "前沿机制", "单 Block 权重共享展开 4 次。",
+         "参数量约 1/4", "11/40", "27/40",
+         "递归状态机可训练，1-2 位学会；32 词表标签边界更清晰(27/40)",
+         "4 步展开不足以完成 3-4 位完整进位传播"),
+        ("Looped-UT 7 步", "前沿机制", "单 Block 展开 7 次(更深递归)。",
+         "参数量约 1/4(展开更久)", "13/40", "26/40",
+         "16 词表下比 4 步更强(13 vs 11,add4 25% vs 10%)",
+         "32 词表下 7 步反而 ≤ 4 步(26 vs 27)：标签语法叠加过深展开，容量被格式开销占用"),
+        ("双向验算", "前沿机制", "CoT 末尾追加 c-b=a 反向验算列。",
+         "无额外参数(序列更长)", "17/40", "31/40",
+         "双重结构化约束(反算列+标签)让进位/借位关联更稳，32 词表 31/40 最优",
+         "16 词表下答案列先于验算列生成，验算信息对答案无因果反馈"),
+        ("Reader GRPO", "前沿机制", "20% 草稿篡改注入 + 纠错双倍奖励的强化学习。",
+         "无额外参数(RL 训练)", "8/40", "0/40",
+         "16 词表下短暂出现自纠错(obey 波动 0.12-1.0)",
+         "SFT『照读』先验太强，GRPO 高方差优势淹没纠错信号；32 词表 500 步连标签格式都未掌握→0/40，需大幅加长训练"),
+        # ---------------- 步数扩展 (实测) ----------------
+        ("步数扩展 20-256k", "训练量", "同配方不同训练步数(L4D128 CoT, bias 0.5)。",
+         "随步数线性增加算力", "逐步: 20步≈0 / 4k步 31/40 / 256k步 37/40", "—",
+         "损失持续下探(2.08→0.17)，add1-3 先满、add4 随算力爬升(0→45%)",
+         "add4 约 40-45% 封顶；>16k 步后增益边际递减"),
+        ("步数扩展 512k/1M", "训练量", "超长训练(512k/1M 步)。",
+         "算力巨大", "未完成(需 T4)", "—",
+         "待验证百万步极限泛化", "本地 CPU 不可行，须 Colab T4"),
+        # ---------------- 词表对照 (实测) ----------------
+        ("词表对照 16 vs 32", "体系对比", "16 token(纯算式) vs 32 token(含 () / <ANS></ANS> 标签)。",
+         "32 词表多 2 token(嵌入略大)", "见上", "见上",
+         "32 词表标签让『雪崩/验算/Looped』受益(+31/+14/+14)，惩罚『LSD/Reader』",
+         "标签是双刃剑：结构化输出利好强监督任务，但对『格式敏感机制』(LSD/短 RL)是负担；结论：机制效果高度依赖词表体系"),
+    ]
+
+    r = 4
+    for row in ROWS:
+        for c_idx, val in enumerate(row, 1):
+            cell = ws.cell(r, c_idx, value=val)
+            cell.font = FONT_CODE if c_idx in (1,) else FONT_REGULAR
+            cell.alignment = Alignment(horizontal="center" if c_idx in (1, 5, 6) else "left",
+                                       vertical="center", wrap_text=(c_idx >= 3))
+            cell.border = THIN_BORDER
+            if c_idx == 1:
+                cell.font = FONT_HEADER; cell.fill = FILL_HEADER_OPT
+            elif c_idx in (5, 6):
+                _s = str(val).strip()
+                if re.fullmatch(r"\d+/40", _s):
+                    num = int(_s.split("/")[0])
+                    cell.fill = FILL_SUCCESS if num >= 30 else (FILL_ZEBRA_LIGHT if num >= 15 else FILL_UNRUN)
+                elif _s.startswith("0/"):
+                    cell.fill = FILL_ALERT
+                else:
+                    cell.fill = FILL_ZEBRA_LIGHT
+            elif c_idx == 7:
+                cell.fill = FILL_SUCCESS
+            elif c_idx == 8:
+                cell.fill = FILL_UNRUN if "未" in str(val) or "局限" in str(val) else FILL_ZEBRA_LIGHT
+        ws.row_dimensions[r].height = 58
+        r += 1
+
+    # 列宽
+    widths = [20, 10, 46, 22, 13, 13, 42, 46]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    ws.freeze_panes = "A4"
+
+
+# ===== 入口: 生成全部 Excel =====
 if __name__ == "__main__":
     build_all_expanded()
