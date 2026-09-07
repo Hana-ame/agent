@@ -26,6 +26,42 @@ from .utils.schema import SchemaRegistry, SchemaMismatchError
 from .builders.chain import LinearChain
 from .builders.builder import GraphBuilder
 
+# V4 Core Architecture
+from .vertex_v4 import (
+    VertexStateV4,
+    VertexAttributeV4,
+    VertexRecordV4,
+    VertexV4,
+    StagingRecordV4,
+    VertexStoreV4,
+)
+from .edge_v4 import (
+    EdgeV4,
+    CodeEdgeV4,
+    LLMEdgeV4,
+    ReflexiveEdgeV4,
+    EdgeResultV4,
+)
+from .graph_v4 import (
+    GraphV4,
+    DiscreteGraphLoaderV4,
+    GraphTopologyError,
+)
+from .executor_v4 import (
+    ExecutorV4,
+    OrchestratorV4,
+    ExecutionResultV4,
+    GraphEventV4,
+)
+from .server_v4 import (
+    create_v4_server,
+    SessionGraphManagerV4,
+)
+from .sse_executor_v4 import (
+    SSEExecutorV4,
+    ToolCallEcho,
+)
+
 __all__ = [
     'VertexState', 'Vertex', 'EdgeSignal', 'DataRejectedError',
     'Pipeline', 'Edge', 'SubgraphVertex', 'Graph', 'Executor', 'ExecutionResult', 'GraphEvent', 'ExecutorHooks',
@@ -39,4 +75,13 @@ __all__ = [
     'BaseAgent', 'MockAgent', 'HttpLLMAgent', 'NonRetryableHTTPError',
     'ThrottleTimeoutError',
     'load_script',
+    # V4 exports
+    'VertexStateV4', 'VertexAttributeV4', 'VertexRecordV4', 'VertexV4',
+    'StagingRecordV4', 'VertexStoreV4',
+    'EdgeV4', 'CodeEdgeV4', 'LLMEdgeV4', 'ReflexiveEdgeV4', 'EdgeResultV4',
+    'GraphV4', 'DiscreteGraphLoaderV4', 'GraphTopologyError',
+    'ExecutorV4', 'OrchestratorV4', 'ExecutionResultV4', 'GraphEventV4',
+    'create_v4_server', 'SessionGraphManagerV4',
+    'SSEExecutorV4', 'ToolCallEcho',
 ]
+
