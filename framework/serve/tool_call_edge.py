@@ -1,15 +1,15 @@
-"""ToolCall Edge — LLM 自动调用工具（tool calling loop）。
+"""ToolCall Edge — LLM tool calling loop.
 
-Edge 接收用户消息，附带 tools 定义发给 LLM，循环解析 tool_calls →
-执行工具 → 回传结果 → 直到 LLM 返回 finish_reason="stop"。
+The edge receives user messages, passes tool definitions to the LLM,
+loops over tool_calls -> executes tools -> returns results until LLM stops.
 
-数据流：
+Data flow:
   src vertex ──[ToolCallEdge]──▶ mid vertex ──▶ ... ──▶ sink vertex
 
-工具定义在 edge settings 的 "tools" 字段（JSON schema 列表），
-工具执行通过 "tool_handlers" 字段（callable 映射或脚本路径）。
+Tools are defined in edge settings under "tools" (list of JSON schemas).
+Tool handlers are mapped via "tool_handlers" (callable mapping or script path).
 
-用法示例（graph config）：
+Usage example (graph config):
 {
   "edges": [{
     "id": "e_tool",
@@ -19,7 +19,7 @@ Edge 接收用户消息，附带 tools 定义发给 LLM，循环解析 tool_call
     "script": "tool_call_edge.py:ToolCallEdge",
     "settings": {
       "prompt": "You are a helpful assistant with access to tools.",
-      "model": "sensenova-6.8-flash-lite",
+      "model": "gpt-4o-mini",
       "tools": [
         {
           "type": "function",
@@ -85,7 +85,7 @@ class ToolCallEdge(Edge):
             messages.append({"role": "system", "content": str(self.prompt)})
         messages.append({"role": "user", "content": user_content})
 
-        model = self.model or "sensenova-6.8-flash-lite"
+        model = self.model or "gpt-4o-mini"
 
         for iteration in range(max_iter):
             logger.debug("[ToolCall:%s] Iteration %d/%d", self.id, iteration + 1, max_iter)

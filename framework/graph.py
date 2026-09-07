@@ -20,10 +20,9 @@ from .utils.schema import SchemaMismatchError
 logger = logging.getLogger("vertex_edge_agent.graph")
 
 
-# 计算层字段：必须住在 settings dict 里，顶层写了不生效。
-# 历史上静默吞掉是真正的坑——prompt 一丢，边就退化成透传管道，
-# 整条链路"跑通了"但语义全错（LLM 不跑、守卫永远为真、循环跑满次数）。
-# 比抛错更难查的是悄悄成功，所以这里直接报错。
+# Execution fields must reside inside the settings dict; writing them at top level has no effect.
+# Historically, silently ignoring them caused edges to degrade to passthrough pipes with wrong semantics.
+# Failing fast prevents silent errors.
 _LEGACY_EDGE_KEYS = (
     "prompt", "model", "agent", "retry_policy", "timeout",
     "threshold", "match", "condition", "memory_read", "memory_write",
@@ -33,12 +32,12 @@ _LEGACY_VERTEX_KEYS = ("pipeline",)
 
 
 def _reject_legacy_keys(item: Dict, kind: str, legacy: Tuple[str, ...]) -> None:
-    """抛出仍住在顶层的旧 schema 字段，给出可操作的迁移提示。"""
+    """Reject legacy top-level schema fields and provide migration guidance."""
     stray = [k for k in legacy if k in item]
     if not stray:
         return
     fixes = "\n".join(
-        f"  • {k}: 改名 \"script\"" if k == "pipeline" else f"  • {k}: 移到 \"settings\" 里"
+        f"  • {k}: rename to \"script\"" if k == "pipeline" else f"  • {k}: move to \"settings\""
         for k in stray
     )
     example = (
@@ -46,8 +45,8 @@ def _reject_legacy_keys(item: Dict, kind: str, legacy: Tuple[str, ...]) -> None:
         '"settings": {"prompt": "...", "model": "gpt-4"}}'
     ) % item.get("id", "e")
     raise ValueError(
-        f"{kind} '{item.get('id', '<unknown>')}' 仍在使用旧 schema 的顶层字段 {stray}。\n"
-        "这些字段住在顶层会被静默忽略，必须迁移：\n" + fixes + "\n示例：" + example
+        f"{kind} '{item.get('id', '<unknown>')}' is still using deprecated top-level fields {stray}.\n"
+        "These fields are ignored at the top level and must be migrated:\n" + fixes + "\nExample: " + example
     )
 
 
@@ -368,9 +367,8 @@ class Graph:
             }
             if e.channel != "default":
                 ec["channel"] = e.channel
-            # prompt/model 已从 settings 里解析出来（见 Edge.__init__），
-            # settings 是唯一真源；再写顶层键回读时会被静默忽略，
-            # 导致 to_dict -> from_dict 往返丢掉 prompt。
+            # prompt/model are resolved from settings (see Edge.__init__);
+            # settings is the single source of truth; do not duplicate at top level.
             if e.settings:
                 ec["settings"] = dict(e.settings)
             if e.max_iterations > 0:

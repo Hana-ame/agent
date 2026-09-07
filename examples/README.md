@@ -1,87 +1,85 @@
 # Examples
 
-本目录包含 **19 个可运行实验**（另有 `scripts`、`s1profile_collect` 为辅助目录）。每个实验的
-`README.md` 按「问题 / 方案 / 修改 / 测试」四段式记录：实验要解决的问题、方案、实际修改与实测结果。
+This directory contains **19 executable examples** (along with `scripts/` and `s1profile_collect/` as helper directories).
+Each example contains a `README.md` following the "Problem / Solution / Changes / Verification" format detailing the problem addressed, design, code modifications, and verification results.
 
-> 所有示例统一入口：`python examples/run.py <示例>/config.json`（或该目录自带的 `demo.py/run.py`）。
+> Unified entry point: `python examples/run.py <example>/config.json` (or via the directory's standalone `demo.py` / `run.py`).
 
-## 概览索引
+## Overview Index
 
-| 实验 | 解决的问题 | 运行方式 |
+| Example | Problem Addressed | Execution Command |
 |---|---|---|
-| `simple/` | 最简 3 节点串行管线怎么跑 | `python examples/run.py examples/simple/config.json` |
-| `complex/` | 多源 fan-out/fan-in + 外部子类脚本 | `python examples/run.py examples/complex/config.json` |
-| `conditional_routing/` | Guard 条件分发 + 级联剪枝不死锁 | `python examples/run.py examples/conditional_routing/config.json` |
-| `custom_classes/` | 原生子类（Vertex/Edge）如何被识别加载 | `python examples/run.py examples/custom_classes/config.json` |
-| `real_llm/` | 真实 LLM 端点 + 传输代理怎么配 | `python examples/run.py examples/real_llm/config.json` |
-| `real_pi/` | 委派本地 `pi` CLI 子进程 | `python examples/run.py examples/real_pi/config.json` |
-| `opencode_zen/` | 委派本地 `opencode` CLI | `python examples/opencode_zen/run.py` |
-| `sensenova/` | 免代理直连 SenseNova 端点 | `python examples/run.py examples/sensenova/config.json` |
-| `realtime_streaming/` | 非阻塞事件流观测 | `python examples/realtime_streaming/demo.py` |
-| `self_correction/` | 业务重试 + 自纠错反馈 | `python examples/self_correction/demo.py` |
-| `hitl_approval/` | HITL 暂停 + SQLite 快照恢复 | `python examples/hitl_approval/demo.py` |
-| `subgraph/` | 嵌套子图 + 边界映射 | `python examples/subgraph/demo.py` |
-| `simple_chain/` | 免 JSON 的程序化拓扑 | `python examples/simple_chain/demo.py` |
-| `dynamic_topology/` | 运行时图增长 | `python examples/dynamic_topology/demo.py` |
-| `race_mode/` | 先到先赢 + 取消滞后者 | `python examples/race_mode/demo.py` |
-| `hn_ai_report/` | HN 端到端 AI 日报（MapEdge） | `python examples/hn_ai_report/demo.py` |
-| `s1_ai_report/` | S1 直连版 AI 日报（8 路扇出） | `python examples/s1_ai_report/demo.py` |
-| `s1_ai_report_map/` | S1 MapEdge 版 AI 日报 | `python examples/s1_ai_report_map/demo.py` |
-| `finance_ai_report/` | 财经版 AI 日报（MapEdge 克隆，finance/politics 筛选） | `python examples/finance_ai_report/demo.py` |
+| `simple/` | Minimal 3-node sequential execution pipeline | `python examples/run.py examples/simple/config.json` |
+| `complex/` | Multi-source fan-out / fan-in with external subclass scripts | `python examples/run.py examples/complex/config.json` |
+| `conditional_routing/` | Guard conditional dispatch and cascade pruning without deadlock | `python examples/run.py examples/conditional_routing/config.json` |
+| `custom_classes/` | Dynamic subclass loading for custom Vertex and Edge implementations | `python examples/run.py examples/custom_classes/config.json` |
+| `real_llm/` | Real LLM endpoint configuration with transport proxies | `python examples/run.py examples/real_llm/config.json` |
+| `real_pi/` | Subprocess delegation to local `pi` CLI agent | `python examples/run.py examples/real_pi/config.json` |
+| `opencode_zen/` | Subprocess delegation to local `opencode` CLI agent | `python examples/opencode_zen/run.py` |
+| `sensenova/` | Direct connection to SenseNova inference endpoints | `python examples/run.py examples/sensenova/config.json` |
+| `realtime_streaming/` | Non-blocking event stream observability | `python examples/realtime_streaming/demo.py` |
+| `self_correction/` | Business-level retry policies with self-correcting feedback loops | `python examples/self_correction/demo.py` |
+| `hitl_approval/` | Human-in-the-loop (HITL) pause and SQLite checkpoint resumption | `python examples/hitl_approval/demo.py` |
+| `subgraph/` | Nested subgraph execution with input/output boundary translation | `python examples/subgraph/demo.py` |
+| `simple_chain/` | Programmatic graph construction via fluent builder without JSON | `python examples/simple_chain/demo.py` |
+| `dynamic_topology/` | Dynamic runtime graph growth and edge creation | `python examples/dynamic_topology/demo.py` |
+| `race_mode/` | Race execution (first-to-finish wins, cancels laggards) | `python examples/race_mode/demo.py` |
+| `hn_ai_report/` | Hacker News automated AI summary report (MapEdge) | `python examples/hn_ai_report/demo.py` |
+| `s1_ai_report/` | Direct multi-fetch AI report (8-way parallel fan-out) | `python examples/s1_ai_report/demo.py` |
+| `s1_ai_report_map/` | Dynamic MapEdge-based AI report generator | `python examples/s1_ai_report_map/demo.py` |
+| `finance_ai_report/` | Financial AI report with domain filtering (MapEdge) | `python examples/finance_ai_report/demo.py` |
 
-辅助目录：`scripts/`（公共子类脚本）、`s1profile_collect/`（S1 数据收集，gitignored）。
-
----
-
-## 问题：示例数曾与实际不符（16 → 实际 19）
-
-### 问题
-README 曾写「16 个示例」，漏掉 `s1_ai_report_map`、`sensenova`、`finance_ai_report` 三个已存在目录；且
-`complex`/`custom_classes` 描述用「module hooks」旧措辞。
-
-### 方案
-数字改为实机统计；措辞改为「script 加载子类」。
-
-### 修改
-- 本索引：16→19，补 `s1_ai_report_map`/`sensenova`/`finance_ai_report` 三行；`complex`/`custom_classes` 条目改子类措辞。
-
-### 测试
-**测试方案**：索引行数=目录数。**测试方法**：`ls -d examples/*/ | wc -l`（21，排除 scripts/s1profile_collect
-后为 19 个实验 + 2 辅助）与表格行数对比。**测试结果**：一致（19 行 = 19 目录）。
+Helper directories: `scripts/` (shared subclass scripts), `s1profile_collect/` (data collection helper).
 
 ---
 
-## 问题：`real_llm`/`real_pi` 曾由 `httpx` 直连与 `PiAgentRunner` 并存
+## Issue: Example Count Discrepancy (16 -> 19)
 
-### 问题
-早期 `real_llm` 用裸 urllib 内联 HTTP 请求，绕开框架 agent；后 `real_pi` 通过注入
-`PiAgentRunner` 以 `runner.py` 委派本地 CLI。两条路线并存令人困惑。
+### Problem
+The README formerly stated "16 examples", omitting `s1_ai_report_map`, `sensenova`, and `finance_ai_report`. Additionally, `complex` and `custom_classes` descriptions referred to obsolete "module hooks" terminology.
 
-### 方案
-统一为「script Edge 在 `__init__` 自持 agent」：`llm_edge.py:HttpLLMEdge`、`pi_edge.py:PiEdge`。
+### Solution
+Update example counts to match the actual directory listing and modernize terminology to "subclass loading via `script`".
 
-### 修改
-- `real_llm/llm_edge.py`、`real_pi/pi_edge.py`：`__init__` 内 `self.agent = HttpLLMAgent/PiAgentRunner`；
-  框架不再注入、无默认回退。
-- examples/README 措辞同步。
+### Changes
+- Updated table count to 19; added rows for `s1_ai_report_map`, `sensenova`, and `finance_ai_report`; updated descriptions for `complex` and `custom_classes`.
 
-### 测试
-**测试方案**：两种 CLI agent（pi / opencode）都通过 script edge 工作。**测试方法**：
-`grep -n \"self.agent\" examples/real_llm/llm_edge.py examples/real_pi/pi_edge.py examples/opencode_zen/zen_edge.py`。
-**测试结果**：3 处均在 `__init__` 自持；测试 `tests/test_agents.py` 通过。
+### Verification
+- **Test Plan**: Assert table rows match the number of example subdirectories.
+- **Method**: Compare `ls -d examples/*/` count (19 examples + 2 helper directories) with index table row count.
+- **Result**: Exactly 19 example rows matching 19 directories.
 
 ---
 
-## 运行
+## Issue: Parallel Execution Divergence in `real_llm` and `real_pi`
+
+### Problem
+Early versions of `real_llm` used raw `urllib` calls bypassing the framework agent model, while `real_pi` injected `PiAgentRunner` delegating to local CLI tools. Having multiple divergent agent integration patterns caused confusion.
+
+### Solution
+Standardize on the pattern where script Edges instantiate and hold their agent directly in `__init__`: `llm_edge.py:HttpLLMEdge`, `pi_edge.py:PiEdge`.
+
+### Changes
+- `real_llm/llm_edge.py`, `real_pi/pi_edge.py`: Initialized `self.agent = HttpLLMAgent` and `self.agent = PiAgentRunner` in `__init__`; removed framework injection assumptions.
+- Synchronized documentation in `examples/README.md`.
+
+### Verification
+- **Test Plan**: Verify CLI and HTTP agents are held directly by script edges.
+- **Method**: `grep -n "self.agent" examples/real_llm/llm_edge.py examples/real_pi/pi_edge.py examples/opencode_zen/zen_edge.py`.
+- **Result**: All three instantiate their runner in `__init__`; tests pass (`tests/test_agents.py`).
+
+---
+
+## Running Examples
 
 ```bash
-# 通用 config 示例
+# General config-driven examples
 python examples/run.py examples/simple/config.json
 python examples/run.py examples/conditional_routing/config.json
 
-# 自带 demo 的示例
+# Examples with standalone demo scripts
 python examples/realtime_streaming/demo.py
 python examples/race_mode/demo.py
 ```
 
-> 详细四段式说明见各示例目录的 `README.md`；实机报告见各目录 `report.md`。
+> For detailed issue breakdowns and architecture notes, consult the `README.md` in each example directory. Sample execution outputs are recorded in `report.md` files.

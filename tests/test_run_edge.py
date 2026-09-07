@@ -29,7 +29,7 @@ async def test_loads_explicit_named_class_not_first_subclass():
     report = await run_edge(
         dir_path=os.path.join(REPO, "examples", "s1_ai_report_map"),
         script="s1_edges.py:SummarizeEdge",
-        data={"title": "帖子A", "url": "https://x", "content": "回帖内容"},
+        data={"title": "Thread_A", "url": "https://x", "content": "Reply_content"},
         skip_compute=True,
     )
     assert report["ok"] is True
@@ -45,12 +45,12 @@ async def test_post_process_preserves_structured_title():
     report = await run_edge(
         dir_path=os.path.join(REPO, "examples", "s1_ai_report_map"),
         script="s1_edges.py:SummarizeEdge",
-        data={"title": "帖子A", "url": "https://x", "content": "回帖内容"},
+        data={"title": "Thread_A", "url": "https://x", "content": "Reply_content"},
         skip_compute=True,
     )
     result = report["result"]
     assert isinstance(result, dict)
-    assert result["title"] == "帖子A"       # remembered from pre_process
+    assert result["title"] == "Thread_A"       # remembered from pre_process
     assert result["url"] == "https://x"
     assert "summary" in result
 

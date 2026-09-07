@@ -1,108 +1,121 @@
 # Vertex-Edge-Agent: Architecture Review & Advice
 
-> 本文档按「问题/方案/修改/测试」组织：每项问题给出解决方案、实际改动与实测结果。
-> 状态：评审中被确认的问题均已处置，**355 tests passed**。
+> This document is organized by "Problem / Solution / Changes / Verification": each issue provides the solution, actual code changes, and test results.
+> Status: All confirmed issues from the review have been resolved. **355 tests passed**.
 
 ---
 
-## Part 1: `hn_ai_report` 示例 — 建议
+## Part 1: `hn_ai_report` Example — Recommendations
 
-### 问题 1：`hn_edges.py` 曾是死代码（与 config 内联代码重复）
+### Issue 1: `hn_edges.py` was previously dead code (duplicated with inline config code)
 
-#### 问题
-旧版 config 内联 Python 逻辑，`hn_edges.py` 定义的类没人引用，两条路线并存让人困惑。
+#### Problem
+The previous configuration contained inline Python logic while classes defined in `hn_edges.py` were unreferenced, creating confusion with two parallel execution styles.
 
-#### 方案
-走「类扩展」路线：`script: hn_edges.py:ClassName` 从 config 引用子类，删除内联代码。
+#### Solution
+Adopt the class extension approach: reference subclasses via `script: hn_edges.py:ClassName` from config and remove inline code.
 
-#### 修改
-- `examples/hn_ai_report/config.json`：内联 `action_code` 改为 `script` 指向 `hn_edges.py`
-  （`FetchTopStoriesEdge`/`FilterEdge`/`ProcessStoriesMap`）。每个 step 用 `script: hn_edges.py:FetchCommentsEdge` 等显式类名。
+#### Changes
+- `examples/hn_ai_report/config.json`: Replaced inline `action_code` with `script` pointing to `hn_edges.py` (`FetchTopStoriesEdge` / `FilterEdge` / `ProcessStoriesMap`). Each step uses explicit class names such as `script: hn_edges.py:FetchCommentsEdge`.
 
-#### 测试
-**测试方案**：示例端到端产出报告。**测试方法**：`python examples/hn_ai_report/demo.py`（config 内嵌 proxy）。**测试结果**：生成 `report.md`（约 99 行），5 帖有效。
+#### Verification
+- **Test Plan**: Generate end-to-end example report.
+- **Method**: Run `python examples/hn_ai_report/demo.py` (with proxy in config).
+- **Result**: Successfully generated `report.md` (~99 lines) covering valid forum stories.
 
-### 问题 2：JSON 内联 Python 不可维护
+### Issue 2: Inline Python in JSON was unmaintainable
 
-#### 问题
-旧 `action_code` 是 `\n` 转义的 Python 字符串，无法高亮/lint/debug。
+#### Problem
+Old `action_code` strings were newline-escaped Python snippets inside JSON, preventing syntax highlighting, linting, and debugging.
 
-#### 方案
-改用 `script`（外部 `.py` 文件）承载自定义逻辑。
+#### Solution
+Migrate custom logic to external `.py` script files referenced by `script`.
 
-#### 修改
-- `config.json` 移除内联代码段；逻辑进 `hn_edges.py` 子类。
+#### Changes
+- `config.json`: Removed inline code blocks; moved custom logic into subclasses in `hn_edges.py`.
 
-#### 测试
-**测试方案**：config 无内联 `action_code`。**测试方法**：`grep action_code examples/hn_ai_report/config.json`。**测试结果**：0 处。
+#### Verification
+- **Test Plan**: Verify no inline `action_code` exists in config.
+- **Method**: `grep action_code examples/hn_ai_report/config.json`.
+- **Result**: 0 occurrences found.
 
-### 问题 3：网络调用无错误处理
+### Issue 3: Missing error handling in network calls
 
-#### 问题
-`hn_fetch` 无重试/降级，HN API 挂了就崩。
+#### Problem
+Network fetching lacked retries or fallbacks; if the external API failed, the pipeline crashed.
 
-#### 方案
-fetch 步骤声明 `timeout`（默认 30s），错误经 `EdgeSignal.FAILED` 隔离，不拖垮整图。
+#### Solution
+Declare explicit `timeout` settings (default 30s) on fetch steps and isolate errors using `EdgeSignal.FAILED` so external failures do not bring down the entire graph.
 
-#### 修改
-- `examples/hn_ai_report/hn_edges.py`：fetch 接受 settings 的 `timeout`；`tests/test_s1_edges.py` 同款覆盖。
+#### Changes
+- `examples/hn_ai_report/hn_edges.py`: Fetch routines respect `timeout` in settings; added test coverage matching `tests/test_s1_edges.py`.
 
-#### 测试
-**测试方案**：fetch 超时/失败不导致 Executor 崩。**测试方法**：`pytest tests/test_s1_edges.py -q`。**测试结果**：通过。
+#### Verification
+- **Test Plan**: Verify fetch timeouts or failures do not crash the Executor.
+- **Method**: `pytest tests/test_s1_edges.py -q`.
+- **Result**: Passed.
 
-### 问题 4：示例缺独立 README
+### Issue 4: Example lacked a dedicated README
 
-#### 问题
-只在 examples 根 README 有一行，无专属说明。
+#### Problem
+The example only had a single line in the examples root README without dedicated documentation.
 
-#### 方案
-补 `examples/hn_ai_report` 专属记录（并入 `examples/README.md` + `ai_report_notes.md`）。
+#### Solution
+Add dedicated documentation for `examples/hn_ai_report` (integrated into `examples/README.md` and `ai_report_notes.md`).
 
-#### 修改
-- `examples/README.md`：补 `hn_ai_report`/`s1_ai_report_map`/`sensenova` 三行；`ai_report_notes.md` 记录架构/配置/对比。
+#### Changes
+- `examples/README.md`: Added entries for `hn_ai_report`, `s1_ai_report_map`, and `sensenova`; updated `ai_report_notes.md` with architecture, configuration, and comparative analysis.
 
-#### 测试
-**测试方案**：索引 19 行与 19 个示例目录一致。**测试方法**：`grep -c '^| **`' examples/README.md`。**测试结果**：19。
+#### Verification
+- **Test Plan**: Index line count matches all 19 example directories.
+- **Method**: `grep -c '^| **' examples/README.md`.
+- **Result**: 19.
 
 ---
 
-## Part 2: 框架架构 — 建议（处置状态）
+## Part 2: Framework Architecture — Recommendations & Status
 
-| # | 议题 | 状态 | 处置 |
+| # | Topic | Status | Resolution |
 |---|---|---|---|
-| 1 | Graph 与 Executor 双执行路径 | ✅ 已收敛 | 执行并入 `Executor`；`Graph` 纯数据容器（+ `to_dict/to_json`） |
-| 2 | `Vertex` 巨型类（5 种 action 内联） | ✅ 已收敛 | 重构后 Vertex 为状态机容器，计算逻辑移入 Edge/子类 |
-| 3 | Context 用裸 dict | ✅ 已收敛 | `settings`/channel 显式携带；`ExecutionContext` 提供 agents/memory/telemetry | 
-| 4 | `exec()/eval()` 注入面 | ✅ 已移除 | framework 0 处 `exec(/eval(`；改用子类 override + `edge_transform` |
-| 5 | Edge 类型不完整（ERROR/FEEDBACK） | ✅ 已收敛 | `EdgeSignal.ABORTED/FAILED` 统一信号 + Settlement Barrier 剪枝 |
-| 6 | 无可观测性 | ✅ 已实现 | `executor.stream()` + `GraphEvent` + `TelemetryTracker` |
-| 7 | SubGraph 浅隔离 | ✅ 已实现 | `SubgraphVertex` + input/output_map 边界翻译 + 事件冒泡 |
-| 8 | HTTP client 不复用 | ✅ 已修复 | `_client_for(settings)` 按 proxy 缓存；`close()` 幂等清理 |
+| 1 | Dual execution path in Graph and Executor | Resolved | Execution consolidated into `Executor`; `Graph` serves as pure data container (+ `to_dict/to_json`) |
+| 2 | Monolithic `Vertex` class (5 inline actions) | Resolved | Refactored Vertex into a state machine container; computation moved to Edge / subclasses |
+| 3 | Bare dictionary for Context | Resolved | `settings` and channel carried explicitly; `ExecutionContext` provides agents, memory, telemetry |
+| 4 | Security risk from `exec()` / `eval()` | Removed | 0 occurrences of `exec()` / `eval()` in framework; replaced with subclass overrides + `edge_transform` |
+| 5 | Incomplete Edge signal hierarchy | Resolved | Consolidated signals into `EdgeSignal.ABORTED` / `FAILED` + settlement barrier pruning |
+| 6 | Lack of observability | Implemented | Added `executor.stream()`, `GraphEvent`, and `TelemetryTracker` |
+| 7 | Weak SubGraph isolation | Implemented | `SubgraphVertex` with input/output mapping translation and event bubbling |
+| 8 | HTTP client connection reuse | Fixed | `_client_for(settings)` cached per proxy; idempotent `close()` cleanup |
 
 ---
 
-## Part 3: 确认的 Bug（处置状态）
+## Part 3: Confirmed Bugs & Status
 
-### Bug 1：`GraphBuilder.vertex()` 忽略自定义 script
-**问题**：script 存错 key（`vc["pipeline"]`）被静默丢弃。**方案/修改**：`vc["script"] = script`（已核实）。**测试**：`tests/test_improvements.py` 通过。
+### Bug 1: `GraphBuilder.vertex()` ignored custom scripts
+- **Problem**: Script was stored under the wrong key (`vc["pipeline"]`) and silently discarded.
+- **Resolution**: Fixed key to `vc["script"] = script`.
+- **Verification**: Verified via `tests/test_improvements.py`.
 
-### Bug 2：Edge prompt 跨迭代累积
-**问题**：`retry_policy` 原地改 `self.prompt`，循环后堆 `[SYSTEM FEEDBACK]`。**方案/修改**：冻结 `_base_prompt`，每次重试重建 `active_prompt`，执行后恢复（commit `121ea9e`）。**测试**：`tests/test_retry_and_stream.py` 断言单 feedback 块，通过。
+### Bug 2: Edge prompt accumulated across loop iterations
+- **Problem**: `retry_policy` mutated `self.prompt` in place, accumulating multiple `[SYSTEM FEEDBACK]` blocks over iterations.
+- **Resolution**: Froze `_base_prompt`, rebuilt `active_prompt` per retry, and restored prompt after execution.
+- **Verification**: `tests/test_retry_and_stream.py` asserts exactly one feedback block; passed.
 
-### Bug 3：README 引用不存在的方法
-**问题**：`from_json_file()` 不存在。**方案/修改**：文档统一 `from_json()`。**测试**：`grep from_json README.md` 无 `from_json_file`。
+### Bug 3: README referenced non-existent method
+- **Problem**: `from_json_file()` did not exist.
+- **Resolution**: Standardized documentation on `from_json()`.
+- **Verification**: `grep from_json README.md` confirmed 0 occurrences of `from_json_file`.
 
 ---
 
-## Part 4: 待办（未开始）
+## Part 4: Backlog / Future Work
 
-| # | 事项 | 测试状态 |
+| # | Item | Test Status |
 |---|---|---|
-| 1 | 分布式执行（ROADMAP v3 #7） | 未开始 |
-| 2 | `dynamic_topology` 运行时图增长压测 | 示例可用；无专门压测 |
-| 3 | S1/HN 抓取的 24h 窗口拿不到旧楼主帖 | 已知限制（MapEdge 数据窗口） |
+| 1 | Distributed execution (ROADMAP v3 #7) | Planned |
+| 2 | Dynamic topology runtime growth stress testing | Example functional; dedicated stress test pending |
+| 3 | 24-hour forum fetch window misses older original posts | Known limitation (MapEdge data window) |
 
 ---
 
-> **结论**：示例（`hn_ai_report`/`s1_ai_report_map`）已是「类扩展 + script 显式类名」的推荐示范；
-> 框架所列问题已全部处置，**355 tests passed**。
+> **Conclusion**: The report examples (`hn_ai_report` / `s1_ai_report_map`) now serve as canonical demonstrations of the "class extension + explicit script class names" pattern.
+> All listed framework issues have been addressed, and **355 tests passed**.

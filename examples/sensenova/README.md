@@ -1,34 +1,28 @@
-# SenseNova — 免代理直连真实端点
+# SenseNova — Direct Inference Endpoint (No Proxy)
 
-> 按「问题 / 方案 / 修改 / 测试」记录：这个实验解决「免费 SenseNova 端点直连（无需代理）」——
-> 与 `real_llm`（经传输代理）相对。
+> Documented following the "Problem / Solution / Changes / Verification" format: demonstrates direct connection to the SenseNova inference endpoint without requiring transport proxies.
 
 ---
 
-## 问题
+## Problem
 
-`real_llm` 通过 `https_proxy` 出网；但有些端点（如 SenseNova → https://token.sensenova.cn）
-**直连可达**，不需要任何代理。旧做法一刀切走 proxy 环境变量，反而绕路。
+While `real_llm` routes requests through transport proxies, public API endpoints are frequently **directly accessible** without requiring any proxy. Forcing requests through proxy environment variables can introduce latency or routing failures.
 
-## 方案
+## Solution
 
-`script: sensenova_edge.py:SensenovaEdge` 加载 Edge，Edge 在 `__init__` 自持 `HttpLLMAgent`，
-`base_url`/`model` 在 `settings` 声明，API key 从 `SENSENOVA_API_KEY` 环境变量读取。
-不注入 agent、无默认回退、无 proxy 依赖。
+Use `script: sensenova_edge.py:SensenovaEdge` to load a custom Edge that manages its own `HttpLLMAgent` in `__init__`. The `base_url` and `model` are configured in `settings`, and credentials are read from the `SENSENOVA_API_KEY` environment variable directly without proxy dependencies.
 
-## 修改
+## Changes
 
-- `examples/sensenova/sensenova_edge.py`：`SensenovaEdge` 在 `__init__` 自持 agent，
-  `base_url=https://token.sensenova.cn`、`model=sensenova-6.8-flash-lite`。
-- `examples/sensenova/config.json`：`script: sensenova_edge.py:SensenovaEdge` + settings。
+- `examples/sensenova/sensenova_edge.py`: `SensenovaEdge` initializes its agent with `base_url` pointing to `https://sensenova.moonchan.xyz/v1/chat/completions` and model `sensenova-6.8-flash-lite`.
+- `examples/sensenova/config.json`: Declares `script: sensenova_edge.py:SensenovaEdge` and endpoint settings.
 
-## 测试
+## Verification
 
-**测试方案**：无 `HTTPS_PROXY` 也能直连出结果。
-**测试方法**：
-```bash
-export SENSENOVA_API_KEY=sk-...   # 或读取 ~/.config/opencode/opencode.json
-python examples/run.py examples/sensenova/config.json
-```
-**测试结果**：`user_input -- e_sensenova (SensenovaEdge) --> sensenova_output`，直连返回。
-无需任何 proxy 环境变量。
+- **Test Plan**: Verify direct outbound connectivity and prompt completion without `HTTPS_PROXY`.
+- **Method**:
+  ```bash
+  export SENSENOVA_API_KEY=sk-...
+  python examples/run.py examples/sensenova/config.json
+  ```
+- **Result**: `user_input -- e_sensenova (SensenovaEdge) --> sensenova_output` executes cleanly with direct API response.

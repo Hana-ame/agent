@@ -1,23 +1,37 @@
-# Real Pi — 委派本地 `pi` CLI 子进程
+# Real Pi — Subprocess Delegation to Local `pi` CLI
 
-> 按「问题 / 方案 / 修改 / 测试」记录：这个实验解决「用本地 pi CLI 当推理后端」——\n> 与 `real_llm`（HTTP 端点）相对，是 CLI 子进程路线。
+> Documented following the "Problem / Solution / Changes / Verification" format: demonstrates using a local `pi` CLI tool as an inference backend via child subprocesses.
 
 ---
 
-## 问题
+## Problem
 
-`real_llm` 直接走 `HttpLLMAgent`（HTTP 端点）；但部署环境可能标准化到本地 `pi` CLI\n（AgentCLI），需要把推理委派给子进程而不是 HTTP。
+While `real_llm` uses `HttpLLMAgent` for direct HTTP endpoints, environments standardized on the local `pi` CLI (AgentCLI) require delegating inference to subprocesses rather than remote network requests.
 
-## 方案
+## Solution
 
-`PiAgentRunner`：把推理委托给 `pi -p --model ... --system-prompt ... -- <data>` 子进程。\n边由 `script: pi_edge.py:PiEdge` 加载，Edge 在 `__init__` 自持 `PiAgentRunner`；\nrunner 不注入 agent、无默认回退。
+`PiAgentRunner`: Delegates inference to a `pi -p --model ... --system-prompt ... -- <data>` child process. The edge is loaded via `script: pi_edge.py:PiEdge`, holding its own `PiAgentRunner` directly in `__init__` without external agent injection.
 
-## 修改
+## Changes
 
-- `examples/real_pi/pi_edge.py`：\n  ```python\n  class PiEdge(Edge):\n      def __init__(self, *args, **kwargs):\n          super().__init__(*args, **kwargs)\n          self.agent = PiAgentRunner(...)   # 自持，非注入\n  ```\n- `examples/real_pi/config.json`：`script: pi_edge.py:PiEdge`，`settings` 声明 prompt/model。\n- 执行时经 `examples/run.py` 加载图并 `Executor(graph)` 运行。
+- `examples/real_pi/pi_edge.py`:
+  ```python
+  class PiEdge(Edge):
+      def __init__(self, *args, **kwargs):
+          super().__init__(*args, **kwargs)
+          self.agent = PiAgentRunner(...)
+  ```
+- `examples/real_pi/config.json`: Configures `script: pi_edge.py:PiEdge` and declares prompt/model in `settings`.
+- Executed via `examples/run.py` loading the graph into `Executor(graph)`.
 
-## 测试
+## Verification
 
-**测试方案**：pi CLI 子进程被调用、标准输出成为边结果。\n**测试方法**：\n```bash\npython examples/run.py examples/real_pi/config.json\n```\n（要求 `pi` CLI 在 PATH。）\n**测试结果**：`user_input -- e_real_pi (PiAgentRunner) --> pi_output`，`pi_output` 收到\nCLI 返回；失败时发 `EdgeSignal.FAILED` 并重抛。
+- **Test Plan**: Verify the `pi` CLI subprocess executes and its stdout becomes the edge result.
+- **Method**:
+  ```bash
+  python examples/run.py examples/real_pi/config.json
+  ```
+  (Requires `pi` CLI in system PATH.)
+- **Result**: Execution pipeline `user_input -- e_real_pi (PiAgentRunner) --> pi_output` delivers the CLI output to `pi_output`; failures emit `EdgeSignal.FAILED` and propagate errors cleanly.
 
-> 与 `opencode_zen`（`OpenCodeAgentRunner`）同模式的另一种 CLI 后端。
+> Follows the same subprocess delegation architecture as `opencode_zen` (`OpenCodeAgentRunner`).

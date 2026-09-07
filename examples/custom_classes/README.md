@@ -1,41 +1,36 @@
-# Custom Classes — 原生子类（script 加载）
+# Custom Classes — Native Subclasses (Loaded via `script`)
 
-> 按「问题 / 方案 / 修改 / 测试」记录：这个实验解决「自定义 Vertex/Edge 用原生子类而不是顶层 hook 函数」。
+> Documented following the "Problem / Solution / Changes / Verification" format: demonstrates subclassing native Vertex/Edge classes instead of top-level hook functions.
 
 ---
 
-## 问题
+## Problem
 
-早期框架支持「外部脚本导出顶层 hook 函数」（`on_receive`/`pre_process` 等模块级函数），
-但那套机制已废弃：`load_class_from_script` 只找子类，找不到就静默降级成基类并打 warning。
-按旧写法写的脚本，自定义行为根本不会执行。
+Early versions of the framework supported top-level hook functions exported from external scripts (`on_receive`, `pre_process`, etc.). That approach is deprecated: `load_class_from_script` now strictly looks for subclasses, falling back to base classes with a warning if none are found. Custom logic written in top-level functions will not execute.
 
-## 方案
+## Solution
 
-自定义行为 = 在外部 `.py` 里定义 **`Vertex`/`Edge` 子类**，config 用 `script` 引用，框架
-动态加载并实例化。行为写在子类 override 的方法里（`on_receive`/`on_ready`/`pre_process`/
-`post_process`）。
+Define custom behavior by subclassing **`Vertex` or `Edge`** in external Python files. Reference them via `script` in the configuration. The framework dynamically imports and instantiates the subclass, executing methods overridden in the subclass (`on_receive`, `on_ready`, `pre_process`, `post_process`).
 
-## 修改
+## Changes
 
-- `examples/custom_classes/my_nodes.py`：
-  - `SafeFilterVertex(Vertex)`：`on_receive` 校验非空 + 去 HTML 实体；
-  - `PrefixEdge(Edge)`：`pre_process` 加 `[PRE]`、`post_process` 加 `[POST]`。
-- `examples/custom_classes/config.json`：
-  - `filter_node`：`"script": "my_nodes.py"`（自动发现唯一 `Vertex` 子类）；
-  - `e_custom`：`"script": "my_nodes.py"`（自动发现唯一 `Edge` 子类）。
+- `examples/custom_classes/my_nodes.py`:
+  - `SafeFilterVertex(Vertex)`: Overrides `on_receive` to validate non-empty payloads and unescape HTML entities.
+  - `PrefixEdge(Edge)`: Overrides `pre_process` to prepend `[PRE]` and `post_process` to append `[POST]`.
+- `examples/custom_classes/config.json`:
+  - `filter_node`: `"script": "my_nodes.py"` (automatically discovers single `Vertex` subclass).
+  - `e_custom`: `"script": "my_nodes.py"` (automatically discovers single `Edge` subclass).
 
-## 测试
+## Verification
 
-**测试方案**：script 指向的 `.py` 里子类被正确加载并实例化，自定义方法生效。
-**测试方法**：
-```bash
-python examples/run.py examples/custom_classes/config.json
-```
-**测试结果**：
-- `SafeFilterVertex` 的 `on_receive` 生效：空数据被拒绝，非空数据去实体后进入节点；
-- `PrefixEdge` 的 `pre_process`/`post_process` 生效：数据带 `[PRE]`…`[POST]`；
-- 若 script 里没有子类，会打 `[ScriptLoader] ... 没有 X 子类，已降级用 X——自定义行为不会执行` warning
-  （该示例不含这种情况，正常加载）。
+- **Test Plan**: Verify subclasses in external scripts are dynamically loaded, instantiated, and custom hook overrides run.
+- **Method**:
+  ```bash
+  python examples/run.py examples/custom_classes/config.json
+  ```
+- **Result**:
+  - `SafeFilterVertex.on_receive` executes: empty data is rejected, valid text is cleaned and ingested.
+  - `PrefixEdge.pre_process` and `post_process` execute: payloads are tagged with `[PRE]...[POST]`.
+  - If no subclass is found, a warning `[ScriptLoader] ... no X subclass found, falling back to X` is logged (not triggered here, clean loading).
 
-> 多子类文件用 `script: 文件.py:类名` 显式指定；见 `s1_ai_report_map` / `hn_ai_report`。
+> For files with multiple subclasses, specify the class explicitly via `script: file.py:ClassName` (e.g. as shown in `s1_ai_report_map` / `hn_ai_report`).

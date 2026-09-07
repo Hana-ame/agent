@@ -25,7 +25,7 @@ class ReportVertex(Vertex):
 
         self.reports.append(data)
 
-        lines = ["# 财经讨论报告\n"]
+        lines = ["# Financial Discussion Report\n"]
         for index, report in enumerate(self.reports, start=1):
             if isinstance(report, dict):
                 # Structured summary: title/url come from the fetched thread
@@ -33,9 +33,8 @@ class ReportVertex(Vertex):
                 title = report.get("title", "Unknown")
                 url = report.get("url", "")
                 summary = report.get("summary", "")
-                # 把 LLM 正文里的 ## 子标题(【事件】/【观点】/【影响】)降级成 ###,
-                # 从属于帖子的 ## N. 序号标题,层级清晰(否则同级 ## 在分段发送时
-                # 会被 _split_for_post 当成新帖切开)。
+                # Demote ## headings in the LLM body to ### so they are subordinate
+                # to the ## N. thread title heading.
                 summary = re.sub(r"(?m)^## ", "### ", summary)
                 lines += [f"## {index}. [{title}]({url})", "", summary, "\n---\n"]
             else:
@@ -44,7 +43,7 @@ class ReportVertex(Vertex):
 
         out = os.environ.get("FINANCE_REPORT_OUT")
         if out:
-            # bot 侧指定输出文件;目录若不存在则自动创建
+            # Bot-specified output file; automatically create parent directory if needed.
             out_dir = os.path.dirname(os.path.abspath(out))
             if out_dir:
                 os.makedirs(out_dir, exist_ok=True)

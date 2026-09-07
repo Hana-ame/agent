@@ -2,7 +2,7 @@
 
 Subprocess agent, the opencode counterpart of :class:`PiAgentRunner`: instead
 of talking HTTP to an endpoint, it shells out to the local ``opencode`` CLI
-and returns the assistant's reply. An edge loads it via ``script: 文件:类``
+and returns the assistant's reply. An edge loads it via ``script: file.py:Class``
 and owns it directly — nothing is injected by the runner.
 """
 

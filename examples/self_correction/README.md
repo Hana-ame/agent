@@ -1,24 +1,28 @@
-# Self-Correction — 业务重试 + 自纠错
+# Self-Correction — Business Retries with Feedback Loops
 
-> 按「问题/方案/修改/测试」记录：解决「LLM 输出格式/领域错误时自动注入反馈再试」。v2.0 特性。
+> Documented following the "Problem / Solution / Changes / Verification" format: demonstrates automatic error feedback injection and retry loops for LLM validation errors. Framework v2.0 feature.
 
-## 问题
+## Problem
 
-LLM 输出常不符合约束（JSON 解析失败、业务字段缺失）。旧框架失败即停，需人工介入；重试时会污染 prompt。
+LLM responses frequently fail structural or semantic constraints (e.g. malformed JSON or missing required fields). Halting execution requires manual intervention, while naive retry loops risk polluting the prompt context.
 
-## 方案
+## Solution
 
-`settings.retry_policy`：`{"max_retries": N, "backoff_factor": x, "retry_on": [...]}`。
-`post_process` 抛错 → 捕获 → 错误堆栈注入 prompt（`[SYSTEM FEEDBACK: ...]`）→ 指数退避重试。
-框架冻结 `_base_prompt`，每次重试从它重建 `active_prompt`，不跨迭代累积（commit `121ea9e`）。
+Configure `settings.retry_policy`: `{"max_retries": N, "backoff_factor": x, "retry_on": [...]}`.
+When `post_process` raises an exception, the framework captures the error, injects the traceback into the prompt (`[SYSTEM FEEDBACK: ...]`), and retries with exponential backoff.
+The framework freezes `_base_prompt` and reconstructs an ephemeral `active_prompt` per retry attempt to prevent feedback block accumulation across iterations.
 
-## 修改
+## Changes
 
-- `framework/edge.py`：retry_policy + `_base_prompt` 隔离 + `post_process` 错误注入（已落地）。
-- `examples/self_correction/demo.py`（已核实存在）。
+- `framework/edge.py`: Integrated retry policy, `_base_prompt` isolation, and post-process error feedback.
+- `examples/self_correction/demo.py`: Demonstrates handling corrupted outputs and retrying with feedback.
 
-## 测试
+## Verification
 
-**测试方案**：post 错误被捕捉、反馈注入、按退避重试、单 feedback 块不堆积。
-**测试方法**：`python examples/self_correction/demo.py` + `pytest tests/test_retry_and_stream.py -q`。
-**测试结果**：演示中 LLM 首次输出损坏 → 自动注入反馈重试至成功；回归断言仅单个 `[SYSTEM FEEDBACK]` 块，通过。
+- **Test Plan**: Verify post-processing errors trigger feedback injection, exponential backoff, and prompt cleanup.
+- **Method**:
+  ```bash
+  python examples/self_correction/demo.py
+  pytest tests/test_retry_and_stream.py -q
+  ```
+- **Result**: Initial corrupted LLM output automatically triggers feedback-assisted retry until valid output is produced; regression tests assert exactly one feedback block is retained.

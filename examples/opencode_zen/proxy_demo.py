@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-"""传输代理真实路径演示：HTTP 请求确实“经代理出去”。
+"""Transport proxy execution path demonstration: HTTP requests are routed through the proxy.
 
-起两个本地进程：一个做 HTTP 代理，一个做“上游 LLM 端点”(OpenAI 形状)。
-然后在本地起 HttpLLMAgent(proxy=...)，让它去调用上游。如果一切正常：
+Spawns two local server threads: one HTTP proxy, one upstream LLM mock endpoint.
+Then creates an HttpLLMAgent(proxy=...) that calls upstream.
+Verifies:
+  1. Proxy observes the absolute-form request line
+  2. Upstream receives the LLM payload
+  3. Response is successfully routed back through the proxy
 
-  1. 代理侧能看到 agent 发来的绝对形式请求行 (absolute-form URL)
-  2. 上游真的收到了 LLM payload
-  3. 返回结果经代理转回来
-
-这就直观证明了 config 里的 "proxy": "http://..." 是传输层代理，
-HTTP 请求是真正经它出去的——不是仅仅存了个属性。
-
-运行:  cd 项目根目录 && python examples/opencode_zen/proxy_demo.py
+Run: python examples/opencode_zen/proxy_demo.py
 """
 
 import asyncio
@@ -33,13 +30,13 @@ proxy_hits: list[str] = []
 
 
 class Upstream(BaseHTTPRequestHandler):
-    """扮演真实 LLM 端点（本地版），返回 OpenAI 形状的响应。"""
+    """Simulates an upstream LLM endpoint returning OpenAI-compatible responses."""
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         upstream_hits.append(self.rfile.read(length).decode())
         body = json.dumps({
-            "choices": [{"message": {"content": "【经过代理返回】你好，我是代理转发回来的回复！"}}]
+            "choices": [{"message": {"content": "[Via Proxy] Hello, response received through proxy!"}}]
         })
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -52,10 +49,10 @@ class Upstream(BaseHTTPRequestHandler):
 
 
 class Proxy(BaseHTTPRequestHandler):
-    """最小 HTTP 转发代理：绝对形式请求 → 转发到上游。"""
+    """Minimal HTTP forward proxy: forwards absolute-form requests upstream."""
 
     def do_POST(self):
-        proxy_hits.append(self.path)  # 代理看到的请求行（绝对 URL）
+        proxy_hits.append(self.path)  # Request line seen by proxy (absolute URL)
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         parsed = urlparse(self.path)
@@ -82,21 +79,21 @@ async def main():
 
     try:
         agent = HttpLLMAgent(
-            base_url=f"http://127.0.0.1:{upstream.server_address[1]}/v1/chat/completions",  # 真实 LLM 端点
-            proxy=f"http://127.0.0.1:{proxy.server_address[1]}",          # HTTP 请求经它出去
+            base_url=f"http://127.0.0.1:{upstream.server_address[1]}/v1/chat/completions",
+            proxy=f"http://127.0.0.1:{proxy.server_address[1]}",
         )
-        print(f"LLM 端点: {agent.base_url}")
-        print(f"代理地址: {agent.proxy}")
+        print(f"LLM Endpoint: {agent.base_url}")
+        print(f"Proxy Address: {agent.proxy}")
 
-        result = await agent.process("你好", "简短回复", "demo-model")
-        print("\n返回结果:", result)
+        result = await agent.process("Hello", "Short reply", "demo-model")
+        print("\nResult:", result)
 
-        print("\n代理侧实际收到(绝对形式请求行):", proxy_hits[0])
+        print("\nProxy received (absolute-form request line):", proxy_hits[0])
         payload = json.loads(upstream_hits[0])
-        print("上游实际收到 模型名:", payload["model"],
-              "| 用户消息:", payload["messages"][-1]["content"])
+        print("Upstream received model:", payload["model"],
+              "| user message:", payload["messages"][-1]["content"])
 
-        print("\n结论: 请求确实经代理转发到上游，再经代理转回 —— HTTP 请求通过代理。")
+        print("\nConclusion: Requests are forwarded through proxy and returned through proxy.")
         await agent.close()
     finally:
         proxy.shutdown()

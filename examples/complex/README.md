@@ -1,19 +1,19 @@
-# Complex 示例 — 多源 Fan-out / Fan-in + 外部子类
+# Complex Example — Multi-Source Fan-out / Fan-in with External Subclasses
 
-> 按「问题 / 方案 / 修改 / 测试」记录：这个实验解决「多输入并发 + 汇聚依赖 + 外部子类挂接」。
+> Documented following the "Problem / Solution / Changes / Verification" format: demonstrates concurrent multi-input ingestion, dependency joining, and external subclass integration.
 
 ---
 
-## 问题
+## Problem
 
-框架需要一个「中等复杂度」示例覆盖三个能力，旧文档只在最大示例里零散体现：
-1. **多源并发**：两个输入节点同时提供初始数据；
-2. **Fan-out + Fan-in**：一个节点数据分到多条边并行，汇聚节点等齐所有入边；
-3. **外部子类挂接**：数据变换逻辑放在外部 `.py` 脚本，而非内联 JSON/顶层 hook。
+A representative medium-complexity example is needed to demonstrate three core capabilities:
+1. **Multi-Source Concurrency**: Multiple input vertices providing initial payloads concurrently.
+2. **Fan-out & Fan-in**: A single vertex broadcasting across multiple edges, with a downstream merge vertex awaiting all incoming edges.
+3. **External Subclass Loading**: Transformation logic encapsulated in modular `.py` script files rather than embedded strings or top-level hooks.
 
-## 方案
+## Solution
 
-**Topology**：
+**Topology**:
 
 ```
 input_a ─e1─▶ transform ─e3─▶ merge ─e5─▶ output
@@ -21,31 +21,28 @@ input_a ─e4─────────┬───────────▶ 
 input_b ─e2─────────▶ transform
 ```
 
-- `input_a`/`input_b`：双源。
-- `transform`：挂 `script: ../scripts/uppercase_handler.py`（`UpperVertex` 子类），
-  `on_receive` 转大写。
-- `merge`：汇聚节点（依赖 `e3` + `e4` 都到齐才 READY —— Settlement Barrier）。
-- `e3`：挂 `script: ../scripts/prefix_handler.py`（`PrefixEdge` 子类），
-  `pre_process` 加 `[PRE]` 前缀、`post_process` 加 `[POST]` 后缀。
+- `input_a` / `input_b`: Dual source inputs.
+- `transform`: Attached to `script: ../scripts/uppercase_handler.py` (`UpperVertex` subclass), transforming received strings to uppercase in `on_receive`.
+- `merge`: Aggregation node (demands both `e3` and `e4` to settle before transitioning to READY via Settlement Barrier).
+- `e3`: Attached to `script: ../scripts/prefix_handler.py` (`PrefixEdge` subclass), adding `[PRE]` prefix in `pre_process` and `[POST]` suffix in `post_process`.
 
-## 修改
+## Changes
 
-- `examples/complex/config.json`：4 顶点 + 5 边拓扑；`script` 引用 `../scripts/*.py`。
-- `examples/scripts/uppercase_handler.py`：`UpperVertex(Vertex)`（`on_receive`/`on_ready`）。
-- `examples/scripts/prefix_handler.py`：`PrefixEdge(Edge)`（`pre_process`/`post_process`）。
-- 没有顶层 hook 函数；所有自定义逻辑都在子类方法里。
+- `examples/complex/config.json`: 4 vertices + 5 edges topology; `script` fields referencing `../scripts/*.py`.
+- `examples/scripts/uppercase_handler.py`: Subclasses `UpperVertex(Vertex)` implementing `on_receive` and `on_ready`.
+- `examples/scripts/prefix_handler.py`: Subclasses `PrefixEdge(Edge)` implementing `pre_process` and `post_process`.
+- All custom behavior is organized strictly as subclass overrides without top-level functions.
 
-## 测试
+## Verification
 
-**测试方案**：双源并发、transform 大写、merge 等齐双入边、prefix 前后缀生效。
-**测试方法**：
-```bash
-python examples/run.py examples/complex/config.json
-```
-**测试结果**：
-- `input_a` 与 `input_b` 并发进入，`transform` 收到两条数据并转大写；
-- `e4`（`input_a→merge`）与 `e3`（`transform→merge`）都到达后 `merge` 才 READY
-  （锁无关并发同步，经 `EdgeSignal` barrier 实现）；
-- `e5` 输出带 `[PRE]`…`[POST]`（prefix 子类生效），`output` 汇聚后 DONE。
+- **Test Plan**: Multi-source concurrency, uppercase transformation, dual-input merge settlement, and prefix/suffix application.
+- **Method**:
+  ```bash
+  python examples/run.py examples/complex/config.json
+  ```
+- **Result**:
+  - `input_a` and `input_b` enter concurrently; `transform` receives both payloads and converts them to uppercase.
+  - `merge` transitions to READY only after both `e4` (`input_a -> merge`) and `e3` (`transform -> merge`) arrive (barrier synchronization via `EdgeSignal`).
+  - `e5` outputs text tagged with `[PRE]...[POST]`; `output` settles and the graph reaches DONE.
 
-> 该示例用于回答「外部子类是脚本挂接的推荐形式」；`custom_classes` 是它的精简版。
+> This example demonstrates external subclasses as the recommended extension pattern; `custom_classes` is a simplified variant.

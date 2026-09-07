@@ -1,6 +1,6 @@
 """Tool handlers for ToolCallEdge demo.
 
-提供可被 ToolCallEdge 调用的工具函数。
+Provides tool functions callable by ToolCallEdge.
 """
 
 import datetime
@@ -10,23 +10,23 @@ import subprocess
 
 
 def get_weather(city: str) -> str:
-    """模拟天气查询。返回结构化天气信息。"""
+    """Simulate weather query. Returns structured weather information."""
     return json.dumps({
         "city": city,
         "temperature": "25°C",
-        "condition": "晴",
+        "condition": "Sunny",
         "humidity": "60%",
-        "note": "模拟数据",
+        "note": "Simulated data",
     }, ensure_ascii=False)
 
 
 def get_current_time() -> str:
-    """返回当前时间。"""
+    """Return current timestamp."""
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def list_files(directory: str) -> str:
-    """列出目录中的文件。"""
+    """List files in directory."""
     try:
         result = subprocess.run(
             ["ls", "-la", directory],
@@ -38,10 +38,10 @@ def list_files(directory: str) -> str:
 
 
 def calculate(expression: str) -> str:
-    """安全计算数学表达式。"""
+    """Safely evaluate mathematical expressions."""
     allowed = set("0123456789+-*/(). ")
     if not all(c in allowed for c in expression):
-        return f"Error: 不安全的表达式: {expression}"
+        return f"Error: Unsafe expression: {expression}"
     try:
         result = eval(expression)
         return str(result)

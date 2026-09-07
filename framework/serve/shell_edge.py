@@ -1,6 +1,6 @@
-"""ShellCmd Edge — 执行任意 shell 命令并将输出作为 edge result。
+"""ShellCmd Edge — Executes arbitrary shell commands and passes stdout as edge result.
 
-用法（graph config）：
+Usage (graph config):
 {
   "edges": [{
     "id": "e_ls",
@@ -9,7 +9,7 @@
     "channel": "text",
     "script": "shell_edge.py:ShellCmdEdge",
     "settings": {
-      "command": "ls -la /mnt/d/WorkPlace/vertex_edge_agent/framework",
+      "command": "ls -la framework",
       "timeout": 10
     }
   }]
@@ -26,10 +26,10 @@ logger = logging.getLogger("shell_edge")
 
 
 class ShellCmdEdge(Edge):
-    """执行 shell 命令，stdout 作为 edge result 传递给下游 vertex。"""
+    """Executes shell command and passes stdout as edge result downstream."""
 
     async def compute(self, data, agent, settings):
-        """执行 settings.command 指定的 shell 命令。"""
+        """Execute the command specified in settings.command."""
         cmd = settings.get("command", "echo 'no command'")
         timeout = settings.get("timeout", 30)
 

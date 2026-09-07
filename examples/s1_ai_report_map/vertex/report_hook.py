@@ -33,8 +33,8 @@ class ReportVertex(Vertex):
                 title = report.get("title", "Unknown")
                 url = report.get("url", "")
                 summary = report.get("summary", "")
-                # 把 LLM 正文里的 ## 子标题降级成 ###,从属于 ## N. 帖子序号标题
-                # (否则同级 ## 在分段发送时会被当成新帖切开)。
+                # Demote ## headings in the LLM body to ### so they are subordinate
+                # to the ## N. thread title heading.
                 summary = re.sub(r"(?m)^## ", "### ", summary)
                 lines += [f"## {index}. [{title}]({url})", "", summary, "\n---\n"]
             else:

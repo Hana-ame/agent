@@ -425,8 +425,8 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
             choices = response["choices"]
             content = choices[0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
-            # 免费档偶发 200 但 body 是错误包/空 choices:当作瞬时错误重试,
-            # 而不是让整条报告管线因 KeyError 崩溃(2026-08-30 hn 实测踩到)。
+            # Free tier occasionally returns 200 with empty choices or error payload:
+            # treat as transient error and retry instead of crashing with KeyError.
             provider = (response or {}).get("model") or (response or {}).get("error")
             raise MalformedResponseError(
                 f"upstream returned 200 without choices (model/err={provider!r}); raw={str(response)[:200]}"

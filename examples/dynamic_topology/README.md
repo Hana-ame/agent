@@ -1,24 +1,25 @@
-# Dynamic Topology — 运行时图增长
+# Dynamic Topology — Runtime Graph Growth
 
-> 按「问题 / 方案 / 修改 / 测试」记录：解决「图跑的时候按需生成 worker 顶点」。v2.0 特性。
+> Documented following the "Problem / Solution / Changes / Verification" format: dynamically generates worker vertices during graph execution. Framework v2.0 feature.
 
-## 问题
+## Problem
 
-固定拓扑无法表达「任务数运行时才知道」的场景：Manager 发任务列表，每个任务要一个 worker 处理，总数不定。
+Static topologies cannot represent workflows where task counts are determined at runtime, such as a manager vertex decomposing an incoming request into an arbitrary number of subtasks, each requiring an independent worker.
 
-## 方案
+## Solution
 
-Manager 顶点在运行中发出任务，框架在**执行期动态增减 worker 顶点**，每个任务一个 worker；异步 hook 承担 I/O 密集步骤。
+A manager vertex issues tasks at runtime while the framework **dynamically creates and registers worker vertices and edges** during execution. Each subtask executes asynchronously across independent workers.
 
-## 修改
+## Changes
 
-- `examples/dynamic_topology/demo.py`（已核实存在）。
-- 依赖 `Edge` 原生 `async def` hook 与运行时图变更（框架 v2.0 特性）。
+- `examples/dynamic_topology/demo.py`: Demonstrates runtime vertex and edge registration.
+- Leverages native `async def` hooks on `Edge` and runtime graph mutation.
 
-## 测试
+## Verification
 
-**测试方案**：任务列表逐项生成 worker 并完成。**测试方法**：
-```bash
-python examples/dynamic_topology/demo.py
-```
-**测试结果**：Manager 发 N 任务 → N 个 worker 并行处理 → 全部回收到 sink；运行中图结构增长正常。
+- **Test Plan**: Verify worker vertices are dynamically generated for each task item and processed concurrently to completion.
+- **Method**:
+  ```bash
+  python examples/dynamic_topology/demo.py
+  ```
+- **Result**: Manager generates N tasks -> N worker vertices execute concurrently -> all payloads collect at sink; runtime graph expansion completes cleanly.
