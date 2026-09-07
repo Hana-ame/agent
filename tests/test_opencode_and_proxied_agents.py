@@ -130,11 +130,11 @@ class TestHTTPAgentHierarchy:
         """Structured data is JSON-encoded so the LLM sees a stable shape."""
         agent = HttpLLMAgent()
         agent.client.post = AsyncMock(return_value=_HTTPHelpers.make_resp())
-        await agent.process({"a": 1, "中文": "值"}, "p", "m")
+        await agent.process({"a": 1, "key": "value"}, "p", "m")
         payload = agent.client.post.call_args[1]["json"]
         user_msg = payload["messages"][-1]
         assert user_msg["role"] == "user"
-        assert json.loads(user_msg["content"]) == {"a": 1, "中文": "值"}
+        assert json.loads(user_msg["content"]) == {"a": 1, "key": "value"}
         await agent.close()
 
     @pytest.mark.asyncio

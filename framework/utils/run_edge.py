@@ -33,13 +33,13 @@ Usage::
         --data '{"id":123,"url":"https://news.ycombinator.com/item?id=123"}' \\
         --skip-compute
 
-    # Real LLM (e.g. sensenova), endpoint+key given explicitly:
-    python -m framework.utils.run_edge \\
-        --dir examples/hn_ai_report \\
-        --script hn_edges.py:SummarizeEdge \\
-        --data '{...}' \\
-        --base-url https://token.sensenova.cn/v1/chat/completions \\
-        --api-key "$SENSENOVA_API_KEY"
+    # Real LLM, endpoint+key given explicitly:
+    python -m framework.utils.run_edge \
+        --dir examples/hn_ai_report \
+        --script hn_edges.py:SummarizeEdge \
+        --data '{...}' \
+        --base-url https://api.openai.com/v1/chat/completions \
+        --api-key "$OPENAI_API_KEY"
 
 The ``--script`` path is resolved relative to ``--dir`` (default: CWD), and
 ``file.py:Class`` is loaded by explicit class name — mirroring how the

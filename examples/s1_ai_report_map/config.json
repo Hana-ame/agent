@@ -41,10 +41,10 @@
       "concurrency_type": "llm",
       "script": "s1_edges.py:FilterEdge",
       "settings": {
-        "prompt": "这是一份 S1 论坛 AI 专区的帖子列表:\n{data}\n\n任务:选出与 AI、大语言模型、机器学习、深度学习相关的帖子,有多少选多少,不要限定数量。\n\n只输出一个合法的 JSON 数组,元素含 'tid'、'title'、'url' 字段。不要解释,不要 markdown 格式。",
+        "prompt": "Here is a list of active forum threads:\n{data}\n\nTask: Select threads related to AI, large language models, machine learning, and deep learning. Include all relevant candidates without restricting count.\n\nOutput only a valid JSON array whose elements contain 'tid', 'title', and 'url' fields. Do not include markdown formatting or explanations.",
         "model": "sensenova-6.8-flash-lite",
         "timeout": 7200,
-        "base_url": "https://token.sensenova.cn/v1/chat/completions"
+        "base_url": "https://opencode.ai/zen/v1/chat/completions"
       }
     },
     {
@@ -66,10 +66,10 @@
             "type": "llm",
             "script": "s1_edges.py:SummarizeEdge",
             "settings": {
-              "prompt": "你是一个上 S1 论坛的猫娘,把单帖讨论提炼成一份精炼的中文小结。\n\n## 工作约定\n\n1. **只输出正文**:一段 markdown,按【AI/LLM 趋势】【用户观点】【关键论点】三个小节组织。\n2. **趋势按时间顺序**:【AI/LLM 趋势】按发生先后排列,每条以统一时间格式开头,如「8月29日上午9点」「8月29日下午2点」(把楼层时间戳换算成上午/下午,不写年份、不写分钟),时间取自下面回复楼层时间戳(每楼 '### #N **用户** · 时间'),不要编造时间。\n3. **短而有信息量**:每小节用尽量少的要点讲清真实信息;宁可压缩/精简,也不要堆砌长句和注水。\n4. **忠于原文**:只写帖子里实际出现的内容(模型/工具/价格、具名用户、有效论点);不确定的不写,不编造。\n5. **语言跟随用户**:用中文,技术名词可保留英文。\n6. **不要重复标题和链接**,不要额外说明。",
+              "prompt": "You are a tech observer summarizing forum discussions into a concise briefing.\n\n## Guidelines\n\n1. **Body only**: Return markdown organized into three sections: [AI/LLM Trends], [User Perspectives], and [Key Arguments].\n2. **Chronological trends**: Order trends chronologically using timestamps from post headers ('### #N **User** \u00b7 Time'). Do not invent dates.\n3. **Concise and informative**: Use minimal bullet points with high signal-to-noise ratio. Avoid filler sentences.\n4. **Faithful to source**: Only include models, tools, pricing, users, and arguments actually present in the thread. Do not hallucinate.\n5. **Language**: English.\n6. **No redundant titles/links**: Do not repeat the thread title or URL, and provide no preamble.",
               "model": "sensenova-6.8-flash-lite",
               "timeout": 7200,
-              "base_url": "https://token.sensenova.cn/v1/chat/completions"
+              "base_url": "https://opencode.ai/zen/v1/chat/completions"
             }
           }
         ],

@@ -1,65 +1,63 @@
-# HN AI Report — 端到端 AI 日报（MapEdge）
+# HN AI Report — End-to-End AI Digest (MapEdge)
 
-> 按「问题 / 方案 / 修改 / 测试」记录：Hacker News AI 日报实验，MapEdge 架构的
-> 端到端示范（fetch → 筛选 → 每帖并发 fetch+summarize → 聚合成 `report.md`）。
+> Documented following the "Problem / Solution / Changes / Verification" format: Hacker News AI digest experiment demonstrating the MapEdge architecture (fetch -> filter -> concurrent fetch and summarize per story -> aggregated `report.md`).
 
-## 问题 1：12 顶点 + 17 边手写 fan-out 太重
+## Issue 1: 12 Vertices and 17 Edges in Manual Fan-out was Too Heavy
 
-### 问题
-早期 HN 示例手写每条路径（每帖独立 fetch/summarize 边），config 120+ 行、并发固定、
-不可扩展。且 `hn_edges.py` 与 config 内联代码曾经双轨并存、令人困惑。
+### Problem
+Earlier HN implementations manually declared every edge path (independent fetch/summarize edges per story), producing 120+ lines of config with rigid concurrency. Furthermore, `hn_edges.py` and inline config code previously coexisted, causing architectural ambiguity.
 
-### 方案
-走「类扩展 + MapEdge」路线：
-- 自定义逻辑全部在 `hn_edges.py` 子类（`FetchTopStoriesEdge`/`FilterEdge`/
-  `FetchCommentsEdge`/`SummarizeEdge`/`ProcessStoriesMap`）；
-- config 用 `script: hn_edges.py:ClassName` 显式引用，删除内联代码；
-- 每帖处理收敛为一条 `ProcessStoriesMap(MapEdge)` + `settings.pipeline`。
+### Solution
+Adopt the "Class Extension + MapEdge" architecture:
+- Encapsulate all custom logic in subclasses within `hn_edges.py` (`FetchTopStoriesEdge` / `FilterEdge` / `FetchCommentsEdge` / `SummarizeEdge` / `ProcessStoriesMap`).
+- Reference subclasses explicitly in config using `script: hn_edges.py:ClassName` and remove all inline code snippets.
+- Consolidate per-story processing into a single `ProcessStoriesMap(MapEdge)` step driven by `settings.pipeline`.
 
-### 修改
-- `examples/hn_ai_report/config.json`：约 40 行；`script` 显式类名；proxy 内嵌 settings。
-- `examples/hn_ai_report/hn_edges.py`（已核实存在）。
-- `examples/hn_ai_report/demo.py`（已核实存在）。
+### Changes
+- `examples/hn_ai_report/config.json`: Compact configuration (~40 lines); explicit `script` class references; proxy configured in settings.
+- `examples/hn_ai_report/hn_edges.py`: Dedicated edge subclasses.
+- `examples/hn_ai_report/demo.py`: Standalone execution entry point.
 
-### 测试
-**测试方案**：端到端产出 HN AI 日报。**测试方法**：
-`env -u HTTPS_PROXY -u HTTP_PROXY python examples/hn_ai_report/demo.py`（proxy 在 config 内）。
-**测试结果**：`report.md` 生成（约 99 行）；筛选不限制条数；报告中文、含 `# [标题](链接)`。
+### Verification
+- **Test Plan**: Generate end-to-end HN AI digest report.
+- **Method**:
+  `env -u HTTPS_PROXY -u HTTP_PROXY python examples/hn_ai_report/demo.py` (proxy defined in config).
+- **Result**: `report.md` generated (~99 lines); stories filtered dynamically; markdown formatted with `# [Title](Link)`.
 
-## 问题 2：MapEdge pipeline 的 script 相对路径与显式类名
+## Issue 2: Script Relative Paths and Explicit Class Names in MapEdge Pipeline
 
-### 问题
-pipeline step 的 `script` 曾按 CWD 解析（→ Script not found）；自动发现曾按字母序
-选错子类（`SummarizeEdge` 被 `FetchEdge` 抢）。
+### Problem
+Pipeline step `script` paths previously resolved against CWD (causing "Script not found" errors when executed from different directories); automatic discovery previously matched subclasses alphabetically, picking the wrong class (e.g. `SummarizeEdge` shadowed by `FetchEdge`).
 
-### 方案
-- step script 按 config 目录归一化（`framework/graph.py`）；
-- `load_class_from_script` 显式类名优先（`framework/utils/script_loader.py`）。
+### Solution
+- Normalize step `script` paths relative to the configuration file directory (`framework/graph.py`).
+- Prioritize explicit class name resolution in `load_class_from_script` (`framework/utils/script_loader.py`).
 
-### 修改
-- `framework/graph.py`、`framework/utils/script_loader.py`（均已核实修复）。
+### Changes
+- `framework/graph.py`, `framework/utils/script_loader.py`: Path normalization and explicit class resolution.
 
-### 测试
-**测试方案**：任意 CWD 下 pipeline step 加载正确类。**测试方法**：
-`pytest tests/test_script_loader.py -q` + 实机 demo。**测试结果**：通过；
-报告含逐帖总结（`SummarizeEdge.post_process` 生效）。
+### Verification
+- **Test Plan**: Load pipeline steps with correct class resolution regardless of current working directory.
+- **Method**:
+  `pytest tests/test_script_loader.py -q` + standalone demo execution.
+- **Result**: Passed; report includes per-story summaries (`SummarizeEdge.post_process` executed).
 
-## 问题 3：token/耗时对比（map vs opencode 直出）
+## Issue 3: Token and Latency Comparison (MapEdge vs Direct Agent Run)
 
-### 问题
-需要量化 MapEdge（框架 pipeline）与 `opencode run` 直出两条路线的成本差异。
+### Problem
+Needed to quantify token usage and cost differences between MapEdge (framework pipeline) and direct CLI execution (`opencode run`).
 
-### 方案
-同源 HN 帖两条路线各跑一次，读真实 usage（框架 `get_usage_summary()` + opencode SQLite）。
+### Solution
+Execute both pipelines against the same HN stories and collect usage metrics (via framework `get_usage_summary()` and agent telemetry logs).
 
-### 修改
-- `framework/agents/_http_base.py`：真实 token 捕获（`usage_log`/`get_usage_summary`）。实机对比见 `ai_report_notes.md` 问题 6。
+### Changes
+- `framework/agents/_http_base.py`: Token usage tracking (`usage_log` / `get_usage_summary`). Full comparative benchmark detailed in `ai_report_notes.md` Issue 6.
 
-### 测试
-**测试方案**：两条路线 token/耗时对比。**测试方法**：分别跑 demo 与
-`opencode run`，读数据。**测试结果**：map 总消耗约直出 **32%**（HN），input 6-9k vs
-78k（直出 WebFetch 整页）；见 `ai_report_notes.md` 表格。
+### Verification
+- **Test Plan**: Benchmark token usage and latency between both approaches.
+- **Method**: Run demo script and direct runner on the same input dataset; compare telemetry.
+- **Result**: MapEdge total token consumption was ~**32%** of direct execution (HN), with input tokens 6-9k vs 78k (direct fetch ingested full raw page); see table in `ai_report_notes.md`.
 
-## 文件
+## Files
 
-- `config.json`、`demo.py`、`hn_edges.py`、`vertex/report_hook.py`、`report.md`、`opencode_direct.md`
+- `config.json`, `demo.py`, `hn_edges.py`, `vertex/report_hook.py`, `report.md`, `opencode_direct.md`

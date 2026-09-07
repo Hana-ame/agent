@@ -103,7 +103,7 @@ def load_class_from_script(script_path: str, base_class: type, default_class: ty
             if requested is not None and inspect.isclass(requested) and issubclass(requested, base_class):
                 return requested
             logger.warning(
-                "[ScriptLoader] %s 里没有名为 %s 的 %s 子类，已降级用 %s——自定义行为不会执行。",
+                "[ScriptLoader] %s does not contain a %s subclass named %s, falling back to %s -- custom behavior will not execute.",
                 script_path, default_class, base_class.__name__, base_class.__name__,
             )
             return base_class
@@ -114,8 +114,8 @@ def load_class_from_script(script_path: str, base_class: type, default_class: ty
                 return obj
 
         logger.warning(
-            "[ScriptLoader] %s 里没有 %s 子类，已降级用 %s——自定义行为不会执行。\n"
-            "        若要自定义，请在脚本里定义 %s 子类（旧的顶层 hook 函数写法已失效）。",
+            "[ScriptLoader] %s has no %s subclass, falling back to %s -- custom behavior will not execute.\n"
+            "        To customize, define a %s subclass in the script.",
             script_path, base_class.__name__, default_class.__name__, base_class.__name__,
         )
         return default_class

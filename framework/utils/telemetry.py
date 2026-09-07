@@ -23,7 +23,7 @@ DEFAULT_PRICING: Dict[str, Dict[str, float]] = {
     # Free-tier models: no API key, zero cost — listed explicitly so free-tier
     # report runs are NOT billed at the "default" rates above.
     "hy3-free": {"prompt_per_m": 0.0, "completion_per_m": 0.0},
-    # Models not listed here (e.g. sensenova-*) fall back to "default" rates —
+    # Models not listed here fall back to "default" rates —
     # the estimate is a placeholder for the report, not a billable figure.
     "default": {"prompt_per_m": 1.00, "completion_per_m": 3.00},
 }

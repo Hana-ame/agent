@@ -7,7 +7,7 @@ They lock in two bugs that were fixed (and previously lost) twice:
 
 1. The post selector ``div[id^="post_"]`` also matched the empty rating
    placeholder ``id="post_rate_div_<pid>"``, producing bogus empty "posts".
-2. The timestamp is rendered as ``发表于 2026-8-29 13:10`` (Chinese prefix,
+2. The timestamp prefix (e.g. ``Posted at 2026-8-29 13:10``,
    no ``span[title]``), which the old ``re.match``/``strptime`` logic failed to
    parse -> ``dt=None`` -> every post was dropped by the 24h cutoff ->
    ``Result: 0 replies`` even for busy threads.
@@ -58,10 +58,10 @@ def test_parse_posts_skips_rate_divs(path, soup):
 
 
 @pytest.mark.parametrize("path", EDGE_PATHS)
-def test_chinese_timestamp_parsed(path, soup):
+def test_timestamp_parsed(path, soup):
     mod = _load_s1_edges(path)
     posts = mod._parse_posts_from_soup(soup)
-    # The "发表于 2026-8-29 13:10" style must be parsed to a real datetime
+    # The timestamp style must be parsed to a real datetime
     # (not None), otherwise the 24h cutoff silently drops every post.
     parsed = [dt for _u, _t, _ts, dt, _c in posts if dt is not None]
     assert parsed, "no post had its timestamp parsed"
@@ -73,8 +73,8 @@ def test_chinese_timestamp_parsed(path, soup):
 def test_time_regex_handles_prefix():
     from datetime import datetime, timedelta, timezone
 
-    raw = "发表于 2026-8-29 13:10"
-    stripped = __import__("re").sub(r"^(发表于|Post on|Posted at)[\s:：]*", "", raw).strip()
+    raw = "Posted at 2026-8-29 13:10"
+    stripped = __import__("re").sub(r"^(Post on|Posted at)[\s:：]*", "", raw).strip()
     m = __import__("re").search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})", stripped)
     assert m, "timestamp regex did not match 2026-8-29 13:10"
     y, mo, d, h, mi = map(int, m.groups())
@@ -89,13 +89,13 @@ def test_summarize_edge_keeps_original_title(path):
     # title/url to its output as structured fields.
     mod = _load_s1_edges(path)
     edge = mod.SummarizeEdge(edge_id="e_sum", source_id="v_router", destination_id="v_report")
-    payload = {"title": "原帖标题X", "url": "https://stage1st.com/2b/thread-1-1-1.html", "content": "# some thread\ncontent"}
+    payload = {"title": "Sample Thread Title X", "url": "https://stage1st.com/2b/thread-1-1-1.html", "content": "# some thread\ncontent"}
     prompt = edge.pre_process(payload, {})
-    assert "原帖标题X" in prompt and "thread-1-1-1.html" in prompt
+    assert "Sample Thread Title X" in prompt and "thread-1-1-1.html" in prompt
     # LLM body is whatever the model returned; post_process must wrap it.
     out = edge.post_process("## AI/LLM Trends\n- body", {})
     assert out == {
-        "title": "原帖标题X",
+        "title": "Sample Thread Title X",
         "url": "https://stage1st.com/2b/thread-1-1-1.html",
         "summary": "## AI/LLM Trends\n- body",
     }

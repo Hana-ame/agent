@@ -1,17 +1,10 @@
-"""finance_ai_report: stage1st 财经版块 -> LLM 筛选 -> 逐帖抓回复并总结的 MapEdge 管线。
+"""finance_ai_report: Forum financial section -> LLM filter -> thread fetch and summary MapEdge pipeline.
 
-与 s1_ai_report_map 同构:
-- FetchThreadsEdge 抓版块最新帖子列表(同 s1_ai_report_map 的 stage1st 解析,直连 trust_env=False);
-- FilterEdge 由 LLM 选出财经/投资/经济/商战/国际时政相关帖(不限定数量);
-- ProcessThreadsMap 对每个候选帖并发走 pipeline: FetchEdge(抓最近 hours 回复) -> SummarizeEdge(中文小结);
-- 结果逐条发给 v_report,由 ReportVertex 累加写 report.md。
-
-主题差异:筛选与总结 prompt 从「AI 相关」换成「财经/投资/时政」,summarize 小节改为
-【事件】【观点】【影响】,事件按时间顺序排列(与 s1 一致,时间戳来自楼层)。
-
-抓取层直接复用 s1_ai_report_map/s1_edges.py 的 stage1st 解析(版块列表 + 楼层),
-已修过的坑一并继承:post_rate_div_ 空占位排除、中文「发表于」时间戳解析、多页回帖
-按时间升序排序。
+Isomorphic to s1_ai_report_map:
+- FetchThreadsEdge fetches latest thread list from the forum section (trust_env=False);
+- FilterEdge uses LLM to select financial/investment/economic/geopolitical threads;
+- ProcessThreadsMap runs concurrent pipeline for each candidate: FetchEdge -> SummarizeEdge;
+- Results are delivered to v_report, where ReportVertex accumulates and writes report.md.
 """
 
 import asyncio
@@ -27,13 +20,13 @@ from framework.edge import Edge, MapEdge
 
 logger = logging.getLogger(__name__)
 
-# stage1st 走直连(trust_env=False),不信任环境代理 —— 与 s1_ai_report_map 一致
+# Direct connection (trust_env=False), ignoring environment proxy
 _HEADERS = {"User-Agent": "Mozilla/5.0"}
 _BASE = "https://stage1st.com/2b/"
 
 
 async def fetch_forum_threads(url: str) -> str:
-    """抓版块首页,返回帖子列表 JSON 字符串(tid/title/url)。"""
+    """Fetch section index page and return thread list as JSON string (tid/title/url)."""
     async with httpx.AsyncClient(
         headers=_HEADERS, timeout=30, trust_env=False, follow_redirects=True
     ) as c:
@@ -57,11 +50,10 @@ async def fetch_forum_threads(url: str) -> str:
 
 
 def _parse_posts_from_soup(soup):
-    """从一页帖子 HTML 抠出楼层列表 (orig_idx, user, timestr, dt, content)。
+    """Extract post list from thread HTML page (orig_idx, user, timestr, dt, content).
 
-    踩坑(已在 s1 侧修过,这里继承):id="post_rate_div_<pid>" 是空的评分占位
-    div,不能当楼层;真实楼层 id 匹配 ^post_[0-9]+$。时间戳是中文「发表于 …」,
-    span[title] 常为空,需从 em#authorposton 文本里 re.search 解析。
+    id="post_rate_div_<pid>" is an empty rating div placeholder and must not be
+    counted as a post; real post IDs match ^post_[0-9]+$.
     """
     posts = [
         d for d in soup.select('div[id^="post_"]')
@@ -83,7 +75,7 @@ def _parse_posts_from_soup(soup):
                 time_str = span.get("title")
             else:
                 time_str = em_node.get_text(strip=True)
-            time_str = re.sub(r"^(发表于|Post on|Posted at)[\s:：]*", "", time_str).strip()
+            time_str = re.sub(r"^(Post on|Posted at)[\s:：]*", "", time_str).strip()
             try:
                 m = re.search(
                     r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})", time_str
@@ -105,7 +97,7 @@ def _parse_posts_from_soup(soup):
 
 
 def _extract_posts_from_soup(soup, url: str, hours: int) -> str:
-    """单页帖子 → 最近 hours 小时楼层的 markdown(用于无分页/单页场景)。"""
+    """Extract posts within recent hours for single-page threads."""
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=hours)
 
@@ -128,11 +120,7 @@ def _extract_posts_from_soup(soup, url: str, hours: int) -> str:
 
 
 async def fetch_thread_replies_md(url: str, hours: int = 24, timeout: float = 30) -> str:
-    """抓一个 stage1st 帖子的所有页,过滤最近 *hours* 小时楼层,输出 markdown。
-
-    多页按「倒序翻页、到无新帖那页就停」;楼层按时间升序排序后输出,方便
-    总结 LLM 按事件时间线写。
-    """
+    """Fetch all pages of a thread, filter posts from recent hours, and output markdown."""
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=hours)
 
@@ -189,7 +177,7 @@ async def fetch_thread_replies_md(url: str, hours: int = 24, timeout: float = 30
         if not page_has_recent:
             break
 
-    # 时间升序,让总结 LLM 能按时间线写【事件】小节
+    # Chronological order
     all_posts.sort(key=lambda x: x[0])
 
     lines = [
@@ -210,7 +198,7 @@ async def fetch_thread_replies_md(url: str, hours: int = 24, timeout: float = 30
 
 
 class FetchThreadsEdge(Edge):
-    """抓版块首页帖子列表(JSON 字符串),post_process 解析成 list[dict]。"""
+    """Fetch forum thread list JSON string and parse into list[dict]."""
 
     async def pre_process(self, data, settings):
         return await fetch_forum_threads(str(data))
@@ -226,7 +214,7 @@ class FetchThreadsEdge(Edge):
 
 
 class FilterEdge(Edge):
-    """LLM 筛选结果的 JSON 解析(过滤逻辑在 config settings.prompt 里)。"""
+    """Parse LLM filtering JSON response."""
 
     def post_process(self, data, settings):
         try:
@@ -239,7 +227,7 @@ class FilterEdge(Edge):
 
 
 class FetchEdge(Edge):
-    """取单个候选帖的最近回复(构造 {title,url,content} 给 SummarizeEdge)。"""
+    """Fetch recent replies for a candidate thread ({title, url, content})."""
 
     def condition(self, data, settings):
         return isinstance(data, dict) and "url" in data
@@ -252,11 +240,10 @@ class FetchEdge(Edge):
 
 
 class SummarizeEdge(Edge):
-    """LLM 把单帖回复 markdown 提炼成中文小结;结构化标题/链接来自抓取数据。"""
+    """Summarize thread replies with structured title/url preserved from fetched data."""
 
     def pre_process(self, data, settings):
         if isinstance(data, dict):
-            # 记住抓取来的原始标题/链接,报告不依赖 LLM 复述标题(省 token)
             self._title = data.get("title", "Unknown")
             self._url = data.get("url", "")
             content = data.get("content", "")
@@ -264,7 +251,6 @@ class SummarizeEdge(Edge):
         return str(data)
 
     def post_process(self, data, settings):
-        # 把 LLM 摘要和抓取来的标题/链接拼成结构化结果,供 ReportVertex 渲染
         summary = str(data)
         if isinstance(data, dict) and data.get("summary"):
             summary = data["summary"]
@@ -276,6 +262,5 @@ class SummarizeEdge(Edge):
 
 
 class ProcessThreadsMap(MapEdge):
-    """MapEdge:对筛选出的帖子列表并发走 fetch+summarize pipeline(config 里定义)。"""
-
+    """MapEdge: processes filtered thread list through fetch + summarize pipeline."""
     pass

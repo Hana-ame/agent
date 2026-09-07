@@ -1,22 +1,21 @@
-# Real LLM — 真实端点 + 传输代理
+# Real LLM — Real Endpoints with Transport Proxies
 
-> 按「问题 / 方案 / 修改 / 测试」记录：这个实验解决「真实 LLM 请求经 HTTP(S) 传输代理出去」。
+> Documented following the "Problem / Solution / Changes / Verification" format: demonstrates dispatching real LLM requests through HTTP(S) transport proxies.
 
 ---
 
-## 问题
+## Problem
 
-框架默认 `MockAgent` 只做测试用；真实业务要调真实 LLM 端点。且部署环境常要求请求走
-**传输代理**（公司出口/Clash 等），旧示例依赖环境变量 `HTTPS_PROXY`，不好复现。
+The framework's default `MockAgent` is strictly for testing; production workflows require calls to live LLM endpoints. Furthermore, deployment environments frequently mandate routing requests through **transport proxies** (corporate egress, local forwarders, etc.). Relying on ambient `HTTPS_PROXY` environment variables can be error-prone and hard to reproduce across environments.
 
-## 方案
+## Solution
 
-- `script: llm_edge.py:HttpLLMEdge` 加载 Edge，Edge 在 `__init__` 自持 `HttpLLMAgent`；
-- `base_url`（完整 URL，含路径）与 `https_proxy` 都在 `settings` 里声明，**显式优先，\n  无环境变量依赖**；config 里设了 proxy 就覆盖环境 `HTTP_PROXY/HTTPS_PROXY`。
+- Load the edge via `script: llm_edge.py:HttpLLMEdge`, where the edge instantiates and maintains its own `HttpLLMAgent` in `__init__`.
+- Explicitly declare `base_url` (full URL including path) and `https_proxy` within `settings`. Configuration values take explicit precedence over ambient `HTTP_PROXY` and `HTTPS_PROXY` environment variables.
 
-## 修改
+## Changes
 
-- `examples/real_llm/llm_edge.py`：
+- `examples/real_llm/llm_edge.py`:
   ```python
   class HttpLLMEdge(Edge):
       def __init__(self, *args, **kwargs):
@@ -26,14 +25,14 @@
               proxy=self.settings.get("https_proxy"),
           )
   ```
-- `examples/real_llm/config.json`：`settings.base_url` + `settings.https_proxy`（如\n  `http://127.0.1.6:7890`，Clash 风格出口）。
+- `examples/real_llm/config.json`: Configures `settings.base_url` and `settings.https_proxy` (e.g. `http://127.0.1.6:7890` or custom local forwarder).
 
-## 测试
+## Verification
 
-**测试方案**：`https_proxy` 覆盖环境变量、请求真实出网并返回 LLM 结果。
-**测试方法**：
-```bash
-python examples/run.py examples/real_llm/config.json
-```
-（把 `127.0.1.6:7890` 换成你的 Clash 出口 `127.0.{1,2,3}.{4,6}:7890` 或自有代理。）
-**测试结果**：`user_input -- e_real_llm (HttpLLMAgent) --> llm_output`，`llm_output` 收到\n真实端点返回；去掉 `https_proxy` 时 `trust_env=True` 回退到环境 `HTTP_PROXY/HTTPS_PROXY`。
+- **Test Plan**: Verify `https_proxy` overrides environment variables and successfully queries the remote LLM endpoint.
+- **Method**:
+  ```bash
+  python examples/run.py examples/real_llm/config.json
+  ```
+  (Set proxy endpoint according to your local environment.)
+- **Result**: Data pipeline `user_input -- e_real_llm (HttpLLMAgent) --> llm_output` completes, with `llm_output` receiving the live response; when `https_proxy` is omitted, `trust_env=True` falls back cleanly to environment variables.

@@ -1,7 +1,7 @@
 {
   "metadata": {
     "name": "SenseNova Free LLM (no proxy)",
-    "description": "Clone of real_llm for the free SenseNova endpoint `token.sensenova.cn` — model `sensenova-6.8-flash-lite`, directly reachable without any proxy. Edge loaded by `script: sensenova_edge.py:SensenovaEdge`."
+    "description": "Clone of real_llm for the free SenseNova endpoint — model `sensenova-6.8-flash-lite`, directly reachable without any proxy. Edge loaded by `script: sensenova_edge.py:SensenovaEdge`."
   },
   "vertices": [
     {

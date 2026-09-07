@@ -1,23 +1,23 @@
-"""VEA Context Manager — 顶点离散化 + 上下文管理。
+"""VEA Context Manager — Vertex modularization + context management.
 
-每个 vertex 是独立 JSON 文件，graph.json 只定义拓扑（edges）和 agent 配置。
-VEA 类实现 __enter__/__exit__，封装图加载、执行、资源清理。
+Each vertex is an independent JSON file; graph.json defines only topology (edges) and agent configuration.
+The VEA class implements __enter__/__exit__, encapsulating graph loading, execution, and cleanup.
 
-用法:
+Usage:
     with VEA("vea_graphs/my_graph") as agent:
         result = agent.run("hello")
-        # 或
+        # or
         async for event in agent.stream("hello"):
             print(event)
 
-目录结构:
+Directory structure:
     my_graph/
     ├── graph.json          # { "edges": [...], "agent": {...} }
     ├── vertices/
     │   ├── src.json        # { "id": "src", "type": "source", ... }
     │   ├── mid.json
     │   └── sink.json
-    └── edges/              # 可选，自定义 edge 脚本
+    └── edges/              # optional, custom edge scripts
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from ..graph import Graph
 logger = logging.getLogger("vertex_edge_agent.serve.context")
 
 # ---------------------------------------------------------------------------
-# Vertex JSON 格式
+# Vertex JSON format
 # ---------------------------------------------------------------------------
 
 _VERTEX_TYPES = {"source", "sink", "intermediate", "transform", "router", "aggregator"}
@@ -85,7 +85,7 @@ def _load_all_vertices(vertices_dir: Path) -> List[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Graph JSON 格式
+# Graph JSON format
 # ---------------------------------------------------------------------------
 
 def _load_graph_config(config_path: Path) -> Dict[str, Any]:
@@ -99,7 +99,7 @@ def _load_graph_config(config_path: Path) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 class VEA:
-    """VEA context manager — 离散 vertex JSON + 图执行。
+    """VEA context manager — modular vertex JSON + graph execution.
 
     Parameters
     ----------

@@ -122,11 +122,11 @@ def _parse_posts_from_soup(soup):
                 time_str = span.get("title")
             else:
                 time_str = em_node.get_text(strip=True)
-            # strip locale prefixes: 发表于 / Post on / Posted at
-            time_str = re.sub(r"^(发表于|Post on|Posted at)[\s:：]*", "", time_str).strip()
+            # strip locale prefixes: Post on / Posted at
+            time_str = re.sub(r"^(Post on|Posted at)[\s:：]*", "", time_str).strip()
             try:
                 # stage1st uses "2026-8-29 13:10" (single-digit month/day) with
-                # optional 发表于 prefix — search anywhere, don't require a match
+                # optional prefix — search anywhere, don't require a match
                 # at the start of the string.
                 m = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})", time_str)
                 if m:

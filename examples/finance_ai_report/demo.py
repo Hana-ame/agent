@@ -84,9 +84,8 @@ async def main():
     base_url = _read_endpoint_from_config(config_path)
     agent = HttpLLMAgent(api_key=_resolve_api_key(base_url), base_url=base_url)
 
-    # 超时放开:filter 不限条数时可能选出一二十个帖子,逐帖抓多页回复 + 串行 LLM
-    # 总结很容易超过框架默认 300s(实测 12 帖 > 300s 被掐)。用 EXECUTOR_TIMEOUT
-    # 覆盖,默认 900s;单帖超时仍由 config 里每步 timeout 控制。
+    # Extended timeout: when filter selects multiple threads, fetching multi-page replies
+    # and running sequential LLM summaries can exceed default 300s. Override with EXECUTOR_TIMEOUT.
     exec_timeout = float(os.environ.get("EXECUTOR_TIMEOUT", "900"))
     print(f"Executing graph with HttpLLMAgent (timeout={exec_timeout:.0f}s)...")
     try:

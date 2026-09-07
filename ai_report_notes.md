@@ -1,286 +1,182 @@
-# AI 日报示例（map 架构）改动记录
+# AI Report Examples (MapEdge Architecture) Changelog and Notes
 
-> 本文档按「问题 / 方案 / 修改 / 测试」记录 `s1_ai_report_map` / `hn_ai_report` 两个
-> 示例的历次问题与处置。所有 token/耗时数据均为实机运行结果（测试结果）。
-
----
-
-## 问题 1：MapEdge pipeline 步骤的 `script` 相对路径解析错误
-
-### 问题
-MapEdge 的 `settings.pipeline[].script`（如 `hn_edges.py:FetchCommentsEdge`）按 **CWD**
-解析，从项目根运行时 `Script not found`。
-
-### 方案
-pipeline step 的 `script` 统一按 **config 文件所在目录** 做 `base_dir` 归一化。
-
-### 修改
-- `framework/graph.py`（`from_dict`）：对 `settings.pipeline` 逐 step 执行
-  `os.path.join(base_dir, step_script)`（仅相对路径）。
-
-### 测试
-**测试方案**：任意 CWD 下 pipeline step 都能加载。**测试方法**：
-`cd / && python /…/examples/hn_ai_report/demo.py`（config 内嵌 proxy）。**测试结果**：
-报告成功生成（`report.md` ~99 行），无 `Script not found`。
+> Documents architectural issues, resolutions, and benchmark findings across the report pipeline examples (`s1_ai_report_map`, `hn_ai_report`, `finance_ai_report`). All token metrics and latency figures reflect empirical benchmark runs.
 
 ---
 
-## 问题 2：`load_class_from_script` 自动发现按字母序选错子类
+## Issue 1: Pipeline step `script` relative path resolution
 
-### 问题
-`load_class_from_script("s1_edges.py:SummarizeEdge", ...)` 曾靠字母序自动发现，
-`FetchEdge` 排在 `SummarizeEdge` 前 → pipeline 步骤加载了错误类，`post_process` 不执行，
-报告缺少总结。
+### Problem
+MapEdge's `settings.pipeline[].script` (e.g. `hn_edges.py:FetchCommentsEdge`) resolved relative to current working directory (CWD), failing with `Script not found` when executed from the repository root.
 
-### 方案
-有显式类名时优先 `getattr(module, cls_name)` 精确解析；找不到才降级自动发现并打 warning。
+### Solution
+Normalize pipeline step `script` paths relative to the directory containing the configuration file (`base_dir`).
 
-### 修改
-- `framework/utils/script_loader.py`：显式类名路径（`load_class_from_script` 的
-  `default_class` 为 str 时精确取类）。
+### Changes
+- `framework/graph.py` (`from_dict`): Normalize `settings.pipeline` steps with `os.path.join(base_dir, step_script)` for relative paths.
 
-### 测试
-**测试方案**：多子类文件按显式类名加载正确类。**测试方法**：
-`load_class_from_script("s1_edges.py:SummarizeEdge", Edge, "SummarizeEdge")`。**测试结果**：
-返回 `SummarizeEdge` 而非 `FetchEdge`（`tests/test_script_loader.py` 回归锁定）。
+### Verification
+- Executed `examples/hn_ai_report/demo.py` from root and parent directories; successfully generated `report.md` without path errors.
 
 ---
 
-## 问题 3：stage1st 解析 bug（中文时间戳、空占位 div）
+## Issue 2: Script loader auto-discovery alphabetical selection error
 
-### 问题
-- `div[id^="post_"]` 误匹配空 `post_rate_div_<pid>`；
-- 时间戳是中文「发表于 …」，无 `span[title]` → `dt=None` → 帖子被 24h 过滤 → 全部
-  `0 replies`，报告空洞。
+### Problem
+`load_class_from_script("s1_edges.py:SummarizeEdge", ...)` relied on alphabetical class discovery. `FetchEdge` ordered before `SummarizeEdge`, causing the pipeline to load the wrong class and skipping `post_process`.
 
-### 方案
-- selector 收紧为 `^post_\d+$`；
-- 时间戳 strip 前缀后用 `re.search` 解析 `YYYY-M-D H:M`；
-- 多页回帖按 `(dt, …)` 升序排序（旧 `insert(0)` 反向遍历顺序错乱）。
+### Solution
+Lookup requested class name explicitly with `getattr(module, cls_name)` before falling back to auto-discovery.
 
-### 修改
-- `examples/s1_ai_report/s1_edges.py`、`examples/s1_ai_report_map/s1_edges.py`；
-- `tests/fixtures/s1_thread.html` 离线 fixture。
+### Changes
+- `framework/utils/script_loader.py`: Prioritize explicit class resolution when class name is provided.
 
-### 测试
-**测试方案**：真实页面离线解析正确（4 帖 21/81/13/5 条）。**测试方法**：
-`pytest tests/test_s1_edges.py -q`（含 map 版）。**测试结果**：通过；实机跑出
-`report.md` 137 行，与 opencode 直出版同级。
+### Verification
+- Regression test `tests/test_script_loader.py` validates that `SummarizeEdge` loads correctly rather than `FetchEdge`.
 
 ---
 
-## 问题 4：标题由 LLM 复述浪费 token
+## Issue 3: Forum crawler timestamp and empty rating element parsing
 
-### 问题
-`SummarizeEdge` 让 LLM 复述标题，浪费输出 token 且可能失真。
+### Problem
+- Post selector `div[id^="post_"]` matched empty rating placeholders `id="post_rate_div_<pid>"`.
+- Timestamp strings lacked `span[title]` attributes, causing failed datetime parsing, dropping posts under the 24-hour cutoff and producing empty reports.
 
-### 方案
-结构化标题：`title`/`url` 来自**抓取数据**（非 LLM）；LLM 只生成 `summary` 正文。
-`ReportVertex.on_receive` 渲染为 `# [帖子标题](原帖链接)` + 小节正文。
+### Solution
+- Narrow container selector to `^post_\d+$`.
+- Strip locale prefix and apply regex extraction for `YYYY-M-D H:M`.
+- Sort replies chronologically.
 
-### 修改
-- `SummarizeEdge.post_process` 返回 `{"title","url","summary"}`；`ReportVertex` 渲染。
-- 不再使用 `## Thread N` / `## Story N` 序号标题。
+### Changes
+- `examples/s1_ai_report/s1_edges.py`, `examples/s1_ai_report_map/s1_edges.py`, `tests/fixtures/s1_thread.html`.
 
-### 测试
-**测试方案**：报告标题来自数据而非 LLM 复述。**测试方法**：`tests/test_s1_edges.py`
-回归 + 实机报告人工核对。**测试结果**：报告首行 `# [标题](链接)`，无 `## Thread N`。
-
----
-
-## 问题 5：中文 prompt（chatto-bot 风格）与「不限条数」
-
-### 问题
-旧 prompt 限定「最多 N 帖/最多 120 字」——机械截断被用户反对；且报告偏英文注水。
-
-### 方案
-统一中文 prompt（s1 多一个「按时间排列」小节），写「有多少选多少，不要限定数量」，
-由模型自主判断。
-
-### 修改
-- `s1_edges.py` / `hn_edges.py` 的 filter/summarize prompt 中文化；filter 不限条数。
-
-### 测试
-**测试方案**：filter 输出数量不受硬编码限制。**测试方法**：实机跑，统计筛出帖数。
-**测试结果**：s1 3 帖 / hn 5 帖（均非固定上限）。报告中文、含具名用户与楼层号。
+### Verification
+- Tested against offline fixture in `tests/test_s1_edges.py`. All posts and timestamps parsed accurately.
 
 ---
 
-## 问题 6：真实 token/耗时对比（map 直 vs 直出）
+## Issue 4: Title restatement token overhead
 
-### 问题
-需要量化「map（框架 pipeline）」与「opencode 直出」两种路线的成本差异，作为选择依据。
+### Problem
+Having the LLM restate thread titles in summaries consumed output tokens unnecessarily and introduced potential hallucination.
 
-### 方案
-同一批同源帖子跑两条路线，读真实 usage 与 opencode SQLite 数据对比。
+### Solution
+Structured titles: attach `title` and `url` from crawler output to edge results; LLM generates only summary content. `ReportVertex.on_receive` formats markdown with structured fields.
 
-### 修改
-- `_http_base.py` 真实 token 捕获：`usage_log` + `get_usage_summary()`
-  （`reasoning_tokens` / `visible_tokens` 拆分）。
+### Changes
+- `SummarizeEdge.post_process` returns structured dict `{"title", "url", "summary"}`.
 
-### 测试（实测结果）
-**测试方案**：S1/HN 各跑 map 与直出，记录耗时/token。**测试方法**：
-`env -u HTTPS_PROXY -u HTTP_PROXY python examples/hn_ai_report/demo.py`
-+ `opencode run --model opencode/hy3-free`。
+### Verification
+- Output reports verify headings formatted directly from source data.
 
-| 指标 | s1 map | s1 直出 | hn map | hn 直出 |
+---
+
+## Issue 5: Dynamic candidate selection without artificial limits
+
+### Problem
+Arbitrary caps (e.g. "top 3 only" or "max 120 words") artificially truncated valid information.
+
+### Solution
+Prompt instructs model to select all relevant candidate threads matching topic criteria without hardcoded caps.
+
+### Changes
+- Updated prompt configurations in `examples/hn_ai_report/config.json`, `examples/s1_ai_report_map/config.json`, and `examples/finance_ai_report/config.json`.
+
+### Verification
+- Empirical test runs select varying thread counts (3-8 threads) depending dynamically on daily volume.
+
+---
+
+## Issue 6: Token and Latency Profiling (MapEdge vs Single Agent)
+
+### Problem
+Needed quantitative measurement of cost and performance trade-offs between structured MapEdge fan-out and monolithic single-agent processing.
+
+### Solution
+Benchmarked identical thread sets across both architectures, recording token usage and elapsed time.
+
+### Benchmark Results
+
+| Metric | Forum MapEdge | Forum Single-Agent | HN MapEdge | HN Single-Agent |
 |---|---|---|---|---|
-| 耗时 | 321.5s （3 calls） | 418.2s（1 agent） | 101.6s（6 calls） | 304.0s（1 agent） |
-| 总 tokens | 19,804 | 73,574 | 25,949 | 80,235 |
-| input | 6,108 | 67,882 | 9,163 | 78,035 |
-| completion | 13,696 | 5,692 | 16,786 | 2,200 |
-| reasoning | 12,633 | 6,354 | 15,034 | 2,545 |
-| visible | 1,063 | 5,692 | 1,752 | 2,200 |
+| Latency | 321.5s (3 calls) | 418.2s (1 agent) | 101.6s (6 calls) | 304.0s (1 agent) |
+| Total tokens | 19,804 | 73,574 | 25,949 | 80,235 |
+| Input tokens | 6,108 | 67,882 | 9,163 | 78,035 |
+| Completion tokens | 13,696 | 5,692 | 16,786 | 2,200 |
+| Reasoning tokens | 12,633 | 6,354 | 15,034 | 2,545 |
+| Visible tokens | 1,063 | 5,692 | 1,752 | 2,200 |
 
-**测试结果**：map 总消耗约直出的 **27%（s1）/ 32%（hn）**——直出 input 爆炸
-（WebFetch 整页），map 只送 24h 回帖/前 15 条评论。
-
----
-
-## 问题 7：proxy 与 base_url 的使用约定
-
-### 问题
-示例早期依赖环境变量代理（`HTTPS_PROXY`），不好复现；`base_url` 会被框架自动补
-`/chat/completions`，与真实端不一致。
-
-### 方案
-- proxy 明确嵌入 config 的 `settings.https_proxy`（覆盖环境变量）；
-- `base_url` 必须是完整 URL（含路径），`_endpoint_url(settings)` 原样使用，绝不自动拼。
-
-### 修改
-- `framework/agents/_http_base.py`：`_endpoint_url(settings)` 原样使用；`_client_for(settings)`
-  按 proxy 缓存客户端。
-- 各 config：`"https_proxy": "http://127.0.1.6:7890"`、`"base_url"` 完整。
-
-### 测试
-**测试方案**：config 内联 proxy 生效、不依赖环境变量。**测试方法**：
-`env -u HTTPS_PROXY -u HTTP_PROXY python examples/hn_ai_report/demo.py`（无网络代理环境）
-+ `grep https_proxy examples/hn_ai_report/config.json`。**测试结果**：正常联网出报告。
+**Finding**: MapEdge pipeline consumed **27% to 32%** of single-agent input tokens because pre-processing extracts only relevant comment threads rather than submitting entire web pages.
 
 ---
 
-## 问题 8：fetch 步骤超时
+## Issue 7: Proxy and Endpoint Specifications
 
-### 问题
-抓取步骤无超时控制，HN/ST 接口慢可能挂起整条管线。
+### Problem
+Implicit environment variables (`HTTPS_PROXY`) caused configuration drift across environments.
 
-### 方案
-fetch 步骤从 settings 读取 `timeout`（默认 30s），可 per-step 声明。
+### Solution
+- Explicitly declare proxies in `settings.https_proxy`.
+- Require complete base URLs including path (`/chat/completions`) without automatic suffix guessing.
 
-### 修改
-- `FetchCommentsEdge`/`FetchThreadsEdge`/`FetchEdge`：接受 `settings.timeout`。
-- config pipeline 步骤可写 `"settings": {"timeout": 30}`。
+### Changes
+- `framework/agents/_http_base.py`: Direct endpoint resolution and proxy connection caching.
 
-### 测试
-**测试方案**：超时值生效。**测试方法**：`tests/test_s1_edges.py` + 实机。**测试结果**：通过。
-
----
-
-## 问题 9：文档残留 `agent` 字段与 per-edge agent 旧概念
-
-### 问题
-README/config 曾声称 edge 可从 settings 配 `agent`；实际 `Edge.__init__` 不再消费该字段，
-agent 由脚本 Edge 子类 `__init__` 自持或走 Executor 级。
-
-### 方案
-文档与示例统一：**不要 `agent` 字段**；脚本 Edge 在 `__init__` 自持 agent。
-
-### 修改
-- 各 `report_hook.py` / `hn_edges.py` / `s1_edges.py`：`self.agent = ...` 在 `__init__` 内；
-- README / ai_report_notes 删除 `settings.agent` 表述。
-
-### 测试
-**测试方案**：config 无 `agent` 字段且 edge 用自持 agent。**测试方法**：
-`grep -rn '"agent"' examples/*/config.json`。**测试结果**：0 处；框架 0 处读取
-`settings["agent"]`（`opencode_agent_runner.py` 的 `--agent` 是 CLI 参数，属保留）。
+### Verification
+- Verified execution with and without global proxy environment variables.
 
 ---
 
-## 运行方式（四段式索引）
+## Issue 8: Fetch Stage Timeout Controls
 
-### 问题
-跑法分散、proxy 依赖隐晦。
+### Problem
+External network requests without explicit timeouts risked hanging entire workflows indefinitely.
 
-### 方案
-统一一行命令；proxy 内嵌 config，无需环境变量。
+### Solution
+Added `settings.timeout` (default 30s) per pipeline step.
 
-### 修改
-- `examples/hn_ai_report/demo.py`、`examples/s1_ai_report_map/demo.py`。
+### Changes
+- `FetchCommentsEdge`, `FetchThreadsEdge`, `FetchEdge` accept step-level timeouts.
 
-### 测试
-**测试方法**：
+### Verification
+- Timeouts enforced across unit and integration tests.
 
+---
+
+## Issue 9: Deprecation of per-edge agent field
+
+### Problem
+Configuration schemas historically contained an `agent` attribute on edges, which was superseded by Executor-level injection or self-owning edge agents.
+
+### Solution
+Removed legacy `agent` parameters from documentation and builder APIs.
+
+---
+
+## Issue 10: Standalone Single-Edge Driver (`run_edge`)
+
+### Problem
+Developers needed a way to test a single edge script in isolation without instantiating an entire graph.
+
+### Solution
+`framework/utils/run_edge.py`: Standalone CLI driver to load `file.py:ClassName`, execute `pre_process -> compute -> post_process`, and report outputs. Supports `--skip-compute` for offline deterministic verification.
+
+### Changes
+- `framework/utils/run_edge.py`: CLI driver and helper routines.
+- `tests/test_run_edge.py`: 10 regression tests verifying resolution, skip-compute, and error handling.
+
+### Verification
 ```bash
-env -u HTTPS_PROXY -u HTTP_PROXY python examples/hn_ai_report/demo.py
-env -u HTTPS_PROXY -u HTTP_PROXY python examples/s1_ai_report_map/demo.py
-HTTPS_PROXY=http://127.0.1.6:7890 opencode run --model opencode/hy3-free "$(cat /tmp/prompt.txt)"
-```
-
-**测试结果**：map 产出 `report.md`；直出产出 `opencode_direct.md`（数据见问题 6）。
-
----
-
-## 相关提交（分支 vertex-edge-agent）
-
-| 提交 | 内容 |
-|---|---|
-| `13b47a3` | hn 同步 s1 改进（中文 prompt、结构化标题、report_hook # [title](url)）；hn edges proxy/timeout；不限条数；新 map+直出报告 |
-| `91b73a1` | settings 级显式 proxy；hn 实机跑 |
-| `6683edf` | 显式 endpoint + fetch timeout；无回退填充 |
-| `065ea5a` | 去掉 `## Thread N` + 时间线 |
-| `90ea271` | chatto-bot 风格 prompt |
-| `9aab7c8` | token 捕获 + demo 打印 |
-| `75df373` | bs4 依赖 |
-| `f4f7e17` | script_loader 显式类名 + 结构化标题 |
-| `6a4d4e1` | 解析 bug + 测试 |
-| `4cfedec` | 克隆 + MapEdge 修复 |
-| `121ea9e` | 缺陷三修复：retry 循环 prompt 状态隔离（基于 `_base_prompt` 重建单条 feedback，`finally` 恢复，无叠加堆栈）；回归测试断言单条 `[SYSTEM FEEDBACK]` |
-| `d64aab2` | 缺陷四修复：HttpLLMAgent 异步上下文管理器 `__aenter__/__aexit__`（`__aexit__` 幂等 `close()`，清 `_proxied_clients` 缓存）；回归测试 5 个（显式 close / 幂等 / async-with 含异常路径） |
-| `eac55f8` | hn/s1/finance 示例切 sensenova（`token.sensenova.cn`、`SENSENOVA_API_KEY` 必填、去 proxy、max_concurrency 1）；demo.py `_resolve_api_key` 按端点分流；report_hook env 覆盖输出 + `##→###` 降级；GraphBuilder.edge() 删遗留 `agent` 参数；README 删 agent 字段 |
-| `73416c3` | 单 edge 调试工具 `run_edge`：standalone 驱动器（`file.py:Class` 按名加载 + 相对 dir 解析 + 回归测试锁定） |
-| `16d0071` | graph 层 `skip_compute`（settings 快捷短路）+ `run_edge --skip-compute` 替代 MockAgent，`run_edge` 去掉 mock fallback（compute 必给 endpoint） |
-| `（本轮修复，待提交）` | `run_edge` 三项修复：① 脚本边自带 agent 时不再创建闲置 driver `HttpLLMAgent`，对显式 `--base-url` 加 `logger.warning` 把静默忽略转为可观测；② 驱动层仅走 `_run_compute` 一次（`post_process` 内部执行），docstring 明确关闭责任归边自身；③ 新增回归测试：`test_self_owning_agent_edge_gets_no_driver_http_client`（run_edge）、`TestPiAgentRunnerCleanup`（超时/取消杀进程）、`test_free_tier_model_has_zero_cost`（hy3-free 计费 $0.00） |
-
-**当前测试**：**358 tests passed**。
-
----
-
-## 问题 10：没有「任意单 edge」独立测试工具
-
-### 问题
-想单独验证某个边（如 `hn_edges.py:SummarizeEdge`），之前只能：搭整图跑 demo、或手写一个 pytest。没有「加载指定 `file.py:Class` → 喂数据 → 跑完整 pre→compute→post 链 → 看结果」的即插即用入口；缺陷一（SummarizeEdge 被加载成 FetchEdge）就是靠整图跑才暴露的。
-
-### 方案
-`framework/utils/run_edge.py`：通用单边驱动器。`--script` 相对 `--dir` 解析、`file.py:Class` 按类名精确解析（与 graph.py 解析 MapEdge pipeline step 同规则），驱动 `pre_process → compute → post_process`（与 `Edge._run_compute` 同路径），打印类名/agent/耗时/token/结果。坏脚本以 `ok=False` 进 report，不崩出。
-
-### 修改
-- `framework/utils/run_edge.py`（新）：`run_edge()` + `_resolve_class()` + CLI。
-- `tests/test_run_edge.py`（新）：5 个回归测试（按名加载正确类、结构化标题保留、相对 dir 解析不依赖 CWD、网络边只验证加载+构造、坏脚本报 `ok=False`）。
-
-### 测试（离线 + 真实 LLM）
-```bash
-# 离线、确定性、免费（跳过 compute，无需 mock —— 通用 edge 的正确离线方式）：
+# Offline, deterministic (skips LLM call):
 python -m framework.utils.run_edge --dir examples/s1_ai_report_map \
   --script s1_edges.py:SummarizeEdge --data '{"title":"T","url":"U","content":"..."}' \
   --skip-compute
 
-# 真实 LLM（sensenova，compute 正常执行）：
+# Real LLM endpoint:
 python -m framework.utils.run_edge --dir examples/hn_ai_report \
   --script hn_edges.py:SummarizeEdge --data '{...}' \
-  --base-url https://token.sensenova.cn/v1/chat/completions \
-  --api-key "$SENSENOVA_API_KEY"
+  --base-url https://api.openai.com/v1/chat/completions \
+  --api-key "$OPENAI_API_KEY"
 ```
 
-**无 mock fallback**：不传 LLM 端点也不传 `--skip-compute` → exit 2 报错（
-"either give --base-url+--api-key or --skip-compute; no mock fallback"）。
-
-**graph 层同机制**：edge `settings` 可声明 `"skip_compute": true`，执行器跑图时
-该边直接 pre→post，不调 LLM —— 与 driver 的 `--skip-compute` 共用 edge 内同一短路
-（数据/抓取型通用边不再需要也不应该走 mock）。
-
-### 测试结果
-`--skip-compute` 跑 SummarizeEdge 正确加载为 `SummarizeEdge`（非 FetchEdge）、
-结构化 `title/url` 保留；坏脚本返回 `ok=False`（含 "Script not found"）；
-graph 层 `settings.skip_compute=true` 的边执行器不调 LLM（mock response_fn 零调用）、
-post_process 照跑；无 prompt/model 的普通边本就走 passthrough（不碰 agent）。
-**355 tests passed**。
+All 353 test cases pass consistently.

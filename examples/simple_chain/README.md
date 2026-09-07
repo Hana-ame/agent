@@ -1,26 +1,25 @@
-# Simple Chain — 免 JSON 的程序化拓扑
+# Simple Chain — Programmatic Topology Without JSON
 
-> 按「问题 / 方案 / 修改 / 测试」记录：解决「不想手写 JSON 时怎么建最小 A→B→C 图」。
+> Documented following the "Problem / Solution / Changes / Verification" format: demonstrates creating an `A -> B -> C` pipeline programmatically without manual JSON definitions.
 
-## 问题
+## Problem
 
-手写 `config.json` 建串行图冗余（metadata + vertices + edges + settings）。对 3 节点串行这种
-最常用形态，应有一行式 API。
+Manually authoring `config.json` for a simple sequential pipeline can be verbose (metadata, vertices, edges, and settings). For common linear chains, a concise programmatic API is desirable.
 
-## 方案
+## Solution
 
-`LinearChain.build(prompts: List[str]) -> Graph`：`prompts` 长度 = 边数，自动生成
-A→B→C… 拓扑与逐边 prompt。
+Provide `LinearChain.build(prompts: List[str]) -> Graph`, where the length of `prompts` determines the edge count, automatically constructing the linear `A -> B -> C...` topology and assigning prompts per edge.
 
-## 修改
+## Changes
 
-- `framework/builders/chain.py`：`LinearChain.build(prompts)`（已核实存在）。
-- `examples/simple_chain/demo.py`：`LinearChain.build(["Step1", "Step2"])` → `Executor(graph)`。
+- `framework/builders/chain.py`: Implements `LinearChain.build(prompts)`.
+- `examples/simple_chain/demo.py`: Invokes `LinearChain.build(["Step1", "Step2"])` and executes it with `Executor(graph)`.
 
-## 测试
+## Verification
 
-**测试方案**：prompts 自动生成 N+1 节点、N 边。**测试方法**：
-```bash
-python examples/simple_chain/demo.py
-```
-**测试结果**：`A→B→C` 图生成并跑通（框架 `tests/test_improvements.py` 覆盖 `LinearChain`）。
+- **Test Plan**: Verify prompts automatically generate N+1 vertices and N edges.
+- **Method**:
+  ```bash
+  python examples/simple_chain/demo.py
+  ```
+- **Result**: `A -> B -> C` graph constructed and executed successfully (covered in `tests/test_improvements.py`).

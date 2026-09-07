@@ -1,46 +1,40 @@
-# Conditional Routing — Guard 条件分发 + 级联剪枝
+# Conditional Routing — Guard Dispatch and Cascading Pruning
 
-> 按「问题 / 方案 / 修改 / 测试」记录：这个实验解决「同一数据按条件走不同分支，且失败分支不死锁」。 
+> Documented following the "Problem / Solution / Changes / Verification" format: demonstrates dynamic branch routing and deadlock prevention on unselected branches.
 
 ---
 
-## 问题
+## Problem
 
-条件路由是 Agent 流水线常见需求：一条输入按意图分发到不同处理分支。难点是**未命中分支不能被忽略**
-导致下游死等——下游节点必须知道「这条分支被放弃了」，且整图仍能正常结束。
+Conditional routing is a common requirement in agent workflows: an input must be routed to different specialized branches based on intent or properties. The challenge is ensuring **unselected branches do not cause downstream deadlocks**—downstream join vertices must be informed that an unselected branch was skipped rather than waiting indefinitely.
 
-旧示例用「单边 guard + 忽略」，条件不满足时没有任何信号，下游永久 `IDLE`。
+Earlier approaches that silently skipped execution caused downstream vertices to remain stuck in `IDLE` forever.
 
-## 方案
+## Solution
 
-利用框架内置 Guard（`settings.match` / `evaluate_condition`）+ **Cascading Abort**：
+Leverage framework Guards (`settings.match` / `evaluate_condition`) combined with **Cascading Abort**:
 
 ```
 UserPrompt ──gate_to_image (guard: intent==image)──▶ ImageProcessing ──image_to_sink──▶ ResponseCollector
            └─gate_to_code  (guard: intent==code)  ──▶ CodeProcessing  ──code_to_sink───┘
 ```
 
-- 输入 `intent: "code_generation"`：
-  - `gate_to_image` 的 guard 命中失败 → 立即发 `ABORTED` 信号，**剪掉 image 分支**；
-  - `gate_to_code` 命中 → 透传数据到 `CodeProcessing`。
-- `ImageProcessing` 收到 `ABORTED` → 进入 `ABORTED`（无有效输入）→ 继续向下游 `image_to_sink`
-  传播 `ABORTED`（级联剪枝）。
-- `ResponseCollector`（汇聚）通过 Settlement Barrier 统计所有入边：`image_to_sink` 已 abort、
-  `code_to_sink` 已成功 → 条件「全部已解决且至少一个成功」满足 → 立即 READY，图正常结束。
-- **无死锁**：失败分支用信号显式「放弃」，而不是静默缺失。
+- When given `intent: "code_generation"`:
+  - Guard check on `gate_to_image` evaluates to false -> emits `EdgeSignal.ABORTED`, **pruning the image branch**.
+  - Guard check on `gate_to_code` evaluates to true -> forwards payload to `CodeProcessing`.
+- `ImageProcessing` receives `ABORTED` -> transitions to `ABORTED` state (no viable inputs) -> propagates `ABORTED` downstream across `image_to_sink` (cascading pruning).
+- `ResponseCollector` monitors incoming edges via the Settlement Barrier: `image_to_sink` is aborted, `code_to_sink` succeeded -> meets the condition "all incoming edges settled and at least one succeeded" -> transitions to READY immediately.
+- **Deadlock Free**: Inactive branches explicitly signal abandonment rather than hanging silently.
 
-## 修改
+## Changes
 
-- `examples/conditional_routing/config.json`：两条 gate 边 + 两条汇聚边；每条 gate 配
-  `settings.match`（如 `{"intent": "image"}` / `{"intent": "code"}`）；`ResponseCollector` 为汇聚节点。
+- `examples/conditional_routing/config.json`: Two gate edges + two collector edges; each gate configures `settings.match` (`{"intent": "image"}` / `{"intent": "code"}`); `ResponseCollector` acts as the join vertex.
 
-## 测试
+## Verification
 
-**测试方案**：`intent=code` 时 image 分支被剪、仅 code 分支执行、sink 正常完成、整图无死锁。
-**测试方法**：
-```bash
-python examples/run.py examples/conditional_routing/config.json
-```
-**测试结果**：日志显示 `gate_to_image -> ABORTED`、`ImageProcessing -> ABORTED`、
-`image_to_sink -> ABORTED` 级联；`gate_to_code` 透传 → `CodeProcessing` → `code_to_sink` 成功；
-`ResponseCollector` 在两条入边都「已解决」（1 成功 + 1 剪枝）后 READY → 全图 DONE。无等待超时。
+- **Test Plan**: Verify image branch is pruned when `intent=code`, code branch executes, collector settles, and no deadlock occurs.
+- **Method**:
+  ```bash
+  python examples/run.py examples/conditional_routing/config.json
+  ```
+- **Result**: Execution logs confirm `gate_to_image -> ABORTED`, `ImageProcessing -> ABORTED`, and `image_to_sink -> ABORTED` cascade; `gate_to_code` executes -> `CodeProcessing` -> `code_to_sink` succeeds; `ResponseCollector` settles as soon as both incoming edges resolve (1 success + 1 aborted) -> graph reaches DONE with 0 timeouts.
