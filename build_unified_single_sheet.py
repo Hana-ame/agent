@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """
 1. Consolidate Excel sheets into ONE single table per workbook.
-2. Merge '实验类别' and '实验标识/描述' into ONE unified column: '实验测试目的'.
+2. Merge Category and Description into ONE unified column: 'Experiment Objective'.
 3. Add comprehensive step scaling experiments:
    - Micro/Low Steps: 20, 50, 100, 200, 500, 1000, 2000
    - Long/Scaling Steps: 4000, 8000, 16000, 32000, 64000, 128000, 256000, 512000, 1024000
-   All marked as '未跑'.
+   All marked as 'unrun'.
 4. Number all experiments sequentially with ZERO PADDING (001, 002, 003...) in column 1 (formatted as Text '@').
-5. Generate all JSON configs named '{序号}_{描述}.json' matching the Excel table.
+5. Generate all JSON configs matching the Excel table.
 """
 
 import os
@@ -77,208 +77,208 @@ def sanitize(name):
 # ==============================================================================
 
 ADD_METHODS = [
-    "SFT监督", "CoT竖式", "Plain无CoT", "自问自答", "稀疏采样", 
-    "4位加权", "单样本Single", "打包Packed", "MoE专家", "LoRA适配", 
-    "Bottleneck低秩", "全局记忆", "LRU遗忘", "DSA注意力", "ALiBi偏置", 
-    "RoPE旋转", "INT8动态量化", "INT4低比特"
+    "SFT Supervised", "CoT Column", "Plain (No CoT)", "Self-Play RL", "Sparse Sampling", 
+    "4-Digit Biased", "Single Sample", "Packed Sequence", "MoE Experts", "LoRA Adaptation", 
+    "Bottleneck Low-Rank", "Global Memory", "LRU Cache", "DSA Attention", "ALiBi Bias", 
+    "RoPE Rotary", "Dynamic INT8", "INT4 Low-Bit"
 ]
 
 STEP_SWEEP_CONFIGS = [
     # Low / Early steps
-    (20, "20步 极速收敛探针"),
-    (50, "50步 冒烟基线探针"),
-    (100, "100步 初期对齐探针"),
-    (200, "200步 早期学习探针"),
-    (500, "500步 初步收敛探针"),
-    (1000, "1,000步 早期阶段基线"),
-    (2000, "2,000步 半程收敛探针"),
+    (20, "20-step Fast Convergence Probe"),
+    (50, "50-step Smoke Baseline Probe"),
+    (100, "100-step Early Alignment Probe"),
+    (200, "200-step Early Learning Probe"),
+    (500, "500-step Initial Convergence Probe"),
+    (1000, "1,000-step Early Stage Baseline"),
+    (2000, "2,000-step Halfway Convergence Probe"),
     # Standard & Scaling steps
-    (4000, "4,000步 标准基线"),
-    (8000, "8,000步 翻倍扩展"),
-    (16000, "16,000步 长程扩展"),
-    (32000, "32,000步 深度训练"),
-    (64000, "64,000步 超长训练"),
-    (128000, "128,000步 缩放扫描"),
-    (256000, "256,000步 大算力训练"),
-    (512000, "512,000步 极限吞吐训练"),
-    (1024000, "1,024,000步 百万步极限泛化")
+    (4000, "4,000-step Standard Baseline"),
+    (8000, "8,000-step Double Scale"),
+    (16000, "16,000-step Long-Horizon Scale"),
+    (32000, "32,000-step Deep Training"),
+    (64000, "64,000-step Ultra-Long Training"),
+    (128000, "128,000-step Compute Scale Sweep"),
+    (256000, "256,000-step High-Compute Training"),
+    (512000, "512,000-step Peak Compute Training"),
+    (1024000, "1,024,000-step 1M Step Limit")
 ]
 
 NEW_STEP_ROWS = [
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 20步 极速收敛探针",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 20 steps Fast Convergence Probe",
         "l": 4, "d": 128, "steps": 20, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "0%", "add2": "0%", "add3": "0%", "add4": "0%",
         "sub1": "0%", "sub2": "0%", "sub3": "0%", "sub4": "0%",
         "unique": "—", "loss": "2.0752", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 20步 极速收敛探针 实测 loss=2.0752, add1=0% add2=0% add3=0% add4=0%, sub1=0% sub4=0%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 20 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 50步 冒烟基线探针",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 50 steps Smoke Baseline Probe",
         "l": 4, "d": 128, "steps": 50, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "2%", "add2": "0%", "add3": "0%", "add4": "0%",
         "sub1": "8%", "sub2": "2%", "sub3": "0%", "sub4": "0%",
         "unique": "—", "loss": "1.6165", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 50步 冒烟基线探针 实测 loss=1.6165, add1=2% add2=0% add3=0% add4=0%, sub1=8% sub4=0%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 50 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 100步 初期对齐探针",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 100 steps Early Alignment Probe",
         "l": 4, "d": 128, "steps": 100, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "2%", "add2": "0%", "add3": "0%", "add4": "0%",
         "sub1": "8%", "sub2": "2%", "sub3": "0%", "sub4": "0%",
         "unique": "—", "loss": "0.9919", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 100步 初期对齐探针 实测 loss=0.9919, add1=2% add2=0% add3=0% add4=0%, sub1=8% sub4=0%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 100 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 200步 早期学习探针",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 200 steps Early Learning Probe",
         "l": 4, "d": 128, "steps": 200, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "2%", "add2": "0%", "add3": "0%", "add4": "0%",
         "sub1": "22%", "sub2": "2%", "sub3": "0%", "sub4": "0%",
         "unique": "—", "loss": "0.6842", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 200步 早期学习探针 实测 loss=0.6842, add1=2% add2=0% add3=0% add4=0%, sub1=22% sub4=0%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 200 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 500步 初步收敛探针",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 500 steps Initial Convergence Probe",
         "l": 4, "d": 128, "steps": 500, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "20%", "add2": "0%", "add3": "0%", "add4": "0%",
         "sub1": "25%", "sub2": "2%", "sub3": "0%", "sub4": "0%",
         "unique": "—", "loss": "0.3467", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 500步 初步收敛探针 实测 loss=0.3467, add1=20% add2=0% add3=0% add4=0%, sub1=25% sub4=0%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 500 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 1,000步 早期阶段基线",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 1,000 steps Early Stage Baseline",
         "l": 4, "d": 128, "steps": 1000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "40%", "add2": "10%", "add3": "0%", "add4": "0%",
         "sub1": "58%", "sub2": "0%", "sub3": "2%", "sub4": "0%",
         "unique": "—", "loss": "0.2241", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 1,000步 早期阶段基线 实测 loss=0.2241, add1=40% add2=10% add3=0% add4=0%, sub1=58% sub4=0%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 1,000 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 2,000步 半程收敛探针",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 2,000 steps Halfway Convergence Probe",
         "l": 4, "d": 128, "steps": 2000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "92%", "add2": "88%", "add3": "48%", "add4": "0%",
         "sub1": "100%", "sub2": "88%", "sub3": "50%", "sub4": "18%",
         "unique": "—", "loss": "0.1627", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 2,000步 半程收敛探针 实测 loss=0.1627, add1=92% add2=88% add3=48% add4=0%, sub1=100% sub4=18%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 2,000 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 4,000步 标准基线",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 4,000 steps Standard Baseline",
         "l": 4, "d": 128, "steps": 4000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "98%", "add2": "95%", "add3": "75%", "add4": "20%",
         "sub1": "100%", "sub2": "100%", "sub3": "90%", "sub4": "38%",
         "unique": "—", "loss": "0.1728", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 4,000步 标准基线 实测 loss=0.1728, add1=98% add2=95% add3=75% add4=20%, sub1=100% sub4=38%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 4,000 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 8,000步 翻倍扩展",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 8,000 steps Double Scale",
         "l": 4, "d": 128, "steps": 8000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "100%", "add2": "95%", "add3": "75%", "add4": "30%",
         "sub1": "100%", "sub2": "100%", "sub3": "80%", "sub4": "60%",
         "unique": "—", "loss": "0.1713", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 8,000步 翻倍扩展 实测 loss=0.1713, add1=100% add2=95% add3=75% add4=30%, sub1=100% sub4=60%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 8,000 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 16,000步 长程扩展",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 16,000 steps Long-Horizon Scale",
         "l": 4, "d": 128, "steps": 16000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "100%", "add2": "100%", "add3": "95%", "add4": "40%",
         "sub1": "100%", "sub2": "98%", "sub3": "95%", "sub4": "88%",
         "unique": "—", "loss": "0.1693", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 16,000步 长程扩展 实测 loss=0.1693, add1=100% add2=100% add3=95% add4=40%, sub1=100% sub4=88%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 16,000 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 32,000步 深度训练",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 32,000 steps Deep Training",
         "l": 4, "d": 128, "steps": 32000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "100%", "add2": "100%", "add3": "95%", "add4": "35%",
         "sub1": "100%", "sub2": "100%", "sub3": "98%", "sub4": "90%",
         "unique": "—", "loss": "0.1687", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 32,000步 深度训练 实测 loss=0.1687, add1=100% add2=100% add3=95% add4=35%, sub1=100% sub4=90%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 32,000 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 64,000步 超长训练",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 64,000 steps Ultra-Long Training",
         "l": 4, "d": 128, "steps": 64000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "100%", "add2": "100%", "add3": "100%", "add4": "45%",
         "sub1": "100%", "sub2": "100%", "sub3": "100%", "sub4": "95%",
         "unique": "—", "loss": "0.1694", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 64,000步 超长训练 实测 loss=0.1694, add1=100% add2=100% add3=100% add4=45%, sub1=100% sub4=95%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 64,000 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 128,000步 缩放扫描",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 128,000 steps Compute Scale Sweep",
         "l": 4, "d": 128, "steps": 128000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "100%", "add2": "100%", "add3": "100%", "add4": "40%",
         "sub1": "100%", "sub2": "100%", "sub3": "98%", "sub4": "92%",
         "unique": "—", "loss": "0.1853", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 128,000步 缩放扫描 实测 loss=0.1853, add1=100% add2=100% add3=100% add4=40%, sub1=100% sub4=92%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 128,000 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 256,000步 大算力训练",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 256,000 steps High-Compute Training",
         "l": 4, "d": 128, "steps": 256000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
         "add1": "100%", "add2": "100%", "add3": "100%", "add4": "45%",
         "sub1": "100%", "sub2": "100%", "sub3": "100%", "sub4": "100%",
         "unique": "—", "loss": "0.1759", "time_s": "—",
-        "conclusion": "【实测/步数扩展】L4_D128 CoT 256,000步 大算力训练 实测 loss=0.1759, add1=100% add2=100% add3=100% add4=45%, sub1=100% sub4=100%。归因:沿同一条 L4_D128 CoT 连续训练曲线在 256,000 步处采样,刻画损失下探与多位泛化边界随训练算力的边际曲线;验证算术能力随步数增长的规律。"
+        "conclusion": "[Empirical / Step Scaling] L4_D128 CoT scaling trajectory evaluation across step horizons, measuring loss descent and multi-digit carry generalization boundaries as compute scales."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 512,000步 极限吞吐训练 (待运行)",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 512,000 steps Peak Compute Training (Pending)",
         "l": 4, "d": 128, "steps": 512000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
-        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
-        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
-        "unique": "—", "loss": "未跑", "time_s": "—",
-        "conclusion": "【待运行 / 未跑】连续训练曲线尚未推进到 512,000 步,评测待曲线完成该步数后回填。"
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
+        "add1": "unrun", "add2": "unrun", "add3": "unrun", "add4": "unrun",
+        "sub1": "unrun", "sub2": "unrun", "sub3": "unrun", "sub4": "unrun",
+        "unique": "—", "loss": "unrun", "time_s": "—",
+        "conclusion": "[Pending] Training curve has not reached 512,000 steps; metrics to be backfilled upon completion."
     }
 ,
     {
-        "category": "步数扩展-梯度扫描",
-        "desc": "L4_D128 CoT 1,024,000步 百万步极限泛化 (待运行)",
+        "category": "Step Scaling - Gradient Sweep",
+        "desc": "L4_D128 CoT 1,024,000 steps 1M Step Limit (Pending)",
         "l": 4, "d": 128, "steps": 1024000, "bs": 32, "lr": "3e-4",
-        "methods": ["SFT监督", "CoT竖式", "4位加权", "单样本Single"],
-        "add1": "未跑", "add2": "未跑", "add3": "未跑", "add4": "未跑",
-        "sub1": "未跑", "sub2": "未跑", "sub3": "未跑", "sub4": "未跑",
-        "unique": "—", "loss": "未跑", "time_s": "—",
-        "conclusion": "【待运行 / 未跑】连续训练曲线尚未推进到 1,024,000 步,评测待曲线完成该步数后回填。"
+        "methods": ["SFT Supervised", "CoT Column", "4-Digit Biased", "Single Sample"],
+        "add1": "unrun", "add2": "unrun", "add3": "unrun", "add4": "unrun",
+        "sub1": "unrun", "sub2": "unrun", "sub3": "unrun", "sub4": "unrun",
+        "unique": "—", "loss": "unrun", "time_s": "—",
+        "conclusion": "[Pending] Training curve has not reached 1,024,000 steps; metrics to be backfilled upon completion."
     }
 ,
 ]
@@ -286,13 +286,13 @@ NEW_STEP_ROWS = [
 def get_spaces_str(r: dict) -> str:
     desc = str(r.get("desc", ""))
     sp_val = str(r.get("spaces", ""))
-    if "max_spaces = 0" in desc or sp_val == "0..0 随机":
+    if "max_spaces = 0" in desc or sp_val == "0..0 random":
         return "spaces=0"
-    elif "max_spaces = 1" in desc or sp_val == "0..1 随机":
+    elif "max_spaces = 1" in desc or sp_val == "0..1 random":
         return "spaces=0..1"
-    elif "max_spaces = 2" in desc or sp_val == "0..2 随机":
+    elif "max_spaces = 2" in desc or sp_val == "0..2 random":
         return "spaces=0..2"
-    elif "1 空格" in sp_val or "1空格" in sp_val:
+    elif "1 space" in sp_val or "1 space" in sp_val:
         return "spaces=1"
     else:
         return "spaces=0..3"
@@ -301,31 +301,31 @@ def get_spaces_str(r: dict) -> str:
 def format_data_param(r: dict) -> str:
     desc_str = str(r.get("desc", ""))
     meth_str = str(r.get("methods", []))
-    digits = str(r.get("digits", "1-4位"))
+    digits = str(r.get("digits", "1-4 digits"))
     sp = get_spaces_str(r)
 
-    if "LSD" in desc_str or "逆序" in desc_str:
+    if "LSD" in desc_str or "reverse" in desc_str:
         return f"cot(digits=1..4, lsd=True, {sp})"
-    elif "雪崩" in desc_str or "9999+1" in desc_str:
+    elif "avalanche" in desc_str or "9999+1" in desc_str:
         return f"cot(digits=1..4, avalanche=True, {sp})"
-    elif "K=0..4" in desc_str or "进位链深度" in desc_str:
+    elif "K=0..4" in desc_str or "carry_depth" in desc_str:
         return f"cot(digits=1..4, carry_curriculum=True, {sp})"
-    elif "自验算" in desc_str:
+    elif "self_verify" in desc_str:
         return f"cot(digits=1..4, self_verify=True, {sp})"
-    elif "草稿篡改" in desc_str or "Reader" in desc_str:
+    elif "tamper" in desc_str or "Reader" in desc_str:
         return f"cot(digits=1..4, tamper_p=0.2, {sp})"
-    elif "Looped-UT" in desc_str or "循环" in desc_str:
+    elif "Looped-UT" in desc_str or "looped" in desc_str:
         steps = "7" if "7" in desc_str else "4"
         return f"cot(digits=1..4, looped_steps={steps}, {sp})"
     elif "sum_only" in desc_str:
         return f"cot(digits=1..4, fmt='sum_only', {sp})"
     elif "full_col" in desc_str:
         return f"cot(digits=1..4, fmt='full_col', {sp})"
-    elif "外推" in digits or "外测" in digits:
+    elif "extrapolate" in digits or "extrapolate" in digits:
         return f"cot(digits=1..4, eval=5..7, {sp})"
-    elif "Plain" in meth_str or "Plain" in desc_str or "无CoT" in meth_str or "无草稿" in meth_str or "无中间草稿" in desc_str:
+    elif "Plain" in meth_str or "Plain" in desc_str or "no_cot" in meth_str or "no_cot" in meth_str or "no_cot" in desc_str:
         return f"plain(digits=1..4, {sp})"
-    elif "自问自答" in desc_str or "Selfplay" in desc_str or "自博弈" in desc_str or "破坍缩" in desc_str or "RL" in meth_str:
+    elif "Self-Play RL" in desc_str or "Selfplay" in desc_str or "selfplay" in desc_str or "break_collapse" in desc_str or "RL" in meth_str:
         return f"selfplay(digits=1..4, {sp})"
     else:
         return f"cot(digits=1..4, {sp})"
@@ -336,13 +336,13 @@ def get_base_model(r: dict) -> str:
     cat = str(r.get("category", ""))
     r_id = str(r.get("id", ""))
     if "LoRA" in desc or "LORA" in r_id or "LoRA" in cat:
-        return "EXP-086 (L4_D128 CoT基线)"
-    elif "自问自答" in desc or "RL" in r_id or "强化学习" in cat or "自博弈" in desc or "破坍缩" in desc or "GRPO" in desc:
-        return "EXP-086 (L4_D128 CoT基线)"
-    elif "204" in r_id or "草稿篡改" in desc or "Reader" in desc:
-        return "EXP-086 (L4_D128 CoT基线)"
+        return "EXP-086 (L4_D128 CoT Baseline)"
+    elif "Self-Play RL" in desc or "RL" in r_id or "rl" in cat or "selfplay" in desc or "break_collapse" in desc or "GRPO" in desc:
+        return "EXP-086 (L4_D128 CoT Baseline)"
+    elif "204" in r_id or "tamper" in desc or "Reader" in desc:
+        return "EXP-086 (L4_D128 CoT Baseline)"
     else:
-        return "Scratch (从零初始化)"
+        return "Scratch (Random Init)"
 
 
 def format_eval_protocol(r: dict) -> str:
@@ -350,23 +350,23 @@ def format_eval_protocol(r: dict) -> str:
     meth = str(r.get("methods", []))
     digits = str(r.get("digits", ""))
     r_id = str(r.get("id", ""))
-    if "LSD" in desc or "逆序" in desc:
+    if "LSD" in desc or "reverse" in desc:
         return "cot_eval(n=40, digits=1..4, lsd=True)"
-    elif "雪崩" in desc or "9999+1" in desc:
+    elif "avalanche" in desc or "9999+1" in desc:
         return "cot_eval(n=40, avalanche=True)"
-    elif "K=0..4" in desc or "进位链深度" in desc:
+    elif "K=0..4" in desc or "carry_depth" in desc:
         return "cot_eval(n=40, carry_curriculum=True)"
-    elif "自验算" in desc:
+    elif "self_verify" in desc:
         return "cot_eval(n=40, self_verify=True)"
-    elif "草稿篡改" in desc or "Reader" in desc:
+    elif "tamper" in desc or "Reader" in desc:
         return "reader_eval(n=40, tamper_p=0.2)"
-    elif "外推" in digits or "外测" in digits or "184" in r_id or "202" in r_id:
+    elif "extrapolate" in digits or "extrapolate" in digits or "184" in r_id or "202" in r_id:
         return "cot_eval(n=40, digits=1..4 + eval=5..7)"
-    elif "Looped-UT" in desc or "循环" in desc:
+    elif "Looped-UT" in desc or "looped" in desc:
         return "cot_eval(n=40, digits=1..4, looped=True)"
-    elif "Plain" in meth or "Plain" in desc or "无CoT" in meth or "无草稿" in meth or "无中间草稿" in desc:
+    elif "Plain" in meth or "Plain" in desc or "no_cot" in meth or "no_cot" in meth or "no_cot" in desc:
         return "plain_eval(n=40, digits=1..4)"
-    elif "自问自答" in desc or "Selfplay" in desc or "自博弈" in desc or "破坍缩" in desc:
+    elif "Self-Play RL" in desc or "Selfplay" in desc or "selfplay" in desc or "break_collapse" in desc:
         return "selfplay_eval(n=40, digits=1..4)"
     else:
         return "cot_eval(n=40, digits=1..4)"
@@ -421,9 +421,9 @@ def eval_row_40(r):
     tot_tested = 0
     for qid, op, nd, expr, target in TEST_40_SPECS:
         key = f"{op}{nd}"
-        v = r.get(key, "未跑")
-        if v in ("未跑", "—", None):
-            res.append(("未跑", "unrun"))
+        v = r.get(key, "unrun")
+        if v in ("unrun", "—", None):
+            res.append(("unrun", "unrun"))
             continue
         try:
             pct = float(str(v).replace("%", ""))
@@ -438,21 +438,21 @@ def eval_row_40(r):
         else:
             wrong = str(int(target) + 1) if len(target) == 1 else str(int(target) - 10**(len(target)-1))
             res.append((wrong, "fail"))
-    score_str = f"{tot_pass}/40" if tot_tested == 40 else ("未跑" if tot_tested == 0 else f"{tot_pass}/{tot_tested}")
+    score_str = f"{tot_pass}/40" if tot_tested == 40 else ("unrun" if tot_tested == 0 else f"{tot_pass}/{tot_tested}")
     return res, score_str
 
 
 def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
     q_headers = [f"Q{spec[0]:02d}: {spec[3]}" for spec in TEST_40_SPECS]
-    sum_headers = ["总得分 (40题)", "唯一式 (Unique)", "Loss 损失", "耗时 (s)", "实测现象与表现记载 (符合预期/机制归因)"]
+    sum_headers = ["Total Score (40Q)", "Unique Exprs", "Loss", "Time (s)", "Mechanistic Attribution & Empirical Observations"]
     h_res = q_headers + sum_headers
     num_cols = 17 + len(ADD_METHODS) + len(h_res)
     create_title_block(ws, title, subtitle, num_cols)
 
-    h_base = ["序号", "实验测试目的", "基座模型 (Base Model)", "层数 L", "宽度 d", "词表大小 (Vocab)",
-              "训练步数 (Steps)", "批量 (Batch Size)", "总批次数", "samples",
-              "输入数据 (data.py)", "4位偏置比例 (Bias)", "稀疏衰减 (Sparse)",
-              "学习率 LR", "调度 (Schedule)", "预热步数", "权重衰减 (WD)"]
+    h_base = ["Seq", "Experiment Objective", "Base Checkpoint", "Layers L", "Width d", "Vocab Size",
+              "Steps", "Batch Size", "Total Batches", "samples",
+              "Data Pipeline", "4-Digit Bias", "Sparsity Decay",
+              "Learning Rate", "Schedule", "Warmup Steps", "Weight Decay"]
     for idx, h in enumerate(h_base, 1):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
@@ -498,7 +498,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
             seq_id, purpose, get_base_model(r), r.get("l"), r.get("d"), r.get("vocab_size", 16),
             steps, bs, steps, steps*bs if steps and bs else "—",
             format_data_param(r),
-            "0.5" if "0.5" in str(r.get("desc")) else "0.0", "无衰减",
+            "0.5" if "0.5" in str(r.get("desc")) else "0.0", "none",
             r.get("lr", "3e-4"), "Cosine + Warmup", min(200, steps // 4) if steps else 200, 0.1
         ]
         for c_idx, val in enumerate(v_base, 1):
@@ -549,9 +549,9 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
             cell.border = THIN_BORDER
             is_concl = (s_idx == len(sum_vals) - 1)
             cell.alignment = Alignment(horizontal="left" if is_concl else "center", vertical="center", wrap_text=is_concl)
-            cell.font = FONT_REGULAR if is_concl else (FONT_UNRUN if val == "未跑" else FONT_CODE)
-            if s_idx == 0:  # 总得分
-                if val == "未跑":
+            cell.font = FONT_REGULAR if is_concl else (FONT_UNRUN if val == "unrun" else FONT_CODE)
+            if s_idx == 0:  # Total score
+                if val == "unrun":
                     cell.fill = FILL_UNRUN
                 elif "40/40" in str(val):
                     cell.fill = FILL_SUCCESS
@@ -560,7 +560,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
                     cell.fill = FILL_ALERT
                     cell.font = FONT_FAIL
             elif not is_concl:
-                if val == "未跑":
+                if val == "unrun":
                     cell.fill = FILL_UNRUN
                 elif is_zebra:
                     cell.fill = FILL_ZEBRA_LIGHT
@@ -573,7 +573,7 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
             is_cot = "CoT" in str(r.get("methods"))
             steps = int(r.get("steps", 4000) or 4000)
             bs = int(r.get("bs", 32) or 32)
-            status_flag = "unrun" if r.get("add1") == "未跑" else "completed"
+            status_flag = "unrun" if r.get("add1") == "unrun" else "completed"
             cfg_dict = {
                 "seq_id": seq_id,
                 "status": status_flag,
@@ -617,111 +617,111 @@ def render_additive_table(ws, title, subtitle, rows, cfg_dir=None):
 # ==============================================================================
 
 MAZE_METHODS = [
-    "纯RL_GRPO", "纯RL_REINFORCE", "GRU_RNN循环基线", "SFT_BFS路径监督", 
-    "单轨迹Single", "ForcedObs真观测", "CrossAttn压缩记忆", "HeapTopM记忆堆", 
-    "INT8动态量化", "随机游走基线"
+    "Pure_RL_GRPO", "Pure_RL_REINFORCE", "GRU_RNN_Baseline", "SFT_BFS_Oracle", 
+    "Single_Trajectory", "Forced_Obs_Ground_Truth", "CrossAttn_Context_Comp", "TopM_Memory_Heap", 
+    "Dynamic INT8", "Random_Uniform_Baseline"
 ]
 
 MAZE_EXP_DATA = [
     {
-        "desc": "Transformer GRPO 反应式导航 (交付主模型)", "cat": "主线交付",
+        "desc": "Transformer GRPO Reactive Navigation (Primary Model)", "cat": "Primary Delivery",
         "l": 2, "d": 64, "h": 4, "steps": 120, "bs": 6, "episodes": 720, "env_steps": 14400,
-        "grid": "5x5 ~ 9x9", "obs": "4格局部视场 (路 . / 墙 #)", "actions": "U/D/L/R (撞墙原地不动)",
-        "reward": "稀疏到达奖励 (+1 到达, 0 未到达)", "lr": "3e-4", "schedule": "Cosine + Warmup 20",
-        "methods": ["纯RL_GRPO", "单轨迹Single", "ForcedObs真观测"],
+        "grid": "5x5 ~ 9x9", "obs": "4-cell local field (path . / wall #)", "actions": "U/D/L/R (collision stays in place)",
+        "reward": "Sparse goal reach reward (+1 goal, 0 otherwise)", "lr": "3e-4", "schedule": "Cosine + Warmup 20",
+        "methods": ["Pure_RL_GRPO", "Single_Trajectory", "Forced_Obs_Ground_Truth"],
         "r5": "100%", "r6": "87.5%", "r7": "83.3%", "r8": "75.0%", "r9": "66.7%", "r_all": "83.3%",
         "illegal": "11.2", "len": "14.5", "loss": "0.041", "time": 12.0,
-        "note": "无需任何BFS最短路预训练，仅靠稀疏到达奖励在120步内自发学会避障寻路，到达率达83.3%，撞墙步数降至11。"
+        "note": "Learns obstacle avoidance and pathfinding purely from sparse reach rewards within 120 steps without BFS pretraining. Reach rate reaches 83.3%, collision steps drop to 11."
     },
     {
-        "desc": "REINFORCE 单轨迹策略梯度对照", "cat": "算法对照",
+        "desc": "REINFORCE Single-Trajectory Policy Gradient Control", "cat": "Algorithm Control",
         "l": 2, "d": 64, "h": 4, "steps": 100, "bs": 6, "episodes": 600, "env_steps": 12000,
-        "grid": "5x5 ~ 9x9", "obs": "4格局部视场", "actions": "U/D/L/R",
-        "reward": "稀疏到达奖励", "lr": "3e-4", "schedule": "Cosine",
-        "methods": ["纯RL_REINFORCE", "单轨迹Single", "ForcedObs真观测"],
+        "grid": "5x5 ~ 9x9", "obs": "4-cell local field", "actions": "U/D/L/R",
+        "reward": "Sparse goal reach reward", "lr": "3e-4", "schedule": "Cosine",
+        "methods": ["Pure_RL_REINFORCE", "Single_Trajectory", "Forced_Obs_Ground_Truth"],
         "r5": "75.0%", "r6": "50.0%", "r7": "41.7%", "r8": "25.0%", "r9": "16.7%", "r_all": "41.7%",
         "illegal": "28.6", "len": "26.0", "loss": "0.095", "time": 10.5,
-        "note": "缺少组内标准化优势，策略更新方差过大，易陷入局部死循环与原地撞墙。"
+        "note": "Lacks intra-group relative baseline; high policy gradient variance causes local oscillations and wall collisions."
     },
     {
-        "desc": "GRU-RNN 循环网络基线 (60步)", "cat": "循环网络对照",
+        "desc": "GRU-RNN Recurrent Network Baseline (60 steps)", "cat": "Recurrent Network Control",
         "l": 1, "d": 128, "h": 1, "steps": 60, "bs": 6, "episodes": 360, "env_steps": 7200,
-        "grid": "5x5 ~ 9x9", "obs": "4格局部视场", "actions": "U/D/L/R",
-        "reward": "稀疏到达奖励", "lr": "3e-4", "schedule": "Cosine",
-        "methods": ["GRU_RNN循环基线", "单轨迹Single", "ForcedObs真观测"],
+        "grid": "5x5 ~ 9x9", "obs": "4-cell local field", "actions": "U/D/L/R",
+        "reward": "Sparse goal reach reward", "lr": "3e-4", "schedule": "Cosine",
+        "methods": ["GRU_RNN_Baseline", "Single_Trajectory", "Forced_Obs_Ground_Truth"],
         "r5": "0.0%", "r6": "0.0%", "r7": "0.0%", "r8": "0.0%", "r9": "0.0%", "r_all": "0.0%",
         "illegal": "58.0", "len": "30.0", "loss": "0.190", "time": 8.0,
-        "note": "隐状态难以在稀疏奖励下建立长程时序信度分配，60步到达率全部为0%。"
+        "note": "Hidden states fail temporal credit assignment under sparse rewards; 60-step reach rate remains 0% across all sizes."
     },
     {
-        "desc": "GRU-RNN 循环网络同步数对照 (120步)", "cat": "循环网络对照",
+        "desc": "GRU-RNN Recurrent Network Matched Budget Control (120 steps)", "cat": "Recurrent Network Control",
         "l": 1, "d": 128, "h": 1, "steps": 120, "bs": 6, "episodes": 720, "env_steps": 14400,
-        "grid": "5x5 ~ 9x9", "obs": "4格局部视场", "actions": "U/D/L/R",
-        "reward": "稀疏到达奖励", "lr": "3e-4", "schedule": "Cosine",
-        "methods": ["GRU_RNN循环基线", "单轨迹Single", "ForcedObs真观测"],
+        "grid": "5x5 ~ 9x9", "obs": "4-cell local field", "actions": "U/D/L/R",
+        "reward": "Sparse goal reach reward", "lr": "3e-4", "schedule": "Cosine",
+        "methods": ["GRU_RNN_Baseline", "Single_Trajectory", "Forced_Obs_Ground_Truth"],
         "r5": "0.0%", "r6": "0.0%", "r7": "0.0%", "r8": "0.0%", "r9": "0.0%", "r_all": "0.0%",
         "illegal": "55.4", "len": "30.0", "loss": "0.185", "time": 15.2,
-        "note": "到达率仍为 0.0%，持续在墙角发生周期性震荡。"
+        "note": "Reach rate remains 0.0%; agent enters periodic oscillation in corner tiles."
     },
     {
-        "desc": "GRU-RNN 5倍超额预算对照 (300步)", "cat": "循环网络对照",
+        "desc": "GRU-RNN 5x Over-Budget Control (300 steps)", "cat": "Recurrent Network Control",
         "l": 1, "d": 128, "h": 1, "steps": 300, "bs": 6, "episodes": 1800, "env_steps": 36000,
-        "grid": "5x5 ~ 9x9", "obs": "4格局部视场", "actions": "U/D/L/R",
-        "reward": "稀疏到达奖励", "lr": "3e-4", "schedule": "Cosine",
-        "methods": ["GRU_RNN循环基线", "单轨迹Single", "ForcedObs真观测"],
+        "grid": "5x5 ~ 9x9", "obs": "4-cell local field", "actions": "U/D/L/R",
+        "reward": "Sparse goal reach reward", "lr": "3e-4", "schedule": "Cosine",
+        "methods": ["GRU_RNN_Baseline", "Single_Trajectory", "Forced_Obs_Ground_Truth"],
         "r5": "0.0%", "r6": "0.0%", "r7": "0.0%", "r8": "0.0%", "r9": "0.0%", "r_all": "0.0%",
         "illegal": "51.0", "len": "30.0", "loss": "0.178", "time": 38.0,
-        "note": "给予 5 倍训练步数后到达率依旧全为 0.0%，证明并非欠训，而是 RNN 在稀疏 POMDP 下的架构级缺陷。"
+        "note": "Even with 5x training steps, reach rate remains 0.0%, proving failure is an architectural limitation in sparse POMDP rather than undertraining."
     },
     {
-        "desc": "Cross-Attention 上下文压缩机制 (rl_ctx 80步)", "cat": "记忆机制探索",
+        "desc": "Cross-Attention Context Compression (rl_ctx 80 steps)", "cat": "Memory Mechanism Exploration",
         "l": 2, "d": 64, "h": 4, "steps": 80, "bs": 6, "episodes": 480, "env_steps": 9600,
-        "grid": "5x5 ~ 9x9", "obs": "4格局部视场", "actions": "U/D/L/R",
-        "reward": "稀疏到达奖励", "lr": "3e-4", "schedule": "Cosine",
-        "methods": ["纯RL_GRPO", "CrossAttn压缩记忆", "ForcedObs真观测"],
+        "grid": "5x5 ~ 9x9", "obs": "4-cell local field", "actions": "U/D/L/R",
+        "reward": "Sparse goal reach reward", "lr": "3e-4", "schedule": "Cosine",
+        "methods": ["Pure_RL_GRPO", "CrossAttn_Context_Comp", "Forced_Obs_Ground_Truth"],
         "r5": "91.7%", "r6": "79.2%", "r7": "75.0%", "r8": "62.5%", "r9": "54.2%", "r_all": "75.0%",
         "illegal": "14.0", "len": "16.8", "loss": "0.052", "time": 9.5,
-        "note": "通过 Cross-Attention 压缩历史观察帧，大幅降低显存占用，80步内到达率达75%。"
+        "note": "Compresses historical observations via cross-attention, reducing footprint and reaching 75% success within 80 steps."
     },
     {
-        "desc": "Top-M Heap 显式记忆堆机制 (80步)", "cat": "记忆机制探索",
+        "desc": "Top-M Heap Explicit Memory Mechanism (80 steps)", "cat": "Memory Mechanism Exploration",
         "l": 2, "d": 64, "h": 4, "steps": 80, "bs": 6, "episodes": 480, "env_steps": 9600,
-        "grid": "5x5 ~ 9x9", "obs": "4格局部视场", "actions": "U/D/L/R",
-        "reward": "稀疏到达奖励", "lr": "3e-4", "schedule": "Cosine",
-        "methods": ["纯RL_GRPO", "HeapTopM记忆堆", "ForcedObs真观测"],
+        "grid": "5x5 ~ 9x9", "obs": "4-cell local field", "actions": "U/D/L/R",
+        "reward": "Sparse goal reach reward", "lr": "3e-4", "schedule": "Cosine",
+        "methods": ["Pure_RL_GRPO", "TopM_Memory_Heap", "Forced_Obs_Ground_Truth"],
         "r5": "87.5%", "r6": "75.0%", "r7": "70.8%", "r8": "58.3%", "r9": "50.0%", "r_all": "70.8%",
         "illegal": "15.8", "len": "17.5", "loss": "0.058", "time": 9.8,
-        "note": "利用 Top-M 堆缓存关键决策点，能够有效辅助死胡同回退判断。"
+        "note": "Caches salient decision nodes using Top-M heap, aiding dead-end backtracking."
     },
     {
-        "desc": "SFT BFS 最短路径教师监督基线", "cat": "监督上限基线",
+        "desc": "SFT BFS Shortest Path Teacher Supervised Baseline", "cat": "Supervised Upper Bound Baseline",
         "l": 2, "d": 64, "h": 4, "steps": 2000, "bs": 8, "episodes": 16000, "env_steps": 320000,
-        "grid": "5x5 ~ 9x9", "obs": "4格局部视场", "actions": "U/D/L/R",
-        "reward": "交叉熵教师强监督", "lr": "3e-4", "schedule": "Cosine",
-        "methods": ["SFT_BFS路径监督", "单轨迹Single", "ForcedObs真观测"],
+        "grid": "5x5 ~ 9x9", "obs": "4-cell local field", "actions": "U/D/L/R",
+        "reward": "Cross-entropy teacher supervision", "lr": "3e-4", "schedule": "Cosine",
+        "methods": ["SFT_BFS_Oracle", "Single_Trajectory", "Forced_Obs_Ground_Truth"],
         "r5": "100%", "r6": "95.8%", "r7": "91.7%", "r8": "87.5%", "r9": "79.2%", "r_all": "91.7%",
         "illegal": "4.2", "len": "12.1", "loss": "0.021", "time": 65.0,
-        "note": "在全局 BFS 最优路径监督下，2层 Transformer 能够几乎完美拟合局部导航规则。"
+        "note": "Under global BFS optimal supervision, 2-layer Transformer fits local navigation rules almost perfectly."
     },
     {
-        "desc": "迷宫主模型 Dynamic INT8 动态量化", "cat": "模型量化",
+        "desc": "Maze Primary Model Dynamic INT8 Quantization", "cat": "Model Quantization",
         "l": 2, "d": 64, "h": 4, "steps": 120, "bs": 6, "episodes": 720, "env_steps": 14400,
-        "grid": "5x5 ~ 9x9", "obs": "4格局部视场", "actions": "U/D/L/R",
+        "grid": "5x5 ~ 9x9", "obs": "4-cell local field", "actions": "U/D/L/R",
         "reward": "Post-Training Quantization", "lr": "—", "schedule": "—",
-        "methods": ["纯RL_GRPO", "INT8动态量化", "ForcedObs真观测"],
+        "methods": ["Pure_RL_GRPO", "Dynamic INT8", "Forced_Obs_Ground_Truth"],
         "r5": "100%", "r6": "87.5%", "r7": "83.3%", "r8": "75.0%", "r9": "66.7%", "r_all": "83.3%",
         "illegal": "11.2", "len": "14.5", "loss": "0.041", "time": 12.0,
-        "note": "线性层量化为 INT8 后，到达率与撞墙步数完全持平 FP32 基线（83.3%）。"
+        "note": "After INT8 quantization of linear layers, reach rate and collision steps match FP32 baseline perfectly (83.3%)."
     },
     {
-        "desc": "完全随机游走基线 (Random Uniform)", "cat": "下限基线",
+        "desc": "Random Uniform Walk Baseline", "cat": "Lower Bound Baseline",
         "l": 0, "d": 0, "h": 0, "steps": 0, "bs": 0, "episodes": 0, "env_steps": 0,
-        "grid": "5x5 ~ 9x9", "obs": "—", "actions": "U/D/L/R (均匀随机)",
+        "grid": "5x5 ~ 9x9", "obs": "—", "actions": "U/D/L/R (uniform random)",
         "reward": "—", "lr": "—", "schedule": "—",
-        "methods": ["随机游走基线"],
+        "methods": ["Random_Uniform_Baseline"],
         "r5": "12.5%", "r6": "4.2%", "r7": "0.0%", "r8": "0.0%", "r9": "0.0%", "r_all": "4.2%",
         "illegal": "72.4", "len": "30.0", "loss": "—", "time": 0.1,
-        "note": "盲目随机游走在 5x5 以上迷宫几乎无法随机碰撞到终点，平均到达率仅 4.2%。"
+        "note": "Random walk rarely reaches goal on mazes > 5x5 by chance; mean reach rate is 4.2%."
     }
 ]
 
@@ -729,10 +729,10 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
     num_cols = 15 + len(MAZE_METHODS) + 12
     create_title_block(ws, title, subtitle, num_cols)
 
-    h_base = ["序号", "实验测试目的", "层数 L", "宽度 d", "头数 H", 
-              "训练步数 (Steps)", "批量 (Batch Size)", "总轨迹数 (Episodes)", "总环境交互步数",
-              "迷宫尺寸/拓扑", "观测视场 (Observation)", "动作空间 (Action Space)",
-              "学习率 LR", "调度 (Schedule)", "奖励/损失函数设计"]
+    h_base = ["Seq", "Experiment Objective", "Layers L", "Width d", "Heads H", 
+              "Steps", "Batch Size", "Total Episodes", "Total Environment Steps",
+              "Maze Grid Dimensions", "Observation Space", "Action Space",
+              "Learning Rate", "Schedule", "Reward / Objective Design"]
     for idx, h in enumerate(h_base, 1):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
@@ -749,7 +749,7 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
         c.border = HEADER_BORDER
         
     r_start = m_start + len(MAZE_METHODS)
-    h_res = ["5x5到达率", "6x6到达率", "7x7到达率", "8x8到达率", "9x9到达率", "综合到达率 %", "撞墙步数", "平均步长", "Loss / PPL", "评测协议", "耗时 (s)", "迷宫导航实测表现记载"]
+    h_res = ["5x5 Reach Rate", "6x6 Reach Rate", "7x7 Reach Rate", "8x8 Reach Rate", "9x9 Reach Rate", "Overall Reach Rate %", "Collision Steps", "Mean Path Length", "Loss / PPL", "Eval Protocol", "Time (s)", "Maze Empirical Observations & Attribution"]
     for idx, h in enumerate(h_res, r_start):
         c = ws.cell(3, idx, value=h)
         c.font = FONT_HEADER
@@ -802,16 +802,16 @@ def render_maze_table(ws, title, subtitle, rows, cfg_dir=None):
 
         v_res = [
             r["r5"], r["r6"], r["r7"], r["r8"], r["r9"], r["r_all"],
-            r["illegal"], r["len"], r["loss"], "独立求解器评测 (n=24)", r["time"], r["note"]
+            r["illegal"], r["len"], r["loss"], "Independent Solver Evaluation (n=24)", r["time"], r["note"]
         ]
         for idx, val in enumerate(v_res, r_start):
             cell = ws.cell(r_idx, idx, value=val)
             is_concl = (idx == r_start + len(v_res) - 1)
-            cell.font = FONT_REGULAR if is_concl else (FONT_UNRUN if val == "未跑" else FONT_CODE)
+            cell.font = FONT_REGULAR if is_concl else (FONT_UNRUN if val == "unrun" else FONT_CODE)
             cell.border = THIN_BORDER
             cell.alignment = Alignment(horizontal="left" if is_concl else "center", vertical="center", wrap_text=is_concl)
             if not is_concl:
-                if val == "未跑":
+                if val == "unrun":
                     cell.fill = FILL_UNRUN
                 elif str(val).endswith("%"):
                     fval = float(str(val).replace("%", ""))
@@ -860,16 +860,16 @@ def build_all():
     from generate_full_granular_excel import build_all_granular_rows
     ROOT = os.path.dirname(os.path.abspath(__file__))
     all_raw = build_all_granular_rows()
-    add_rows = [r for r in all_raw if "迷宫" not in r["category"] and "MAZE" not in r["id"]] + NEW_STEP_ROWS
+    add_rows = [r for r in all_raw if "maze" not in r["category"] and "MAZE" not in r["id"]] + NEW_STEP_ROWS
 
     # 1. Additive Workbook (Single Sheet)
     wb_add = Workbook()
     ws_add = wb_add.active
-    ws_add.title = "全部加法实验总表"
+    ws_add.title = "Additive_Master_Experiments"
     cfg_add = os.path.join(ROOT, "additive-rand-transformer", "configs")
     os.makedirs(cfg_add, exist_ok=True)
-    render_additive_table(ws_add, "TinyGPT 加法算术探针全量实验总表 (单表全景矩阵)",
-                          f"共 {len(add_rows)} 项实验统一按序号 001..{len(add_rows):03d} 顺序排列，包含 18 项打勾方式与细分结果指标",
+    render_additive_table(ws_add, "TinyGPT Additive Arithmetic Probe Master Table (Single Sheet Panorama)",
+                          f"All {len(add_rows)} experiments ordered sequentially 001..{len(add_rows):03d}",
                           add_rows, cfg_dir=cfg_add)
     out_add = os.path.join(ROOT, "additive-rand-transformer", "EXPERIMENTS_ALL.xlsx")
     wb_add.save(out_add)
@@ -878,11 +878,11 @@ def build_all():
     # 2. Maze Workbook (Single Sheet)
     wb_maze = Workbook()
     ws_maze = wb_maze.active
-    ws_maze.title = "全部迷宫实验总表"
+    ws_maze.title = "Maze_Master_Experiments"
     cfg_maze = os.path.join(ROOT, "maze-transformer", "configs")
     os.makedirs(cfg_maze, exist_ok=True)
-    render_maze_table(ws_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
-                      f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列，包含 10 项强化学习打勾与到达率指标",
+    render_maze_table(ws_maze, "MazeGPT Reactive 2D Maze Navigation Master Table (Single Sheet Panorama)",
+                      f"All {len(MAZE_EXP_DATA)} maze experiments ordered sequentially 001..{len(MAZE_EXP_DATA):03d}, tracking 10 RL flags and reach rate metrics",
                       MAZE_EXP_DATA, cfg_dir=cfg_maze)
     out_maze = os.path.join(ROOT, "maze-transformer", "EXPERIMENTS_ALL.xlsx")
     wb_maze.save(out_maze)
@@ -891,13 +891,13 @@ def build_all():
     # 3. Master Root Workbook
     wb_master = Workbook()
     ws_m_add = wb_master.active
-    ws_m_add.title = "加法探针_全实验总表"
-    render_additive_table(ws_m_add, "TinyGPT 加法算术探针全量实验总表 (单表全景矩阵)",
-                          f"共 {len(add_rows)} 项实验统一按序号 001..{len(add_rows):03d} 顺序排列",
+    ws_m_add.title = "Additive_Probe_Master"
+    render_additive_table(ws_m_add, "TinyGPT Additive Arithmetic Probe Master Table (Single Sheet Panorama)",
+                          f"All {len(add_rows)} experiments ordered sequentially 001..{len(add_rows):03d}",
                           add_rows, cfg_dir=None)
-    ws_m_maze = wb_master.create_sheet("迷宫导航_全实验总表")
-    render_maze_table(ws_m_maze, "MazeGPT 反应式 2D 迷宫导航实验总表 (单表全景矩阵)",
-                      f"共 {len(MAZE_EXP_DATA)} 项迷宫实验统一按序号 001..{len(MAZE_EXP_DATA):03d} 顺序排列",
+    ws_m_maze = wb_master.create_sheet("Maze_Navigation_Master")
+    render_maze_table(ws_m_maze, "MazeGPT Reactive 2D Maze Navigation Master Table (Single Sheet Panorama)",
+                      f"All {len(MAZE_EXP_DATA)} maze experiments ordered sequentially 001..{len(MAZE_EXP_DATA):03d}",
                       MAZE_EXP_DATA, cfg_dir=None)
     out_master = os.path.join(ROOT, "archive", "ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx")
     wb_master.save(out_master)

@@ -1,56 +1,56 @@
-# SimpleAI — 实验与训练完整使用指南 (Google Colab & 本地极速流水线)
+# SimpleAI — Experiments & Training Comprehensive Guide (Google Colab & Cloud Pipelines)
 
-> 本文档为 SimpleAI 研究工作区的**统一训练与操作手册**。
+> This document serves as the **unified training and operations manual** for the SimpleAI research workspace.
 > 
-> 💡 **原仓库架构、Git LFS 规范、7大 Checkpoint 权重元数据及历史说明已完整并入 Excel 工作簿之 `【仓库架构与项目说明_原README】` Sheet 中。**
+> 💡 **Repository architecture, Git LFS protocols, 7 baseline checkpoint weight metadata, and legacy technical notes have been fully consolidated into the Excel master workbook under the `[Repo_Architecture_Legacy_Notes]` sheet.**
 
 ---
 
-## 快速导航与核心资产
+## Quick Navigation & Core Assets
 
-| 资源 | 文件路径 | 说明 |
+| Resource | Path | Description |
 |---|---|---|
-| **加法实验总表** | [`加法实验总表.xlsx`](加法实验总表.xlsx) | **加法专用总表**：覆盖 220 项加法实验，18 项训练方式打勾与细分定量指标 |
-| **迷宫实验总表** | [`迷宫实验总表.xlsx`](迷宫实验总表.xlsx) | **迷宫专用总表**：覆盖 10 项迷宫强化学习实验与导航到达率指标 |
-| **全实验归档总库** | [`archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) | 历史跨模块统一归档宽表 |
-| **接棒 Agent 操作手册** | [`AGENTS.md`](AGENTS.md) | **零本地运行红线**、197–220待跑实验任务池、Colab 执行 SOP 与指标回填规范 |
-| **加法 Colab 批量实测** | [`Colab_OneClick_Train_and_Verify_All.ipynb`](Colab_OneClick_Train_and_Verify_All.ipynb) | 一键顺序批量训练与 40 题严格评测（动态流式批次，稳健零崩溃） |
-| **加法 Colab 单项调试** | [`Colab_Run_Additive_Transformer.ipynb`](Colab_Run_Additive_Transformer.ipynb) | Google Colab 一键训练、探针诊断、INT8量化与 Drive 自动同步 |
-| **迷宫 Colab 手册** | [`Colab_Run_Maze_Transformer.ipynb`](Colab_Run_Maze_Transformer.ipynb) | 反应式 2D 迷宫纯 RL (GRPO) 导航一键训练与可视化 |
-| **加法训练入口** | [`additive-rand-transformer/additive_rand_transformer/train.py`](additive-rand-transformer/additive_rand_transformer/train.py) | 支持 `train.py --config config.json` 灵活拉起 |
-| **迷宫训练入口** | [`maze-transformer/maze_transformer/train.py`](maze-transformer/maze_transformer/train.py) | 支持 `train.py --config maze_config.json` 灵活拉起 |
-| **模型量化评测** | [`additive_rand_transformer/quantize.py`](additive-rand-transformer/additive_rand_transformer/quantize.py) | PyTorch 动态 INT8 量化、体积压缩比与推理吞吐基准 |
+| **Additive Experiments Master** | [`ADDITIVE_EXPERIMENTS_ALL.xlsx`](ADDITIVE_EXPERIMENTS_ALL.xlsx) | Dedicated additive workbook: 220 experiments, 18 method tags, and granular quantitative metrics |
+| **Maze Experiments Master** | [`MAZE_EXPERIMENTS_ALL.xlsx`](MAZE_EXPERIMENTS_ALL.xlsx) | Dedicated maze workbook: 10 pure RL experiments and navigation success rates |
+| **Unified Master Archive** | [`archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) | Historical cross-module unified 49-column wide archive sheet |
+| **Agent Handover Protocol** | [`AGENTS.md`](AGENTS.md) | **Zero local compute rule**, 197–220 unrun experiment pool, Colab SOP, and data backfill standards |
+| **Additive Colab Batch Pipeline** | [`Colab_OneClick_Train_and_Verify_All.ipynb`](Colab_OneClick_Train_and_Verify_All.ipynb) | One-click sequential batch training & 40-benchmark evaluation (robust, zero-crash stream) |
+| **Additive Colab Single Run** | [`Colab_Run_Additive_Transformer.ipynb`](Colab_Run_Additive_Transformer.ipynb) | Interactive training, mechanistic probes, dynamic INT8 quantization, and Google Drive sync |
+| **Maze Colab Manual** | [`Colab_Run_Maze_Transformer.ipynb`](Colab_Run_Maze_Transformer.ipynb) | Reactive 2D maze pure RL (GRPO) training and visualization |
+| **Additive Trainer** | [`additive-rand-transformer/additive_rand_transformer/train.py`](additive-rand-transformer/additive_rand_transformer/train.py) | CLI trainer supporting `train.py --config config.json` |
+| **Maze Trainer** | [`maze-transformer/maze_transformer/train.py`](maze-transformer/maze_transformer/train.py) | CLI trainer supporting `train.py --config maze_config.json` |
+| **Quantization Evaluator** | [`additive-rand-transformer/additive_rand_transformer/quantize.py`](additive-rand-transformer/additive_rand_transformer/quantize.py) | PyTorch dynamic INT8 quantization, compression ratio, and throughput benchmarks |
 
 ---
 
-## 方式一：在 Google Colab 上训练（推荐 🌟）
+## Method 1: Training on Google Colab (Recommended 🌟)
 
-无需占用本地算力，直接利用 Colab 免费 GPU/CPU，全自动与 Google Drive 双向同步：
+Run experiments on free/cloud GPUs/CPUs without consuming local compute, with automatic bidirectional sync to Google Drive:
 
-### 1. 打开 Notebook
-- 在 Cloud Shell 中下载 Notebook：
+### 1. Open Notebook
+- In Google Cloud Shell or terminal:
   ```bash
   cloudshell download Colab_Run_Additive_Transformer.ipynb
-  # 或迷宫 Notebook：
+  # or for the maze navigation notebook:
   cloudshell download Colab_Run_Maze_Transformer.ipynb
   ```
-- 访问 [Google Colab](https://colab.research.google.com/) -> 点击 **上传 (Upload)** -> 选择该 `.ipynb` 文件打开。
+- Navigate to [Google Colab](https://colab.research.google.com/) -> Click **Upload** -> Select the `.ipynb` file.
 
-### 2. 一键运行全流程（点击左侧 ▶ 按钮）
-1. **自动挂载 Google Drive**：连接 `/MyDrive/simpleAI_workspace/`，模型权重与日志断连不丢失。
-2. **环境与权重准备**：自动拉取依赖与官方基准预训练权重 (`.pt`)。
-3. **自定义 `config.json`**：在代码块中自由修改层数、宽度、步数与数据源。
-4. **启动训练**：实时查看 Loss 下降曲线与 1–4 位加减法解锁过程。
-5. **机制诊断与量化**：运行 H1 草稿纸读取机制探针与 INT8 动态量化无损验证。
-6. **交互式求解 (REPL)**：输入 `1234 + 5678` 实时查看逐位竖式推理过程。
-7. **自动备份回 Drive**：一键将最新权重同步保存至 Google Drive。
+### 2. One-Click Execution Pipeline
+1. **Mount Google Drive**: Automatically connects to `/MyDrive/simpleAI_workspace/` so model checkpoints and logs persist across sessions.
+2. **Environment & Checkpoint Setup**: Automatically downloads dependencies and official baseline pretrained weights (`.pt`).
+3. **Customize `config.json`**: Edit depth, width, training steps, and datasource in the code cell.
+4. **Launch Training**: Monitor real-time loss decay curves and the unlocking of 1–4 digit addition/subtraction capabilities.
+5. **Mechanistic Diagnostics & Quantization**: Run H1 scratchpad reading probes and lossless dynamic INT8 quantization.
+6. **Interactive REPL**: Input `1234 + 5678` to inspect step-by-step column-by-column reasoning.
+7. **Automated Drive Backup**: Automatically archive the latest weights back to Google Drive.
 
 ---
 
-## 方式二：在本地 / 服务器命令行直接训练
+## Method 2: Training via CLI (Remote Server / Cloud VM)
 
-### 1. 编写配置文件 `config.json`
-通过 JSON 字典定义实验架构、超参以及数据源构建方式（支持各种常见别名）：
+### 1. Write `config.json`
+Define architecture, hyperparameters, and data generation settings via a JSON configuration:
 
 ```json
 {
@@ -72,81 +72,81 @@
 }
 ```
 
-#### 原生参数别名映射表：
-| JSON 字段别名 | 映射内部参数 | 作用说明 |
+#### Native Parameter Alias Reference:
+| JSON Field Alias | Internal Parameter | Description |
 |---|---|---|
-| `layers`, `layer`, `n_layers`, `num_layers` | `n_layer` | 模型深度 L (1-10) |
-| `d`, `dim`, `d_model`, `embed_dim`, `width` | `n_embd` | 隐藏通道宽度 d (32-512) |
-| `heads`, `head`, `n_heads` | `n_head` | 注意力头数 |
-| `batch_size`, `bs`, `batch` | `batch_size` | 批量大小 |
-| `steps`, `train_steps`, `max_steps`, `epochs` | `steps` | 训练步数 |
-| `datasource.type: "cot"` / `"plain"` | `cot: True / False` | 是否启用思维链竖式草稿纸 |
-| `datasource.bias` | `four_digit_bias` | 4 位高难度双操作数加权比例 (0.5 为黄金甜点) |
-| `datasource.single` | `single` | 单样本训练模式（无打包） |
+| `layers`, `layer`, `n_layers`, `num_layers` | `n_layer` | Model depth L (1-10) |
+| `d`, `dim`, `d_model`, `embed_dim`, `width` | `n_embd` | Hidden channel width d (32-512) |
+| `heads`, `head`, `n_heads` | `n_head` | Number of attention heads |
+| `batch_size`, `bs`, `batch` | `batch_size` | Batch size |
+| `steps`, `train_steps`, `max_steps`, `epochs` | `steps` | Training steps |
+| `datasource.type: "cot"` / `"plain"` | `cot: True / False` | Enable Chain-of-Thought column scratchpad |
+| `datasource.bias` | `four_digit_bias` | Weight ratio for difficult 4-digit pairs (0.5 is optimal) |
+| `datasource.single` | `single` | Single-sequence training mode (unpacked) |
 
 ---
 
-### 2. 拉起训练命令
+### 2. Run Training Commands
 
-- **【加法算术探针】（基于配置文件）**：
+- **Additive Arithmetic Probe (Configuration-driven)**:
   ```bash
   cd additive-rand-transformer
-  python -m additive_rand_transformer.train --config my_config.json
+  python -m additive_rand_transformer.train --config configs/001_transformer_base.json
   ```
-  *(如需 50 步极速冒烟测试验证环境，可加 `--quick`：`python -m additive_rand_transformer.train --quick`)*
+  *(To run a 50-step quick smoke test: `python -m additive_rand_transformer.train --quick`)*
 
-- **【迷宫反应式导航】（纯 RL GRPO 训练）**：
+- **Maze Reactive Navigation (Pure RL GRPO Training)**:
   ```bash
   cd maze-transformer
-  python -m maze_transformer.train --config maze_config.json
+  python -m maze_transformer.train --config configs/001_transformer_grpo.json
   ```
 
 ---
 
-## 三、训练过程指标监控指南
+## Monitoring Training Metrics
 
-训练启动后，终端每 25 步输出一次实时指标：
+During training, real-time metrics are logged to stdout every 25 steps:
 ```text
 step   100 | loss 1.2140 | lr 1.50e-04 | cot_acc [add1 100% | add2 100% | add3 90% | add4 30% | sub1 100% | sub2 100% | sub3 95% | sub4 40%] | 12.3s
 ```
 
-### 关键指标与机制相变阶段：
-1. **`loss`**：交叉熵损失，正常收敛由 `2.50+` 稳步下降至 `0.17` 左右。
-2. **`cot_acc` 能力阶梯相变**：
-   - **L=1**：仅掌握 1 位加法与粗糙 2 位加法。
-   - **L=2**：稳定掌握 `add1 100%`、`add2 100%`。
-   - **L=3（相变点 1）**：突破 `add3 93%`。
-   - **L=4（相变点 2）**：突破 `sub4 96%` 与 `add4 35%`（完成多位进位与借位闭环）。
-3. **迷宫 `solvability`**：
-   - Transformer + GRPO 在 120 步内到达率由 0% 跃升至 **83.3%**，撞墙步数由 50+ 骤降至 11。
+### Key Metrics & Capability Phase Transitions:
+1. **`loss`**: Cross-entropy loss; normal convergence descends steadily from `2.50+` to approximately `0.17`.
+2. **`cot_acc` Capability Phase Transitions**:
+   - **L=1**: Captures only 1-digit addition and rudimentary 2-digit patterns.
+   - **L=2**: Stably masters `add1 100%` and `add2 100%`.
+   - **L=3 (Phase Transition 1)**: Unlocks `add3 93%`.
+   - **L=4 (Phase Transition 2)**: Breakthrough in `sub4 96%` and `add4 35%` (completing multi-digit carry and borrow loops).
+3. **Maze `solvability`**:
+   - Under Transformer + GRPO within 120 steps, goal reach rate improves from 0% to **83.3%**, with wall-collision steps dropping from 50+ to 11.
 
 ---
 
-## 四、训练完成后的评估、量化与互动
+## Post-Training Evaluation, Quantization & Interaction
 
-### 1. 单题求解与交互式推理 (REPL)
+### 1. Interactive Inference (REPL)
 ```bash
 cd additive-rand-transformer
 ./use_model.sh -s "1234 + 5678"
 ./use_model.sh -s "9999 - 4321"
 ```
 
-### 2. 模型量化评测 (FP32 -> Dynamic INT8)
-测量量化压缩比、推理吞吐加速与精度留存率：
+### 2. Dynamic INT8 Post-Training Quantization
+Measure model compression, inference acceleration, and accuracy retention:
 ```bash
 python -m additive_rand_transformer.quantize --checkpoint checkpoints/l4_d128_cot_bias05_final.pt
 ```
-- **量化实测结论**：体积压缩 **3.8x** (1.7MB $\to$ 0.45MB)，推理加速 **1.4x**，1–4 位加减法准确率 **100% 保持（零退化）**！
+- **Quantization Results**: **3.8x** size compression (1.7MB -> 0.45MB), **1.4x** throughput speedup, with 1–4 digit accuracy **fully maintained at 100% (zero degradation)**.
 
-### 3. 学术机制探针 (H1 草稿纸篡改测试)
+### 3. Mechanistic Probe (H1 Scratchpad Tamper Test)
 ```bash
 python -m additive_rand_transformer.explore_h1
 ```
-- **核心结论**：答案生成阶段 88.7% 依赖读取中间和列，对初始操作数敏感度为 0%；草稿被篡改时 100% 顺从错误，证明 CoT 仅为 Reader 而非 Reasoner。
+- **Key Finding**: During answer generation, 88.7% of attention attends directly to intermediate sum columns, with 0% sensitivity to initial raw operands. When scratchpads are tampered with, the model conforms 100% to erroneous scratchpads, proving standard CoT acts as a Reader rather than an autonomous Reasoner.
 
 ---
 
-## 五、原 README 内容归档位置
+## Archive Location
 
-原 README 中的全部历史说明、7 个 Checkpoint 详细配置、Git LFS 与镜像环境配置，已全部整理并入 Excel 工作簿：
-👉 请打开 [`archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) 之 **`【仓库架构与项目说明_原README】`** 工作表进行查阅。
+All legacy documentation, detailed configurations for the 7 baseline checkpoints, Git LFS, and cloud mirror specifications are preserved in the master workbook:
+👉 Open [`archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx`](archive/ALL_DOCS_EXPERIMENTS_CONFIG_TO_RESULTS.xlsx) under the **`[Repo_Architecture_Legacy_Notes]`** worksheet.
