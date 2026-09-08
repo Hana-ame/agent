@@ -50,36 +50,23 @@ def env_key(monkeypatch):
     yield "sk-test-key-12345"
 
 
+@pytest.fixture
+def no_key(monkeypatch):
+    """Ensure SENSENOVA_API_KEY is absent (free endpoint)."""
+    monkeypatch.delenv("SENSENOVA_API_KEY", raising=False)
+    yield None
+
+
 # =====================================================================
 # 1. Construction & Key Validation
 # =====================================================================
 
 
 class TestConstruction:
-    """Verify that the edge validates its API key at init time."""
+    """Verify that the edge constructs correctly with and without API key."""
 
-    def test_missing_key_raises(self, monkeypatch):
-        """ValueError when SENSENOVA_API_KEY is absent."""
-        monkeypatch.delenv("SENSENOVA_API_KEY", raising=False)
-        with pytest.raises(ValueError, match="SENSENOVA_API_KEY"):
-            SensenovaEdgeV4(
-                edge_id="e1",
-                input_vertex="a",
-                output_vertex="b",
-            )
-
-    def test_empty_key_raises(self, monkeypatch):
-        """ValueError when SENSENOVA_API_KEY is empty string."""
-        monkeypatch.setenv("SENSENOVA_API_KEY", "")
-        with pytest.raises(ValueError, match="SENSENOVA_API_KEY"):
-            SensenovaEdgeV4(
-                edge_id="e1",
-                input_vertex="a",
-                output_vertex="b",
-            )
-
-    def test_valid_key_constructs(self, env_key):
-        """Edge builds successfully when key is present."""
+    def test_no_key_constructs_fine(self, no_key):
+        """Edge builds successfully without SENSENOVA_API_KEY (free tier)."""
         edge = SensenovaEdgeV4(
             edge_id="e1",
             input_vertex="a",
@@ -87,9 +74,28 @@ class TestConstruction:
         )
         assert edge.id == "e1"
         assert edge.type == "sensenova"
-        assert edge.api_key == "sk-test-key-12345"
+        assert edge.api_key == ""
         assert edge.base_url == DEFAULT_BASE_URL
         assert edge.model == DEFAULT_MODEL
+
+    def test_key_from_env(self, env_key):
+        """Edge picks up SENSENOVA_API_KEY when present."""
+        edge = SensenovaEdgeV4(
+            edge_id="e1",
+            input_vertex="a",
+            output_vertex="b",
+        )
+        assert edge.api_key == "sk-test-key-12345"
+
+    def test_empty_key_treated_as_no_key(self, monkeypatch):
+        """Empty string key → empty api_key (no crash)."""
+        monkeypatch.setenv("SENSENOVA_API_KEY", "")
+        edge = SensenovaEdgeV4(
+            edge_id="e1",
+            input_vertex="a",
+            output_vertex="b",
+        )
+        assert edge.api_key == ""
 
     def test_custom_model_from_settings(self, env_key):
         """Settings override the default model."""
@@ -574,19 +580,19 @@ class TestCLI:
         assert result.returncode == 0
         assert "SenseNova" in result.stdout or "sense" in result.stdout.lower()
 
-    def test_cli_missing_key_fails(self):
-        """Without SENSENOVA_API_KEY, CLI exits with error."""
+    def test_cli_missing_key_ok(self):
+        """Without SENSENOVA_API_KEY, CLI still runs (free tier)."""
         env = {k: v for k, v in os.environ.items() if k != "SENSENOVA_API_KEY"}
+        # Use --help to avoid actual API call
         result = subprocess.run(
-            [sys.executable, "-m", "framework.sensenova_edge_v4",
-             "--session", "test", "--input", "a", "--output", "b"],
+            [sys.executable, "-m", "framework.sensenova_edge_v4", "--help"],
             capture_output=True,
             text=True,
             env=env,
             timeout=10,
         )
-        assert result.returncode != 0
-        assert "SENSENOVA_API_KEY" in (result.stderr + result.stdout)
+        assert result.returncode == 0
+        assert "SENSENOVA" not in result.stderr or "not set" not in result.stderr
 
     def test_cli_missing_required_args(self):
         """Missing --session/--input/--output → argparse error."""

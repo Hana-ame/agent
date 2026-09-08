@@ -6,9 +6,9 @@ endpoint. Unlike the generic :class:`LLMEdgeV4`, this edge:
 * **Owns its own** :class:`HttpLLMAgent` wired to the SenseNova base URL
   (``https://sensenova.moonchan.xyz/v1/chat/completions``), so no external
   agent injection is needed.
-* **Reads credentials from** ``SENSENOVA_API_KEY`` — never hard-coded, never
-  committed. Raises :class:`ValueError` at construction time if the variable
-  is absent.
+* **No API key required** — the free SenseNova endpoint is publicly
+  accessible without authentication. The ``Authorization`` header is omitted
+  when ``SENSENOVA_API_KEY`` is absent.
 * **Defaults the model** to ``sensenova-6.8-flash-lite``; override via the
   ``model`` argument or ``settings["model"]``.
 * **Supports SSE streaming** via ``run_stream()`` for long-form generation.
@@ -105,8 +105,10 @@ class SensenovaEdgeV4(EdgeV4):
 
     Raises
     ------
-    ValueError
-        If ``SENSENOVA_API_KEY`` is not set in the environment.
+    None
+        The edge always constructs successfully. The free SenseNova endpoint
+        does not require an API key; the ``Authorization`` header is simply
+        omitted when ``SENSENOVA_API_KEY`` is unset.
     """
 
     def __init__(
@@ -131,16 +133,9 @@ class SensenovaEdgeV4(EdgeV4):
         )
 
         # ------------------------------------------------------------------
-        # Resolve API key — must come from the environment, never hard-coded.
+        # Resolve API key — optional. SenseNova free tier requires no key.
         # ------------------------------------------------------------------
         self.api_key = os.environ.get(API_KEY_ENV, "").strip()
-        if not self.api_key:
-            raise ValueError(
-                f"{API_KEY_ENV} environment variable is not set. "
-                "Export it before running, e.g.:\n"
-                "  export SENSENOVA_API_KEY=sk-xxxxx\n"
-                "See .env.example for reference (do NOT commit real keys)."
-            )
 
         # Resolve base URL — settings override the default.
         self.base_url: str = self.settings.get("base_url", DEFAULT_BASE_URL)
@@ -150,7 +145,8 @@ class SensenovaEdgeV4(EdgeV4):
 
         # Build the owned agent.  SenseNova is directly reachable — no
         # transport proxy needed by default, but ``settings["proxy"]`` is
-        # honoured if provided.
+        # honoured if provided. When ``api_key`` is empty the agent simply
+        # omits the Authorization header (public endpoint).
         from framework.agents import HttpLLMAgent
 
         self._agent = HttpLLMAgent(
