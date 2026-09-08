@@ -132,11 +132,59 @@ class ExecutorV4:
         self._result = ExecutionResultV4(session_id=self.session_id)
         
         self._fan_in_counts: Dict[str, int] = defaultdict(int)
+        self._fan_in_failures: Dict[str, int] = defaultdict(int)
         self._scheduler_event = asyncio.Event()
+        # P2: Track running tasks by output vertex for cancellation on reentry
+        self._running_tasks_by_output: Dict[str, Set[asyncio.Task]] = defaultdict(set)
+        # P3: Lease tracking for crash recovery (edge_id -> expiry timestamp)
+        self._dispatch_leases: Dict[str, float] = {}
 
     def _notify_scheduler(self) -> None:
         """Wake up the scheduler loop if it's waiting."""
         self._scheduler_event.set()
+
+    # ------------------------------------------------------------------
+    # P2: Cancel in-flight tasks targeting downstream vertices on reentry
+    # ------------------------------------------------------------------
+
+    def cancel_downstream_tasks(self, vertex_names: Set[str]) -> List[str]:
+        """Cancel all in-flight tasks whose output vertex is in *vertex_names*.
+
+        Called by the server's reenter_vertex route to prevent stale results
+        from stomping on freshly-reset vertex states.
+
+        Returns a list of cancelled edge IDs.
+        """
+        cancelled: List[str] = []
+        for vname in vertex_names:
+            tasks = self._running_tasks_by_output.get(vname, set())
+            for task in list(tasks):
+                if not task.done():
+                    edge_name = task.get_name() or ""
+                    edge_id = edge_name.replace("edge_", "", 1) if edge_name else "?"
+                    cancelled.append(edge_id)
+                    task.cancel()
+        return cancelled
+
+    # ------------------------------------------------------------------
+    # P3: Recover stale dispatch leases after process restart
+    # ------------------------------------------------------------------
+
+    def recover_stale_leases(self) -> List[str]:
+        """Identify and clear stale dispatch leases from a previous process.
+
+        After a crash/restart, ``active_dispatches`` is empty but the SQLite
+        store still has upstream ``data ready`` and downstream ``todo``.
+        This method returns edge IDs whose leases have expired so the caller
+        can decide whether to re-dispatch or mark as failed.
+
+        Returns a list of stale edge IDs.
+        """
+        now = time.monotonic()
+        stale = [eid for eid, expiry in self._dispatch_leases.items() if expiry < now]
+        for eid in stale:
+            self._dispatch_leases.pop(eid, None)
+        return stale
 
     @property
     def result(self) -> ExecutionResultV4:
@@ -294,7 +342,7 @@ class ExecutorV4:
 
         if res.success:
             self._emit("edge_completed", edge_id=edge.id, payload={"output": res.output})
-            
+
             # Fan-in accumulation and settlement barrier
             if not edge.is_reflexive and not isinstance(edge, ReflexiveEdgeV4):
                 self._fan_in_counts[edge.output_vertex] += 1
@@ -302,11 +350,35 @@ class ExecutorV4:
                 if self._fan_in_counts[edge.output_vertex] >= expected:
                     self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.DATA_READY.value)
                     self._fan_in_counts[edge.output_vertex] = 0
+                    self._fan_in_failures[edge.output_vertex] = 0
                 else:
                     self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.TODO.value)
-                    
+
         elif not res.skipped:
             self._emit("edge_failed", edge_id=edge.id, payload={"error": res.error})
+
+            # P0 FIX: Track failures for fan-in settlement. When all incoming
+            # edges have settled and any failed, downgrade to reject to
+            # prevent deadlock (instead of staying todo forever).
+            if not edge.is_reflexive and not isinstance(edge, ReflexiveEdgeV4):
+                self._fan_in_counts[edge.output_vertex] += 1
+                self._fan_in_failures[edge.output_vertex] += 1
+                expected = len([e for e in self.graph.get_incoming_edges(edge.output_vertex) if not (e.is_reflexive or isinstance(e, ReflexiveEdgeV4))])
+                if self._fan_in_counts[edge.output_vertex] >= expected:
+                    if self._fan_in_failures[edge.output_vertex] > 0:
+                        # At least one predecessor failed permanently → reject to
+                        # allow reflexive recovery or deadlock-free termination.
+                        self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.REJECT.value)
+                        self._emit("fan_in_failed", vertex_name=edge.output_vertex,
+                                   payload={"failures": self._fan_in_failures[edge.output_vertex],
+                                            "expected": expected})
+                    else:
+                        self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.DATA_READY.value)
+                    self._fan_in_counts[edge.output_vertex] = 0
+                    self._fan_in_failures[edge.output_vertex] = 0
+
+        # P3: Clear dispatch lease on completion
+        self._dispatch_leases.pop(edge.id, None)
             
         self._notify_scheduler()
         return res
@@ -448,6 +520,8 @@ class ExecutorV4:
 
                     # Mark in-flight before task creation to prevent scheduling races
                     self.active_dispatches.add(key)
+                    # P3: Record dispatch lease for crash recovery
+                    self._dispatch_leases[edge.id] = time.monotonic() + (edge.timeout or self.timeout)
                     if grp in self.group_concurrency:
                         self.active_group_counts[grp] += 1
                     if edge.concurrency_limit is not None and edge.concurrency_limit > 0:
@@ -456,6 +530,11 @@ class ExecutorV4:
                     task = asyncio.create_task(
                         self._execute_single_edge(edge, semaphore),
                         name=f"edge_{edge.id}",
+                    )
+                    # P2: Track task by output vertex for cancellation on reentry
+                    self._running_tasks_by_output[edge.output_vertex].add(task)
+                    task.add_done_callback(
+                        lambda t, ov=edge.output_vertex: self._running_tasks_by_output[ov].discard(t)
                     )
                     running_tasks.add(task)
 
