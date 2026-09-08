@@ -215,6 +215,13 @@ def _load_dynamic_edge_class(
 
     path_part, cls_name = _resolve_script_spec(spec, base_dir, script_roots)
     allowed = [Path(root).resolve() for root in script_roots] if script_roots else None
+    if allowed is not None and base_dir:
+        # The manifest's own directory is trusted with the manifest itself, so a
+        # script referenced relative to it must stay loadable even when the
+        # caller narrowed scripts to other directories via --script-root.
+        base = Path(base_dir).resolve()
+        if base not in allowed:
+            allowed.insert(0, base)
     loaded = load_class_from_script(path_part, EdgeV4, cls_name, allowed_roots=allowed)
     if loaded is EdgeV4:
         raise ValueError(

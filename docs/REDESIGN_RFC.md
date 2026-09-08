@@ -72,13 +72,14 @@ Two tiers, one resolution point:
 | F | Extension surface completed end-to-end: `GET /api/edge-types`, dashboard type field is free text (was a 4-option `<select>` that silently reset `llm_tool`/custom edges to `code`), `script_roots` actually reaches validation and the loader, relative specs resolve against configured roots, `_edge_class_spec` records the real module path, load failures return 400 not 500 | `server/routes/dashboard.py`, `templates/dashboard.*`, `graph_manager_v4.py`, `edges/base.py`, `utils/script_loader.py` | H3 follow-up |
 | F | Dashboard vertex state list completed (`pruning` was missing) and `setSelectValue` appends unlisted values instead of silently emptying the select | `templates/dashboard.html`, `templates/dashboard.js` | state/color follow-up |
 | F | Packaging fixed: `fastapi`/`uvicorn` declared (they were undeclared while `import framework` requires them), dashboard assets shipped via `package-data`, `vea-server` console script; wheel install verified standalone | `pyproject.toml`, `framework/templates/__init__.py` | §4.7 |
+| F | V4 entry point added without touching the V1 runner: `framework/run_v4.py` (`run_from_manifest` / `run_manifest_async` / `load_v4_manifest`) collapses `load_from_manifest` + `populate_store` + `ExecutorV4.run()` into one call; `vea-run-v4` console script and the thin `examples/run_v4.py` wrapper; both runners reject the other stack's manifests with a message naming the correct one; `--script-root` reachable from the CLI | `framework/run_v4.py`, `examples/run_v4.py`, `pyproject.toml`, `tests/test_run_v4.py` | usability follow-up |
 
-Verification: `pytest tests/ -m "not live"` → **664 passed, 0 failed** (6 live
+Verification: `pytest tests/ -m "not live"` → **689 passed, 0 failed** (6 live
 deselected). New regression suites: `tests/test_security_hardening.py` (32),
 `tests/test_edge_registry.py` (29), `tests/test_state_color_split.py` (9),
 `tests/test_executor_settlement.py` (8), `tests/test_custom_edge_extension.py` (13),
-`tests/test_edge_type_surface.py` (16). The built wheel was installed into a clean
-target and served the dashboard with a non-empty body.
+`tests/test_edge_type_surface.py` (16), `tests/test_run_v4.py` (25). The built wheel
+was installed into a clean target and served the dashboard with a non-empty body.
 
 ---
 
