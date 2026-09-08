@@ -7,6 +7,4 @@ __pycache__/
 examples/s1profile_collect/data/
 
 *.egg-info/
-additive-rand-transformer/
-maze-transformer/
 .pytest_cache/
