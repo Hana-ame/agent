@@ -133,6 +133,7 @@ class ExecutorV4:
         
         self._fan_in_counts: Dict[str, int] = defaultdict(int)
         self._fan_in_failures: Dict[str, int] = defaultdict(int)
+        self._fan_in_completed: Dict[str, Set[str]] = defaultdict(set)
         self._scheduler_event = asyncio.Event()
         # P2: Track running tasks by output vertex for cancellation on reentry
         self._running_tasks_by_output: Dict[str, Set[asyncio.Task]] = defaultdict(set)
@@ -157,6 +158,9 @@ class ExecutorV4:
         """
         cancelled: List[str] = []
         for vname in vertex_names:
+            self._fan_in_completed.pop(vname, None)
+            self._fan_in_counts.pop(vname, None)
+            self._fan_in_failures.pop(vname, None)
             tasks = self._running_tasks_by_output.get(vname, set())
             for task in list(tasks):
                 if not task.done():
@@ -241,6 +245,10 @@ class ExecutorV4:
                 # Already executing in-flight
                 continue
 
+            if edge.id in self._fan_in_completed[edge.output_vertex]:
+                # Already executed for the current fan-in cycle
+                continue
+
             tier = self.graph.edge_tiers.get(edge.id, 0)
             edge_prio = edge.priority
 
@@ -297,14 +305,35 @@ class ExecutorV4:
 
                 try:
                     edge_to_run = self.llm_edge_cls.from_base(edge) if type(edge) is LLMEdgeV4 else edge
-                    res = await asyncio.wait_for(
-                        edge_to_run.run(
-                            session_id=self.session_id,
-                            store=self.store,
-                            agent=self.agent,
-                        ),
-                        timeout=edge_timeout,
-                    )
+                    participating_fan_in = [
+                        e for e in self.graph.get_incoming_edges(edge.output_vertex)
+                        if not (e.is_reflexive or isinstance(e, ReflexiveEdgeV4))
+                        and (
+                            e.settings.get("merge_strategy", "overwrite") in ("json_merge", "list_append", "reducer_script")
+                            or e.settings.get("settlement_barrier", False)
+                        )
+                    ]
+                    expected = len(participating_fan_in)
+                    is_fan_in = expected > 1
+                    try:
+                        res = await asyncio.wait_for(
+                            edge_to_run.run(
+                                session_id=self.session_id,
+                                store=self.store,
+                                agent=self.agent,
+                                auto_transition=(not is_fan_in),
+                            ),
+                            timeout=edge_timeout,
+                        )
+                    except TypeError:
+                        res = await asyncio.wait_for(
+                            edge_to_run.run(
+                                session_id=self.session_id,
+                                store=self.store,
+                                agent=self.agent,
+                            ),
+                            timeout=edge_timeout,
+                        )
                 except asyncio.TimeoutError:
                     err_msg = f"Edge '{edge.id}' execution timed out after {edge_timeout}s"
                     logger.error("[ExecutorV4] %s", err_msg)
@@ -344,11 +373,19 @@ class ExecutorV4:
             self._emit("edge_completed", edge_id=edge.id, payload={"output": res.output})
 
             # Fan-in accumulation and settlement barrier
-            if not edge.is_reflexive and not isinstance(edge, ReflexiveEdgeV4):
-                self._fan_in_counts[edge.output_vertex] += 1
-                expected = len([e for e in self.graph.get_incoming_edges(edge.output_vertex) if not (e.is_reflexive or isinstance(e, ReflexiveEdgeV4))])
-                if self._fan_in_counts[edge.output_vertex] >= expected:
-                    self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.DATA_READY.value)
+            if is_fan_in and not edge.is_reflexive and not isinstance(edge, ReflexiveEdgeV4):
+                self._fan_in_completed[edge.output_vertex].add(edge.id)
+                self._fan_in_counts[edge.output_vertex] = len(self._fan_in_completed[edge.output_vertex])
+                if len(self._fan_in_completed[edge.output_vertex]) >= expected:
+                    if self._fan_in_failures[edge.output_vertex] > 0:
+                        self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.REJECT.value)
+                        self._emit("fan_in_failed", vertex_name=edge.output_vertex,
+                                   payload={"failures": self._fan_in_failures[edge.output_vertex],
+                                            "expected": expected})
+                    else:
+                        self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.DATA_READY.value)
+                        self.store.increment_processed_count(self.session_id, edge.output_vertex)
+                    self._fan_in_completed[edge.output_vertex].clear()
                     self._fan_in_counts[edge.output_vertex] = 0
                     self._fan_in_failures[edge.output_vertex] = 0
                 else:
@@ -361,19 +398,21 @@ class ExecutorV4:
             # edges have settled and any failed, downgrade to reject to
             # prevent deadlock (instead of staying todo forever).
             if not edge.is_reflexive and not isinstance(edge, ReflexiveEdgeV4):
-                self._fan_in_counts[edge.output_vertex] += 1
+                self._fan_in_completed[edge.output_vertex].add(edge.id)
+                self._fan_in_counts[edge.output_vertex] = len(self._fan_in_completed[edge.output_vertex])
                 self._fan_in_failures[edge.output_vertex] += 1
-                expected = len([e for e in self.graph.get_incoming_edges(edge.output_vertex) if not (e.is_reflexive or isinstance(e, ReflexiveEdgeV4))])
-                if self._fan_in_counts[edge.output_vertex] >= expected:
+                settlement_expected = expected if is_fan_in else len([e for e in self.graph.get_incoming_edges(edge.output_vertex) if not (e.is_reflexive or isinstance(e, ReflexiveEdgeV4))])
+                if self._fan_in_counts[edge.output_vertex] >= settlement_expected:
                     if self._fan_in_failures[edge.output_vertex] > 0:
                         # At least one predecessor failed permanently → reject to
                         # allow reflexive recovery or deadlock-free termination.
                         self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.REJECT.value)
                         self._emit("fan_in_failed", vertex_name=edge.output_vertex,
                                    payload={"failures": self._fan_in_failures[edge.output_vertex],
-                                            "expected": expected})
+                                            "expected": settlement_expected})
                     else:
                         self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.DATA_READY.value)
+                    self._fan_in_completed[edge.output_vertex].clear()
                     self._fan_in_counts[edge.output_vertex] = 0
                     self._fan_in_failures[edge.output_vertex] = 0
 

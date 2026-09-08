@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -181,6 +182,8 @@ class SensenovaEdgeV4(EdgeV4):
         session_id: str,
         store: VertexStoreV4,
         agent: Optional[Any] = None,
+        auto_transition: bool = True,
+        **kwargs: Any,
     ) -> EdgeResultV4:
         """Execute the SenseNova edge following the V4 handshake contract.
 
@@ -193,6 +196,8 @@ class SensenovaEdgeV4(EdgeV4):
         agent:
             Optional external agent override. When *None*, the edge uses its
             owned :class:`HttpLLMAgent` wired to SenseNova.
+        auto_transition:
+            Whether to transition the downstream vertex to DATA_READY upon completion.
 
         Returns
         -------
@@ -233,7 +238,7 @@ class SensenovaEdgeV4(EdgeV4):
                 temperature, self.settings,
             )
 
-            if asyncio.iscoroutine(res_future):
+            if inspect.isawaitable(res_future):
                 response = await res_future
             else:
                 response = res_future
@@ -243,16 +248,26 @@ class SensenovaEdgeV4(EdgeV4):
             # JSON validation when the downstream vertex expects it.
             output_str = self._validate_json_if_needed(output_str, out_v)
 
-            # Success: update downstream content and transition to 'data ready'.
-            store.update_vertex_content(
-                session_id=session_id,
-                name=self.output_vertex,
-                content=output_str,
-                state=VertexStateV4.DATA_READY.value,
-                increment_count=True,
-            )
+            # Success: update downstream content and transition to 'data ready' if auto_transition is True.
+            if auto_transition:
+                store.update_vertex_content(
+                    session_id=session_id,
+                    name=self.output_vertex,
+                    content=output_str,
+                    state=VertexStateV4.DATA_READY.value,
+                    increment_count=True,
+                )
+            else:
+                store.update_vertex_content(
+                    session_id=session_id,
+                    name=self.output_vertex,
+                    content=output_str,
+                )
 
-            usage = active_agent.get_usage_summary() if hasattr(active_agent, "get_usage_summary") else {}
+            usage_raw = active_agent.get_usage_summary() if hasattr(active_agent, "get_usage_summary") else {}
+            if inspect.isawaitable(usage_raw):
+                usage_raw = await usage_raw
+            usage = usage_raw if isinstance(usage_raw, dict) else {}
 
             return EdgeResultV4(
                 edge_id=self.id,
@@ -299,6 +314,8 @@ class SensenovaEdgeV4(EdgeV4):
         session_id: str,
         store: VertexStoreV4,
         agent: Optional[Any] = None,
+        auto_transition: bool = True,
+        **kwargs: Any,
     ) -> AsyncGenerator[str, None]:
         """Execute the edge with SSE streaming, yielding content deltas.
 
@@ -358,7 +375,7 @@ class SensenovaEdgeV4(EdgeV4):
                     active_agent, in_v.content, rendered_prompt, model,
                     temperature, self.settings,
                 )
-                if asyncio.iscoroutine(res_future):
+                if inspect.isawaitable(res_future):
                     response = await res_future
                 else:
                     response = res_future
@@ -368,13 +385,20 @@ class SensenovaEdgeV4(EdgeV4):
             output_str = "".join(chunks)
             output_str = self._validate_json_if_needed(output_str, out_v)
 
-            store.update_vertex_content(
-                session_id=session_id,
-                name=self.output_vertex,
-                content=output_str,
-                state=VertexStateV4.DATA_READY.value,
-                increment_count=True,
-            )
+            if auto_transition:
+                store.update_vertex_content(
+                    session_id=session_id,
+                    name=self.output_vertex,
+                    content=output_str,
+                    state=VertexStateV4.DATA_READY.value,
+                    increment_count=True,
+                )
+            else:
+                store.update_vertex_content(
+                    session_id=session_id,
+                    name=self.output_vertex,
+                    content=output_str,
+                )
 
         except Exception as exc:
             err_msg = str(exc)

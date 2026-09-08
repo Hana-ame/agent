@@ -369,6 +369,8 @@ class EdgeV4:
         session_id: str,
         store: VertexStoreV4,
         agent: Optional[AgentProtocol] = None,
+        auto_transition: bool = True,
+        **kwargs: Any,
     ) -> EdgeResultV4:
         """Execute the edge against the storage store. Must be overridden by subclasses."""
         raise NotImplementedError("Subclasses must implement run()")
@@ -466,6 +468,8 @@ class CodeEdgeV4(EdgeV4):
         session_id: str,
         store: VertexStoreV4,
         agent: Optional[AgentProtocol] = None,
+        auto_transition: bool = True,
+        **kwargs: Any,
     ) -> EdgeResultV4:
         """Execute code edge following the two-sided handshake contract."""
         satisfied, reason, in_v, out_v = self.check_handshake(session_id, store)
@@ -509,8 +513,9 @@ class CodeEdgeV4(EdgeV4):
             )
 
             # Handshake fulfillment: transition to 'data ready' and increment count
-            store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.DATA_READY.value)
-            store.increment_processed_count(session_id, self.output_vertex)
+            if auto_transition:
+                store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.DATA_READY.value)
+                store.increment_processed_count(session_id, self.output_vertex)
 
             return EdgeResultV4(
                 edge_id=self.id,
@@ -579,6 +584,8 @@ class LLMEdgeV4(EdgeV4):
         session_id: str,
         store: VertexStoreV4,
         agent: Optional[AgentProtocol] = None,
+        auto_transition: bool = True,
+        **kwargs: Any,
     ) -> EdgeResultV4:
         """Execute LLM edge with prompt construction and response delivery."""
         satisfied, reason, in_v, out_v = self.check_handshake(session_id, store)
@@ -648,8 +655,9 @@ class LLMEdgeV4(EdgeV4):
                 reducer_fn=reducer_fn,
             )
 
-            store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.DATA_READY.value)
-            store.increment_processed_count(session_id, self.output_vertex)
+            if auto_transition:
+                store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.DATA_READY.value)
+                store.increment_processed_count(session_id, self.output_vertex)
 
             return EdgeResultV4(
                 edge_id=self.id,
@@ -793,6 +801,7 @@ class ReflexiveEdgeV4(EdgeV4):
         session_id: str,
         store: VertexStoreV4,
         agent: Optional[AgentProtocol] = None,
+        **kwargs: Any,
     ) -> EdgeResultV4:
         """Execute reflexive recovery upon target vertex entering trigger state."""
         target_v = store.get_vertex(session_id, self.output_vertex)
