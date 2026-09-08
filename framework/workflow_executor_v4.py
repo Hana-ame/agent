@@ -16,7 +16,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple, Union
 from framework.edge_v4 import CodeEdgeV4
 from framework.executor_v4 import ExecutorV4, GraphEventV4
 from framework.graph_v4 import DiscreteGraphLoaderV4, GraphV4
-from framework.server.manager import SessionGraphManagerV4
+from framework.graph_manager_v4 import SessionGraphManagerV4
 from framework.vertex_v4 import (
     VertexAttributeV4,
     VertexRecordV4,

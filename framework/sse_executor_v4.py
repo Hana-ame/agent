@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Optional, Tuple, Union
 
 from framework.graph_v4 import GraphV4
-from framework.server.manager import SessionGraphManagerV4
+from framework.graph_manager_v4 import SessionGraphManagerV4
 from framework.server.sse import (
     SSE_DONE,
     ToolCallEcho,
