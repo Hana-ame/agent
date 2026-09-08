@@ -81,6 +81,11 @@ from .sse_executor_v4 import (
     SSEExecutorV4,
     ToolCallEcho,
 )
+from .workflow_executor_v4 import (
+    WorkflowExecutorV4,
+    WorkflowEventV4,
+    WorkflowResultV4,
+)
 from .http_executor_v4 import (
     HttpHarnessExecutorV4,
 )
@@ -111,5 +116,6 @@ __all__ = [
     'BaseWorkerQueueV4', 'InMemoryWorkerQueueV4', 'EdgeTaskPayload', 'EdgeTaskResult',
     'create_v4_server', 'SessionGraphManagerV4',
     'SSEExecutorV4', 'ToolCallEcho', 'HttpHarnessExecutorV4',
+    'WorkflowExecutorV4', 'WorkflowEventV4', 'WorkflowResultV4',
 ]
 
