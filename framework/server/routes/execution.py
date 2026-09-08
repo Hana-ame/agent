@@ -89,8 +89,9 @@ async def execute_via_sse(
     request: Request,
     payload: Dict[str, Any] = Body(default_factory=dict),
 ) -> Any:
-    """Execute workflow via SSEExecutor with session routing and harness echo output."""
-    from framework.sse_executor_v4 import SSEExecutorV4
+    """Execute workflow via WorkflowExecutorV4 with session routing and harness echo output."""
+    from framework.server.sse import format_result_as_harness_echo, stream_workflow_as_sse
+    from framework.workflow_executor_v4 import WorkflowExecutorV4
 
     manager = request.app.state.manager
     store = request.app.state.store
@@ -108,16 +109,17 @@ async def execute_via_sse(
     timeout = float(payload.get("timeout", 120.0))
     is_stream = bool(payload.get("stream", True))
 
-    sse_exec = SSEExecutorV4(manager=manager, store=store)
+    workflow_exec = WorkflowExecutorV4(manager=manager, store=store)
 
     if is_stream:
-        gen = sse_exec.execute_and_stream(
+        workflow_stream = workflow_exec.stream(
             session_id=session_id,
             input_payload=input_payload,
             manifest_path=manifest_path,
             max_concurrency=max_concurrency,
             timeout=timeout,
         )
+        gen = stream_workflow_as_sse(workflow_stream)
         return StreamingResponse(
             gen,
             media_type="text/event-stream",
@@ -127,10 +129,11 @@ async def execute_via_sse(
             },
         )
     else:
-        return await sse_exec.execute_harness_call(
+        result = await workflow_exec.run(
             session_id=session_id,
             input_payload=input_payload,
             manifest_path=manifest_path,
             max_concurrency=max_concurrency,
             timeout=timeout,
         )
+        return format_result_as_harness_echo(result)
