@@ -16,7 +16,7 @@ _REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from framework.edge_v4 import LLMEdgeV4
+from framework.edges.llm import LLMEdgeV4
 from framework.vertex_v4 import VertexRecordV4
 
 
@@ -70,6 +70,6 @@ class GenerateLLMEdgeV4(LLMEdgeV4):
 
 
 if __name__ == "__main__":
-    from framework.edge_v4 import main
+    from framework.edges.cli import main
     main()
 

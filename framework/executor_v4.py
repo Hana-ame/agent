@@ -484,6 +484,12 @@ class ExecutorV4:
         # P3: Clear dispatch lease on completion
         self._dispatch_leases.pop(edge.id, None)
 
+        # Synchronize live state from store into in-memory graph to eliminate dual-source divergence
+        if self.store and self.graph:
+            self.graph.sync_vertex_from_store(self.store, edge.output_vertex, self.session_id)
+            if edge.input_vertex:
+                self.graph.sync_vertex_from_store(self.store, edge.input_vertex, self.session_id)
+
         if res.success:
             self._save_snapshot(f"edge_completed:{edge.id}")
         elif not res.skipped:
@@ -628,6 +634,8 @@ class ExecutorV4:
         for v in self.store.list_vertices(self.session_id):
             result.vertex_states[v.name] = v.state
             result.vertex_contents[v.name] = v.content
+        if self.store and self.graph:
+            self.graph.sync_from_store(self.store, self.session_id)
         try:
             result.metrics_summary = self.store.get_edge_metrics_summary(self.session_id)
         except Exception:
@@ -815,6 +823,9 @@ class ExecutorV4:
             for v in self.store.list_vertices(self.session_id):
                 self._result.vertex_states[v.name] = v.state
                 self._result.vertex_contents[v.name] = v.content
+
+            if self.store and self.graph:
+                self.graph.sync_from_store(self.store, self.session_id)
 
             self._result.execution_time = time.monotonic() - t0
             try:

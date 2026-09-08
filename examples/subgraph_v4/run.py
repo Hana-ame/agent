@@ -23,7 +23,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from framework.graph_v4 import DiscreteGraphLoaderV4, GraphV4
-from framework.server_v4 import SessionGraphManagerV4
+from framework.server.manager import SessionGraphManagerV4
 from framework.sse_executor_v4 import SSEExecutorV4
 from framework.vertex_v4 import VertexStateV4, VertexStoreV4
 
