@@ -2,6 +2,8 @@
 
 Vertex-Edge Agent Framework is a data-driven agent orchestration system where **vertices** store states and data while **edges** encapsulate logic, transforms, and model inference.
 
+> 📖 **架构与技术全景指南**：详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 以及开发者指南 [agent.md](agent.md)。
+
 ---
 
 ## 1. Installation & Setup
