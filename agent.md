@@ -291,6 +291,9 @@ python3 -m framework.server_v4 --port 11434 --db agent_data.db --snapshot-dir sn
 | `/api/sessions/{id}/snapshots` | `GET` | 获取该会话全部历史完整 Graph 快照列表 |
 | `/api/sessions/{id}/snapshots/{step}` | `GET` | 读取指定历史步骤的完整 Graph JSON |
 | `/api/sessions/{id}/snapshots/{step}/restore` | `POST` | **一键回滚还原到指定历史快照** |
+| `/api/tool-catalog` | `GET` | 查询已注册的动态工具子图列表与元数据 |
+| `/api/tool-catalog/{tool_id}` | `GET` | 查询指定工具子图的完整 Manifest 定义 |
+| `/api/sessions/{id}/route-and-run` | `POST` | **动态意图路由、自动缝合子图并执行工作流** |
 | `/dashboard` | `GET` | 可视化拓扑 DAG 与数据库检查器前端控制台 |
 
 ---
@@ -309,4 +312,50 @@ summary = store.get_edge_metrics_summary(session_id="my_session")
 print(f"总执行数: {summary['total_executions']}, 错误率: {summary['error_rate'] * 100}%")
 for edge_id, stats in summary["by_edge"].items():
     print(f"Edge {edge_id}: 平均耗时 {stats['avg_execution_time_ms']} ms")
+```
+
+---
+
+## 9. 动态工具子图库与智能意图路由（Dynamic Tool Library & Intent Router）
+
+### 9.1 架构原理
+通过将通用业务能力封装为**离散工具子图（Tool Subgraph Manifests）**，配合大模型意图路由（SenseNova 6.8 Flash Lite），实现按需将特定子图热插拔拼接入主工作流中：
+
+```mermaid
+graph LR
+    UserReq["用户任务 Request"] --> LLMRouter["SenseNova 大模型路由"]
+    LLMRouter --> ToolCatalog["工具库 (tools/*.json)"]
+    ToolCatalog --> SubgraphSplice["自动拼接 (insert_subgraph)"]
+    SubgraphSplice --> Executor["ExecutorV4 引擎执行"]
+    Executor --> Snapshots["每步图快照 (snapshots/*.json)"]
+```
+
+### 9.2 工具库配置目录 (`examples/dynamic_tool_library/tools/`)
+- `code_analyzer.json`：代码语法审查、危险 `eval()` 检查与架构建议。
+- `finance_calculator.json`：营收、成本提取与利润率财务分析。
+- `data_extractor.json`：非结构化文本联系人、邮箱提取与 Markdown 表格生成。
+
+### 9.3 快速调用示例
+
+#### 方式 1：Python 脚本一键运行
+```bash
+python3 examples/dynamic_tool_library/demo.py
+```
+
+#### 方式 2：REST API 智能路由与执行
+```bash
+curl -s -X POST http://127.0.0.1:11434/api/sessions/my_session/route-and-run \
+  -H "Content-Type: application/json" \
+  -d '{"task": "def calc(): eval(\"1+1\")", "use_llm": true}' | jq .
+```
+
+#### 方式 3：OpenAI 兼容对话协议热路由
+```bash
+curl -s -X POST http://127.0.0.1:11434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "dynamic-router",
+    "messages": [{"role": "user", "content": "Quarterly revenues were 5000000 and cost 3000000."}],
+    "vea_dynamic_route": true
+  }' | jq .
 ```
