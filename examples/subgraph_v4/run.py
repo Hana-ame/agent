@@ -16,6 +16,11 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+import sys
+
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from framework.graph_v4 import DiscreteGraphLoaderV4, GraphV4
 from framework.server_v4 import SessionGraphManagerV4
