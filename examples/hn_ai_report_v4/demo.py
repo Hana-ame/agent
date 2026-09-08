@@ -34,6 +34,7 @@ from framework.vertex_v4 import VertexStateV4, VertexStoreV4
 from framework.graph_v4 import GraphV4
 from framework.edge_v4 import CodeEdgeV4, LLMEdgeV4
 from framework.executor_v4 import ExecutorV4
+from framework.agents import HttpLLMAgent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -133,16 +134,15 @@ async def run() -> str:
             if args.proxy:
                 edge.settings.setdefault("proxy", args.proxy)
 
-    # Resolve API key from environment
-    api_key = os.environ.get("SENSENOVA_API_KEY", "")
-    for edge in graph.edges.values():
-        if hasattr(edge, "settings"):
-            edge.settings.setdefault("api_key", api_key)
+    # Create LLM agent — SenseNova free tier needs no API key
+    api_key = os.environ.get("SENSENOVA_API_KEY", "") or None
+    agent = HttpLLMAgent(api_key=api_key)
 
     logger.info("Starting V4 executor (timeout=900s, max_concurrency=4)")
     executor = ExecutorV4(
         graph=graph,
         store=store,
+        agent=agent,
         timeout=900,
         max_concurrency=4,
     )
