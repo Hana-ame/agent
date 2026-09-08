@@ -150,12 +150,26 @@ class SessionGraphManagerV4:
         self._graphs: Dict[str, GraphV4] = {}
         self._event_broadcasters: Dict[str, List[asyncio.Queue]] = {}
         self._session_locks: Dict[str, asyncio.Lock] = {}
+        # P2: Track running executors per session for task cancellation on reentry
+        self._running_executors: Dict[str, "ExecutorV4"] = {}
 
     def get_session_lock(self, session_id: str) -> asyncio.Lock:
         """Fetch or create an asyncio.Lock for the session."""
         if session_id not in self._session_locks:
             self._session_locks[session_id] = asyncio.Lock()
         return self._session_locks[session_id]
+
+    def register_executor(self, session_id: str, executor: "ExecutorV4") -> None:
+        """Register a running executor so reentry can cancel its in-flight tasks."""
+        self._running_executors[session_id] = executor
+
+    def unregister_executor(self, session_id: str) -> None:
+        """Remove a finished executor from tracking."""
+        self._running_executors.pop(session_id, None)
+
+    def get_running_executor(self, session_id: str) -> Optional["ExecutorV4"]:
+        """Get the currently running executor for a session, if any."""
+        return self._running_executors.get(session_id)
 
     def get_or_create_graph(self, session_id: str) -> GraphV4:
         """Fetch or instantiate an isolated GraphV4 for a session, hydrating from store if available."""
@@ -849,21 +863,23 @@ def create_v4_server(
         req: VertexCreateOrUpdateRequest,
     ) -> Dict[str, Any]:
         """Add or update a vertex online."""
-        v = manager.add_or_update_vertex(
-            session_id=session_id,
-            name=req.name,
-            content=req.content,
-            attributes=req.attributes,
-            state=req.state,
-            processed_count=req.processed_count,
-        )
-        return {"status": "saved", "vertex": v.to_dict()}
+        async with manager.get_session_lock(session_id):
+            v = manager.add_or_update_vertex(
+                session_id=session_id,
+                name=req.name,
+                content=req.content,
+                attributes=req.attributes,
+                state=req.state,
+                processed_count=req.processed_count,
+            )
+            return {"status": "saved", "vertex": v.to_dict()}
 
     @app.delete("/api/sessions/{session_id}/graph/vertices/{name}")
     async def delete_vertex(session_id: str, name: str) -> Dict[str, Any]:
         """Delete a vertex online."""
-        deleted = manager.delete_vertex(session_id, name)
-        return {"deleted": deleted, "name": name}
+        async with manager.get_session_lock(session_id):
+            deleted = manager.delete_vertex(session_id, name)
+            return {"deleted": deleted, "name": name}
 
     @app.post("/api/sessions/{session_id}/graph/edges")
     async def create_or_update_edge(
@@ -871,35 +887,37 @@ def create_v4_server(
         req: EdgeCreateOrUpdateRequest,
     ) -> Dict[str, Any]:
         """Add or update an edge online."""
-        edge = manager.add_or_update_edge(
-            session_id=session_id,
-            edge_id=req.id,
-            edge_type=req.type,
-            input_vertex=req.input_vertex,
-            output_vertex=req.output_vertex,
-            settings=req.settings,
-            script=req.script,
-            trigger_state=req.trigger_state,
-            target_state=req.target_state,
-            max_retries=req.max_retries,
-        )
-        val = manager.validate_graph(session_id)
-        return {
-            "status": "saved",
-            "edge": {
-                "id": edge.id,
-                "type": edge.type,
-                "input": edge.input_vertex,
-                "output": edge.output_vertex,
-            },
-            "validation": val,
-        }
+        async with manager.get_session_lock(session_id):
+            edge = manager.add_or_update_edge(
+                session_id=session_id,
+                edge_id=req.id,
+                edge_type=req.type,
+                input_vertex=req.input_vertex,
+                output_vertex=req.output_vertex,
+                settings=req.settings,
+                script=req.script,
+                trigger_state=req.trigger_state,
+                target_state=req.target_state,
+                max_retries=req.max_retries,
+            )
+            val = manager.validate_graph(session_id)
+            return {
+                "status": "saved",
+                "edge": {
+                    "id": edge.id,
+                    "type": edge.type,
+                    "input": edge.input_vertex,
+                    "output": edge.output_vertex,
+                },
+                "validation": val,
+            }
 
     @app.delete("/api/sessions/{session_id}/graph/edges/{edge_id}")
     async def delete_edge(session_id: str, edge_id: str) -> Dict[str, Any]:
         """Delete an edge online."""
-        deleted = manager.delete_edge(session_id, edge_id)
-        return {"deleted": deleted, "edge_id": edge_id}
+        async with manager.get_session_lock(session_id):
+            deleted = manager.delete_edge(session_id, edge_id)
+            return {"deleted": deleted, "edge_id": edge_id}
 
     @app.post("/api/sessions/{session_id}/graph/validate")
     async def validate_graph(session_id: str) -> Dict[str, Any]:
@@ -925,13 +943,18 @@ def create_v4_server(
                 max_concurrency=req.max_concurrency,
                 timeout=req.timeout,
             )
+            # P2: Register executor for task cancellation on reentry
+            manager.register_executor(session_id, executor)
 
             # Broadcast events in real-time
             async def stream_and_broadcast():
                 async for ev in executor.stream():
                     manager.broadcast_event(session_id, ev)
 
-            await stream_and_broadcast()
+            try:
+                await stream_and_broadcast()
+            finally:
+                manager.unregister_executor(session_id)
             return executor.result.to_dict()
 
     @app.get("/api/sessions/{session_id}/events")
@@ -972,20 +995,49 @@ def create_v4_server(
         name: str,
         req: VertexReentryRequest = Body(default_factory=VertexReentryRequest),
     ) -> Dict[str, Any]:
-        """Re-enter a vertex for re-execution, resetting all affected downstream vertices."""
-        affected = manager.reenter_vertex(
-            session_id=session_id,
-            vertex_name=name,
-            new_content=req.new_content,
-            reset_state=req.reset_state,
-            clear_content=req.clear_content,
-        )
-        return {
-            "status": "reentered",
-            "reentered_vertex": name,
-            "affected_downstream_vertices": affected,
-            "reset_state": req.reset_state,
-        }
+        """Re-enter a vertex for re-execution, resetting all affected downstream vertices.
+
+        P2 FIX: Cancels any in-flight tasks targeting downstream vertices before
+        resetting state, preventing stale results from stomping on the new state.
+        """
+        async with manager.get_session_lock(session_id):
+            # P2: Cancel in-flight tasks for the reentered vertex and its downstream
+            cancelled_edges: List[str] = []
+            executor = manager.get_running_executor(session_id)
+            if executor:
+                # Determine affected downstream vertices
+                graph = manager.get_or_create_graph(session_id)
+                affected_set: Set[str] = set()
+                # The reentered vertex itself
+                affected_set.add(name)
+                # All downstream vertices reachable from it
+                visited: Set[str] = set()
+                queue: List[str] = [name]
+                while queue:
+                    current = queue.pop(0)
+                    if current in visited:
+                        continue
+                    visited.add(current)
+                    for e in graph.get_outgoing_edges(current):
+                        if not e.is_reflexive:
+                            affected_set.add(e.output_vertex)
+                            queue.append(e.output_vertex)
+                cancelled_edges = executor.cancel_downstream_tasks(affected_set)
+
+            affected = manager.reenter_vertex(
+                session_id=session_id,
+                vertex_name=name,
+                new_content=req.new_content,
+                reset_state=req.reset_state,
+                clear_content=req.clear_content,
+            )
+            return {
+                "status": "reentered",
+                "reentered_vertex": name,
+                "affected_downstream_vertices": affected,
+                "reset_state": req.reset_state,
+                "cancelled_in_flight_edges": cancelled_edges,
+            }
 
     @app.patch("/api/sessions/{session_id}/graph/edges/{edge_id}/reconnect")
     async def reconnect_edge_route(
@@ -994,15 +1046,16 @@ def create_v4_server(
         req: EdgeReconnectRequest,
     ) -> Dict[str, Any]:
         """Dynamically reconnect an existing edge to new endpoints."""
-        success = manager.reconnect_edge(
-            session_id=session_id,
-            edge_id=edge_id,
-            new_input_vertex=req.new_input_vertex,
-            new_output_vertex=req.new_output_vertex,
-        )
-        if not success:
-            raise HTTPException(404, f"Edge '{edge_id}' not found in session '{session_id}'")
-        return {"status": "reconnected", "edge_id": edge_id}
+        async with manager.get_session_lock(session_id):
+            success = manager.reconnect_edge(
+                session_id=session_id,
+                edge_id=edge_id,
+                new_input_vertex=req.new_input_vertex,
+                new_output_vertex=req.new_output_vertex,
+            )
+            if not success:
+                raise HTTPException(404, f"Edge '{edge_id}' not found in session '{session_id}'")
+            return {"status": "reconnected", "edge_id": edge_id}
 
     @app.post("/api/sessions/{session_id}/graph/subgraphs/splice")
     async def splice_subgraph_route(
@@ -1010,23 +1063,23 @@ def create_v4_server(
         req: SubgraphSpliceRequest,
     ) -> Dict[str, Any]:
         """Splice (inline) a subgraph in place of an existing vertex."""
-        subgraph: GraphV4
-        if req.subgraph_manifest:
-            subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
-        elif req.subgraph_data:
-            subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
-        else:
-            raise HTTPException(400, "Either subgraph_manifest or subgraph_data must be provided")
-
-        result = manager.splice_subgraph(
-            session_id=session_id,
-            target_vertex_name=req.target_vertex,
-            subgraph=subgraph,
-            name_prefix=req.name_prefix,
-            entry_vertex_name=req.entry_vertex,
-            exit_vertex_name=req.exit_vertex,
-        )
-        return {"status": "spliced", "result": result}
+        async with manager.get_session_lock(session_id):
+            subgraph: GraphV4
+            if req.subgraph_manifest:
+                subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
+            elif req.subgraph_data:
+                subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
+            else:
+                raise HTTPException(400, "Either subgraph_manifest or subgraph_data must be provided")
+            result = manager.splice_subgraph(
+                session_id=session_id,
+                target_vertex_name=req.target_vertex,
+                subgraph=subgraph,
+                name_prefix=req.name_prefix,
+                entry_vertex_name=req.entry_vertex,
+                exit_vertex_name=req.exit_vertex,
+            )
+            return {"status": "spliced", "result": result}
 
     @app.post("/api/sessions/{session_id}/graph/subgraphs/insert")
     async def insert_subgraph_route(
@@ -1034,22 +1087,23 @@ def create_v4_server(
         req: SubgraphInsertRequest,
     ) -> Dict[str, Any]:
         """Insert an independent subgraph with explicit boundary bindings."""
-        subgraph: GraphV4
-        if req.subgraph_manifest:
-            subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
-        elif req.subgraph_data:
-            subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
-        else:
-            raise HTTPException(400, "Either subgraph_manifest or subgraph_data must be provided")
+        async with manager.get_session_lock(session_id):
+            subgraph: GraphV4
+            if req.subgraph_manifest:
+                subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
+            elif req.subgraph_data:
+                subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
+            else:
+                raise HTTPException(400, "Either subgraph_manifest or subgraph_data must be provided")
 
-        result = manager.insert_subgraph(
-            session_id=session_id,
-            subgraph=subgraph,
-            incoming_bindings=req.incoming_bindings,
-            outgoing_bindings=req.outgoing_bindings,
-            name_prefix=req.name_prefix,
-        )
-        return {"status": "inserted", "result": result}
+            result = manager.insert_subgraph(
+                session_id=session_id,
+                subgraph=subgraph,
+                incoming_bindings=req.incoming_bindings,
+                outgoing_bindings=req.outgoing_bindings,
+                name_prefix=req.name_prefix,
+            )
+            return {"status": "inserted", "result": result}
 
     @app.post("/api/sessions/{session_id}/graph/subgraphs/add")
     @app.post("/api/sessions/{session_id}/graph/subgraphs")
@@ -1058,24 +1112,25 @@ def create_v4_server(
         req: SubgraphAddRequest,
     ) -> Dict[str, Any]:
         """Add and join an arbitrary subgraph into session graph with optional prefix, connections, and bindings."""
-        subgraph: GraphV4
-        if req.subgraph_manifest:
-            subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
-        elif req.subgraph_data:
-            subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
-        else:
-            raise HTTPException(400, "Either subgraph_manifest or subgraph_data must be provided")
+        async with manager.get_session_lock(session_id):
+            subgraph: GraphV4
+            if req.subgraph_manifest:
+                subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
+            elif req.subgraph_data:
+                subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
+            else:
+                raise HTTPException(400, "Either subgraph_manifest or subgraph_data must be provided")
 
-        result = manager.add_subgraph(
-            session_id=session_id,
-            subgraph=subgraph,
-            name_prefix=req.name_prefix,
-            connections=req.connections,
-            incoming_bindings=req.incoming_bindings,
-            outgoing_bindings=req.outgoing_bindings,
-            source=req.source,
-        )
-        return {"status": "added", "result": result}
+            result = manager.add_subgraph(
+                session_id=session_id,
+                subgraph=subgraph,
+                name_prefix=req.name_prefix,
+                connections=req.connections,
+                incoming_bindings=req.incoming_bindings,
+                outgoing_bindings=req.outgoing_bindings,
+                source=req.source,
+            )
+            return {"status": "added", "result": result}
 
 
     # -----------------------------------------------------------------------
