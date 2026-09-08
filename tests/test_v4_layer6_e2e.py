@@ -237,6 +237,7 @@ async def test_reflexive_error_recovery_pipeline():
     assert end_v.content == "init -> recovered -> done"
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_sensenova_live_pipeline_e2e():
     """Non-mock live test executing a multi-stage graph with real SenseNova 6.8 Flash Lite inference.
@@ -333,6 +334,7 @@ async def test_sensenova_live_pipeline_e2e():
         store.close()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_sensenova_live_sse_streaming_e2e():
     """Non-mock live test executing a workflow with SenseNovaEdgeV4 via SSEExecutorV4 streaming."""
