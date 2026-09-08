@@ -9,10 +9,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import defaultdict
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple, Type
 
-from framework.edge_v4 import EdgeResultV4, EdgeV4, ReflexiveEdgeV4
+from framework.edge_v4 import (
+    CallableLLMEdgeV4,
+    ChatLLMEdgeV4,
+    EdgeResultV4,
+    EdgeV4,
+    GenerateLLMEdgeV4,
+    LLMEdgeV4,
+    ProcessLLMEdgeV4,
+    ReflexiveEdgeV4,
+)
 from framework.graph_v4 import GraphV4
 from framework.vertex_v4 import (
     VertexAttributeV4,
@@ -72,8 +83,10 @@ class ExecutorV4:
         store: Optional[VertexStoreV4] = None,
         agent: Optional[Any] = None,
         max_concurrency: int = 4,
+        group_concurrency: Optional[Dict[str, int]] = None,
         scan_interval: float = 0.02,
         timeout: float = 120.0,
+        llm_edge_cls: Optional[Type[LLMEdgeV4]] = None,
     ):
         self.graph = graph
         self.session_id = graph.session_id
@@ -81,13 +94,63 @@ class ExecutorV4:
         self._owns_store = store is None
         self.agent = agent
         self.max_concurrency = max(1, int(max_concurrency))
+        self.group_concurrency: Dict[str, int] = {k: max(1, int(v)) for k, v in (group_concurrency or {}).items()}
         self.scan_interval = scan_interval
         self.timeout = timeout
+
+        # Resolve designated LLM edge subclass for execution
+        if llm_edge_cls is not None:
+            self.llm_edge_cls = llm_edge_cls
+        elif agent is not None:
+            if hasattr(agent, "chat") and callable(agent.chat):
+                self.llm_edge_cls = ChatLLMEdgeV4
+            elif hasattr(agent, "process") and callable(agent.process):
+                self.llm_edge_cls = ProcessLLMEdgeV4
+            elif hasattr(agent, "generate") and callable(agent.generate):
+                self.llm_edge_cls = GenerateLLMEdgeV4
+            elif callable(agent):
+                self.llm_edge_cls = CallableLLMEdgeV4
+            else:
+                self.llm_edge_cls = ChatLLMEdgeV4
+        else:
+            self.llm_edge_cls = ChatLLMEdgeV4
+
+        # Bind base LLM edges in graph to the designated execution subclass
+        for edge_id, edge in list(self.graph.edges.items()):
+            if type(edge) is LLMEdgeV4:
+                self.graph.edges[edge_id] = self.llm_edge_cls.from_base(edge)
+
+        # Group and per-edge semaphores for granular concurrency control
+        self._group_semaphores: Dict[str, asyncio.Semaphore] = {}
+        self._edge_semaphores: Dict[str, asyncio.Semaphore] = {}
+        self.active_group_counts: Dict[str, int] = defaultdict(int)
+        self.active_edge_counts: Dict[str, int] = defaultdict(int)
 
         # In-memory in-flight task tracking: (session_id, input_vertex, output_vertex)
         self.active_dispatches: Set[Tuple[str, str, str]] = set()
         self._event_queue: asyncio.Queue[Optional[GraphEventV4]] = asyncio.Queue()
         self._result = ExecutionResultV4(session_id=self.session_id)
+
+    @property
+    def result(self) -> ExecutionResultV4:
+        return self._result
+
+    def _get_group_semaphore(self, group: str) -> Optional[asyncio.Semaphore]:
+        """Fetch or instantiate the concurrency semaphore for a named edge group."""
+        if group in self.group_concurrency:
+            if group not in self._group_semaphores:
+                self._group_semaphores[group] = asyncio.Semaphore(self.group_concurrency[group])
+            return self._group_semaphores[group]
+        return None
+
+    def _get_edge_semaphore(self, edge: EdgeV4) -> Optional[asyncio.Semaphore]:
+        """Fetch or instantiate a dedicated concurrency semaphore for a specific edge."""
+        limit = edge.concurrency_limit
+        if limit is not None and limit > 0:
+            if edge.id not in self._edge_semaphores:
+                self._edge_semaphores[edge.id] = asyncio.Semaphore(limit)
+            return self._edge_semaphores[edge.id]
+        return None
 
     def _emit(
         self,
@@ -106,18 +169,16 @@ class ExecutorV4:
         )
         self._event_queue.put_nowait(ev)
 
-    def _get_eligible_edges(self) -> List[Tuple[int, int, EdgeV4]]:
+    def _get_eligible_edges(self) -> List[Tuple[int, int, int, EdgeV4]]:
         """Identify edges whose trigger prerequisites are met, sorted by priority and DAG tier.
 
         Priority order:
-          0: Reflexive recovery edges (urgent handling of reject state)
-          1: Forward edges targeting 'todo urgent'
-          2: Forward edges targeting standard 'todo'
-
-        Secondary order:
-          DAG topological tier (Tier 0 executes before Tier 1)
+          1. Urgency rank (0: reflexive recovery, 1: todo urgent, 2: todo)
+          2. Edge priority descending (-edge.priority)
+          3. DAG topological tier (Tier 0 executes before Tier 1)
+          4. Edge ID ascending
         """
-        candidates: List[Tuple[int, int, EdgeV4]] = []
+        candidates: List[Tuple[int, int, int, EdgeV4]] = []
 
         for edge in self.graph.edges.values():
             key = (self.session_id, edge.input_vertex, edge.output_vertex)
@@ -126,14 +187,19 @@ class ExecutorV4:
                 continue
 
             tier = self.graph.edge_tiers.get(edge.id, 0)
+            edge_prio = edge.priority
+
+            if hasattr(self.graph, "is_vertex_active"):
+                if not self.graph.is_vertex_active(edge.input_vertex) or not self.graph.is_vertex_active(edge.output_vertex):
+                    continue
 
             if edge.is_reflexive or isinstance(edge, ReflexiveEdgeV4):
                 # Check reflexive trigger state
                 target_v = self.store.get_vertex(self.session_id, edge.output_vertex)
                 trigger_state = getattr(edge, "trigger_state", VertexStateV4.REJECT.value)
                 if target_v and target_v.state == trigger_state:
-                    # Priority 0 for recovery
-                    candidates.append((0, -1, edge))
+                    # Urgency 0 for recovery
+                    candidates.append((0, -edge_prio, -1, edge))
             else:
                 # Check two-sided handshake contract
                 in_v = self.store.get_vertex(self.session_id, edge.input_vertex)
@@ -142,12 +208,12 @@ class ExecutorV4:
                     upstream_ready = in_v.state == VertexStateV4.DATA_READY.value
                     if upstream_ready:
                         if out_v.state == VertexStateV4.TODO_URGENT.value:
-                            candidates.append((1, tier, edge))
+                            candidates.append((1, -edge_prio, tier, edge))
                         elif out_v.state == VertexStateV4.TODO.value:
-                            candidates.append((2, tier, edge))
+                            candidates.append((2, -edge_prio, tier, edge))
 
-        # Sort: priority ascending, then DAG tier ascending, then edge_id
-        candidates.sort(key=lambda item: (item[0], item[1], item[2].id))
+        # Sort: urgency rank, edge priority descending, DAG tier ascending, edge_id
+        candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3].id))
         return candidates
 
     async def _execute_single_edge(
@@ -155,28 +221,68 @@ class ExecutorV4:
         edge: EdgeV4,
         semaphore: asyncio.Semaphore,
     ) -> EdgeResultV4:
-        """Run an edge bounded by concurrency semaphore and manage active_dispatches."""
+        """Run an edge bounded by multi-level concurrency semaphores and manage active_dispatches."""
         key = (self.session_id, edge.input_vertex, edge.output_vertex)
-        # NOTE: active_dispatches.add(key) is done at the scheduling site, not here
+        group_sem = self._get_group_semaphore(edge.concurrency_group)
+        edge_sem = self._get_edge_semaphore(edge)
+        edge_timeout = edge.timeout or self.timeout
+
         try:
             self._emit("edge_started", edge_id=edge.id, payload={"input": edge.input_vertex, "output": edge.output_vertex})
 
-            async with semaphore:
+            async with AsyncExitStack() as stack:
+                # Acquire global semaphore
+                await stack.enter_async_context(semaphore)
+                # Acquire group semaphore if present
+                if group_sem:
+                    await stack.enter_async_context(group_sem)
+                # Acquire per-edge semaphore if present
+                if edge_sem:
+                    await stack.enter_async_context(edge_sem)
+
                 try:
-                    res = await edge.run(
-                        session_id=self.session_id,
-                        store=self.store,
-                        agent=self.agent,
+                    edge_to_run = self.llm_edge_cls.from_base(edge) if type(edge) is LLMEdgeV4 else edge
+                    res = await asyncio.wait_for(
+                        edge_to_run.run(
+                            session_id=self.session_id,
+                            store=self.store,
+                            agent=self.agent,
+                        ),
+                        timeout=edge_timeout,
                     )
-                except Exception as exc:
-                    logger.error("[ExecutorV4] Unhandled edge error in '%s': %s", edge.id, exc)
+                except asyncio.TimeoutError:
+                    err_msg = f"Edge '{edge.id}' execution timed out after {edge_timeout}s"
+                    logger.error("[ExecutorV4] %s", err_msg)
+                    self.store.stage_output(
+                        session_id=self.session_id,
+                        edge_id=edge.id,
+                        key="error_feedback",
+                        value=err_msg,
+                        vertex_name=edge.output_vertex,
+                        metadata={"error": "timeout", "timeout": edge_timeout},
+                    )
+                    self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.REJECT.value)
                     res = EdgeResultV4(
                         edge_id=edge.id,
                         success=False,
-                        error=str(exc),
+                        error=err_msg,
+                        reason="Edge execution timeout",
+                    )
+                except Exception as exc:
+                    err_msg = str(exc)
+                    logger.error("[ExecutorV4] Unhandled edge error in '%s': %s", edge.id, err_msg)
+                    res = EdgeResultV4(
+                        edge_id=edge.id,
+                        success=False,
+                        error=err_msg,
                         reason="Unhandled edge exception",
                     )
         finally:
+            grp = edge.concurrency_group
+            if grp in self.group_concurrency:
+                self.active_group_counts[grp] = max(0, self.active_group_counts[grp] - 1)
+            if edge.concurrency_limit is not None and edge.concurrency_limit > 0:
+                self.active_edge_counts[edge.id] = max(0, self.active_edge_counts[edge.id] - 1)
             self.active_dispatches.discard(key)
 
         if res.success:
@@ -198,14 +304,29 @@ class ExecutorV4:
 
         states = {v.name: v.state for v in all_vertices}
 
-        # Check end/sink vertices
+        def _is_active(name: str) -> bool:
+            if hasattr(self.graph, "is_vertex_active"):
+                return self.graph.is_vertex_active(name)
+            return True
+
+        # Check end/sink vertices: active nodes tagged END or sinks with incoming edges
         end_vertices = [
             v for v in all_vertices
-            if v.has_attribute(VertexAttributeV4.END)
-            or not [e for e in self.graph.get_outgoing_edges(v.name) if not e.is_reflexive]
+            if _is_active(v.name)
+            and (
+                v.has_attribute(VertexAttributeV4.END)
+                or (
+                    not [e for e in self.graph.get_outgoing_edges(v.name) if not e.is_reflexive]
+                    and [e for e in self.graph.get_incoming_edges(v.name) if not e.is_reflexive]
+                )
+            )
         ]
 
-        has_forbidden = any(s == VertexStateV4.FORBIDDEN.value for s in states.values())
+        has_forbidden = any(
+            s == VertexStateV4.FORBIDDEN.value
+            for v_name, s in states.items()
+            if _is_active(v_name)
+        )
 
         # Success condition: All designated end vertices are 'data ready' and no forbidden nodes
         if end_vertices and all(v.state == VertexStateV4.DATA_READY.value for v in end_vertices) and not has_forbidden:
@@ -214,7 +335,8 @@ class ExecutorV4:
         # Check if any vertices are still actionable
         has_pending = any(
             s in (VertexStateV4.TODO.value, VertexStateV4.TODO_URGENT.value, VertexStateV4.REJECT.value)
-            for s in states.values()
+            for v_name, s in states.items()
+            if _is_active(v_name)
         )
 
         if not has_pending and not self.active_dispatches:
@@ -225,7 +347,9 @@ class ExecutorV4:
             ) if end_vertices else not has_forbidden
             return True, is_success
 
-        # Deadlock check: No tasks running and no eligible edges available
+        # Deadlock check: No tasks running and no eligible edges available.
+        # NOTE: _is_terminal() does a full edge scan per loop iteration when checking eligible edges.
+        # This could be optimized with a dirty flag for large graphs.
         eligible = self._get_eligible_edges()
         if not self.active_dispatches and not eligible:
             logger.warning("[ExecutorV4] Deadlock detected: pending demands exist but no edges eligible.")
@@ -283,27 +407,47 @@ class ExecutorV4:
                 },
             )
             while True:
-                # 1. Dispatch eligible edges up to max_concurrency
+                # 1. Dispatch eligible edges respecting priority, group limits, and max_concurrency
                 eligible = self._get_eligible_edges()
-                available_slots = max(0, self.max_concurrency - len(running_tasks))
 
-                for _prio, _tier, edge in eligible[:available_slots]:
+                for _rank, _prio, _tier, edge in eligible:
+                    if len(running_tasks) >= self.max_concurrency:
+                        break
                     key = (self.session_id, edge.input_vertex, edge.output_vertex)
-                    if key not in self.active_dispatches:
-                        self.active_dispatches.add(key)
-                        task = asyncio.create_task(
-                            self._execute_single_edge(edge, semaphore),
-                            name=f"edge_{edge.id}",
-                        )
-                        running_tasks.add(task)
+                    if key in self.active_dispatches:
+                        continue
+
+                    # Check group concurrency limit
+                    grp = edge.concurrency_group
+                    if grp in self.group_concurrency and self.active_group_counts[grp] >= self.group_concurrency[grp]:
+                        continue
+
+                    # Check per-edge concurrency limit
+                    if edge.concurrency_limit is not None and edge.concurrency_limit > 0:
+                        if self.active_edge_counts[edge.id] >= edge.concurrency_limit:
+                            continue
+
+                    # Mark in-flight before task creation to prevent scheduling races
+                    self.active_dispatches.add(key)
+                    if grp in self.group_concurrency:
+                        self.active_group_counts[grp] += 1
+                    if edge.concurrency_limit is not None and edge.concurrency_limit > 0:
+                        self.active_edge_counts[edge.id] += 1
+
+                    task = asyncio.create_task(
+                        self._execute_single_edge(edge, semaphore),
+                        name=f"edge_{edge.id}",
+                    )
+                    running_tasks.add(task)
 
                 # 2. Wait for either task completion or timeout
                 if running_tasks:
-                    done, running_tasks = await asyncio.wait(
+                    done, pending = await asyncio.wait(
                         running_tasks,
                         timeout=self.scan_interval,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
+                    running_tasks = set(pending)
                     for completed_task in done:
                         if completed_task.cancelled():
                             continue
@@ -363,5 +507,5 @@ class ExecutorV4:
         return self._result
 
 
-# Alias for backward compatibility
+# Deprecated: use ExecutorV4 directly. OrchestratorV4 is a backward-compatibility alias.
 OrchestratorV4 = ExecutorV4

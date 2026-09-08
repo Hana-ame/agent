@@ -16,11 +16,23 @@ Subclasses can override hooks:
 
 import asyncio
 import logging
+import os
+import sys
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
-from .agents import HttpLLMAgent, BaseAgent
-from .utils.errors import AbortPipeline, GuardAbortError, HookError, ComputeError
+# Bootstrap repository root into sys.path to enable standalone execution from any working directory
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+try:
+    from .agents import HttpLLMAgent, BaseAgent
+    from .utils.errors import AbortPipeline, GuardAbortError, HookError, ComputeError
+except ImportError:
+    from framework.agents import HttpLLMAgent, BaseAgent
+    from framework.utils.errors import AbortPipeline, GuardAbortError, HookError, ComputeError
 
 logger = logging.getLogger("vertex_edge_agent.edge")
 
@@ -106,6 +118,96 @@ class Edge:
         logger.debug(
             "[Edge:%s] Created %s -> %s | channel=%s model=%s",
             self.id, source_id, destination_id, self.channel, self.model,
+        )
+
+    @classmethod
+    def from_config_file(
+        cls,
+        path: Union[str, Path],
+        base_dir: Optional[str] = None,
+    ) -> "Edge":
+        """Instantiate an Edge (or subclass) from a JSON configuration file."""
+        return cls.from_config(path, base_dir=base_dir)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Union[str, Path, Dict[str, Any]],
+        base_dir: Optional[str] = None,
+    ) -> "Edge":
+        """Instantiate an Edge (or subclass) from a JSON file path or dictionary.
+
+        Supports driving all edge parameters from a single JSON configuration.
+        """
+        import json
+        if isinstance(config, (str, Path)):
+            cfg_path = Path(config)
+            if not cfg_path.is_absolute() and base_dir:
+                cfg_path = Path(base_dir) / cfg_path
+            if not cfg_path.exists() and os.path.exists(os.path.join(_REPO_ROOT, str(config))):
+                cfg_path = Path(_REPO_ROOT) / config
+            if not cfg_path.exists():
+                raise FileNotFoundError(f"Edge config JSON file not found: {config}")
+            base_dir = str(cfg_path.parent)
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        elif isinstance(config, dict):
+            data = dict(config)
+        else:
+            raise TypeError(f"Config must be a file path or dict, got {type(config).__name__}")
+
+        edge_id = str(data.get("id") or data.get("edge_id") or "edge_1")
+        source = str(data.get("source") or data.get("source_id") or data.get("input") or "src")
+        destination = str(data.get("destination") or data.get("destination_id") or data.get("output") or "dst")
+        channel = str(data.get("channel", data.get("data_id", "default")))
+        settings = dict(data.get("settings") or {})
+        script = data.get("script")
+        max_iterations = int(data.get("max_iterations", 0))
+        concurrency_type = str(data.get("concurrency_type", "default"))
+        edge_type = str(data.get("type", "edge"))
+
+        if edge_type == "map" or cls.__name__ == "MapEdge":
+            from framework.edge import MapEdge
+            return MapEdge(
+                edge_id=edge_id,
+                source_id=source,
+                destination_id=destination,
+                channel=channel,
+                settings=settings,
+                max_iterations=max_iterations,
+                concurrency_type=concurrency_type,
+            )
+
+        if script:
+            from framework.utils.script_loader import load_class_from_script, load_script
+            entrypoint = None
+            if ":" in script:
+                script_file, entrypoint = script.split(":", 1)
+            else:
+                script_file = script
+            if not os.path.isabs(script_file) and base_dir:
+                cand = os.path.join(base_dir, script_file)
+                if os.path.exists(cand):
+                    script_file = cand
+
+            if entrypoint:
+                module = load_script(script_file)
+                edge_cls = getattr(module, entrypoint, None)
+                if edge_cls is None or not (isinstance(edge_cls, type) and issubclass(edge_cls, Edge)):
+                    raise RuntimeError(f"Class '{entrypoint}' not found or not a subclass of Edge in {script_file}")
+            else:
+                edge_cls = load_class_from_script(script_file, Edge, Edge)
+        else:
+            edge_cls = cls if issubclass(cls, Edge) else Edge
+
+        return edge_cls(
+            edge_id=edge_id,
+            source_id=source,
+            destination_id=destination,
+            channel=channel,
+            settings=settings,
+            max_iterations=max_iterations,
+            concurrency_type=concurrency_type,
         )
 
     # ==================================================================
@@ -468,3 +570,12 @@ class MapEdge(Edge):
                 await dest_vertex.receive_signal(self.id, EdgeSignal.COMPLETED, r, self.channel)
                 
         return self.result
+
+
+if __name__ == "__main__":
+    try:
+        from .utils.run_edge import main
+    except ImportError:
+        from framework.utils.run_edge import main
+    raise SystemExit(main())
+

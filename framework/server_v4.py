@@ -18,11 +18,11 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Union
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from framework.edge_v4 import CodeEdgeV4, EdgeResultV4, EdgeV4, LLMEdgeV4, ReflexiveEdgeV4
 from framework.executor_v4 import ExecutionResultV4, ExecutorV4, GraphEventV4
-from framework.graph_v4 import GraphTopologyError, GraphV4
+from framework.graph_v4 import DiscreteGraphLoaderV4, GraphTopologyError, GraphV4
 from framework.vertex_v4 import (
     StagingRecordV4,
     VertexAttributeV4,
@@ -45,6 +45,23 @@ class VertexCreateOrUpdateRequest(BaseModel):
     state: str = Field(default=VertexStateV4.IDLE.value, description="Lifecycle state")
     processed_count: int = Field(default=0, description="Processing counter")
 
+    @field_validator('state')
+    @classmethod
+    def validate_state(cls, v: str) -> str:
+        valid_states = {s.value for s in VertexStateV4}
+        if v not in valid_states:
+            raise ValueError(f"Invalid state: {v}")
+        return v
+
+    @field_validator('attributes')
+    @classmethod
+    def validate_attributes(cls, v: List[str]) -> List[str]:
+        valid_attrs = {a.value for a in VertexAttributeV4}
+        for attr in v:
+            if attr not in valid_attrs:
+                raise ValueError(f"Invalid attribute: {attr}")
+        return v
+
 
 class EdgeCreateOrUpdateRequest(BaseModel):
     id: str = Field(..., description="Unique edge identifier")
@@ -61,6 +78,34 @@ class EdgeCreateOrUpdateRequest(BaseModel):
 class WorkflowRunRequest(BaseModel):
     max_concurrency: int = Field(default=4, ge=1, le=64, description="Max concurrent edges")
     timeout: float = Field(default=120.0, gt=0.0, description="Execution timeout in seconds")
+
+
+class VertexReentryRequest(BaseModel):
+    new_content: Optional[str] = Field(default=None, description="Optional new input content")
+    reset_state: str = Field(default=VertexStateV4.TODO.value, description="Target state for affected downstream nodes")
+    clear_content: bool = Field(default=False, description="Whether to clear content of reset downstream nodes")
+
+
+class EdgeReconnectRequest(BaseModel):
+    new_input_vertex: Optional[str] = Field(default=None, description="New input vertex name")
+    new_output_vertex: Optional[str] = Field(default=None, description="New output vertex name")
+
+
+class SubgraphSpliceRequest(BaseModel):
+    target_vertex: str = Field(..., description="Target vertex name to replace with subgraph")
+    subgraph_manifest: Optional[str] = Field(default=None, description="Path to subgraph manifest JSON file")
+    subgraph_data: Optional[Dict[str, Any]] = Field(default=None, description="In-memory subgraph definition")
+    name_prefix: Optional[str] = Field(default=None, description="Prefix for inserted subgraph entities")
+    entry_vertex: Optional[str] = Field(default=None, description="Explicit entry vertex of subgraph")
+    exit_vertex: Optional[str] = Field(default=None, description="Explicit exit vertex of subgraph")
+
+
+class SubgraphInsertRequest(BaseModel):
+    subgraph_manifest: Optional[str] = Field(default=None, description="Path to subgraph manifest JSON file")
+    subgraph_data: Optional[Dict[str, Any]] = Field(default=None, description="In-memory subgraph definition")
+    incoming_bindings: Optional[Dict[str, str]] = Field(default=None, description="{parent_vertex: sub_entry}")
+    outgoing_bindings: Optional[Dict[str, str]] = Field(default=None, description="{sub_exit: parent_vertex}")
+    name_prefix: Optional[str] = Field(default=None, description="Prefix for inserted subgraph entities")
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +181,8 @@ class SessionGraphManagerV4:
         graph.delete_vertex(name)
         try:
             graph.compute_dag_tiers()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning('Exception ignored: %s', e)
         return self.store.delete_vertex(session_id, name)
 
     def add_or_update_edge(
@@ -220,9 +265,214 @@ class SessionGraphManagerV4:
         if deleted:
             try:
                 graph.compute_dag_tiers()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning('Exception ignored: %s', e)
         return deleted
+
+    def reconnect_edge(
+        self,
+        session_id: str,
+        edge_id: str,
+        new_input_vertex: Optional[str] = None,
+        new_output_vertex: Optional[str] = None,
+    ) -> bool:
+        """Dynamically reconnect an existing edge to new input or output vertices, syncing to database."""
+        graph = self.get_or_create_graph(session_id)
+        success = graph.reconnect_edge(edge_id, new_input_vertex, new_output_vertex)
+        if success:
+            e = graph.get_edge(edge_id)
+            if e:
+                self.store.save_edge(
+                    session_id=session_id,
+                    edge_id=e.id,
+                    edge_type=e.type,
+                    input_vertex=e.input_vertex,
+                    output_vertex=e.output_vertex,
+                    script=getattr(e, "script", None) if isinstance(getattr(e, "script", None), str) else None,
+                    trigger_state=getattr(e, "trigger_state", None),
+                    target_state=getattr(e, "target_state", None),
+                    max_retries=getattr(e, "max_retries", 3),
+                    settings=e.settings,
+                )
+            try:
+                graph.validate()
+            except Exception as exc:
+                logger.warning("[SessionGraphManagerV4] Validation after reconnect_edge: %s", exc)
+        return success
+
+    def replace_vertex(
+        self,
+        session_id: str,
+        old_name: str,
+        new_vertex: VertexRecordV4,
+        transfer_edges: bool = True,
+    ) -> bool:
+        """Replace an existing vertex with a new vertex, syncing to database."""
+        graph = self.get_or_create_graph(session_id)
+        success = graph.replace_vertex(old_name, new_vertex, transfer_edges=transfer_edges)
+        if success:
+            self.store.delete_vertex(session_id, old_name)
+            self.store.save_vertex(
+                session_id=session_id,
+                name=new_vertex.name,
+                content=new_vertex.content,
+                attributes=new_vertex.attributes,
+                state=new_vertex.state,
+                processed_count=new_vertex.processed_count,
+            )
+            if transfer_edges and old_name != new_vertex.name:
+                for e in graph.edges.values():
+                    if e.input_vertex == new_vertex.name or e.output_vertex == new_vertex.name:
+                        self.store.save_edge(
+                            session_id=session_id,
+                            edge_id=e.id,
+                            edge_type=e.type,
+                            input_vertex=e.input_vertex,
+                            output_vertex=e.output_vertex,
+                            script=getattr(e, "script", None) if isinstance(getattr(e, "script", None), str) else None,
+                            trigger_state=getattr(e, "trigger_state", None),
+                            target_state=getattr(e, "target_state", None),
+                            max_retries=getattr(e, "max_retries", 3),
+                            settings=e.settings,
+                        )
+        return success
+
+    def reenter_vertex(
+        self,
+        session_id: str,
+        vertex_name: str,
+        new_content: Optional[str] = None,
+        reset_state: str = VertexStateV4.TODO.value,
+        clear_content: bool = False,
+    ) -> List[str]:
+        """Re-enter a vertex for re-execution, resetting all affected downstream vertices in DB and memory."""
+        graph = self.get_or_create_graph(session_id)
+        affected = graph.reenter_vertex(
+            vertex_name=vertex_name,
+            new_content=new_content,
+            reset_state=reset_state,
+            clear_content=clear_content,
+            store=self.store,
+            session_id=session_id,
+        )
+        return affected
+
+    def splice_subgraph(
+        self,
+        session_id: str,
+        target_vertex_name: str,
+        subgraph: GraphV4,
+        name_prefix: Optional[str] = None,
+        entry_vertex_name: Optional[str] = None,
+        exit_vertex_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Splice (inline) a subgraph in place of an existing vertex, fully synchronized with SQLite."""
+        graph = self.get_or_create_graph(session_id)
+        res = graph.splice_subgraph(
+            target_vertex_name=target_vertex_name,
+            subgraph=subgraph,
+            name_prefix=name_prefix,
+            entry_vertex_name=entry_vertex_name,
+            exit_vertex_name=exit_vertex_name,
+        )
+
+        # Sync to SQLite store
+        self.store.delete_vertex(session_id, target_vertex_name)
+
+        for v_name in res["inserted_vertices"]:
+            v = graph.get_vertex(v_name)
+            if v:
+                db_v = self.store.save_vertex(
+                    session_id=session_id,
+                    name=v.name,
+                    content=v.content,
+                    attributes=v.attributes,
+                    state=v.state,
+                    processed_count=v.processed_count,
+                )
+                v.id = db_v.id
+
+        for e_id in res["inserted_edges"]:
+            e = graph.get_edge(e_id)
+            if e:
+                self.store.save_edge(
+                    session_id=session_id,
+                    edge_id=e.id,
+                    edge_type=e.type,
+                    input_vertex=e.input_vertex,
+                    output_vertex=e.output_vertex,
+                    script=getattr(e, "script", None) if isinstance(getattr(e, "script", None), str) else None,
+                    trigger_state=getattr(e, "trigger_state", None),
+                    target_state=getattr(e, "target_state", None),
+                    max_retries=getattr(e, "max_retries", 3),
+                    settings=e.settings,
+                )
+
+        for e_id in res["rewired_edges"]:
+            e = graph.get_edge(e_id)
+            if e:
+                self.store.save_edge(
+                    session_id=session_id,
+                    edge_id=e.id,
+                    edge_type=e.type,
+                    input_vertex=e.input_vertex,
+                    output_vertex=e.output_vertex,
+                    script=getattr(e, "script", None) if isinstance(getattr(e, "script", None), str) else None,
+                    trigger_state=getattr(e, "trigger_state", None),
+                    target_state=getattr(e, "target_state", None),
+                    max_retries=getattr(e, "max_retries", 3),
+                    settings=e.settings,
+                )
+
+        return res
+
+    def insert_subgraph(
+        self,
+        session_id: str,
+        subgraph: GraphV4,
+        incoming_bindings: Optional[Dict[str, str]] = None,
+        outgoing_bindings: Optional[Dict[str, str]] = None,
+        name_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Insert an independent subgraph with explicit boundary bindings, fully synchronized with SQLite."""
+        graph = self.get_or_create_graph(session_id)
+        res = graph.insert_subgraph(
+            subgraph=subgraph,
+            incoming_bindings=incoming_bindings,
+            outgoing_bindings=outgoing_bindings,
+            name_prefix=name_prefix,
+        )
+
+        for v_name in res["inserted_vertices"]:
+            v = graph.get_vertex(v_name)
+            if v:
+                db_v = self.store.save_vertex(
+                    session_id=session_id,
+                    name=v.name,
+                    content=v.content,
+                    attributes=v.attributes,
+                    state=v.state,
+                    processed_count=v.processed_count,
+                )
+                v.id = db_v.id
+
+        for e_id in res["inserted_edges"]:
+            e = graph.get_edge(e_id)
+            if e:
+                self.store.save_edge(
+                    session_id=session_id,
+                    edge_id=e.id,
+                    edge_type=e.type,
+                    input_vertex=e.input_vertex,
+                    output_vertex=e.output_vertex,
+                    script=getattr(e, "script", None) if isinstance(getattr(e, "script", None), str) else None,
+                    trigger_state=getattr(e, "trigger_state", None),
+                    target_state=getattr(e, "target_state", None),
+                    max_retries=getattr(e, "max_retries", 3),
+                    settings=e.settings,
+                )
+
+        return res
 
     def validate_graph(self, session_id: str) -> Dict[str, Any]:
         """Validate DAG constraints and return edge tiers."""
@@ -242,6 +492,21 @@ class SessionGraphManagerV4:
                 "vertex_count": len(graph.vertices),
                 "edge_count": len(graph.edges),
             }
+
+    def list_loaded_nodes(self, session_id: str) -> List[Dict[str, Any]]:
+        """Retrieve tracking metadata for all loaded vertices in a session."""
+        graph = self.get_or_create_graph(session_id)
+        return graph.list_loaded_nodes()
+
+    def get_node_relationships(self, session_id: str, vertex_name: str) -> Dict[str, Any]:
+        """Retrieve relationship and topology details for a single vertex."""
+        graph = self.get_or_create_graph(session_id)
+        return graph.get_node_relationships(vertex_name)
+
+    def get_graph_relationships(self, session_id: str) -> Dict[str, Any]:
+        """Retrieve complete relationship matrix and topology summary for a session."""
+        graph = self.get_or_create_graph(session_id)
+        return graph.get_graph_relationships()
 
     def register_event_queue(self, session_id: str, q: asyncio.Queue) -> None:
         """Register an SSE broadcast subscriber queue for a session."""
@@ -269,8 +534,8 @@ class SessionGraphManagerV4:
                 try:
                     q.get_nowait()
                     q.put_nowait(event)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning('Exception ignored: %s', e)
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +732,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <option value="forbidden">forbidden</option>
           </select>
           <input type="text" id="vAttrs" placeholder="Attributes (e.g. start, json, subgraph)">
+          <input type="number" id="vProcessed" placeholder="Processed Count" readonly>
         </div>
         <div>
           <textarea id="vContent" rows="4" style="width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: monospace; font-size: 0.85rem;" placeholder="Vertex Content / Subgraph config"></textarea>
@@ -551,7 +817,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     async function loadSessions() {
-      const res = await fetch("/api/db/sessions");
+      const res = await fetch("/api/db/sessions").catch(err => { alert("Error: " + err); return {json: () => []}; });
       const sessions = await res.json();
       const select = document.getElementById("sessionSelect");
       select.innerHTML = "";
@@ -590,7 +856,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     async function refreshVertices() {
-      const res = await fetch(`/api/db/sessions/${currentSession}/vertices`);
+      const res = await fetch(`/api/db/sessions/${currentSession}/vertices`).catch(err => { alert("Error: " + err); return {json: () => []}; });
       const vertices = await res.json();
       cachedVertices = {};
       const tbody = document.getElementById("verticesTableBody");
@@ -617,6 +883,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById("vState").value = v.state || "todo";
       document.getElementById("vAttrs").value = (v.attributes || []).join(", ");
       document.getElementById("vContent").value = v.content || "";
+      document.getElementById("vProcessed").value = v.processed_count || 0;
     }
 
     function clearVertexForm() {
@@ -624,10 +891,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById("vState").value = "todo";
       document.getElementById("vAttrs").value = "";
       document.getElementById("vContent").value = "";
+      document.getElementById("vProcessed").value = "";
     }
 
     async function refreshEdges() {
-      const res = await fetch(`/api/sessions/${currentSession}/graph`);
+      const res = await fetch(`/api/sessions/${currentSession}/graph`).catch(err => { alert("Error: " + err); return {json: () => ({edges: {}})}; });
       const graph = await res.json();
       cachedEdges = graph.edges || {};
       const tbody = document.getElementById("edgesTableBody");
@@ -684,7 +952,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     async function refreshStaging() {
-      const res = await fetch(`/api/db/sessions/${currentSession}/staging`);
+      const res = await fetch(`/api/db/sessions/${currentSession}/staging`).catch(err => { alert("Error: " + err); return {json: () => []}; });
       const staging = await res.json();
       const tbody = document.getElementById("stagingTableBody");
       tbody.innerHTML = "";
@@ -714,7 +982,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, state, content, attributes, processed_count: cachedVertices[name] ? cachedVertices[name].processed_count : 0 })
-      });
+      }).catch(err => alert("Error: " + err));
       refreshAll();
     }
 
@@ -722,7 +990,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const name = document.getElementById("vName").value.trim();
       if (!name) return alert("Select a vertex first");
       if (!confirm(`Delete vertex '${name}'?`)) return;
-      await fetch(`/api/sessions/${currentSession}/graph/vertices/${name}`, { method: "DELETE" });
+      await fetch(`/api/sessions/${currentSession}/graph/vertices/${name}`, { method: "DELETE" }).catch(err => alert("Error: " + err));
       clearVertexForm();
       refreshAll();
     }
@@ -762,7 +1030,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           max_retries,
           settings
         })
-      });
+      }).catch(err => alert("Error: " + err));
       refreshAll();
     }
 
@@ -770,7 +1038,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const id = document.getElementById("eId").value.trim();
       if (!id) return alert("Select an edge first");
       if (!confirm(`Delete edge '${id}'?`)) return;
-      await fetch(`/api/sessions/${currentSession}/graph/edges/${id}`, { method: "DELETE" });
+      await fetch(`/api/sessions/${currentSession}/graph/edges/${id}`, { method: "DELETE" }).catch(err => alert("Error: " + err));
       clearEdgeForm();
       refreshAll();
     }
@@ -780,7 +1048,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ max_concurrency: 4 })
-      });
+      }).catch(err => { alert("Error: " + err); return {json: () => ({})}; });
       const data = await res.json();
       refreshAll();
     }
@@ -830,6 +1098,8 @@ def create_v4_server(
     store_or_db: Union[VertexStoreV4, str, Path] = ":memory:",
     manager: Optional[SessionGraphManagerV4] = None,
     agent: Optional[Any] = None,
+    allowed_origins: List[str] = ["*"],
+    manifest_base_dir: Optional[Union[str, Path]] = None,
 ) -> FastAPI:
     """Create a FastAPI application powering online graph APIs and database dashboard."""
     if isinstance(store_or_db, VertexStoreV4):
@@ -850,7 +1120,7 @@ def create_v4_server(
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allowed_origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -860,6 +1130,7 @@ def create_v4_server(
     app.state.store = store
     app.state.manager = manager
     app.state.agent = agent
+    app.state.manifest_base_dir = manifest_base_dir
 
     # -----------------------------------------------------------------------
     # Dashboard Endpoint
@@ -963,6 +1234,25 @@ def create_v4_server(
             "edges": edges_data,
         }
 
+    @app.get("/api/sessions/{session_id}/graph/nodes")
+    async def list_session_loaded_nodes(session_id: str) -> Dict[str, Any]:
+        """List all loaded vertices with provenance tracking for a session."""
+        nodes = manager.list_loaded_nodes(session_id)
+        return {"session_id": session_id, "nodes": nodes, "total": len(nodes)}
+
+    @app.get("/api/sessions/{session_id}/graph/nodes/{name}/relationships")
+    async def get_session_node_relationships(session_id: str, name: str) -> Dict[str, Any]:
+        """Retrieve predecessors, successors, and relationship details for a single vertex."""
+        try:
+            return manager.get_node_relationships(session_id, name)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Vertex '{name}' not found in session graph")
+
+    @app.get("/api/sessions/{session_id}/graph/relationships")
+    async def get_session_graph_relationships(session_id: str) -> Dict[str, Any]:
+        """Retrieve full graph relationship matrix, adjacency lists, and roots/sinks."""
+        return manager.get_graph_relationships(session_id)
+
     @app.post("/api/sessions/{session_id}/graph/vertices")
     async def create_or_update_vertex(
         session_id: str,
@@ -1052,7 +1342,7 @@ def create_v4_server(
                     manager.broadcast_event(session_id, ev)
 
             await stream_and_broadcast()
-            return executor._result.to_dict()
+            return executor.result.to_dict()
 
     @app.get("/api/sessions/{session_id}/events")
     async def stream_session_events(session_id: str) -> StreamingResponse:
@@ -1086,6 +1376,91 @@ def create_v4_server(
             },
         )
 
+    @app.post("/api/sessions/{session_id}/graph/vertices/{name}/reenter")
+    async def reenter_vertex_route(
+        session_id: str,
+        name: str,
+        req: VertexReentryRequest = Body(default_factory=VertexReentryRequest),
+    ) -> Dict[str, Any]:
+        """Re-enter a vertex for re-execution, resetting all affected downstream vertices."""
+        affected = manager.reenter_vertex(
+            session_id=session_id,
+            vertex_name=name,
+            new_content=req.new_content,
+            reset_state=req.reset_state,
+            clear_content=req.clear_content,
+        )
+        return {
+            "status": "reentered",
+            "reentered_vertex": name,
+            "affected_downstream_vertices": affected,
+            "reset_state": req.reset_state,
+        }
+
+    @app.patch("/api/sessions/{session_id}/graph/edges/{edge_id}/reconnect")
+    async def reconnect_edge_route(
+        session_id: str,
+        edge_id: str,
+        req: EdgeReconnectRequest,
+    ) -> Dict[str, Any]:
+        """Dynamically reconnect an existing edge to new endpoints."""
+        success = manager.reconnect_edge(
+            session_id=session_id,
+            edge_id=edge_id,
+            new_input_vertex=req.new_input_vertex,
+            new_output_vertex=req.new_output_vertex,
+        )
+        if not success:
+            raise HTTPException(404, f"Edge '{edge_id}' not found in session '{session_id}'")
+        return {"status": "reconnected", "edge_id": edge_id}
+
+    @app.post("/api/sessions/{session_id}/graph/subgraphs/splice")
+    async def splice_subgraph_route(
+        session_id: str,
+        req: SubgraphSpliceRequest,
+    ) -> Dict[str, Any]:
+        """Splice (inline) a subgraph in place of an existing vertex."""
+        subgraph: GraphV4
+        if req.subgraph_manifest:
+            subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
+        elif req.subgraph_data:
+            subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
+        else:
+            raise HTTPException(400, "Either subgraph_manifest or subgraph_data must be provided")
+
+        result = manager.splice_subgraph(
+            session_id=session_id,
+            target_vertex_name=req.target_vertex,
+            subgraph=subgraph,
+            name_prefix=req.name_prefix,
+            entry_vertex_name=req.entry_vertex,
+            exit_vertex_name=req.exit_vertex,
+        )
+        return {"status": "spliced", "result": result}
+
+    @app.post("/api/sessions/{session_id}/graph/subgraphs/insert")
+    async def insert_subgraph_route(
+        session_id: str,
+        req: SubgraphInsertRequest,
+    ) -> Dict[str, Any]:
+        """Insert an independent subgraph with explicit boundary bindings."""
+        subgraph: GraphV4
+        if req.subgraph_manifest:
+            subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
+        elif req.subgraph_data:
+            subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
+        else:
+            raise HTTPException(400, "Either subgraph_manifest or subgraph_data must be provided")
+
+        result = manager.insert_subgraph(
+            session_id=session_id,
+            subgraph=subgraph,
+            incoming_bindings=req.incoming_bindings,
+            outgoing_bindings=req.outgoing_bindings,
+            name_prefix=req.name_prefix,
+        )
+        return {"status": "inserted", "result": result}
+
     # -----------------------------------------------------------------------
     # SSE Executor with Session Routing & Harness Tool Call Echo
     # -----------------------------------------------------------------------
@@ -1100,6 +1475,11 @@ def create_v4_server(
         session_id = payload.get("session_id")
         input_payload = payload.get("input_payload")
         manifest_path = payload.get("manifest_path")
+        if manifest_path:
+            base_dir = Path(app.state.manifest_base_dir or Path.cwd()).resolve()
+            resolved = Path(manifest_path).resolve()
+            if not str(resolved).startswith(str(base_dir)):
+                raise HTTPException(403, "manifest_path outside allowed directory")
         max_concurrency = int(payload.get("max_concurrency", 4))
         timeout = float(payload.get("timeout", 120.0))
         is_stream = bool(payload.get("stream", True))
