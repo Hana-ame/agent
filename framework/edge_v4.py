@@ -455,6 +455,10 @@ class CodeEdgeV4(EdgeV4):
         if self._callable is not None:
             return self._callable
 
+        if callable(self.script):
+            self._callable = self.script
+            return self._callable
+
         if isinstance(self.script, str):
             self._callable = _resolve_script_callable(self.script, ["execute", "process", "run", "transform"])
             return self._callable

@@ -105,10 +105,6 @@ class SSEExecutorV4:
 
         manifest_to_use = manifest_path or self.default_manifest
 
-        # Check if already registered in manager
-        if session_id in self.manager._graphs:
-            return session_id, self.manager._graphs[session_id]
-
         # Load from manifest if provided
         if manifest_to_use and Path(manifest_to_use).exists():
             graph = DiscreteGraphLoaderV4.load_from_manifest(
@@ -116,10 +112,9 @@ class SSEExecutorV4:
                 override_session_id=session_id,
             )
             DiscreteGraphLoaderV4.populate_store(graph, self.store)
-            self.manager._graphs[session_id] = graph  # Register in manager
-            return session_id, graph
+            return session_id, self.manager.load_graph_from_store(session_id)
 
-        # Otherwise create an initial graph and register
+        # Otherwise read and update fresh from store
         graph = self.manager.get_or_create_graph(session_id)
         return session_id, graph
 
@@ -270,11 +265,30 @@ class SSEExecutorV4:
                             script=run_subgraph_bridge,
                         )
                         graph.add_edge(bridge_edge)
+                        self.store.save_edge(
+                            session_id=graph.session_id,
+                            edge_id=bridge_edge_id,
+                            edge_type="code",
+                            input_vertex=v.name,
+                            output_vertex=proxy_name,
+                        )
 
                         # Rewire downstream edges that originally depended on v.name to proxy_name
                         for edge in list(graph.edges.values()):
                             if edge.id != bridge_edge_id and edge.input_vertex == v.name:
                                 edge.input_vertex = proxy_name
+                                self.store.save_edge(
+                                    session_id=graph.session_id,
+                                    edge_id=edge.id,
+                                    edge_type=edge.type,
+                                    input_vertex=proxy_name,
+                                    output_vertex=edge.output_vertex,
+                                    script=getattr(edge, "script", None) if isinstance(getattr(edge, "script", None), str) else None,
+                                    trigger_state=getattr(edge, "trigger_state", None),
+                                    target_state=getattr(edge, "target_state", None),
+                                    max_retries=getattr(edge, "max_retries", 3),
+                                    settings=edge.settings,
+                                )
 
                         try:
                             graph.compute_dag_tiers()

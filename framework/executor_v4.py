@@ -17,6 +17,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple, Type
 from framework.edge_v4 import (
     CallableLLMEdgeV4,
     ChatLLMEdgeV4,
+    CodeEdgeV4,
     EdgeResultV4,
     EdgeV4,
     GenerateLLMEdgeV4,
@@ -119,6 +120,8 @@ class ExecutorV4:
         for edge_id, edge in list(self.graph.edges.items()):
             if type(edge) is LLMEdgeV4:
                 self.graph.edges[edge_id] = self.llm_edge_cls.from_base(edge)
+                if self.agent and hasattr(self.graph.edges[edge_id], "agent"):
+                    self.graph.edges[edge_id].agent = self.agent
 
         # Group and per-edge semaphores for granular concurrency control
         self._group_semaphores: Dict[str, asyncio.Semaphore] = {}
@@ -510,6 +513,68 @@ class ExecutorV4:
             pass
         return self._result
 
+    def _sync_and_reload_graph_from_store(self) -> None:
+        """Read and update execution graph from store before execution without mutating original in-memory graph."""
+        if not self.store:
+            return
+
+        # 1. Seed any vertices or edges from self.graph that are not yet in store
+        for v in self.graph.vertices.values():
+            if self.store.get_vertex(self.session_id, v.name) is None:
+                self.store.save_vertex(
+                    session_id=self.session_id,
+                    name=v.name,
+                    content=v.content,
+                    attributes=v.attributes,
+                    state=v.state,
+                    processed_count=v.processed_count,
+                )
+
+        existing_edges = {er.edge_id: er for er in self.store.list_edges(self.session_id)}
+        for e in self.graph.edges.values():
+            er = existing_edges.get(e.id)
+            script_val = getattr(e, "script", None)
+            script_str = script_val if isinstance(script_val, str) else None
+            if er is None or er.input_vertex != e.input_vertex or er.output_vertex != e.output_vertex:
+                self.store.save_edge(
+                    session_id=self.session_id,
+                    edge_id=e.id,
+                    edge_type=e.type,
+                    input_vertex=e.input_vertex,
+                    output_vertex=e.output_vertex,
+                    script=script_str,
+                    trigger_state=getattr(e, "trigger_state", None),
+                    target_state=getattr(e, "target_state", None),
+                    max_retries=getattr(e, "max_retries", 3),
+                    settings=e.settings,
+                )
+
+        # 2. Read and update fresh graph from store
+        fresh_graph = GraphV4.load_from_store(self.store, self.session_id, name=self.graph.name)
+        for eid, fresh_e in list(fresh_graph.edges.items()):
+            old_e = self.graph.edges.get(eid)
+            if old_e:
+                if type(old_e) not in (CodeEdgeV4, ReflexiveEdgeV4, LLMEdgeV4):
+                    fresh_graph.edges[eid] = old_e
+                else:
+                    if callable(getattr(old_e, "script", None)):
+                        fresh_e.script = old_e.script
+                        if hasattr(fresh_e, "_callable"):
+                            fresh_e._callable = old_e.script
+                    if isinstance(old_e, LLMEdgeV4) and hasattr(old_e, "agent") and old_e.agent is not None:
+                        fresh_e.agent = old_e.agent
+
+            curr_e = fresh_graph.edges.get(eid)
+            if curr_e and type(curr_e) is LLMEdgeV4 and self.llm_edge_cls:
+                fresh_graph.edges[eid] = self.llm_edge_cls.from_base(curr_e)
+                if self.agent and hasattr(fresh_graph.edges[eid], "agent"):
+                    fresh_graph.edges[eid].agent = self.agent
+
+        if hasattr(self.graph, "_inactive_vertices"):
+            fresh_graph._inactive_vertices = set(self.graph._inactive_vertices)
+
+        self.graph = fresh_graph
+
     async def _run_internal(self) -> ExecutionResultV4:
         """Core scheduler loop coordinating concurrency and DAG tier execution."""
         t0 = time.monotonic()
@@ -517,17 +582,8 @@ class ExecutorV4:
         running_tasks: Set[asyncio.Task] = set()
 
         try:
-            # Seed initial graph vertices if not already in store
-            for v in self.graph.vertices.values():
-                if self.store.get_vertex(self.session_id, v.name) is None:
-                    self.store.save_vertex(
-                        session_id=self.session_id,
-                        name=v.name,
-                        content=v.content,
-                        attributes=v.attributes,
-                        state=v.state,
-                        processed_count=v.processed_count,
-                    )
+            # 每次执行前都进行读取更新，从 store 重新载入最新图状态
+            self._sync_and_reload_graph_from_store()
 
             self._emit(
                 "workflow_started",
