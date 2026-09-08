@@ -13,3 +13,11 @@ examples/s1profile_collect/data/
 .env
 .env.local
 *.env
+
+# Submodule directories — only defined on hf-submodule branch,
+# would show as untracked on other branches after checkout.
+additive-rand-transformer/
+maze-transformer/
+
+# Backup directory
+config_backup/
