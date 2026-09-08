@@ -10,7 +10,7 @@
 docs/
 ├── reports/                 # 阶段交付报告与专题分析
 │   ├── v4-implementation-and-verification-report.md # V4.0 全层级实现与 143 项测试验证报告
-│   └── v4-hot-breakage-analysis.md                  # 运行时热破（并发修改/死锁/在途踩踏）审查
+│   └── v4-runtime-issues-analysis.md                # 运行时潜在问题（并发修改/死锁/在途踩踏）审查
 └── archive/                 # 历史迭代审查、交接备忘与旧版本设计规范
     ├── v4-architecture-spec.md                      # V4.0 破坏性重构初始规范说明书
     ├── handoff.md                                   # V4.0 早期交付审核备忘录
