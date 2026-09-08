@@ -75,7 +75,7 @@ def _parse_posts_from_soup(soup):
                 time_str = span.get("title")
             else:
                 time_str = em_node.get_text(strip=True)
-            time_str = re.sub(r"^(Post on|Posted at)[\s:：]*", "", time_str).strip()
+            time_str = re.sub(r"^(Post on|Posted at)[\s:\uFF1A]*", "", time_str).strip()
             try:
                 m = re.search(
                     r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})", time_str

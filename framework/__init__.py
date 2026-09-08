@@ -32,6 +32,7 @@ from .vertex_v4 import (
     VertexAttributeV4,
     VertexRecordV4,
     VertexV4,
+    EdgeRecordV4,
     StagingRecordV4,
     VertexStoreV4,
 )

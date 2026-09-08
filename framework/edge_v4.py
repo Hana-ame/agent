@@ -334,25 +334,31 @@ class LLMEdgeV4(EdgeV4):
                 vertex_name=self.output_vertex,
             )
 
-            # Invoke agent - check for common method signatures
-            if hasattr(agent, "chat") and asyncio.iscoroutinefunction(agent.chat):
-                response = await agent.chat(
+            # Invoke agent - support both async coroutines and sync callables
+            res_future = None
+            if hasattr(agent, "chat") and callable(agent.chat):
+                res_future = agent.chat(
                     [{"role": "user", "content": rendered_prompt}],
                     model=model,
                     temperature=temperature,
                 )
-            elif hasattr(agent, "generate") and asyncio.iscoroutinefunction(agent.generate):
-                response = await agent.generate(rendered_prompt, model=model, temperature=temperature)
-            elif hasattr(agent, "process") and asyncio.iscoroutinefunction(agent.process):
-                response = await agent.process(
+            elif hasattr(agent, "generate") and callable(agent.generate):
+                res_future = agent.generate(rendered_prompt, model=model, temperature=temperature)
+            elif hasattr(agent, "process") and callable(agent.process):
+                res_future = agent.process(
                     in_v.content, rendered_prompt, model=model, settings=self.settings,
                 )
             elif callable(agent):
-                response = str(agent(rendered_prompt))
+                res_future = agent(rendered_prompt)
             else:
                 raise TypeError(
                     f"Agent {type(agent).__name__} has no callable chat/generate/process method"
                 )
+
+            if asyncio.iscoroutine(res_future):
+                response = await res_future
+            else:
+                response = res_future
 
             output_str = str(response)
 
@@ -475,90 +481,99 @@ class ReflexiveEdgeV4(EdgeV4):
                 reason=f"Target state is '{target_v.state}', waiting for '{self.trigger_state}'",
             )
 
-        # Retrieve diagnostics from staging table
-        latest_error = store.get_latest_staged_for_vertex(
-            session_id=session_id,
-            vertex_name=self.output_vertex,
-            key="error_feedback",
-        )
-        error_info = latest_error.value if latest_error else "No staged error diagnostic"
-
-        # Circuit breaker: Check if maximum iterations reached
-        if target_v.processed_count >= self.max_retries:
-            logger.warning(
-                "[ReflexiveEdgeV4:%s] Max retries (%d) reached for vertex '%s'. Locking to 'forbidden'.",
-                self.id,
-                self.max_retries,
-                self.output_vertex,
-            )
-            store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.FORBIDDEN.value)
-            store.stage_output(
+        try:
+            # Retrieve diagnostics from staging table
+            latest_error = store.get_latest_staged_for_vertex(
                 session_id=session_id,
-                edge_id=self.id,
-                key="retry_exhausted",
-                value=f"Exceeded max retries: {self.max_retries}",
                 vertex_name=self.output_vertex,
+                key="error_feedback",
             )
-            return EdgeResultV4(
-                edge_id=self.id,
-                success=False,
-                error="Max retries exceeded",
-                reason=f"Attempted {target_v.processed_count} retries out of {self.max_retries}",
-            )
+            error_info = latest_error.value if latest_error else "No staged error diagnostic"
 
-        # Apply optional recovery transformer
-        new_content = target_v.content
-        fn = self._resolve_callable()
-        if fn:
-            try:
-                if asyncio.iscoroutinefunction(fn):
-                    new_content = await fn(target_v.content, error_info, self.settings)
-                else:
-                    new_content = fn(target_v.content, error_info, self.settings)
-            except Exception as rec_err:
-                logger.error("[ReflexiveEdgeV4:%s] Recovery script failed: %s", self.id, rec_err)
+            # Circuit breaker: Check if maximum iterations reached
+            if target_v.processed_count >= self.max_retries:
+                logger.warning(
+                    "[ReflexiveEdgeV4:%s] Max retries (%d) reached for vertex '%s'. Locking to 'forbidden'.",
+                    self.id,
+                    self.max_retries,
+                    self.output_vertex,
+                )
+                store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.FORBIDDEN.value)
                 store.stage_output(
                     session_id=session_id,
                     edge_id=self.id,
-                    key="error_feedback",
-                    value=f"Recovery script failed: {rec_err}",
+                    key="retry_exhausted",
+                    value=f"Exceeded max retries: {self.max_retries}",
                     vertex_name=self.output_vertex,
-                    metadata={"exception_type": type(rec_err).__name__},
                 )
                 return EdgeResultV4(
                     edge_id=self.id,
                     success=False,
-                    error=f"Recovery script failed: {rec_err}",
-                    reason="Recovery transform threw exception",
+                    error="Max retries exceeded",
+                    reason=f"Attempted {target_v.processed_count} retries out of {self.max_retries}",
                 )
 
-        # Reset state back to target_state ('todo urgent' or 'todo') and increment processed_count
-        store.update_vertex_content(
-            session_id=session_id,
-            name=self.output_vertex,
-            content=str(new_content),
-            state=self.target_state,
-            increment_count=True,
-        )
+            # Apply optional recovery transformer
+            new_content = target_v.content
+            fn = self._resolve_callable()
+            if fn:
+                try:
+                    if asyncio.iscoroutinefunction(fn):
+                        new_content = await fn(target_v.content, error_info, self.settings)
+                    else:
+                        new_content = fn(target_v.content, error_info, self.settings)
+                except Exception as rec_err:
+                    logger.error("[ReflexiveEdgeV4:%s] Recovery script failed: %s", self.id, rec_err)
+                    store.stage_output(
+                        session_id=session_id,
+                        edge_id=self.id,
+                        key="error_feedback",
+                        value=f"Recovery script failed: {rec_err}",
+                        vertex_name=self.output_vertex,
+                        metadata={"exception_type": type(rec_err).__name__},
+                    )
+                    return EdgeResultV4(
+                        edge_id=self.id,
+                        success=False,
+                        error=f"Recovery script failed: {rec_err}",
+                        reason="Recovery transform threw exception",
+                    )
 
-        store.stage_output(
-            session_id=session_id,
-            edge_id=self.id,
-            key="reflexive_reset",
-            value=f"Reset vertex to '{self.target_state}', attempt #{target_v.processed_count + 1}",
-            vertex_name=self.output_vertex,
-            metadata={"diagnostic": error_info},
-        )
+            # Reset state back to target_state ('todo urgent' or 'todo') and increment processed_count
+            store.update_vertex_content(
+                session_id=session_id,
+                name=self.output_vertex,
+                content=str(new_content),
+                state=self.target_state,
+                increment_count=True,
+            )
 
-        return EdgeResultV4(
-            edge_id=self.id,
-            success=True,
-            output=new_content,
-            metadata={
-                "attempt": target_v.processed_count + 1,
-                "reset_to": self.target_state,
-            },
-        )
+            store.stage_output(
+                session_id=session_id,
+                edge_id=self.id,
+                key="reflexive_reset",
+                value=f"Reset vertex to '{self.target_state}', attempt #{target_v.processed_count + 1}",
+                vertex_name=self.output_vertex,
+                metadata={"diagnostic": error_info},
+            )
+
+            return EdgeResultV4(
+                edge_id=self.id,
+                success=True,
+                output=new_content,
+                metadata={
+                    "attempt": target_v.processed_count + 1,
+                    "reset_to": self.target_state,
+                },
+            )
+        except Exception as exc:
+            logger.error("[ReflexiveEdgeV4:%s] Unhandled error: %s", self.id, exc)
+            return EdgeResultV4(
+                edge_id=self.id,
+                success=False,
+                error=str(exc),
+                reason="Reflexive recovery encountered unhandled exception",
+            )
 
 
 # ------------------------------------------------------------------
@@ -573,8 +588,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--session", required=True, help="Session identifier")
     parser.add_argument("--edge-id", default="standalone_edge", help="Edge identifier")
     parser.add_argument("--type", choices=["code", "llm", "reflexive"], default="code", help="Edge type")
-    parser.add_argument("--input", required=True, help="Input vertex name")
-    parser.add_argument("--output", required=True, help="Output vertex name")
+    parser.add_argument("--input", default=None, help="Input vertex name")
+    parser.add_argument("--output", default=None, help="Output vertex name")
     parser.add_argument("--script", default=None, help="Script path for code or recovery edge")
     parser.add_argument("--model", default="sensenova-6.8-flash-lite", help="Model name for LLM edge")
     parser.add_argument("--settings", default="{}", help="JSON settings string")
@@ -590,29 +605,37 @@ def main() -> None:
         settings_dict = {}
 
     edge: EdgeV4
-    if args.type == "code":
-        edge = CodeEdgeV4(
-            edge_id=args.edge_id,
-            input_vertex=args.input,
-            output_vertex=args.output,
-            script=args.script,
-            settings=settings_dict,
-        )
-    elif args.type == "llm":
-        edge = LLMEdgeV4(
-            edge_id=args.edge_id,
-            input_vertex=args.input,
-            output_vertex=args.output,
-            model=args.model,
-            settings=settings_dict,
-        )
-    elif args.type == "reflexive":
+    if args.type == "reflexive":
+        target_node = args.output or args.input
+        if not target_node:
+            sys.stderr.write("Error: --output or --input is required for reflexive edge\n")
+            sys.exit(1)
         edge = ReflexiveEdgeV4(
             edge_id=args.edge_id,
-            vertex_name=args.output,
+            vertex_name=target_node,
             script=args.script,
             settings=settings_dict,
         )
+    elif args.type in ("code", "llm"):
+        if not args.input or not args.output:
+            sys.stderr.write(f"Error: Both --input and --output are required for {args.type} edge\n")
+            sys.exit(1)
+        if args.type == "code":
+            edge = CodeEdgeV4(
+                edge_id=args.edge_id,
+                input_vertex=args.input,
+                output_vertex=args.output,
+                script=args.script,
+                settings=settings_dict,
+            )
+        else:
+            edge = LLMEdgeV4(
+                edge_id=args.edge_id,
+                input_vertex=args.input,
+                output_vertex=args.output,
+                model=args.model,
+                settings=settings_dict,
+            )
     else:
         sys.stderr.write(f"Unknown edge type: {args.type}\n")
         sys.exit(1)

@@ -9,21 +9,21 @@ Features:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple, Union
+from typing import Any, AsyncGenerator, Dict, Optional, Tuple, Union
 
-from framework.edge_v4 import CodeEdgeV4, EdgeV4
+from framework.edge_v4 import CodeEdgeV4
 from framework.executor_v4 import ExecutorV4, GraphEventV4
 from framework.graph_v4 import DiscreteGraphLoaderV4, GraphV4
 from framework.server_v4 import SessionGraphManagerV4
 from framework.vertex_v4 import (
     VertexAttributeV4,
+    VertexRecordV4,
     VertexStateV4,
     VertexStoreV4,
 )
@@ -149,6 +149,9 @@ class SSEExecutorV4:
                     DiscreteGraphLoaderV4.populate_store(sub_graph, self.store)
                     self.manager._graphs[sub_session_id] = sub_graph
 
+                    # Recursively resolve any deeper nested subgraphs within the child graph
+                    self.resolve_subgraph_vertices(sub_session_id, sub_graph)
+
                     # Attach bridge executor edge for the subgraph
                     bridge_edge_id = f"bridge_subgraph_{v.name}"
                     if bridge_edge_id not in graph.edges:
@@ -156,23 +159,52 @@ class SSEExecutorV4:
                         _sub_graph = sub_graph
                         _sub_session_id = sub_session_id
                         _store = self.store
+                        _input_map = dict(sub_input_map)
+                        _output_map = dict(sub_output_map)
+                        _parent_vertex_name = v.name
 
-                        async def run_subgraph_bridge(content: str, settings: dict, staging: dict,
-                                                     sg=_sub_graph, ssid=_sub_session_id, st=_store) -> str:
+                        async def run_subgraph_bridge(
+                            content: str,
+                            settings: dict,
+                            staging: dict,
+                            sg=_sub_graph,
+                            ssid=_sub_session_id,
+                            st=_store,
+                            inp_map=_input_map,
+                            out_map=_output_map,
+                            pv_name=_parent_vertex_name,
+                        ) -> str:
                             """Bridge edge that forwards data through a child subgraph."""
-                            sub_start_nodes = [
-                                sv for sv in sg.vertices.values()
-                                if sv.has_attribute(VertexAttributeV4.START)
-                            ]
-                            if sub_start_nodes:
-                                start_name = sub_start_nodes[0].name
-                                st.update_vertex_content(
-                                    session_id=ssid,
-                                    name=start_name,
-                                    content=content,
-                                    state=VertexStateV4.DATA_READY.value,
-                                )
+                            # 1. Route input into child subgraph
+                            parsed_json = None
+                            try:
+                                parsed_json = json.loads(content) if content else {}
+                            except Exception:
+                                parsed_json = None
 
+                            if inp_map and isinstance(parsed_json, dict):
+                                for source_key, target_node in inp_map.items():
+                                    val_to_inject = parsed_json.get(source_key, content)
+                                    st.update_vertex_content(
+                                        session_id=ssid,
+                                        name=target_node,
+                                        content=str(val_to_inject),
+                                        state=VertexStateV4.DATA_READY.value,
+                                    )
+                            else:
+                                sub_start_nodes = [
+                                    sv for sv in sg.vertices.values()
+                                    if sv.has_attribute(VertexAttributeV4.START)
+                                ]
+                                for sv in sub_start_nodes:
+                                    st.update_vertex_content(
+                                        session_id=ssid,
+                                        name=sv.name,
+                                        content=content,
+                                        state=VertexStateV4.DATA_READY.value,
+                                    )
+
+                            # 2. Execute child subgraph
                             sub_executor = ExecutorV4(
                                 graph=sg,
                                 store=st,
@@ -180,23 +212,39 @@ class SSEExecutorV4:
                             )
                             sub_res = await sub_executor.run()
 
-                            sub_end_nodes = [
-                                sv for sv in sg.vertices.values()
-                                if sv.has_attribute(VertexAttributeV4.END)
-                            ]
-                            if sub_end_nodes:
-                                end_name = sub_end_nodes[0].name
-                                end_rec = st.get_vertex(ssid, end_name)
-                                return end_rec.content if end_rec else ""
-                            if sub_res.vertex_contents:
-                                return sub_res.vertex_contents.get(
-                                    list(sub_res.vertex_contents.keys())[-1], ""
-                                )
-                            return ""
+                            # 3. Collect output from child subgraph
+                            final_output = ""
+                            if out_map:
+                                collected: Dict[str, Any] = {}
+                                for target_node, dest_key in out_map.items():
+                                    rec = st.get_vertex(ssid, target_node)
+                                    collected[dest_key] = rec.content if rec else ""
+                                final_output = json.dumps(collected) if len(collected) > 1 else list(collected.values())[0] if collected else ""
+                            else:
+                                sub_end_nodes = [
+                                    sv for sv in sg.vertices.values()
+                                    if sv.has_attribute(VertexAttributeV4.END)
+                                ]
+                                if sub_end_nodes:
+                                    end_name = sub_end_nodes[0].name
+                                    end_rec = st.get_vertex(ssid, end_name)
+                                    final_output = end_rec.content if end_rec else ""
+                                elif sub_res.vertex_contents:
+                                    final_output = sub_res.vertex_contents.get(
+                                        list(sub_res.vertex_contents.keys())[-1], ""
+                                    )
+
+                            # 4. Synchronize back to parent vertex in SQLite
+                            st.update_vertex_content(
+                                session_id=session_id,
+                                name=pv_name,
+                                content=str(final_output),
+                                state=VertexStateV4.DATA_READY.value,
+                            )
+                            return str(final_output)
 
                         # Create a proxy output vertex for the bridge edge so it's not reflexive
                         proxy_name = f"{v.name}__bridge_out"
-                        from framework.vertex_v4 import VertexRecordV4
                         if proxy_name not in graph.vertices:
                             proxy_v = VertexRecordV4(
                                 id=0,
@@ -221,6 +269,17 @@ class SSEExecutorV4:
                             script=run_subgraph_bridge,
                         )
                         graph.add_edge(bridge_edge)
+
+                        # Rewire downstream edges that originally depended on v.name to proxy_name
+                        for edge in list(graph.edges.values()):
+                            if edge.id != bridge_edge_id and edge.input_vertex == v.name:
+                                edge.input_vertex = proxy_name
+
+                        try:
+                            graph.compute_dag_tiers()
+                        except Exception:
+                            pass
+
                         logger.info("[SSEExecutorV4] Registered subgraph '%s' bridge for vertex '%s'", _sub_session_id, v.name)
 
     def _inject_input_payload(
@@ -258,13 +317,22 @@ class SSEExecutorV4:
         timeout: float = 120.0,
     ) -> AsyncGenerator[str, None]:
         """Execute edges in DAG order and yield SSE stream with tool call echo 'info' format."""
-        sess_id, graph = self.resolve_session_and_graph(session_id, manifest_path)
-        self.resolve_subgraph_vertices(sess_id, graph)
-
-        self._inject_input_payload(sess_id, graph, input_payload)
-
         chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         call_id = f"call_{uuid.uuid4().hex[:10]}"
+
+        try:
+            sess_id, graph = self.resolve_session_and_graph(session_id, manifest_path)
+            self.resolve_subgraph_vertices(sess_id, graph)
+            self._inject_input_payload(sess_id, graph, input_payload)
+        except Exception as setup_err:
+            error_echo = ToolCallEcho(
+                call_id=call_id,
+                function_name="echo",
+                arguments={"info": {"event": "setup_error", "error": str(setup_err)}},
+            )
+            yield error_echo.to_sse_chunk(chunk_id, finish_reason="tool_calls")
+            yield "data: [DONE]\n\n"
+            return
 
         # Emit initial start event
         start_echo = ToolCallEcho(
@@ -289,6 +357,7 @@ class SSEExecutorV4:
         )
 
         # Stream real-time edge execution steps
+        stream_error_occurred = False
         try:
             async for event in executor.stream():
                 self.manager.broadcast_event(sess_id, event)
@@ -307,34 +376,37 @@ class SSEExecutorV4:
                 )
                 yield echo_chunk.to_sse_chunk(chunk_id)
         except Exception as stream_err:
+            stream_error_occurred = True
             error_echo = ToolCallEcho(
                 call_id=call_id,
                 function_name="echo",
                 arguments={"info": {"event": "stream_error", "error": str(stream_err)}},
             )
-            yield error_echo.to_sse_chunk(chunk_id)
+            yield error_echo.to_sse_chunk(chunk_id, finish_reason="tool_calls")
+            yield "data: [DONE]\n\n"
 
-        # Final result collection
-        result = executor._result
-        final_info = {
-            "event": "workflow_finished",
-            "session_id": sess_id,
-            "success": result.success,
-            "execution_time": result.execution_time,
-            "completed_edges": result.completed_edges,
-            "vertex_states": result.vertex_states,
-            "vertex_contents": result.vertex_contents,
-            "errors": result.errors,
-        }
+        if not stream_error_occurred:
+            # Final result collection
+            result = executor._result
+            final_info = {
+                "event": "workflow_finished",
+                "session_id": sess_id,
+                "success": result.success,
+                "execution_time": result.execution_time,
+                "completed_edges": result.completed_edges,
+                "vertex_states": result.vertex_states,
+                "vertex_contents": result.vertex_contents,
+                "errors": result.errors,
+            }
 
-        # Terminal tool call echo
-        final_echo = ToolCallEcho(
-            call_id=call_id,
-            function_name="echo",
-            arguments={"info": final_info},
-        )
-        yield final_echo.to_sse_chunk(chunk_id, finish_reason="tool_calls")
-        yield "data: [DONE]\n\n"
+            # Terminal tool call echo
+            final_echo = ToolCallEcho(
+                call_id=call_id,
+                function_name="echo",
+                arguments={"info": final_info},
+            )
+            yield final_echo.to_sse_chunk(chunk_id, finish_reason="tool_calls")
+            yield "data: [DONE]\n\n"
 
     async def execute_harness_call(
         self,
@@ -345,33 +417,48 @@ class SSEExecutorV4:
         timeout: float = 120.0,
     ) -> Dict[str, Any]:
         """Execute workflow and return non-streaming tool call echo 'info' payload."""
-        sess_id, graph = self.resolve_session_and_graph(session_id, manifest_path)
-        self.resolve_subgraph_vertices(sess_id, graph)
-
-        self._inject_input_payload(sess_id, graph, input_payload)
-
-        executor = ExecutorV4(
-            graph=graph,
-            store=self.store,
-            max_concurrency=max_concurrency,
-            timeout=timeout,
-        )
-        result = await executor.run()
-
         call_id = f"call_{uuid.uuid4().hex[:10]}"
-        echo = ToolCallEcho(
-            call_id=call_id,
-            function_name="echo",
-            arguments={
-                "info": {
-                    "session_id": sess_id,
-                    "success": result.success,
-                    "execution_time": result.execution_time,
-                    "completed_edges": result.completed_edges,
-                    "vertex_states": result.vertex_states,
-                    "vertex_contents": result.vertex_contents,
-                    "errors": result.errors,
-                }
-            },
-        )
-        return echo.to_openai_dict()
+        try:
+            sess_id, graph = self.resolve_session_and_graph(session_id, manifest_path)
+            self.resolve_subgraph_vertices(sess_id, graph)
+
+            self._inject_input_payload(sess_id, graph, input_payload)
+
+            executor = ExecutorV4(
+                graph=graph,
+                store=self.store,
+                max_concurrency=max_concurrency,
+                timeout=timeout,
+            )
+            result = await executor.run()
+
+            echo = ToolCallEcho(
+                call_id=call_id,
+                function_name="echo",
+                arguments={
+                    "info": {
+                        "session_id": sess_id,
+                        "success": result.success,
+                        "execution_time": result.execution_time,
+                        "completed_edges": result.completed_edges,
+                        "vertex_states": result.vertex_states,
+                        "vertex_contents": result.vertex_contents,
+                        "errors": result.errors,
+                    }
+                },
+            )
+            return echo.to_openai_dict()
+        except Exception as exc:
+            logger.error("[SSEExecutorV4] execute_harness_call failed: %s", exc)
+            error_echo = ToolCallEcho(
+                call_id=call_id,
+                function_name="echo",
+                arguments={
+                    "info": {
+                        "session_id": session_id,
+                        "success": False,
+                        "error": str(exc),
+                    }
+                },
+            )
+            return error_echo.to_openai_dict()
