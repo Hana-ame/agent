@@ -7,17 +7,21 @@ scratchpad staging table attributed to producing edges.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+logger = logging.getLogger(__name__)
+
 
 class VertexStateV4(str, Enum):
-    """Execution and lifecycle states for V4 vertices."""
+    """Execution, lifecycle, and topological traversal states for V4 vertices."""
 
     DATA_READY = "data ready"
     IDLE = "idle"
@@ -26,6 +30,30 @@ class VertexStateV4(str, Enum):
     TODO_URGENT = "todo urgent"
     REJECT = "reject"
     PRUNING = "pruning"
+
+    # State coloring and DFS traversal states
+    WHITE = "white"
+    GRAY = "gray"
+    BLACK = "black"
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, int):
+            color_ints = {
+                VertexStateV4.WHITE: 0,
+                VertexStateV4.GRAY: 1,
+                VertexStateV4.BLACK: 2,
+            }
+            if self in color_ints:
+                return color_ints[self] == other
+        return super().__eq__(other)
+
+    def __hash__(self) -> int:
+        return super().__hash__()
+
+
+# Unified alias for state coloring functionality
+NodeColor = VertexStateV4
+
 
 
 class VertexAttributeV4(str, Enum):
@@ -38,6 +66,9 @@ class VertexAttributeV4(str, Enum):
     JSON = "json"
     PLAIN_TEXT = "plain text"
     SUBGRAPH = "subgraph"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    ORPHAN = "orphan"
 
 
 @dataclass
@@ -143,26 +174,60 @@ class VertexStoreV4:
 
     def __init__(self, db_path: Union[str, Path] = ":memory:"):
         self.db_path = str(db_path)
-        self._lock = threading.RLock()
-        if self.db_path != ":memory:":
+        self._is_memory = (self.db_path == ":memory:")
+        self._write_lock = threading.Lock()
+        self._conn_lock = threading.Lock()
+        self._mem_lock = threading.RLock()
+        self._local = threading.local()
+        self._connections: List[sqlite3.Connection] = []
+        if self._is_memory:
+            self._mem_conn = sqlite3.connect(
+                ":memory:",
+                check_same_thread=False,
+                isolation_level=None,
+            )
+            self._mem_conn.row_factory = sqlite3.Row
+        else:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(
-            self.db_path,
-            check_same_thread=False,
-            isolation_level=None,  # Autocommit mode, manual transactions where needed
-        )
-        self._conn.row_factory = sqlite3.Row
         self._initialize_schema()
+
+    def _read_lock(self):
+        """Context manager for read operations (lock-free for WAL disk mode)."""
+        if self._is_memory:
+            return self._mem_lock
+        return nullcontext()
+
+    def _write_lock_ctx(self):
+        """Context manager for write operations."""
+        if self._is_memory:
+            return self._mem_lock
+        return self._write_lock
+
+    def _get_connection(self) -> sqlite3.Connection:
+        if self._is_memory:
+            return self._mem_conn
+        if not hasattr(self._local, "conn"):
+            conn = sqlite3.connect(
+                self.db_path,
+                isolation_level=None,  # Autocommit mode, manual transactions where needed
+                timeout=30.0,
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            conn.execute("PRAGMA busy_timeout = 5000;")
+            self._local.conn = conn
+            with self._conn_lock:
+                self._connections.append(conn)
+        return self._local.conn
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
     def _initialize_schema(self) -> None:
         """Create tables and performance indexes if not present."""
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute("PRAGMA journal_mode = WAL;")
-            cur.execute("PRAGMA synchronous = NORMAL;")
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS vertices (
@@ -171,7 +236,7 @@ class VertexStoreV4:
                     name TEXT NOT NULL,
                     content TEXT NOT NULL DEFAULT '',
                     attributes TEXT NOT NULL DEFAULT '[]',
-                    state TEXT NOT NULL DEFAULT 'idle' CHECK (state IN ('data ready', 'idle', 'forbidden', 'todo', 'todo urgent', 'reject', 'pruning')),
+                    state TEXT NOT NULL DEFAULT 'idle' CHECK (state IN ('data ready', 'idle', 'forbidden', 'todo', 'todo urgent', 'reject', 'pruning', 'white', 'gray', 'black')),
                     processed_count INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -248,17 +313,18 @@ class VertexStoreV4:
         state: Union[str, VertexStateV4] = VertexStateV4.IDLE,
         processed_count: int = 0,
     ) -> VertexRecordV4:
-        """Insert or update a vertex record."""
-        state_str = state.value if isinstance(state, VertexStateV4) else str(state)
-        attr_list = [
-            a.value if isinstance(a, VertexAttributeV4) else str(a)
-            for a in (attributes or [])
-        ]
+        """Insert or update a vertex record.
+        
+        Note: Passing processed_count=0 (the default) preserves the existing count on upsert.
+        To modify the processed_count after creation, explicitly call increment_processed_count().
+        """
+        state_str = self._validate_state(state)
+        attr_list = self._validate_attributes(attributes)
         attr_json = json.dumps(attr_list)
         now = self._now_iso()
 
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
             cur.execute(
                 """
                 INSERT INTO vertices (session_id, name, content, attributes, state, processed_count, created_at, updated_at)
@@ -278,8 +344,8 @@ class VertexStoreV4:
 
     def get_vertex(self, session_id: str, name: str) -> Optional[VertexRecordV4]:
         """Fetch a single vertex record by session_id and name."""
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._read_lock():
+            cur = self._get_connection().cursor()
             cur.execute(
                 "SELECT * FROM vertices WHERE session_id = ? AND name = ?;",
                 (session_id, name),
@@ -293,8 +359,8 @@ class VertexStoreV4:
         state: Optional[Union[str, VertexStateV4]] = None,
     ) -> List[VertexRecordV4]:
         """List all vertices in a session, optionally filtered by state."""
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._read_lock():
+            cur = self._get_connection().cursor()
             if state is not None:
                 state_str = state.value if isinstance(state, VertexStateV4) else str(state)
                 cur.execute(
@@ -316,10 +382,10 @@ class VertexStoreV4:
         state: Union[str, VertexStateV4],
     ) -> bool:
         """Update lifecycle state of a vertex."""
-        state_str = state.value if isinstance(state, VertexStateV4) else str(state)
+        state_str = self._validate_state(state)
         now = self._now_iso()
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
             cur.execute(
                 """
                 UPDATE vertices
@@ -340,13 +406,13 @@ class VertexStoreV4:
     ) -> bool:
         """Update content and optionally update state and increment processed count."""
         now = self._now_iso()
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
             updates = ["content = ?", "updated_at = ?"]
             params: List[Any] = [content, now]
 
             if state is not None:
-                state_str = state.value if isinstance(state, VertexStateV4) else str(state)
+                state_str = self._validate_state(state)
                 updates.append("state = ?")
                 params.append(state_str)
 
@@ -361,8 +427,8 @@ class VertexStoreV4:
     def increment_processed_count(self, session_id: str, name: str) -> int:
         """Atomically increment processing count and return new value."""
         now = self._now_iso()
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
             cur.execute(
                 """
                 UPDATE vertices
@@ -377,17 +443,24 @@ class VertexStoreV4:
 
     def delete_vertex(self, session_id: str, name: str) -> bool:
         """Delete a single vertex record by session_id and name, including associated staging entries."""
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                "DELETE FROM session_staging WHERE session_id = ? AND vertex_name = ?;",
-                (session_id, name),
-            )
-            cur.execute(
-                "DELETE FROM vertices WHERE session_id = ? AND name = ?;",
-                (session_id, name),
-            )
-            return cur.rowcount > 0
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
+            cur.execute("BEGIN;")
+            try:
+                cur.execute(
+                    "DELETE FROM session_staging WHERE session_id = ? AND vertex_name = ?;",
+                    (session_id, name),
+                )
+                cur.execute(
+                    "DELETE FROM vertices WHERE session_id = ? AND name = ?;",
+                    (session_id, name),
+                )
+                deleted = cur.rowcount > 0
+                cur.execute("COMMIT;")
+                return deleted
+            except Exception:
+                cur.execute("ROLLBACK;")
+                raise
 
     # ------------------------------------------------------------------
     # Edge Operations
@@ -410,8 +483,8 @@ class VertexStoreV4:
         settings_json = json.dumps(settings or {})
         now = self._now_iso()
 
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
             cur.execute(
                 """
                 INSERT INTO edges (
@@ -444,8 +517,8 @@ class VertexStoreV4:
 
     def get_edge(self, session_id: str, edge_id: str) -> Optional[EdgeRecordV4]:
         """Fetch a single edge record by session_id and edge_id."""
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._read_lock():
+            cur = self._get_connection().cursor()
             cur.execute(
                 "SELECT * FROM edges WHERE session_id = ? AND edge_id = ?;",
                 (session_id, edge_id),
@@ -455,8 +528,8 @@ class VertexStoreV4:
 
     def list_edges(self, session_id: str) -> List[EdgeRecordV4]:
         """List all edges registered for a session."""
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._read_lock():
+            cur = self._get_connection().cursor()
             cur.execute(
                 "SELECT * FROM edges WHERE session_id = ? ORDER BY id ASC;",
                 (session_id,),
@@ -465,8 +538,8 @@ class VertexStoreV4:
 
     def delete_edge(self, session_id: str, edge_id: str) -> bool:
         """Delete a single edge record by session_id and edge_id."""
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
             cur.execute(
                 "DELETE FROM edges WHERE session_id = ? AND edge_id = ?;",
                 (session_id, edge_id),
@@ -475,8 +548,8 @@ class VertexStoreV4:
 
     def list_sessions(self) -> List[str]:
         """List distinct session IDs across vertices, edges, and staging tables."""
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._read_lock():
+            cur = self._get_connection().cursor()
             cur.execute(
                 "SELECT DISTINCT session_id FROM vertices "
                 "UNION SELECT DISTINCT session_id FROM edges "
@@ -486,8 +559,8 @@ class VertexStoreV4:
 
     def get_db_stats(self) -> Dict[str, int]:
         """Return aggregate statistics across all sessions."""
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._read_lock():
+            cur = self._get_connection().cursor()
             cur.execute("SELECT COUNT(*) FROM vertices;")
             total_vertices = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM edges;")
@@ -525,8 +598,8 @@ class VertexStoreV4:
         """Record intermediate data or diagnostics tagged with producing edge."""
         meta_json = json.dumps(metadata or {})
         now = self._now_iso()
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
             cur.execute(
                 """
                 INSERT INTO session_staging (session_id, edge_id, vertex_name, key, value, metadata, created_at)
@@ -546,7 +619,7 @@ class VertexStoreV4:
         vertex_name: Optional[str] = None,
     ) -> List[StagingRecordV4]:
         """Query staged scratchpad records within a session."""
-        with self._lock:
+        with self._read_lock():
             clauses = ["session_id = ?"]
             params: List[Any] = [session_id]
 
@@ -561,7 +634,7 @@ class VertexStoreV4:
                 params.append(vertex_name)
 
             query = f"SELECT * FROM session_staging WHERE {' AND '.join(clauses)} ORDER BY id ASC;"
-            cur = self._conn.cursor()
+            cur = self._get_connection().cursor()
             cur.execute(query, params)
             rows = cur.fetchall()
             return [self._row_to_staging(r) for r in rows]
@@ -573,7 +646,7 @@ class VertexStoreV4:
         key: Optional[str] = None,
     ) -> Optional[StagingRecordV4]:
         """Fetch the most recent staged entry for a specific vertex."""
-        with self._lock:
+        with self._read_lock():
             clauses = ["session_id = ?", "vertex_name = ?"]
             params: List[Any] = [session_id, vertex_name]
 
@@ -582,7 +655,7 @@ class VertexStoreV4:
                 params.append(key)
 
             query = f"SELECT * FROM session_staging WHERE {' AND '.join(clauses)} ORDER BY id DESC LIMIT 1;"
-            cur = self._conn.cursor()
+            cur = self._get_connection().cursor()
             cur.execute(query, params)
             row = cur.fetchone()
             return self._row_to_staging(row) if row else None
@@ -593,8 +666,8 @@ class VertexStoreV4:
 
     def clear_session(self, session_id: str) -> None:
         """Remove all vertices, edges, and staging data for a session."""
-        with self._lock:
-            cur = self._conn.cursor()
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
             cur.execute("BEGIN;")
             try:
                 cur.execute("DELETE FROM vertices WHERE session_id = ?;", (session_id,))
@@ -606,9 +679,24 @@ class VertexStoreV4:
                 raise
 
     def close(self) -> None:
-        """Close SQLite database connection."""
-        with self._lock:
-            self._conn.close()
+        """Close SQLite database connection pool."""
+        if self._is_memory:
+            with self._mem_lock:
+                if hasattr(self, "_mem_conn") and self._mem_conn:
+                    try:
+                        self._mem_conn.close()
+                    except Exception as e:
+                        logger.warning(f"Error closing in-memory connection: {e}")
+        else:
+            with self._conn_lock:
+                for conn in self._connections:
+                    try:
+                        conn.close()
+                    except Exception as e:
+                        logger.warning(f"Error closing connection: {e}")
+                self._connections.clear()
+                if hasattr(self._local, "conn"):
+                    del self._local.conn
 
     def __enter__(self) -> 'VertexStoreV4':
         return self
@@ -620,13 +708,32 @@ class VertexStoreV4:
     # Internal Helpers
     # ------------------------------------------------------------------
 
+    def _validate_state(self, state: Union[str, VertexStateV4]) -> str:
+        state_str = state.value if isinstance(state, VertexStateV4) else str(state)
+        valid_states = {s.value for s in VertexStateV4}
+        if state_str not in valid_states:
+            raise ValueError(f"Invalid state: {state_str}. Must be one of {valid_states}")
+        return state_str
+
+    def _validate_attributes(self, attributes: Optional[Sequence[Union[str, VertexAttributeV4]]]) -> List[str]:
+        attr_list = [
+            a.value if isinstance(a, VertexAttributeV4) else str(a)
+            for a in (attributes or [])
+        ]
+        valid_attrs = {a.value for a in VertexAttributeV4}
+        for attr in attr_list:
+            if attr not in valid_attrs:
+                raise ValueError(f"Invalid attribute: {attr}. Must be one of {valid_attrs}")
+        return attr_list
+
     def _row_to_vertex(self, row: sqlite3.Row) -> VertexRecordV4:
         attrs = []
         raw_attrs = row["attributes"]
         if raw_attrs:
             try:
                 attrs = json.loads(raw_attrs)
-            except Exception:
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to decode attributes JSON for vertex {row['name']}: {e}")
                 attrs = []
         return VertexRecordV4(
             id=row["id"],
@@ -646,7 +753,8 @@ class VertexStoreV4:
         if raw_settings:
             try:
                 settings = json.loads(raw_settings)
-            except Exception:
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to decode settings JSON for edge {row['edge_id']}: {e}")
                 settings = {}
         return EdgeRecordV4(
             id=row["id"],
@@ -670,7 +778,8 @@ class VertexStoreV4:
         if raw_meta:
             try:
                 metadata = json.loads(raw_meta)
-            except Exception:
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to decode metadata JSON for staging id {row['id']}: {e}")
                 metadata = {}
         return StagingRecordV4(
             id=row["id"],
@@ -685,5 +794,5 @@ class VertexStoreV4:
 
 
 # Alias for backward compatibility or direct instantiation
-VertexV4 = VertexRecordV4
-EdgeV4Record = EdgeRecordV4
+VertexV4 = VertexRecordV4  # Deprecated: use VertexRecordV4 directly
+EdgeV4Record = EdgeRecordV4  # Deprecated: use EdgeRecordV4 directly

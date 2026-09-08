@@ -62,7 +62,8 @@ import logging
 import os
 import sys
 import time
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 logger = logging.getLogger("run_edge")
 
@@ -84,6 +85,7 @@ async def run_edge(
     script: str,
     data: Any,
     skip_compute: bool = False,
+    mock: bool = False,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -95,6 +97,7 @@ async def run_edge(
         data:     Input payload fed to the edge (pre_process target).
         skip_compute:  Skip the compute stage (pre_process output flows
             directly into post_process). General-edges offline path.
+        mock:     Use mock LLM agent for offline simulated compute.
         base_url: Full chat-completions URL (real LLM; compute NOT skipped).
         api_key:  API key for the LLM call (real LLM).
 
@@ -106,12 +109,14 @@ async def run_edge(
     start = time.monotonic()
     if skip_compute and base_url:
         raise ValueError("--skip-compute and --base-url are mutually exclusive")
-    if not skip_compute and not base_url:
+    if mock and base_url:
+        raise ValueError("--mock and --base-url are mutually exclusive")
+    if not skip_compute and not mock and not base_url:
         # No silent HttpLLMAgent fallback (framework Edge.compute would use one):
-        # a compute run must have a real LLM endpoint, or skip compute.
+        # a compute run must have a real LLM endpoint, mock mode, or skip compute.
         raise ValueError(
-            "compute requires --base-url; use skip_compute=True for offline "
-            "generic-edge runs (no mock fallback)"
+            "compute requires --base-url or --mock; use skip_compute=True for offline "
+            "generic-edge runs"
         )
 
     edge = None
@@ -145,7 +150,9 @@ async def run_edge(
                 script, cls.__name__, type(edge.agent).__name__,
             )
         elif base_url:
-            agent = HttpLLMAgent(api_key=api_key or "", base_url=base_url, mock=skip_compute)
+            agent = HttpLLMAgent(api_key=api_key or "", base_url=base_url, mock=False)
+        elif mock:
+            agent = HttpLLMAgent(mock=True)
 
         res = await edge._run_pre_process(data)
         res = await edge._run_compute(res, agent)  # includes post_process internally
@@ -162,7 +169,7 @@ async def run_edge(
         "script": script,
         "class": class_name,
         "agent": None if skip_compute else (
-            "HttpLLMAgent" if isinstance(agent, HttpLLMAgent)
+            ("HttpLLMAgent (mock)" if mock else "HttpLLMAgent") if isinstance(agent, HttpLLMAgent)
             else (type(edge.agent).__name__ if edge and getattr(edge, "agent", None) else "none")
         ),
         "skip_compute": skip_compute,
@@ -218,37 +225,78 @@ def main() -> int:
         prog="run_edge",
         description="Drive one script edge (file.py:ClassName) standalone.",
     )
-    ap.add_argument("--dir", default=".", help="Base dir for the script path (default: CWD)")
-    ap.add_argument("--script", required=True, help="file.py or file.py:ClassName")
+    ap.add_argument("--config", "-c", default=None, help="Path to JSON file specifying edge runner parameters")
+    ap.add_argument("--dir", default=None, help="Base dir for the script path (default: CWD)")
+    ap.add_argument("--script", default=None, help="file.py or file.py:ClassName (required if not in config JSON)")
     ap.add_argument("--data", default=None, help="JSON payload (or raw string)")
-    ap.add_argument("--skip-compute", action="store_true",
+    ap.add_argument("--skip-compute", action="store_true", default=None,
                     help="Skip the compute stage — pre_process output flows "
                          "straight to post_process (offline, generic edge).")
+    ap.add_argument("--mock", action="store_true", default=None,
+                    help="Run with mock LLM agent (offline compute, simulated agent).")
     ap.add_argument("--base-url", default=None, help="Full /chat/completions URL (real LLM)")
     ap.add_argument("--api-key", default=None, help="API key (real LLM)")
     args = ap.parse_args()
 
-    if args.base_url and args.skip_compute:
+    config_json: Dict[str, Any] = {}
+    if args.config:
+        cfg_path = Path(args.config)
+        if not cfg_path.is_absolute() and args.dir:
+            cfg_path = Path(args.dir) / cfg_path
+        if not cfg_path.exists() and os.path.exists(os.path.join(_ROOT, str(args.config))):
+            cfg_path = Path(_ROOT) / args.config
+        if not cfg_path.exists():
+            sys.stderr.write(f"ERROR: Config file not found: {args.config}\n")
+            return 2
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                config_json = _json.load(f)
+        except Exception as e:
+            sys.stderr.write(f"ERROR reading JSON config file '{args.config}': {e}\n")
+            return 2
+
+    dir_path = args.dir or config_json.get("dir") or "."
+    if args.config and not args.dir and not config_json.get("dir"):
+        dir_path = str(Path(args.config).resolve().parent)
+
+    script = args.script or config_json.get("script")
+    if not script:
+        print("ERROR: --script is required (either via CLI argument or 'script' in JSON config)", file=sys.stderr)
+        return 2
+
+    raw_data = args.data if args.data is not None else config_json.get("data")
+    data_payload = _load_data(raw_data) if isinstance(raw_data, str) else raw_data
+
+    skip_compute = args.skip_compute if args.skip_compute is not None else bool(config_json.get("skip_compute", False))
+    mock = args.mock if args.mock is not None else bool(config_json.get("mock", False))
+    base_url = args.base_url or config_json.get("base_url")
+    api_key = args.api_key or config_json.get("api_key")
+
+    if base_url and skip_compute:
         print("ERROR: --skip-compute and --base-url are mutually exclusive", file=sys.stderr)
         return 2
-    if not args.base_url and not args.skip_compute:
+    if base_url and mock:
+        print("ERROR: --mock and --base-url are mutually exclusive", file=sys.stderr)
+        return 2
+    if not base_url and not skip_compute and not mock:
         print(
-            "ERROR: either give --base-url + --api-key (real LLM), or "
-            "--skip-compute (offline, generic edge); no mock fallback",
+            "ERROR: provide --base-url + --api-key (real LLM), --mock (offline mock agent), or "
+            "--skip-compute (offline generic edge)",
             file=sys.stderr,
         )
         return 2
-    if args.base_url and not args.api_key:
+    if base_url and not api_key:
         print("ERROR: --api-key required for a real LLM call", file=sys.stderr)
         return 2
 
     report = asyncio.run(run_edge(
-        dir_path=args.dir,
-        script=args.script,
-        data=_load_data(args.data),
-        skip_compute=args.skip_compute,
-        base_url=args.base_url,
-        api_key=args.api_key,
+        dir_path=dir_path,
+        script=script,
+        data=data_payload,
+        skip_compute=skip_compute,
+        mock=mock,
+        base_url=base_url,
+        api_key=api_key,
     ))
     _print_report(report)
     return 0 if report["ok"] else 1

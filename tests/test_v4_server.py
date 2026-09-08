@@ -502,3 +502,137 @@ def test_subgraph_downstream_dataflow_closure(tmp_path):
     assert sink_rec.state == VertexStateV4.DATA_READY.value
     assert sink_rec.content == "PROCESSED(raw_user_input)"
 
+
+
+def test_api_vertex_reentry_endpoint(client: TestClient):
+    """Test /api/sessions/{session_id}/graph/vertices/{name}/reenter REST endpoint."""
+    session_id = "api_reenter_sess"
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "a", "content": "c1", "state": "data ready"})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "b", "content": "c2", "state": "data ready"})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "c", "content": "c3", "state": "data ready"})
+    client.post(f"/api/sessions/{session_id}/graph/edges", json={"id": "e1", "type": "code", "input_vertex": "a", "output_vertex": "b"})
+    client.post(f"/api/sessions/{session_id}/graph/edges", json={"id": "e2", "type": "code", "input_vertex": "b", "output_vertex": "c"})
+
+    # Trigger re-entry of b with new content
+    res = client.post(
+        f"/api/sessions/{session_id}/graph/vertices/b/reenter",
+        json={"new_content": "new_b_content", "reset_state": "todo"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "reentered"
+    assert data["reentered_vertex"] == "b"
+    assert "c" in data["affected_downstream_vertices"]
+
+    # Verify updated DB states
+    res_b = client.get(f"/api/db/sessions/{session_id}/vertices")
+    v_map = {item["name"]: item for item in res_b.json()}
+    assert v_map["b"]["content"] == "new_b_content"
+    assert v_map["b"]["state"] == "data ready"
+    assert v_map["c"]["state"] == "todo"
+    assert v_map["a"]["state"] == "data ready"
+
+
+def test_api_edge_reconnect_endpoint(client: TestClient):
+    """Test /api/sessions/{session_id}/graph/edges/{edge_id}/reconnect REST endpoint."""
+    session_id = "api_reconnect_sess"
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "n1"})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "n2"})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "n3"})
+    client.post(f"/api/sessions/{session_id}/graph/edges", json={"id": "e_rec", "type": "code", "input_vertex": "n1", "output_vertex": "n2"})
+
+    # Reconnect e_rec to output to n3
+    res = client.patch(
+        f"/api/sessions/{session_id}/graph/edges/e_rec/reconnect",
+        json={"new_output_vertex": "n3"}
+    )
+    assert res.status_code == 200
+    assert res.json()["status"] == "reconnected"
+
+    graph_res = client.get(f"/api/sessions/{session_id}/graph")
+    edge_rec = graph_res.json()["edges"]["e_rec"]
+    assert edge_rec["output_vertex"] == "n3"
+
+
+def test_api_subgraph_splice_endpoint(client: TestClient):
+    """Test /api/sessions/{session_id}/graph/subgraphs/splice REST endpoint."""
+    session_id = "api_splice_sess"
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "src", "attributes": ["start"]})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "placeholder"})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "dst", "attributes": ["end"]})
+    client.post(f"/api/sessions/{session_id}/graph/edges", json={"id": "e1", "type": "code", "input_vertex": "src", "output_vertex": "placeholder"})
+    client.post(f"/api/sessions/{session_id}/graph/edges", json={"id": "e2", "type": "code", "input_vertex": "placeholder", "output_vertex": "dst"})
+
+    subgraph_data = {
+        "vertices": [
+            {"name": "sub_in", "attributes": ["start"], "state": "todo"},
+            {"name": "sub_out", "attributes": ["end"], "state": "todo"}
+        ],
+        "edges": [
+            {"id": "e_internal", "type": "code", "input_vertex": "sub_in", "output_vertex": "sub_out"}
+        ]
+    }
+
+    res = client.post(
+        f"/api/sessions/{session_id}/graph/subgraphs/splice",
+        json={
+            "target_vertex": "placeholder",
+            "subgraph_data": subgraph_data,
+            "name_prefix": "pfx"
+        }
+    )
+    assert res.status_code == 200
+    assert res.json()["status"] == "spliced"
+
+    # Verify placeholder is gone and replaced by pfx_sub_in and pfx_sub_out
+    g_res = client.get(f"/api/sessions/{session_id}/graph")
+    v_dict = g_res.json()["vertices"]
+    assert "placeholder" not in v_dict
+    assert "pfx_sub_in" in v_dict
+    assert "pfx_sub_out" in v_dict
+    assert g_res.json()["valid"] is True
+
+
+def test_api_graph_loaded_nodes_and_relationships(client: TestClient):
+    """Test REST API inspection of loaded nodes and graph relationships."""
+    session_id = "test_api_rel_sess"
+
+    # Add vertices: n1 -> n2 -> n3
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "n1", "state": "data ready"})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "n2", "state": "todo"})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "n3", "state": "todo"})
+
+    # Add edges
+    client.post(f"/api/sessions/{session_id}/graph/edges", json={"id": "e12", "type": "code", "input_vertex": "n1", "output_vertex": "n2"})
+    client.post(f"/api/sessions/{session_id}/graph/edges", json={"id": "e23", "type": "code", "input_vertex": "n2", "output_vertex": "n3"})
+
+    # 1. Test GET loaded nodes
+    nodes_res = client.get(f"/api/sessions/{session_id}/graph/nodes")
+    assert nodes_res.status_code == 200
+    nodes_data = nodes_res.json()
+    assert nodes_data["total"] == 3
+    node_names = [n["name"] for n in nodes_data["nodes"]]
+    assert set(node_names) == {"n1", "n2", "n3"}
+
+    # 2. Test GET single node relationship
+    n2_res = client.get(f"/api/sessions/{session_id}/graph/nodes/n2/relationships")
+    assert n2_res.status_code == 200
+    n2_data = n2_res.json()
+    assert n2_data["predecessors"] == ["n1"]
+    assert n2_data["successors"] == ["n3"]
+    assert n2_data["in_degree"] == 1
+    assert n2_data["out_degree"] == 1
+
+    # 3. Test GET non-existent node relationship
+    err_res = client.get(f"/api/sessions/{session_id}/graph/nodes/unknown/relationships")
+    assert err_res.status_code == 404
+
+    # 4. Test GET full graph relationships
+    rel_res = client.get(f"/api/sessions/{session_id}/graph/relationships")
+    assert rel_res.status_code == 200
+    rel_data = rel_res.json()
+    assert rel_data["roots"] == ["n1"]
+    assert rel_data["sinks"] == ["n3"]
+    assert rel_data["adjacency_list"]["n1"] == ["n2"]
+    assert rel_data["adjacency_list"]["n2"] == ["n3"]
+

@@ -173,6 +173,7 @@ class SSEExecutorV4:
                             inp_map=_input_map,
                             out_map=_output_map,
                             pv_name=_parent_vertex_name,
+                            session_id=session_id,
                         ) -> str:
                             """Bridge edge that forwards data through a child subgraph."""
                             # 1. Route input into child subgraph
@@ -277,8 +278,8 @@ class SSEExecutorV4:
 
                         try:
                             graph.compute_dag_tiers()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning('Exception ignored: %s', e)
 
                         logger.info("[SSEExecutorV4] Registered subgraph '%s' bridge for vertex '%s'", _sub_session_id, v.name)
 
@@ -387,7 +388,7 @@ class SSEExecutorV4:
 
         if not stream_error_occurred:
             # Final result collection
-            result = executor._result
+            result = executor.result
             final_info = {
                 "event": "workflow_finished",
                 "session_id": sess_id,

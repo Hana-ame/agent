@@ -40,6 +40,11 @@ from .edge_v4 import (
     EdgeV4,
     CodeEdgeV4,
     LLMEdgeV4,
+    MockAgentV4,
+    ChatLLMEdgeV4,
+    GenerateLLMEdgeV4,
+    ProcessLLMEdgeV4,
+    CallableLLMEdgeV4,
     ReflexiveEdgeV4,
     EdgeResultV4,
 )
@@ -47,6 +52,7 @@ from .graph_v4 import (
     GraphV4,
     DiscreteGraphLoaderV4,
     GraphTopologyError,
+    NodeColor,
 )
 from .executor_v4 import (
     ExecutorV4,
@@ -79,8 +85,10 @@ __all__ = [
     # V4 exports
     'VertexStateV4', 'VertexAttributeV4', 'VertexRecordV4', 'VertexV4',
     'StagingRecordV4', 'VertexStoreV4',
-    'EdgeV4', 'CodeEdgeV4', 'LLMEdgeV4', 'ReflexiveEdgeV4', 'EdgeResultV4',
-    'GraphV4', 'DiscreteGraphLoaderV4', 'GraphTopologyError',
+    'EdgeV4', 'CodeEdgeV4', 'LLMEdgeV4', 'MockAgentV4',
+    'ChatLLMEdgeV4', 'GenerateLLMEdgeV4', 'ProcessLLMEdgeV4', 'CallableLLMEdgeV4',
+    'ReflexiveEdgeV4', 'EdgeResultV4',
+    'GraphV4', 'DiscreteGraphLoaderV4', 'GraphTopologyError', 'NodeColor',
     'ExecutorV4', 'OrchestratorV4', 'ExecutionResultV4', 'GraphEventV4',
     'create_v4_server', 'SessionGraphManagerV4',
     'SSEExecutorV4', 'ToolCallEcho',

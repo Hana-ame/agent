@@ -256,3 +256,145 @@ async def test_graph_edge_without_prompt_model_is_passthrough():
     assert result.success
     assert calls == []  # agent never invoked for a data edge
     assert await g.vertices["B"].fetch_data("in") == 5  # passthrough
+
+
+def test_edge_module_standalone_cli_execution():
+    """Verify python -m framework.edge runs standalone successfully via CLI."""
+    import subprocess
+    import sys
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "framework.edge",
+        "--dir",
+        os.path.join(REPO, "examples", "s1_ai_report_map"),
+        "--script",
+        "s1_edges.py:SummarizeEdge",
+        "--data",
+        '{"title": "Thread_A", "url": "https://x", "content": "Reply_content"}',
+        "--skip-compute",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode == 0, f"CLI execution failed with stderr: {proc.stderr}"
+    assert "SummarizeEdge" in proc.stdout
+    assert "ok            : True" in proc.stdout
+
+
+def test_edge_module_standalone_cli_mock_flag():
+    """Verify python -m framework.edge supports --mock flag for offline LLM compute."""
+    import subprocess
+    import sys
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "framework.edge",
+        "--dir",
+        os.path.join(REPO, "examples", "s1_ai_report_map"),
+        "--script",
+        "s1_edges.py:SummarizeEdge",
+        "--data",
+        '{"title": "Thread_Mock", "url": "https://x", "content": "Mock_content"}',
+        "--mock",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode == 0, f"CLI execution with --mock failed: {proc.stderr}"
+    assert "SummarizeEdge" in proc.stdout
+    assert "HttpLLMAgent (mock)" in proc.stdout
+    assert "ok            : True" in proc.stdout
+
+
+def test_edge_v1_from_config_and_file(tmp_path):
+    """Verify V1 Edge instantiates correctly from JSON file and dict."""
+    import json
+    from framework.edge import Edge
+
+    # From dict
+    edge_dict = {
+        "id": "edge_cfg_dict",
+        "source": "A",
+        "destination": "B",
+        "channel": "ch1",
+        "settings": {"model": "custom-v1-model"},
+    }
+    e1 = Edge.from_config(edge_dict)
+    assert e1.id == "edge_cfg_dict"
+    assert e1.source_id == "A"
+    assert e1.destination_id == "B"
+    assert e1.channel == "ch1"
+    assert e1.model == "custom-v1-model"
+
+    # From file
+    json_path = tmp_path / "edge_v1.json"
+    json_path.write_text(json.dumps({
+        "id": "edge_cfg_file",
+        "source": "src_node",
+        "destination": "dst_node",
+        "settings": {"prompt": "Analyze: {input}"},
+    }), encoding="utf-8")
+    e2 = Edge.from_config_file(json_path)
+    assert e2.id == "edge_cfg_file"
+    assert e2.source_id == "src_node"
+    assert e2.destination_id == "dst_node"
+
+
+def test_edge_v1_cli_driven_by_json_config(tmp_path):
+    """Verify framework/edge.py execution driven by a single JSON config file."""
+    import subprocess
+    import sys
+    import json
+
+    edge_script = os.path.join(REPO, "framework", "edge.py")
+    cfg_file = tmp_path / "edge_driver_cfg.json"
+    cfg_file.write_text(json.dumps({
+        "dir": os.path.join(REPO, "examples", "hn_ai_report"),
+        "script": "hn_edges.py:SummarizeEdge",
+        "data": {"title": "Title from JSON driver"},
+        "mock": True,
+    }), encoding="utf-8")
+
+    cmd = [
+        sys.executable,
+        edge_script,
+        "--config",
+        str(cfg_file),
+    ]
+    proc = subprocess.run(cmd, cwd=str(tmp_path), capture_output=True, text=True)
+    assert proc.returncode == 0, f"CLI with --config failed: {proc.stderr}"
+    assert "SummarizeEdge" in proc.stdout
+    assert "HttpLLMAgent (mock)" in proc.stdout
+    assert "Title from JSON driver" in proc.stdout
+    assert "ok            : True" in proc.stdout
+
+
+def test_edge_v1_cli_json_config_override(tmp_path):
+    """Verify CLI arguments override values in JSON config file."""
+    import subprocess
+    import sys
+    import json
+
+    edge_script = os.path.join(REPO, "framework", "edge.py")
+    cfg_file = tmp_path / "edge_base_cfg.json"
+    cfg_file.write_text(json.dumps({
+        "dir": os.path.join(REPO, "examples", "hn_ai_report"),
+        "script": "hn_edges.py:SummarizeEdge",
+        "data": {"title": "Original Title"},
+        "mock": True,
+    }), encoding="utf-8")
+
+    cmd = [
+        sys.executable,
+        edge_script,
+        "--config",
+        str(cfg_file),
+        "--data",
+        '{"title": "CLI Overridden Title"}',
+    ]
+    proc = subprocess.run(cmd, cwd=str(tmp_path), capture_output=True, text=True)
+    assert proc.returncode == 0, f"CLI override failed: {proc.stderr}"
+    assert "CLI Overridden Title" in proc.stdout
+    assert "ok            : True" in proc.stdout
+
+
+

@@ -20,13 +20,17 @@ unique subclass) or ``"path/to/script.py:ClassName"`` (explicit).
 import importlib.util
 import logging
 import os
+import sys
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("vertex_edge_agent.script_loader")
 
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+
 
 def load_script(script_path: str, script_name: Optional[str] = None):
-    """Load a Python script as a module.
+    """Load a Python script as a module from any working directory.
 
     Args:
         script_path:  Absolute or relative path to the ``.py`` file.
@@ -39,10 +43,23 @@ def load_script(script_path: str, script_name: Optional[str] = None):
         FileNotFoundError: Script does not exist.
         ImportError:       Script cannot be loaded / executed.
     """
+    # Resolve path: if relative and doesn't exist in current working dir, check repo root
+    if not os.path.isabs(script_path) and not os.path.exists(script_path):
+        repo_candidate = os.path.join(_REPO_ROOT, script_path)
+        if os.path.exists(repo_candidate):
+            script_path = repo_candidate
+
     script_path = os.path.abspath(script_path)
 
     if not os.path.exists(script_path):
         raise FileNotFoundError(f"Script not found: {script_path}")
+
+    # Ensure script directory and repository root are in sys.path
+    script_dir = os.path.dirname(script_path)
+    if script_dir and script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
 
     if script_name is None:
         script_name = os.path.splitext(os.path.basename(script_path))[0]
