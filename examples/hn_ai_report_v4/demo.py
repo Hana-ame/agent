@@ -124,15 +124,15 @@ async def run() -> str:
         "metadata": {"name": "HN AI Report V4"},
     })
 
-    # Apply overrides to edge settings
+    # Apply CLI overrides to edge settings (CLI > config)
     for edge in graph.edges.values():
         if hasattr(edge, "settings"):
-            if args.limit:
-                edge.settings.setdefault("limit", args.limit)
-            if args.concurrency:
-                edge.settings.setdefault("max_conc", args.concurrency)
+            if args.limit and args.limit != 30:  # 30 is config default
+                edge.settings["limit"] = args.limit
+            if args.concurrency and args.concurrency != 1:  # 1 is config default
+                edge.settings["max_conc"] = args.concurrency
             if args.proxy:
-                edge.settings.setdefault("proxy", args.proxy)
+                edge.settings["proxy"] = args.proxy
 
     # Create LLM agent — SenseNova free tier needs no API key
     api_key = os.environ.get("SENSENOVA_API_KEY", "") or None
