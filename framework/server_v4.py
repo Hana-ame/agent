@@ -108,6 +108,17 @@ class SubgraphInsertRequest(BaseModel):
     name_prefix: Optional[str] = Field(default=None, description="Prefix for inserted subgraph entities")
 
 
+class SubgraphAddRequest(BaseModel):
+    subgraph_manifest: Optional[str] = Field(default=None, description="Path to subgraph manifest JSON file")
+    subgraph_data: Optional[Dict[str, Any]] = Field(default=None, description="In-memory subgraph definition")
+    name_prefix: Optional[str] = Field(default=None, description="Prefix for added subgraph entities")
+    connections: Optional[List[Dict[str, Any]]] = Field(default=None, description="Explicit connections between parent and subgraph")
+    incoming_bindings: Optional[Dict[str, str]] = Field(default=None, description="{parent_vertex: sub_entry}")
+    outgoing_bindings: Optional[Dict[str, str]] = Field(default=None, description="{sub_exit: parent_vertex}")
+    source: Optional[str] = Field(default=None, description="Provenance source identifier for loaded nodes")
+
+
+
 # ---------------------------------------------------------------------------
 # Session Graph Manager
 # ---------------------------------------------------------------------------
@@ -166,6 +177,25 @@ class SessionGraphManagerV4:
         )
         graph.add_vertex(db_record)
         return db_record
+
+    def add_vertex(
+        self,
+        session_id: str,
+        name: str,
+        content: str = "",
+        attributes: Optional[List[str]] = None,
+        state: str = VertexStateV4.IDLE.value,
+        processed_count: int = 0,
+    ) -> VertexRecordV4:
+        """Add or update a vertex record in session graph and SQLite store."""
+        return self.add_or_update_vertex(
+            session_id=session_id,
+            name=name,
+            content=content,
+            attributes=attributes,
+            state=state,
+            processed_count=processed_count,
+        )
 
     def delete_vertex(self, session_id: str, name: str) -> bool:
         """Delete vertex from graph and database, cleaning up connected edges in memory and SQLite."""
@@ -474,6 +504,58 @@ class SessionGraphManagerV4:
 
         return res
 
+    def add_subgraph(
+        self,
+        session_id: str,
+        subgraph: GraphV4,
+        name_prefix: Optional[str] = None,
+        connections: Optional[List[Dict[str, Any]]] = None,
+        incoming_bindings: Optional[Dict[str, str]] = None,
+        outgoing_bindings: Optional[Dict[str, str]] = None,
+        source: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Add and join an arbitrary subgraph into session graph, fully synchronized with SQLite."""
+        graph = self.get_or_create_graph(session_id)
+        res = graph.add_subgraph(
+            subgraph=subgraph,
+            name_prefix=name_prefix,
+            connections=connections,
+            incoming_bindings=incoming_bindings,
+            outgoing_bindings=outgoing_bindings,
+            source=source,
+        )
+
+        for v_name in res["added_vertices"]:
+            v = graph.get_vertex(v_name)
+            if v:
+                db_v = self.store.save_vertex(
+                    session_id=session_id,
+                    name=v.name,
+                    content=v.content,
+                    attributes=v.attributes,
+                    state=v.state,
+                    processed_count=v.processed_count,
+                )
+                v.id = db_v.id
+
+        for e_id in res["added_edges"]:
+            e = graph.get_edge(e_id)
+            if e:
+                self.store.save_edge(
+                    session_id=session_id,
+                    edge_id=e.id,
+                    edge_type=e.type,
+                    input_vertex=e.input_vertex,
+                    output_vertex=e.output_vertex,
+                    script=getattr(e, "script", None) if isinstance(getattr(e, "script", None), str) else None,
+                    trigger_state=getattr(e, "trigger_state", None),
+                    target_state=getattr(e, "target_state", None),
+                    max_retries=getattr(e, "max_retries", 3),
+                    settings=e.settings,
+                )
+
+        return res
+
     def validate_graph(self, session_id: str) -> Dict[str, Any]:
         """Validate DAG constraints and return edge tiers."""
         graph = self.get_or_create_graph(session_id)
@@ -507,6 +589,11 @@ class SessionGraphManagerV4:
         """Retrieve complete relationship matrix and topology summary for a session."""
         graph = self.get_or_create_graph(session_id)
         return graph.get_graph_relationships()
+
+    def dump_graph(self, session_id: str, path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
+        """Dump complete graph structure, components, and relationships for a session."""
+        graph = self.get_or_create_graph(session_id)
+        return graph.dump(path=path)
 
     def register_event_queue(self, session_id: str, q: asyncio.Queue) -> None:
         """Register an SSE broadcast subscriber queue for a session."""
@@ -1253,6 +1340,20 @@ def create_v4_server(
         """Retrieve full graph relationship matrix, adjacency lists, and roots/sinks."""
         return manager.get_graph_relationships(session_id)
 
+    @app.get("/api/sessions/{session_id}/graph/dump")
+    @app.post("/api/sessions/{session_id}/graph/dump")
+    async def dump_session_graph(
+        session_id: str,
+        path: Optional[str] = Query(default=None, description="Optional filesystem path to dump JSON"),
+        payload: Optional[Dict[str, Any]] = Body(default=None),
+    ) -> Dict[str, Any]:
+        """Dump complete session graph structure and component metadata."""
+        target_path = path
+        if not target_path and payload and isinstance(payload, dict):
+            target_path = payload.get("path")
+        dumped = manager.dump_graph(session_id, path=target_path)
+        return {"status": "dumped", "session_id": session_id, "graph": dumped}
+
     @app.post("/api/sessions/{session_id}/graph/vertices")
     async def create_or_update_vertex(
         session_id: str,
@@ -1460,6 +1561,33 @@ def create_v4_server(
             name_prefix=req.name_prefix,
         )
         return {"status": "inserted", "result": result}
+
+    @app.post("/api/sessions/{session_id}/graph/subgraphs/add")
+    @app.post("/api/sessions/{session_id}/graph/subgraphs")
+    async def add_subgraph_route(
+        session_id: str,
+        req: SubgraphAddRequest,
+    ) -> Dict[str, Any]:
+        """Add and join an arbitrary subgraph into session graph with optional prefix, connections, and bindings."""
+        subgraph: GraphV4
+        if req.subgraph_manifest:
+            subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
+        elif req.subgraph_data:
+            subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
+        else:
+            raise HTTPException(400, "Either subgraph_manifest or subgraph_data must be provided")
+
+        result = manager.add_subgraph(
+            session_id=session_id,
+            subgraph=subgraph,
+            name_prefix=req.name_prefix,
+            connections=req.connections,
+            incoming_bindings=req.incoming_bindings,
+            outgoing_bindings=req.outgoing_bindings,
+            source=req.source,
+        )
+        return {"status": "added", "result": result}
+
 
     # -----------------------------------------------------------------------
     # SSE Executor with Session Routing & Harness Tool Call Echo

@@ -73,22 +73,61 @@ class GraphV4:
 
     def add_vertex(
         self,
-        vertex: VertexRecordV4,
+        vertex: Union[VertexRecordV4, Dict[str, Any], str],
         source: str = "memory",
         metadata: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Register a vertex record in the graph with provenance metadata."""
-        self.vertices[vertex.name] = vertex
+        content: str = "",
+        attributes: Optional[List[str]] = None,
+        state: Optional[Union[VertexStateV4, str]] = None,
+        processed_count: int = 0,
+        **kwargs: Any,
+    ) -> VertexRecordV4:
+        """Register a vertex record in the graph with provenance metadata.
+
+        Supports VertexRecordV4 instances, configuration dicts, or vertex names.
+        """
+        if isinstance(vertex, VertexRecordV4):
+            v_record = vertex
+        elif isinstance(vertex, dict):
+            raw_state = vertex.get("state", state or VertexStateV4.IDLE.value)
+            st_val = raw_state.value if isinstance(raw_state, VertexStateV4) else str(raw_state)
+            v_record = VertexRecordV4(
+                id=int(vertex.get("id", 0)),
+                session_id=str(vertex.get("session_id", self.session_id)),
+                name=str(vertex["name"]),
+                content=str(vertex.get("content", content)),
+                attributes=list(vertex.get("attributes", attributes or [])),
+                state=st_val,
+                processed_count=int(vertex.get("processed_count", processed_count)),
+            )
+            metadata = metadata or vertex.get("metadata")
+            source = vertex.get("source", source)
+        elif isinstance(vertex, str):
+            st_val = state.value if isinstance(state, VertexStateV4) else (str(state) if state else VertexStateV4.IDLE.value)
+            v_record = VertexRecordV4(
+                id=0,
+                session_id=self.session_id,
+                name=vertex,
+                content=content,
+                attributes=list(attributes or []),
+                state=st_val,
+                processed_count=processed_count,
+            )
+        else:
+            raise TypeError(f"Unsupported vertex type: {type(vertex).__name__}")
+
+        self.vertices[v_record.name] = v_record
         now = datetime.now(timezone.utc).isoformat()
-        self.loaded_nodes[vertex.name] = {
-            "name": vertex.name,
-            "session_id": vertex.session_id,
+        self.loaded_nodes[v_record.name] = {
+            "name": v_record.name,
+            "session_id": v_record.session_id,
             "source": source,
             "loaded_at": now,
-            "state": vertex.state,
-            "attributes": list(vertex.attributes),
+            "state": v_record.state,
+            "attributes": list(v_record.attributes),
             "metadata": dict(metadata or {}),
         }
+        return v_record
 
     def get_loaded_node(self, name: str) -> Optional[Dict[str, Any]]:
         """Retrieve tracking metadata for a loaded vertex."""
@@ -122,9 +161,51 @@ class GraphV4:
         return res
 
 
-    def add_edge(self, edge: EdgeV4) -> None:
-        """Register an edge in the graph."""
-        self.edges[edge.id] = edge
+    def add_edge(
+        self,
+        edge: Optional[Union[EdgeV4, Dict[str, Any], str]] = None,
+        *,
+        edge_id: Optional[str] = None,
+        input_vertex: Optional[str] = None,
+        output_vertex: Optional[str] = None,
+        edge_type: str = "code",
+        script: Optional[str] = None,
+        trigger_state: Optional[str] = None,
+        target_state: Optional[str] = None,
+        max_retries: int = 3,
+        settings: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> EdgeV4:
+        """Register an edge in the graph.
+
+        Supports EdgeV4 instances, configuration dicts, edge IDs with keyword args,
+        or pure keyword arguments.
+        """
+        if isinstance(edge, EdgeV4):
+            edge_obj = edge
+        elif isinstance(edge, dict):
+            edge_obj = EdgeV4.from_config(edge)
+        else:
+            eid = edge if isinstance(edge, str) else (edge_id or f"edge_{input_vertex}_{output_vertex}")
+            cfg: Dict[str, Any] = {
+                "id": eid,
+                "type": edge_type,
+                "input_vertex": input_vertex,
+                "output_vertex": output_vertex,
+                "max_retries": max_retries,
+                "settings": dict(settings or {}),
+            }
+            if script:
+                cfg["script"] = script
+            if trigger_state:
+                cfg["trigger_state"] = trigger_state
+            if target_state:
+                cfg["target_state"] = target_state
+            cfg.update(kwargs)
+            edge_obj = EdgeV4.from_config(cfg)
+
+        self.edges[edge_obj.id] = edge_obj
+        return edge_obj
 
     def get_vertex(self, name: str) -> Optional[VertexRecordV4]:
         """Retrieve vertex definition by name."""
@@ -462,6 +543,64 @@ class GraphV4:
             "edges": edge_list,
         }
 
+    @property
+    def is_valid(self) -> bool:
+        """Check if graph references and bindings are structurally valid."""
+        try:
+            self.validate(strict_dag=False)
+            return True
+        except Exception:
+            return False
+
+    @property
+    def has_cycle(self) -> bool:
+        """Check if forward edges in graph contain a cycle."""
+        try:
+            self.detect_cycles_and_order(strict_dag=True)
+            return False
+        except Exception:
+            return True
+
+    def dump(
+        self,
+        path: Optional[Union[str, Path]] = None,
+        indent: int = 2,
+    ) -> Dict[str, Any]:
+        """Serialize complete graph structure, components, and topology relationships.
+
+        Args:
+            path: Optional filesystem path to dump JSON representation.
+            indent: JSON indentation spacing if path is provided.
+
+        Returns:
+            Dict containing serialized graph state.
+        """
+        valid = self.is_valid
+        cycle = self.has_cycle
+        data: Dict[str, Any] = {
+            "version": "4.0",
+            "session_id": self.session_id,
+            "name": self.name,
+            "metadata": dict(self.metadata),
+            "vertices": [v.to_dict() for v in self.vertices.values()],
+            "edges": [e.to_dict() for e in self.edges.values()],
+            "loaded_nodes": self.list_loaded_nodes(),
+            "edge_tiers": dict(self.edge_tiers),
+            "is_valid": valid,
+            "has_cycle": cycle,
+            "relationships": self.get_graph_relationships(),
+        }
+        if path:
+            out_path = Path(path).resolve()
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=indent)
+        return data
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return complete dictionary representation of the graph."""
+        return self.dump()
+
 
     def reset_affected_vertices(
         self,
@@ -733,6 +872,145 @@ class GraphV4:
             "inserted_edges": inserted_edges,
             "incoming_bindings": incoming_bindings or {},
             "outgoing_bindings": outgoing_bindings or {},
+        }
+
+    def add_subgraph(
+        self,
+        subgraph: Union[GraphV4, Dict[str, Any], str, Path],
+        name_prefix: Optional[str] = None,
+        connections: Optional[List[Dict[str, Any]]] = None,
+        incoming_bindings: Optional[Dict[str, str]] = None,
+        outgoing_bindings: Optional[Dict[str, str]] = None,
+        source: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Add and join a sub-graph into this graph.
+
+        Merges all vertices and edges from subgraph into self:
+        - Prefix is applied to subgraph vertex names if specified to avoid collision.
+        - Provenance is recorded in loaded_nodes.
+        - Optional boundary connections or bindings bridge parent and sub-graph nodes.
+        - Revalidates endpoints and computes tiers softly.
+
+        Args:
+            subgraph: GraphV4 instance, dict definition, or manifest path.
+            name_prefix: Optional prefix for vertex and edge names.
+            connections: Explicit edge connections between parent and sub-graph.
+            incoming_bindings: Map of parent_vertex -> sub_vertex (creates bridge edge).
+            outgoing_bindings: Map of sub_vertex -> parent_vertex (creates bridge edge).
+            source: Source identifier for loaded_nodes tracking.
+
+        Returns:
+            Dict with added_vertices, added_edges, and name_mapping.
+        """
+        if isinstance(subgraph, (str, Path)):
+            subgraph_obj = DiscreteGraphLoaderV4.load_from_manifest(subgraph)
+        elif isinstance(subgraph, dict):
+            subgraph_obj = DiscreteGraphLoaderV4.load_from_dict(subgraph)
+        elif isinstance(subgraph, GraphV4):
+            subgraph_obj = subgraph
+        else:
+            raise TypeError(f"Unsupported subgraph type: {type(subgraph).__name__}")
+
+        prefix = f"{name_prefix}_" if name_prefix else ""
+        name_map: Dict[str, str] = {
+            old_v: f"{prefix}{old_v}" if prefix else old_v
+            for old_v in subgraph_obj.vertices
+        }
+
+
+        # Validate no unintentional vertex collisions
+        for old_v, new_v in name_map.items():
+            if new_v in self.vertices:
+                raise ValueError(
+                    f"Subgraph vertex '{new_v}' collides with existing vertex in graph. Provide a distinct name_prefix."
+                )
+
+        # 1. Add vertices with provenance
+        added_vertices: List[str] = []
+        node_source = source or f"subgraph:{subgraph_obj.name}"
+        for old_name, v in subgraph_obj.vertices.items():
+            new_name = name_map[old_name]
+            cloned_v = VertexRecordV4(
+                id=0,
+                session_id=self.session_id,
+                name=new_name,
+                content=v.content,
+                attributes=list(v.attributes),
+                state=v.state,
+                processed_count=v.processed_count,
+            )
+            self.add_vertex(cloned_v, source=node_source)
+            added_vertices.append(new_name)
+
+        # 2. Add internal edges
+        added_edges: List[str] = []
+        for e in subgraph_obj.edges.values():
+            e_cfg = e.to_dict()
+            new_eid = f"{prefix}{e.id}" if prefix else e.id
+            if new_eid in self.edges:
+                new_eid = f"{new_eid}_sub_{subgraph_obj.session_id}"
+            e_cfg["id"] = new_eid
+            e_cfg["input_vertex"] = name_map.get(e.input_vertex, e.input_vertex)
+            e_cfg["output_vertex"] = name_map.get(e.output_vertex, e.output_vertex)
+            cloned_edge = EdgeV4.from_config(e_cfg)
+            self.add_edge(cloned_edge)
+            added_edges.append(cloned_edge.id)
+
+        # 3. Add incoming bindings
+        for parent_v, sub_v in (incoming_bindings or {}).items():
+            mapped_sub = name_map.get(sub_v, sub_v)
+            bridge_id = f"bridge_in_{parent_v}_{mapped_sub}"
+            bridge_edge = CodeEdgeV4(edge_id=bridge_id, input_vertex=parent_v, output_vertex=mapped_sub)
+            self.add_edge(bridge_edge)
+            added_edges.append(bridge_id)
+
+        # 4. Add outgoing bindings
+        for sub_v, parent_v in (outgoing_bindings or {}).items():
+            mapped_sub = name_map.get(sub_v, sub_v)
+            bridge_id = f"bridge_out_{mapped_sub}_{parent_v}"
+            bridge_edge = CodeEdgeV4(edge_id=bridge_id, input_vertex=mapped_sub, output_vertex=parent_v)
+            self.add_edge(bridge_edge)
+            added_edges.append(bridge_id)
+
+        # 5. Add explicit connections
+        for conn in (connections or []):
+            c_from = conn.get("from") or conn.get("input_vertex") or conn.get("source")
+            c_to = conn.get("to") or conn.get("output_vertex") or conn.get("target")
+            if not c_from or not c_to:
+                continue
+            mapped_from = name_map.get(c_from, c_from)
+            mapped_to = name_map.get(c_to, c_to)
+            c_type = conn.get("type", "code")
+            c_id = conn.get("edge_id") or conn.get("id") or f"conn_{mapped_from}_{mapped_to}"
+            if c_type == "reflexive":
+                conn_edge: EdgeV4 = ReflexiveEdgeV4(
+                    edge_id=c_id,
+                    vertex_name=mapped_from,
+                    trigger_state=conn.get("trigger_state", VertexStateV4.REJECT.value),
+                    target_state=conn.get("target_state", VertexStateV4.TODO_URGENT.value),
+                    script=conn.get("script"),
+                    settings=conn.get("settings", {}),
+                )
+            else:
+                conn_edge = CodeEdgeV4(
+                    edge_id=c_id,
+                    input_vertex=mapped_from,
+                    output_vertex=mapped_to,
+                    script=conn.get("script"),
+                    settings=conn.get("settings", {}),
+                )
+            self.add_edge(conn_edge)
+            added_edges.append(conn_edge.id)
+
+        # 6. Revalidate softly
+        self.validate(strict_dag=False)
+
+        return {
+            "subgraph_name": subgraph_obj.name,
+            "name_prefix": name_prefix,
+            "added_vertices": added_vertices,
+            "added_edges": added_edges,
+            "name_mapping": name_map,
         }
 
     def detect_cycles_and_order(self, strict_dag: bool = True) -> List[str]:
