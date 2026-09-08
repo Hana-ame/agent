@@ -348,6 +348,7 @@ class EdgeV4:
             if issubclass(target_cls, LLMEdgeV4):
                 model = data.get("model") or settings.get("model", "sensenova-6.8-flash-lite")
                 prompt_template = data.get("prompt_template") or data.get("prompt") or settings.get("prompt")
+                agent_mode = data.get("agent_mode") or settings.get("agent_mode")
                 return target_cls(
                     edge_id=edge_id,
                     input_vertex=str(in_v),
@@ -359,6 +360,7 @@ class EdgeV4:
                     concurrency_group=concurrency_group,
                     priority=priority,
                     timeout=timeout,
+                    agent_mode=agent_mode,
                 )
             else:
                 return CodeEdgeV4(
