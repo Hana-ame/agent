@@ -204,7 +204,7 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
         self,
         base_url: str,
         api_key: Optional[str] = None,
-        max_retries: int = 3,
+        max_retries: int = 20,
         timeout: float = 300.0,
         extra_headers: Optional[Dict[str, str]] = None,
         default_model: Optional[str] = None,
@@ -399,8 +399,12 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
             wait_exponential,
         )
 
+        effective_retries = int((settings or {}).get("max_retries", self.max_retries))
+        if effective_retries < 1:
+            effective_retries = 1
+
         @retry(
-            stop=stop_after_attempt(self.max_retries),
+            stop=stop_after_attempt(effective_retries),
             wait=wait_exponential(multiplier=1, min=2, max=10),
             retry=retry_if_exception_type(
                 (httpx.RequestError, httpx.HTTPStatusError, MalformedResponseError)
@@ -494,43 +498,89 @@ class _HTTPAgentBase(_Throttling, BaseAgent):
             return
         """Yield content deltas from the OpenAI SSE stream.
 
-        Streams are not retried (a partial stream is not replayable); a
-        non-2xx handshake raises :class:`NonRetryableHTTPError` instead.
+        Transient connection/handshake failures (e.g. 429, 5xx, network errors)
+        are retried up to max_retries attempts before yielding any data.
         """
+        import httpx
+
         await self._apply_settings_proxy(settings)
         payload = self.build_payload(data, prompt, model, settings, stream=True)
-        try:
-            async with self._concurrency_gate():
-                client = self._client_for(settings)
-                async with client.stream(
-                    "POST",
-                    self._endpoint_url(settings),
-                    json=payload,
-                    headers=self.headers,
-                ) as response:
-                    if response.status_code >= 400:
-                        body = (await response.aread()).decode("utf-8", "replace")
-                        raise NonRetryableHTTPError(response.status_code, body)
+        retries = int((settings or {}).get("max_retries", self.max_retries))
+        if retries < 1:
+            retries = 1
 
-                    async for line in response.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue  # keep-alives, comments, other SSE events
-                        body = line[5:].strip()
-                        if body == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(body)
-                        except json.JSONDecodeError:
-                            continue
-                        choices = chunk.get("choices") or []
-                        if not choices:
-                            continue  # usage-only / ping frames
-                        delta = (choices[0].get("delta") or {}).get("content")
-                        if delta:
-                            yield delta
-        except Exception as exc:
-            logger.error("[%s] Stream failed: %s", self.NAME, exc, exc_info=True)
-            raise
+        client = self._client_for(settings)
+        url = self._endpoint_url(settings)
+        has_yielded = False
+
+        for attempt in range(1, retries + 1):
+            retry_delay: Optional[float] = None
+            try:
+                await self._acquire_budget()
+                async with self._concurrency_gate():
+                    async with client.stream(
+                        "POST",
+                        url,
+                        json=payload,
+                        headers=self.headers,
+                    ) as response:
+                        if response.status_code >= 400:
+                            body = (await response.aread()).decode("utf-8", "replace")
+                            if response.status_code in RETRYABLE_STATUS and attempt < retries:
+                                delay = min(10.0, 1.0 * (1.5 ** (attempt - 1)))
+                                retry_after = response.headers.get("retry-after")
+                                if retry_after:
+                                    try:
+                                        delay = max(delay, float(retry_after))
+                                    except (ValueError, TypeError):
+                                        pass
+                                logger.warning(
+                                    "[%s] Stream handshake HTTP %d (attempt %d/%d), retrying in %.2fs: %s",
+                                    self.NAME, response.status_code, attempt, retries, delay, body[:200],
+                                )
+                                retry_delay = delay
+                            else:
+                                raise NonRetryableHTTPError(response.status_code, body)
+
+                        if retry_delay is None:
+                            async for line in response.aiter_lines():
+                                if not line.startswith("data:"):
+                                    continue  # keep-alives, comments, other SSE events
+                                body = line[5:].strip()
+                                if body == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(body)
+                                except json.JSONDecodeError:
+                                    continue
+                                choices = chunk.get("choices") or []
+                                if not choices:
+                                    continue  # usage-only / ping frames
+                                delta = (choices[0].get("delta") or {}).get("content")
+                                if delta:
+                                    has_yielded = True
+                                    yield delta
+
+                if retry_delay is not None:
+                    await asyncio.sleep(retry_delay)
+                    continue
+                return
+            except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+                if not has_yielded and attempt < retries:
+                    delay = min(10.0, 1.0 * (1.5 ** (attempt - 1)))
+                    logger.warning(
+                        "[%s] Stream connection error %s (attempt %d/%d), retrying in %.2fs",
+                        self.NAME, exc, attempt, retries, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error("[%s] Stream failed: %s", self.NAME, exc, exc_info=True)
+                raise
+            except NonRetryableHTTPError:
+                raise
+            except Exception as exc:
+                logger.error("[%s] Stream failed: %s", self.NAME, exc, exc_info=True)
+                raise
 
     # ------------------------------------------------------------------
     # Lifecycle

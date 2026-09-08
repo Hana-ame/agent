@@ -33,6 +33,8 @@ from .vertex_v4 import (
     VertexRecordV4,
     VertexV4,
     EdgeRecordV4,
+    EdgeMetricRecordV4,
+    EdgeMetricV4,
     StagingRecordV4,
     VertexStoreV4,
     MergeStrategyV4,
@@ -40,6 +42,8 @@ from .vertex_v4 import (
 from .edge_v4 import (
     EdgeV4,
     CodeEdgeV4,
+    ToolEdgeV4,
+    LLMToolEdgeV4,
     LLMEdgeV4,
     MockAgentV4,
     ChatLLMEdgeV4,
@@ -76,6 +80,9 @@ from .sse_executor_v4 import (
     SSEExecutorV4,
     ToolCallEcho,
 )
+from .http_executor_v4 import (
+    HttpHarnessExecutorV4,
+)
 
 __all__ = [
     'VertexState', 'Vertex', 'EdgeSignal', 'DataRejectedError',
@@ -92,14 +99,15 @@ __all__ = [
     'load_script',
     # V4 exports
     'VertexStateV4', 'VertexAttributeV4', 'VertexRecordV4', 'VertexV4',
+    'EdgeRecordV4', 'EdgeMetricRecordV4', 'EdgeMetricV4',
     'StagingRecordV4', 'VertexStoreV4', 'MergeStrategyV4',
-    'EdgeV4', 'CodeEdgeV4', 'LLMEdgeV4', 'MockAgentV4',
+    'EdgeV4', 'CodeEdgeV4', 'ToolEdgeV4', 'LLMToolEdgeV4', 'LLMEdgeV4', 'MockAgentV4',
     'ChatLLMEdgeV4', 'GenerateLLMEdgeV4', 'ProcessLLMEdgeV4', 'CallableLLMEdgeV4',
     'ReflexiveEdgeV4', 'EdgeResultV4', 'SensenovaEdgeV4', 'SenseNovaEdgeV4',
     'GraphV4', 'DiscreteGraphLoaderV4', 'GraphTopologyError', 'NodeColor',
     'ExecutorV4', 'OrchestratorV4', 'ExecutionResultV4', 'GraphEventV4',
     'BaseWorkerQueueV4', 'InMemoryWorkerQueueV4', 'EdgeTaskPayload', 'EdgeTaskResult',
     'create_v4_server', 'SessionGraphManagerV4',
-    'SSEExecutorV4', 'ToolCallEcho',
+    'SSEExecutorV4', 'ToolCallEcho', 'HttpHarnessExecutorV4',
 ]
 

@@ -177,6 +177,47 @@ class EdgeRecordV4:
         }
 
 
+@dataclass
+class EdgeMetricRecordV4:
+    """Represents an edge execution performance and telemetry metric record."""
+
+    id: int
+    session_id: str
+    edge_id: str
+    edge_type: str
+    input_vertex: str
+    output_vertex: str
+    execution_time_ms: float
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float = 0.0
+    success: bool = True
+    error: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    created_at: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize metric record to dictionary representation."""
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "edge_id": self.edge_id,
+            "edge_type": self.edge_type,
+            "input_vertex": self.input_vertex,
+            "output_vertex": self.output_vertex,
+            "execution_time_ms": self.execution_time_ms,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "cost_usd": self.cost_usd,
+            "success": bool(self.success),
+            "error": self.error,
+            "metadata": self.metadata,
+            "created_at": self.created_at,
+        }
+
+
 class VertexStoreV4:
     """SQLite3 key-indexed storage engine for V4 vertices, edges, and session staging."""
 
@@ -306,6 +347,36 @@ class VertexStoreV4:
             )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_edges_session_endpoints ON edges(session_id, input_vertex, output_vertex);"
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS edge_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    edge_id TEXT NOT NULL,
+                    edge_type TEXT NOT NULL,
+                    input_vertex TEXT NOT NULL,
+                    output_vertex TEXT NOT NULL,
+                    execution_time_ms REAL NOT NULL,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_usd REAL NOT NULL DEFAULT 0.0,
+                    success INTEGER NOT NULL DEFAULT 1,
+                    error TEXT,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edge_metrics_session ON edge_metrics(session_id);"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edge_metrics_edge ON edge_metrics(edge_id);"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edge_metrics_session_edge ON edge_metrics(session_id, edge_id);"
             )
 
     # ------------------------------------------------------------------
@@ -607,13 +678,14 @@ class VertexStoreV4:
             return cur.rowcount > 0
 
     def list_sessions(self) -> List[str]:
-        """List distinct session IDs across vertices, edges, and staging tables."""
+        """List distinct session IDs across vertices, edges, staging, and metrics tables."""
         with self._read_lock():
             cur = self._get_connection().cursor()
             cur.execute(
                 "SELECT DISTINCT session_id FROM vertices "
                 "UNION SELECT DISTINCT session_id FROM edges "
-                "UNION SELECT DISTINCT session_id FROM session_staging;"
+                "UNION SELECT DISTINCT session_id FROM session_staging "
+                "UNION SELECT DISTINCT session_id FROM edge_metrics;"
             )
             return sorted([row[0] for row in cur.fetchall()])
 
@@ -627,11 +699,14 @@ class VertexStoreV4:
             total_edges = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM session_staging;")
             total_staging = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM edge_metrics;")
+            total_edge_metrics = cur.fetchone()[0]
             cur.execute(
                 "SELECT COUNT(*) FROM ("
                 "  SELECT DISTINCT session_id FROM vertices "
                 "  UNION SELECT DISTINCT session_id FROM edges "
-                "  UNION SELECT DISTINCT session_id FROM session_staging"
+                "  UNION SELECT DISTINCT session_id FROM session_staging "
+                "  UNION SELECT DISTINCT session_id FROM edge_metrics"
                 ");"
             )
             active_sessions = cur.fetchone()[0]
@@ -639,6 +714,7 @@ class VertexStoreV4:
             "total_vertices": total_vertices,
             "total_edges": total_edges,
             "total_staging": total_staging,
+            "total_edge_metrics": total_edge_metrics,
             "active_sessions": active_sessions,
         }
 
@@ -721,11 +797,182 @@ class VertexStoreV4:
             return self._row_to_staging(row) if row else None
 
     # ------------------------------------------------------------------
+    # Edge Metric Operations
+    # ------------------------------------------------------------------
+
+    def record_edge_metric(
+        self,
+        session_id: str,
+        edge_id: str,
+        edge_type: str,
+        input_vertex: str,
+        output_vertex: str,
+        execution_time_ms: float,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: int = 0,
+        cost_usd: float = 0.0,
+        success: bool = True,
+        error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> EdgeMetricRecordV4:
+        """Record an execution metric entry for an edge hop."""
+        if total_tokens == 0 and (prompt_tokens > 0 or completion_tokens > 0):
+            total_tokens = prompt_tokens + completion_tokens
+        meta_json = json.dumps(metadata or {})
+        now = self._now_iso()
+
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
+            cur.execute(
+                """
+                INSERT INTO edge_metrics (
+                    session_id, edge_id, edge_type, input_vertex, output_vertex,
+                    execution_time_ms, prompt_tokens, completion_tokens, total_tokens,
+                    cost_usd, success, error, metadata, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id, session_id, edge_id, edge_type, input_vertex, output_vertex,
+                          execution_time_ms, prompt_tokens, completion_tokens, total_tokens,
+                          cost_usd, success, error, metadata, created_at;
+                """,
+                (
+                    session_id,
+                    edge_id,
+                    edge_type,
+                    input_vertex,
+                    output_vertex,
+                    float(execution_time_ms),
+                    int(prompt_tokens),
+                    int(completion_tokens),
+                    int(total_tokens),
+                    float(cost_usd),
+                    1 if success else 0,
+                    error,
+                    meta_json,
+                    now,
+                ),
+            )
+            row = cur.fetchone()
+            return self._row_to_metric(row)
+
+    def list_edge_metrics(
+        self,
+        session_id: Optional[str] = None,
+        edge_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[EdgeMetricRecordV4]:
+        """Query edge metric records with optional session and edge filters."""
+        with self._read_lock():
+            clauses: List[str] = []
+            params: List[Any] = []
+            if session_id is not None:
+                clauses.append("session_id = ?")
+                params.append(session_id)
+            if edge_id is not None:
+                clauses.append("edge_id = ?")
+                params.append(edge_id)
+
+            where_str = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+            limit_str = f"LIMIT {int(limit)}" if limit is not None else ""
+            query = f"SELECT * FROM edge_metrics {where_str} ORDER BY id ASC {limit_str};"
+            cur = self._get_connection().cursor()
+            cur.execute(query, params)
+            return [self._row_to_metric(r) for r in cur.fetchall()]
+
+    def get_edge_metrics_summary(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Return aggregate summary metrics across edge executions."""
+        with self._read_lock():
+            clauses: List[str] = []
+            params: List[Any] = []
+            if session_id is not None:
+                clauses.append("session_id = ?")
+                params.append(session_id)
+            where_str = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+            cur = self._get_connection().cursor()
+            cur.execute(
+                f"""
+                SELECT
+                    COUNT(*) as total_executions,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_executions,
+                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed_executions,
+                    COALESCE(SUM(execution_time_ms), 0.0) as total_execution_time_ms,
+                    COALESCE(AVG(execution_time_ms), 0.0) as avg_execution_time_ms,
+                    COALESCE(SUM(prompt_tokens), 0) as total_prompt_tokens,
+                    COALESCE(SUM(completion_tokens), 0) as total_completion_tokens,
+                    COALESCE(SUM(total_tokens), 0) as total_tokens,
+                    COALESCE(SUM(cost_usd), 0.0) as total_cost_usd
+                FROM edge_metrics {where_str};
+                """,
+                params,
+            )
+            overall_row = cur.fetchone()
+
+            total_exec = overall_row["total_executions"] or 0
+            fail_exec = overall_row["failed_executions"] or 0
+            err_rate = (fail_exec / total_exec) if total_exec > 0 else 0.0
+
+            cur.execute(
+                f"""
+                SELECT
+                    edge_id,
+                    edge_type,
+                    COUNT(*) as executions,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_executions,
+                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed_executions,
+                    COALESCE(SUM(execution_time_ms), 0.0) as total_execution_time_ms,
+                    COALESCE(AVG(execution_time_ms), 0.0) as avg_execution_time_ms,
+                    COALESCE(SUM(prompt_tokens), 0) as total_prompt_tokens,
+                    COALESCE(SUM(completion_tokens), 0) as total_completion_tokens,
+                    COALESCE(SUM(total_tokens), 0) as total_tokens,
+                    COALESCE(SUM(cost_usd), 0.0) as total_cost_usd
+                FROM edge_metrics {where_str}
+                GROUP BY edge_id;
+                """,
+                params,
+            )
+            edge_rows = cur.fetchall()
+            by_edge = {}
+            for r in edge_rows:
+                e_total = r["executions"] or 0
+                e_fail = r["failed_executions"] or 0
+                by_edge[r["edge_id"]] = {
+                    "edge_id": r["edge_id"],
+                    "edge_type": r["edge_type"],
+                    "executions": e_total,
+                    "successful_executions": r["successful_executions"] or 0,
+                    "failed_executions": e_fail,
+                    "error_rate": round((e_fail / e_total) if e_total > 0 else 0.0, 4),
+                    "total_execution_time_ms": round(r["total_execution_time_ms"], 2),
+                    "avg_execution_time_ms": round(r["avg_execution_time_ms"], 2),
+                    "prompt_tokens": r["total_prompt_tokens"] or 0,
+                    "completion_tokens": r["total_completion_tokens"] or 0,
+                    "total_tokens": r["total_tokens"] or 0,
+                    "cost_usd": round(r["total_cost_usd"], 6),
+                }
+
+            return {
+                "session_id": session_id,
+                "total_executions": total_exec,
+                "successful_executions": overall_row["successful_executions"] or 0,
+                "failed_executions": fail_exec,
+                "error_rate": round(err_rate, 4),
+                "total_execution_time_ms": round(overall_row["total_execution_time_ms"], 2),
+                "avg_execution_time_ms": round(overall_row["avg_execution_time_ms"], 2),
+                "total_prompt_tokens": overall_row["total_prompt_tokens"] or 0,
+                "total_completion_tokens": overall_row["total_completion_tokens"] or 0,
+                "total_tokens": overall_row["total_tokens"] or 0,
+                "total_cost_usd": round(overall_row["total_cost_usd"], 6),
+                "by_edge": by_edge,
+            }
+
+    # ------------------------------------------------------------------
     # Maintenance & Cleanup
     # ------------------------------------------------------------------
 
     def clear_session(self, session_id: str) -> None:
-        """Remove all vertices, edges, and staging data for a session."""
+        """Remove all vertices, edges, staging, and metrics data for a session."""
         with self._write_lock_ctx():
             cur = self._get_connection().cursor()
             cur.execute("BEGIN;")
@@ -733,6 +980,7 @@ class VertexStoreV4:
                 cur.execute("DELETE FROM vertices WHERE session_id = ?;", (session_id,))
                 cur.execute("DELETE FROM edges WHERE session_id = ?;", (session_id,))
                 cur.execute("DELETE FROM session_staging WHERE session_id = ?;", (session_id,))
+                cur.execute("DELETE FROM edge_metrics WHERE session_id = ?;", (session_id,))
                 cur.execute("COMMIT;")
             except Exception:
                 cur.execute("ROLLBACK;")
@@ -861,7 +1109,35 @@ class VertexStoreV4:
             created_at=row["created_at"],
         )
 
+    def _row_to_metric(self, row: sqlite3.Row) -> EdgeMetricRecordV4:
+        metadata = {}
+        raw_meta = row["metadata"]
+        if raw_meta:
+            try:
+                metadata = json.loads(raw_meta)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to decode metadata JSON for edge metric id {row['id']}: {e}")
+                metadata = {}
+        return EdgeMetricRecordV4(
+            id=row["id"],
+            session_id=row["session_id"],
+            edge_id=row["edge_id"],
+            edge_type=row["edge_type"],
+            input_vertex=row["input_vertex"],
+            output_vertex=row["output_vertex"],
+            execution_time_ms=row["execution_time_ms"],
+            prompt_tokens=row["prompt_tokens"],
+            completion_tokens=row["completion_tokens"],
+            total_tokens=row["total_tokens"],
+            cost_usd=row["cost_usd"],
+            success=bool(row["success"]),
+            error=row["error"],
+            metadata=metadata,
+            created_at=row["created_at"],
+        )
+
 
 # Alias for backward compatibility or direct instantiation
 VertexV4 = VertexRecordV4  # Deprecated: use VertexRecordV4 directly
 EdgeV4Record = EdgeRecordV4  # Deprecated: use EdgeRecordV4 directly
+EdgeMetricV4 = EdgeMetricRecordV4  # Deprecated: use EdgeMetricRecordV4 directly

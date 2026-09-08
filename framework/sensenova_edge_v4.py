@@ -153,7 +153,7 @@ class SensenovaEdgeV4(EdgeV4):
         self._agent = HttpLLMAgent(
             base_url=self.base_url,
             api_key=self.api_key,
-            max_retries=self.settings.get("max_retries", 3),
+            max_retries=self.settings.get("max_retries", 20),
             timeout=float(self.settings.get("timeout", 300.0)),
             proxy=self.settings.get("proxy"),
             trust_env=bool(self.settings.get("trust_env", True)),

@@ -48,6 +48,7 @@ class ExecutionResultV4:
     vertex_states: Dict[str, str] = field(default_factory=dict)
     vertex_contents: Dict[str, str] = field(default_factory=dict)
     errors: List[str] = field(default_factory=list)
+    metrics_summary: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize execution outcome to dictionary."""
@@ -60,6 +61,7 @@ class ExecutionResultV4:
             "vertex_states": self.vertex_states,
             "vertex_contents": self.vertex_contents,
             "errors": self.errors,
+            "metrics_summary": self.metrics_summary,
         }
 
 
@@ -292,6 +294,7 @@ class ExecutorV4:
         group_sem = self._get_group_semaphore(edge.concurrency_group)
         edge_sem = self._get_edge_semaphore(edge)
         edge_timeout = edge.timeout or self.timeout
+        start_time = time.perf_counter()
 
         try:
             self._emit("edge_started", edge_id=edge.id, payload={"input": edge.input_vertex, "output": edge.output_vertex})
@@ -371,6 +374,32 @@ class ExecutorV4:
             if edge.concurrency_limit is not None and edge.concurrency_limit > 0:
                 self.active_edge_counts[edge.id] = max(0, self.active_edge_counts[edge.id] - 1)
             self.active_dispatches.discard(key)
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+
+        if not res.skipped:
+            try:
+                p_tok = int(res.metadata.get("prompt_tokens") or res.metadata.get("usage", {}).get("prompt_tokens", 0))
+                c_tok = int(res.metadata.get("completion_tokens") or res.metadata.get("usage", {}).get("completion_tokens", 0))
+                t_tok = int(res.metadata.get("total_tokens") or res.metadata.get("usage", {}).get("total_tokens", p_tok + c_tok))
+                cost = float(res.metadata.get("cost_usd") or res.metadata.get("cost", 0.0))
+                self.store.record_edge_metric(
+                    session_id=self.session_id,
+                    edge_id=edge.id,
+                    edge_type=edge.type,
+                    input_vertex=edge.input_vertex,
+                    output_vertex=edge.output_vertex,
+                    execution_time_ms=elapsed_ms,
+                    prompt_tokens=p_tok,
+                    completion_tokens=c_tok,
+                    total_tokens=t_tok,
+                    cost_usd=cost,
+                    success=res.success,
+                    error=res.error,
+                    metadata={"reason": res.reason, **res.metadata},
+                )
+            except Exception as metric_err:
+                logger.warning("[ExecutorV4] Failed recording metric for '%s': %s", edge.id, metric_err)
 
         if res.success:
             self._emit("edge_completed", edge_id=edge.id, payload={"output": res.output})
@@ -512,6 +541,68 @@ class ExecutorV4:
         async for _ in self.stream():
             pass
         return self._result
+
+    async def step(self) -> ExecutionResultV4:
+        """Execute one eligible edge (one hop), then return control.
+
+        This enables edge-by-edge execution without batching or tiers.
+        """
+        t0 = time.monotonic()
+        semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        self._sync_and_reload_graph_from_store()
+
+        result = ExecutionResultV4(session_id=self.session_id)
+
+        is_done, is_success = self._is_terminal()
+        if is_done:
+            result.success = is_success
+            result.execution_time = time.monotonic() - t0
+            for v in self.store.list_vertices(self.session_id):
+                result.vertex_states[v.name] = v.state
+                result.vertex_contents[v.name] = v.content
+            self._result = result
+            return result
+
+        eligible = self._get_eligible_edges()
+        if not eligible:
+            result.success = False
+            result.errors.append("No eligible edges found")
+            result.execution_time = time.monotonic() - t0
+            for v in self.store.list_vertices(self.session_id):
+                result.vertex_states[v.name] = v.state
+                result.vertex_contents[v.name] = v.content
+            self._result = result
+            return result
+
+        # Execute single highest-priority eligible edge (no tier batching)
+        _rank, _prio, _t, edge = eligible[0]
+        completed = await self._execute_single_edge(edge, semaphore)
+        result.edge_results[completed.edge_id] = completed.to_dict()
+        if completed.success:
+            result.completed_edges.append(completed.edge_id)
+        elif not completed.skipped and completed.error:
+            result.errors.append(f"[{completed.edge_id}] {completed.error}")
+
+        is_done, is_success = self._is_terminal()
+        result.success = is_success if is_done else False
+        result.execution_time = time.monotonic() - t0
+        for v in self.store.list_vertices(self.session_id):
+            result.vertex_states[v.name] = v.state
+            result.vertex_contents[v.name] = v.content
+        try:
+            result.metrics_summary = self.store.get_edge_metrics_summary(self.session_id)
+        except Exception:
+            pass
+        self._result = result
+        return result
+
+    run_one_tier = step  # Backward-compatible alias
+
+    def is_terminal(self) -> bool:
+        """Public check: has the graph reached a terminal state?"""
+        done, _ = self._is_terminal()
+        return done
 
     def _sync_and_reload_graph_from_store(self) -> None:
         """Read and update execution graph from store before execution without mutating original in-memory graph."""
@@ -687,6 +778,10 @@ class ExecutorV4:
                 self._result.vertex_contents[v.name] = v.content
 
             self._result.execution_time = time.monotonic() - t0
+            try:
+                self._result.metrics_summary = self.store.get_edge_metrics_summary(self.session_id)
+            except Exception:
+                pass
             self._emit(
                 "workflow_finished",
                 payload={

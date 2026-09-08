@@ -28,7 +28,7 @@ def _build_from_dict(agent_spec: Dict) -> BaseAgent:
     )
 
     common = {
-        "max_retries": agent_spec.get("max_retries", 3),
+        "max_retries": agent_spec.get("max_retries", 20),
         "timeout": agent_spec.get("timeout", 300.0),
         "extra_headers": agent_spec.get("extra_headers"),
         "proxy": proxy,
