@@ -45,7 +45,7 @@ Standalone CLI::
 
 Environment::
 
-    export SENSENOVA_API_KEY=sk-xxxxx   # required, never commit this
+    export SENSENOVA_API_KEY=sk-xxxxx   # optional (free tier needs no key)
 """
 
 from __future__ import annotations
@@ -56,8 +56,8 @@ import json
 import logging
 import os
 import sys
-from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, Optional, Tuple, Union
+from pathlib import Path  # noqa: F401 — used by EdgeV4.run_standalone signature
+from typing import Any, AsyncGenerator, Dict, Optional, Union  # noqa: F401 — Union used by base class
 
 from framework.edge_v4 import EdgeResultV4, EdgeV4
 from framework.vertex_v4 import (
