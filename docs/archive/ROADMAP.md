@@ -78,7 +78,7 @@
 
 ---
 
-## 🌌 v3.0: Enterprise-Grade (In Progress)
+## ✅ v3.0: Enterprise-Grade (Completed)
 
 | # | Feature | Status |
 |:-:|---|---|
@@ -90,6 +90,54 @@
 | 6 | `SchemaRegistry` Pydantic payload validation | ✅ Completed |
 | 7 | Distributed multi-node execution workers | ✅ Completed |
 
-### Upcoming: Distributed Execution
-- **Objective**: Decouple task dispatching across distributed worker nodes via Redis or message queues.
-- **Approach**: Package edge execution into serializable task units; adapt state store interface for external backends (PostgreSQL, Redis).
+---
+
+## ✅ v4.0: Production-Ready Vertex-Edge Framework (Completed)
+
+> Complete architectural rewrite: SQLite-backed persistent vertices, two-sided handshake protocol, topological tier scheduling, in-memory dispatch deduplication.
+
+### Feature 1: SQLite-Backed Persistent Storage
+- **Problem**: Legacy versions used in-memory Python dicts; process crash = total data loss.
+- **Solution**: `VertexStoreV4` — dual-table SQLite schema (vertices + edges + staging) with WAL mode.
+- **Changes**: `framework/vertex_v4.py`, `framework/store_v4.py`.
+- **Tests**: `tests/test_v4_layer1_store.py`.
+
+### Feature 2: Two-Sided Handshake Protocol
+- **Problem**: Legacy edges used one-sided signaling with implicit state transitions.
+- **Solution**: Upstream `data ready` → downstream `todo`/`todo urgent` → edge executes → upstream updates state.
+- **Changes**: `framework/edge_v4.py` (`check_handshake`), `framework/executor_v4.py`.
+- **Tests**: `tests/test_v4_layer2_edge.py`.
+
+### Feature 3: Topological Tier Scheduling
+- **Problem**: Legacy executor used simple counter polling with no tier awareness.
+- **Solution**: `asyncio.Event`-driven scheduler with `compute_dag_tiers()` tier assignment.
+- **Changes**: `framework/executor_v4.py`, `framework/graph_v4.py` (`compute_dag_tiers`).
+- **Tests**: `tests/test_v4_layer3_graph.py`, `tests/test_v4_layer4_executor.py`.
+
+### Feature 4: Reflexive Self-Loop Recovery
+- **Problem**: Failed edges required manual restart; no automatic retry/recovery mechanism.
+- **Solution**: `ReflexiveEdgeV4` — self-loop edges that catch `reject` state, reset to `todo urgent`, trigger automatic retry with retry limit and circuit breaker.
+- **Changes**: `framework/edge_v4.py` (`ReflexiveEdgeV4`).
+- **Tests**: `tests/test_v4_layer4_executor.py` (retry limit, circuit breaker).
+
+### Feature 5: SenseNova 6.8 Flash Lite Integration
+- **Problem**: No direct remote LLM integration; required manual agent configuration.
+- **Solution**: `SensenovaEdgeV4` — zero-config edge with optional API key, prompt templating, JSON validation, SSE streaming.
+- **Changes**: `framework/sensenova_edge_v4.py`.
+- **Tests**: `tests/test_sensenova_edge_v4.py` (28 tests).
+
+### Feature 6: Production Runtime Hardening
+- **Problem**: 4 runtime issues identified in production scenario analysis (graph mutation races, fan-in deadlock, reentry stomp, restart blind spot).
+- **Solution**: Session locks on all graph mutation routes, fan-in failure settlement barrier, in-flight task cancellation on reentry, dispatch lease tracking.
+- **Changes**: `framework/server_v4.py`, `framework/executor_v4.py`.
+- **Report**: `docs/archive/v4-runtime-issues-analysis.md`.
+
+### Feature 7: Web Dashboard & SSE API
+- **Problem**: No web interface or real-time event streaming.
+- **Solution**: FastAPI REST API with `/api/sessions/*/run`, SSE event broadcast, interactive web dashboard.
+- **Changes**: `framework/server_v4.py`, `framework/sse_executor_v4.py`.
+- **Tests**: `tests/test_v4_server.py`, `tests/test_v4_layer5_server.py`.
+
+### Upcoming: v5.0
+- **Objective**: Multi-tenant session isolation with per-session concurrency budgets.
+- **Approach**: Redis-backed state store adapter; session-scoped rate limiting middleware.
