@@ -90,12 +90,30 @@ class ExecutorV4:
         scan_interval: float = 0.02,
         timeout: float = 120.0,
         llm_edge_cls: Optional[Type[LLMEdgeV4]] = None,
+        snapshot_dir: Optional[Union[str, Path]] = None,
+        snapshot_manager: Optional[Any] = None,
+        enable_snapshots: bool = False,
     ):
         self.graph = graph
         self.session_id = graph.session_id
         self.store = store or VertexStoreV4(":memory:")
         self._owns_store = store is None
         self.agent = agent
+        self.snapshot_dir = snapshot_dir
+        if snapshot_manager is not None:
+            self.snapshot_manager = snapshot_manager
+            self.enable_snapshots = True
+        elif snapshot_dir is not None:
+            from framework.snapshot_v4 import GraphSnapshotManagerV4
+            self.snapshot_manager = GraphSnapshotManagerV4(base_dir=snapshot_dir)
+            self.enable_snapshots = True
+        elif enable_snapshots:
+            from framework.snapshot_v4 import GraphSnapshotManagerV4
+            self.snapshot_manager = GraphSnapshotManagerV4(base_dir="snapshots")
+            self.enable_snapshots = True
+        else:
+            self.snapshot_manager = None
+            self.enable_snapshots = False
         self.max_concurrency = max(1, int(max_concurrency))
         self.group_concurrency: Dict[str, int] = {k: max(1, int(v)) for k, v in (group_concurrency or {}).items()}
         self.scan_interval = scan_interval
@@ -148,6 +166,21 @@ class ExecutorV4:
     def _notify_scheduler(self) -> None:
         """Wake up the scheduler loop if it's waiting."""
         self._scheduler_event.set()
+
+    def _save_snapshot(self, trigger: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[Path]:
+        """Save a complete graph snapshot if snapshot recording is enabled."""
+        if not self.enable_snapshots or not self.snapshot_manager:
+            return None
+        try:
+            return self.snapshot_manager.save_snapshot(
+                graph=self.graph,
+                trigger=trigger,
+                store=self.store,
+                metadata=metadata,
+            )
+        except Exception as e:
+            logger.warning("[ExecutorV4] Failed saving snapshot for trigger '%s': %s", trigger, e)
+            return None
 
     # ------------------------------------------------------------------
     # P2: Cancel in-flight tasks targeting downstream vertices on reentry
@@ -450,6 +483,11 @@ class ExecutorV4:
 
         # P3: Clear dispatch lease on completion
         self._dispatch_leases.pop(edge.id, None)
+
+        if res.success:
+            self._save_snapshot(f"edge_completed:{edge.id}")
+        elif not res.skipped:
+            self._save_snapshot(f"edge_failed:{edge.id}")
             
         self._notify_scheduler()
         return res
@@ -683,6 +721,7 @@ class ExecutorV4:
                     "session_id": self.session_id,
                 },
             )
+            self._save_snapshot("execution_start")
             while True:
                 # 1. Dispatch eligible edges respecting priority, group limits, and max_concurrency
                 eligible = self._get_eligible_edges()
@@ -782,6 +821,7 @@ class ExecutorV4:
                 self._result.metrics_summary = self.store.get_edge_metrics_summary(self.session_id)
             except Exception:
                 pass
+            self._save_snapshot("execution_finished")
             self._emit(
                 "workflow_finished",
                 payload={

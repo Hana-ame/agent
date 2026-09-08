@@ -32,6 +32,7 @@ from framework.edge_v4 import (
 )
 from framework.executor_v4 import ExecutionResultV4, ExecutorV4, GraphEventV4
 from framework.graph_v4 import DiscreteGraphLoaderV4, GraphTopologyError, GraphV4
+from framework.snapshot_v4 import GraphSnapshotManagerV4
 from framework.vertex_v4 import (
     StagingRecordV4,
     VertexAttributeV4,
@@ -153,13 +154,32 @@ class SubgraphAddRequest(BaseModel):
 class SessionGraphManagerV4:
     """Maintains isolated GraphV4 instances per session synchronized with VertexStoreV4."""
 
-    def __init__(self, store: VertexStoreV4):
+    def __init__(self, store: VertexStoreV4, snapshot_dir: Optional[Union[str, Path]] = "snapshots"):
         self.store = store
         self._graphs: Dict[str, GraphV4] = {}
         self._event_broadcasters: Dict[str, List[asyncio.Queue]] = {}
         self._session_locks: Dict[str, asyncio.Lock] = {}
         # P2: Track running executors per session for task cancellation on reentry
         self._running_executors: Dict[str, "ExecutorV4"] = {}
+        self.snapshot_dir = snapshot_dir
+        self.snapshot_manager: Optional[GraphSnapshotManagerV4] = (
+            GraphSnapshotManagerV4(base_dir=snapshot_dir) if snapshot_dir else None
+        )
+
+    def record_snapshot(self, session_id: str, trigger: str) -> Optional[Path]:
+        """Record a complete graph snapshot to a local JSON file for this session."""
+        if not self.snapshot_manager:
+            return None
+        try:
+            graph = self.load_graph_from_store(session_id)
+            return self.snapshot_manager.save_snapshot(
+                graph=graph,
+                trigger=trigger,
+                store=self.store,
+            )
+        except Exception as e:
+            logger.warning("Failed recording snapshot for session '%s' (%s): %s", session_id, trigger, e)
+            return None
 
     def get_session_lock(self, session_id: str) -> asyncio.Lock:
         """Fetch or create an asyncio.Lock for the session."""
@@ -242,6 +262,7 @@ class SessionGraphManagerV4:
             state=state,
             processed_count=processed_count,
         )
+        self.record_snapshot(session_id, trigger=f"vertex_saved:{name}")
         return db_record
 
     def delete_vertex(self, session_id: str, name: str) -> bool:
@@ -249,7 +270,10 @@ class SessionGraphManagerV4:
         for er in self.store.list_edges(session_id):
             if er.input_vertex == name or er.output_vertex == name:
                 self.store.delete_edge(session_id, er.edge_id)
-        return self.store.delete_vertex(session_id, name)
+        deleted = self.store.delete_vertex(session_id, name)
+        if deleted:
+            self.record_snapshot(session_id, trigger=f"vertex_deleted:{name}")
+        return deleted
 
     def add_or_update_edge(
         self,
@@ -300,11 +324,15 @@ class SessionGraphManagerV4:
             max_retries=getattr(edge, "max_retries", 3),
             settings=edge_settings,
         )
+        self.record_snapshot(session_id, trigger=f"edge_saved:{edge_id}")
         return edge
 
     def delete_edge(self, session_id: str, edge_id: str) -> bool:
         """Delete edge from SQLite database."""
-        return self.store.delete_edge(session_id, edge_id)
+        deleted = self.store.delete_edge(session_id, edge_id)
+        if deleted:
+            self.record_snapshot(session_id, trigger=f"edge_deleted:{edge_id}")
+        return deleted
 
     def reconnect_edge(
         self,
@@ -332,6 +360,7 @@ class SessionGraphManagerV4:
             max_retries=er.max_retries,
             settings=er.settings,
         )
+        self.record_snapshot(session_id, trigger=f"edge_reconnected:{edge_id}")
         return True
 
     def reenter_vertex(
@@ -618,6 +647,7 @@ def create_v4_server(
     agent: Optional[Any] = None,
     allowed_origins: List[str] = ["*"],
     manifest_base_dir: Optional[Union[str, Path]] = None,
+    snapshot_dir: Optional[Union[str, Path]] = "snapshots",
 ) -> FastAPI:
     """Create a FastAPI application powering online graph APIs and database dashboard."""
     if isinstance(store_or_db, VertexStoreV4):
@@ -626,7 +656,7 @@ def create_v4_server(
         store = VertexStoreV4(str(store_or_db))
 
     if manager is None:
-        manager = SessionGraphManagerV4(store=store)
+        manager = SessionGraphManagerV4(store=store, snapshot_dir=snapshot_dir)
     else:
         store = manager.store
 
@@ -835,6 +865,49 @@ def create_v4_server(
         dumped = manager.dump_graph(session_id, path=target_path)
         return {"status": "dumped", "session_id": session_id, "graph": dumped}
 
+    @app.get("/api/sessions/{session_id}/snapshots")
+    async def list_session_snapshots(session_id: str) -> Dict[str, Any]:
+        """List all historical complete graph snapshots for a session."""
+        if not manager.snapshot_manager:
+            return {"session_id": session_id, "snapshots": []}
+        snapshots = manager.snapshot_manager.list_snapshots(session_id)
+        return {"session_id": session_id, "snapshots": snapshots}
+
+    @app.get("/api/sessions/{session_id}/snapshots/{step}")
+    async def get_session_snapshot(session_id: str, step: int) -> Dict[str, Any]:
+        """Get the complete graph specification for a specific historical step."""
+        if not manager.snapshot_manager:
+            raise HTTPException(status_code=404, detail="Snapshot manager not configured")
+        data = manager.snapshot_manager.get_snapshot_data(session_id, step)
+        if not data:
+            raise HTTPException(status_code=404, detail=f"Snapshot step {step} not found for session {session_id}")
+        return data
+
+    @app.post("/api/sessions/{session_id}/snapshots")
+    async def create_session_snapshot(
+        session_id: str,
+        payload: Optional[Dict[str, Any]] = Body(default=None),
+    ) -> Dict[str, Any]:
+        """Trigger an explicit snapshot of the current complete graph state."""
+        trigger = (payload or {}).get("trigger", "manual_api")
+        path = manager.record_snapshot(session_id, trigger=trigger)
+        if not path:
+            raise HTTPException(status_code=500, detail="Failed to save snapshot")
+        return {"status": "saved", "path": str(path), "session_id": session_id}
+
+    @app.post("/api/sessions/{session_id}/snapshots/{step}/restore")
+    async def restore_session_snapshot(session_id: str, step: int) -> Dict[str, Any]:
+        """Roll back and restore the complete graph to a historical snapshot step."""
+        if not manager.snapshot_manager:
+            raise HTTPException(status_code=404, detail="Snapshot manager not configured")
+        async with manager.get_session_lock(session_id):
+            graph = manager.snapshot_manager.restore_snapshot(session_id, step, store=manager.store)
+            if not graph:
+                raise HTTPException(status_code=404, detail=f"Snapshot step {step} could not be restored")
+            # Invalidate in-memory graph cache to reload restored state
+            manager._graphs.pop(session_id, None)
+            return {"status": "restored", "session_id": session_id, "step": step, "vertices": len(graph.vertices)}
+
     @app.post("/api/sessions/{session_id}/graph/vertices")
     async def create_or_update_vertex(
         session_id: str,
@@ -921,6 +994,7 @@ def create_v4_server(
                 agent=app.state.agent,
                 max_concurrency=req.max_concurrency,
                 timeout=req.timeout,
+                snapshot_manager=manager.snapshot_manager,
             )
             # P2: Register executor for task cancellation on reentry
             manager.register_executor(session_id, executor)
@@ -1586,6 +1660,7 @@ def parse_server_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1", help="Host address to bind")
     parser.add_argument("--port", type=int, default=11434, help="Port to bind (default: 11434, same as Ollama)")
     parser.add_argument("--db", default=":memory:", help="SQLite database path")
+    parser.add_argument("--snapshot-dir", default="snapshots", help="Directory for complete graph JSON snapshots")
     return parser.parse_args()
 
 
@@ -1593,7 +1668,7 @@ def main() -> None:
     """Run server directly from CLI."""
     import uvicorn
     args = parse_server_args()
-    app = create_v4_server(store_or_db=args.db)
+    app = create_v4_server(store_or_db=args.db, snapshot_dir=args.snapshot_dir)
     uvicorn.run(app, host=args.host, port=args.port)
 
 

@@ -21,3 +21,4 @@ maze-transformer/
 
 # Backup directory
 config_backup/
+snapshots/
