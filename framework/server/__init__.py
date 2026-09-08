@@ -1,7 +1,7 @@
 """Modular server package for VEA v4."""
 
 from framework.server.app import create_v4_server, parse_server_args, main, app
-from framework.server.manager import SessionGraphManagerV4
+from framework.graph_manager_v4 import SessionGraphManagerV4
 from framework.server.schemas import (
     VertexCreateOrUpdateRequest,
     EdgeCreateOrUpdateRequest,
