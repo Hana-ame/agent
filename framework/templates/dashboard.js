@@ -18,6 +18,30 @@ function esc(s) {
   return d.innerHTML;
 }
 
+
+// API-key support: when the server enforces VEA_API_KEY, the browser must send
+// it. Set it once via localStorage.vea_api_key (the dashboard prompts on 401).
+function getApiKey() {
+  try { return localStorage.getItem("vea_api_key") || ""; } catch (e) { return ""; }
+}
+
+async function apiFetch(url, options = {}) {
+  const opts = Object.assign({}, options);
+  const key = getApiKey();
+  if (key) {
+    opts.headers = Object.assign({}, opts.headers || {}, { "X-API-Key": key });
+  }
+  const res = await fetch(url, opts);
+  if (res.status === 401) {
+    const entered = window.prompt("This server requires an API key (VEA_API_KEY). Enter it to continue:");
+    if (entered) {
+      try { localStorage.setItem("vea_api_key", entered.trim()); } catch (e) {}
+      return apiFetch(url, options);
+    }
+  }
+  return res;
+}
+
 // Helper: Get state CSS badge class
 function getBadgeClass(state) {
   const s = (state || "").toLowerCase().replace(/ /g, "-");
@@ -45,7 +69,7 @@ function switchTab(tabId) {
 
 async function loadSessions() {
   try {
-    const res = await fetch("/api/db/sessions");
+    const res = await apiFetch("/api/db/sessions");
     const sessions = await res.json();
     const select = document.getElementById("sessionSelect");
     select.innerHTML = "";
@@ -96,7 +120,7 @@ async function clearCurrentSession() {
     return;
   }
   try {
-    const res = await fetch(`/api/db/sessions/${currentSession}/clear`, { method: "POST" });
+    const res = await apiFetch(`/api/db/sessions/${currentSession}/clear`, { method: "POST" });
     const data = await res.json();
     alert(`Session cleared. Purged ${data.purged_vertices || 0} vertices.`);
     await refreshAll();
@@ -316,7 +340,7 @@ async function refreshAll() {
 
 async function refreshVertices() {
   try {
-    const res = await fetch(`/api/db/sessions/${currentSession}/vertices`);
+    const res = await apiFetch(`/api/db/sessions/${currentSession}/vertices`);
     const vertices = await res.json();
     cachedVertices = {};
     const tbody = document.getElementById("verticesTableBody");
@@ -346,7 +370,7 @@ async function refreshVertices() {
 
 async function refreshEdges() {
   try {
-    const res = await fetch(`/api/sessions/${currentSession}/graph`);
+    const res = await apiFetch(`/api/sessions/${currentSession}/graph`);
     const graph = await res.json();
     cachedGraph = graph;
     cachedEdges = graph.edges || {};
@@ -387,7 +411,7 @@ async function refreshEdges() {
 
 async function refreshStaging() {
   try {
-    const res = await fetch(`/api/db/sessions/${currentSession}/staging`);
+    const res = await apiFetch(`/api/db/sessions/${currentSession}/staging`);
     const staging = await res.json();
     const tbody = document.getElementById("stagingTableBody");
     if (!tbody) return;
@@ -415,7 +439,7 @@ async function refreshStaging() {
 
 async function refreshMetrics() {
   try {
-    const res = await fetch(`/api/sessions/${currentSession}/metrics`);
+    const res = await apiFetch(`/api/sessions/${currentSession}/metrics`);
     if (!res.ok) return;
     const summary = await res.json();
 
@@ -471,12 +495,28 @@ async function refreshMetrics() {
 // Online Graph Mutation Handlers
 // ---------------------------------------------------------------------------
 
+// Set a <select> to `value`, appending an option when the value is not listed.
+// Assigning an unknown value silently leaves the select empty, which used to
+// rewrite an edge/vertex to a default type or state on save.
+function setSelectValue(id, value, fallback) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  const v = value || fallback || "";
+  if (!Array.from(sel.options).some((o) => o.value === v)) {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    sel.appendChild(opt);
+  }
+  sel.value = v;
+}
+
 function selectVertex(name) {
   const v = cachedVertices[name];
   if (!v) return;
   switchTab("editor");
   document.getElementById("vName").value = v.name || "";
-  document.getElementById("vState").value = v.state || "todo";
+  setSelectValue("vState", v.state, "todo");
   document.getElementById("vAttrs").value = (v.attributes || []).join(", ");
   document.getElementById("vContent").value = v.content || "";
   document.getElementById("vProcessed").value = v.processed_count || 0;
@@ -484,7 +524,7 @@ function selectVertex(name) {
 
 function clearVertexForm() {
   document.getElementById("vName").value = "";
-  document.getElementById("vState").value = "todo";
+  setSelectValue("vState", "todo", "todo");
   document.getElementById("vAttrs").value = "";
   document.getElementById("vContent").value = "";
   document.getElementById("vProcessed").value = "";
@@ -498,7 +538,7 @@ async function saveVertex() {
   const attributes = rawAttrs ? rawAttrs.split(",").map(a => a.trim()).filter(Boolean) : [];
   if (!name) return alert("Vertex name required");
 
-  await fetch(`/api/sessions/${currentSession}/graph/vertices`, {
+  await apiFetch(`/api/sessions/${currentSession}/graph/vertices`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, state, content, attributes, processed_count: cachedVertices[name] ? cachedVertices[name].processed_count : 0 })
@@ -510,7 +550,7 @@ async function deleteSelectedVertex() {
   const name = document.getElementById("vName").value.trim();
   if (!name) return alert("Select a vertex first");
   if (!confirm(`Delete vertex '${name}'?`)) return;
-  await fetch(`/api/sessions/${currentSession}/graph/vertices/${name}`, { method: "DELETE" });
+  await apiFetch(`/api/sessions/${currentSession}/graph/vertices/${name}`, { method: "DELETE" });
   clearVertexForm();
   await refreshAll();
 }
@@ -523,7 +563,7 @@ async function reenterVertex(name) {
   if (newContent === null) return;
 
   try {
-    const res = await fetch(`/api/sessions/${currentSession}/graph/vertices/${targetName}/reenter`, {
+    const res = await apiFetch(`/api/sessions/${currentSession}/graph/vertices/${targetName}/reenter`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: newContent })
@@ -584,7 +624,7 @@ async function saveEdge() {
 
   if (!id || !inV || !outV) return alert("Edge ID, Input and Output vertices required");
 
-  await fetch(`/api/sessions/${currentSession}/graph/edges`, {
+  await apiFetch(`/api/sessions/${currentSession}/graph/edges`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, type, input_vertex: inV, output_vertex: outV, script, trigger_state, target_state, max_retries, settings })
@@ -596,14 +636,14 @@ async function deleteSelectedEdge() {
   const id = document.getElementById("eId").value.trim();
   if (!id) return alert("Select an edge first");
   if (!confirm(`Delete edge '${id}'?`)) return;
-  await fetch(`/api/sessions/${currentSession}/graph/edges/${id}`, { method: "DELETE" });
+  await apiFetch(`/api/sessions/${currentSession}/graph/edges/${id}`, { method: "DELETE" });
   clearEdgeForm();
   await refreshAll();
 }
 
 async function runPipeline() {
   try {
-    const res = await fetch(`/api/sessions/${currentSession}/run`, {
+    const res = await apiFetch(`/api/sessions/${currentSession}/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ max_concurrency: 4 })
@@ -621,7 +661,7 @@ async function runPipeline() {
 
 async function loadModels() {
   try {
-    const res = await fetch("/v1/models");
+    const res = await apiFetch("/v1/models");
     const data = await res.json();
     const select = document.getElementById("chatModelSelect");
     if (!select || !data.data) return;
@@ -697,7 +737,7 @@ async function sendChatMessage() {
       stream: stream,
     };
 
-    const res = await fetch("/v1/chat/completions", {
+    const res = await apiFetch("/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -768,7 +808,7 @@ async function simulateToolOutput(toolCallId, toolName) {
 async function sendChatMessageRaw() {
   const model = document.getElementById("chatModelSelect").value || "default";
   try {
-    const res = await fetch("/v1/chat/completions", {
+    const res = await apiFetch("/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model, messages: chatMessages, stream: false })
@@ -829,9 +869,30 @@ function connectEventStream() {
 // Initialization
 // ---------------------------------------------------------------------------
 
+// Populate the edge-type suggestion list from the server registry so custom
+// edges (@register_edge_type) appear without editing the dashboard.
+async function loadEdgeTypes() {
+  const datalist = document.getElementById("edgeTypeOptions");
+  if (!datalist) return;
+  try {
+    const res = await apiFetch("/api/edge-types");
+    if (!res.ok) return;
+    const data = await res.json();
+    const types = Array.isArray(data.types) ? data.types : [];
+    if (!types.length) return;
+    datalist.innerHTML = types
+      .map((t) => `<option value="${esc(t)}"></option>`)
+      .join("");
+    if (data.script_spec_supported) {
+      datalist.innerHTML += `<option value="${esc(data.script_spec_example || "my_edge.py:MyEdge")}"></option>`;
+    }
+  } catch (err) {}
+}
+
 window.onload = async () => {
   await loadSessions();
   await loadModels();
+  await loadEdgeTypes();
   await refreshAll();
   connectEventStream();
 

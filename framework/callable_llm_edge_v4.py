@@ -13,13 +13,16 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from framework.edges.llm import LLMEdgeV4
+from framework.edges.registry import register_edge_type
 
 
+@register_edge_type("llm_callable")
 class CallableLLMEdgeV4(LLMEdgeV4):
     """LLMEdgeV4 with agent_mode='callable'."""
 
     def __init__(self, *args, **kwargs):
         kwargs["agent_mode"] = "callable"
+        kwargs.setdefault("edge_type", "llm_callable")
         super().__init__(*args, **kwargs)
 
 

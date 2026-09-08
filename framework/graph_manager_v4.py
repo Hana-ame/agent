@@ -12,12 +12,15 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Union
 
 from framework.edge_v4 import EdgeV4, ReflexiveEdgeV4
 from framework.executor_v4 import ExecutorV4, GraphEventV4
 from framework.graph_v4 import DiscreteGraphLoaderV4, GraphTopologyError, GraphV4
 from framework.snapshot_v4 import GraphSnapshotManagerV4
+from framework.edges.base import is_dynamic_edge_type
+from framework.edges.registry import is_registered_edge_type
+from framework.utils.script_loader import ScriptNotAllowedError, validate_script_reference
 from framework.vertex_v4 import VertexRecordV4, VertexStateV4, VertexStoreV4
 
 logger = logging.getLogger("vertex_edge_agent.graph_manager_v4")
@@ -25,7 +28,12 @@ logger = logging.getLogger("vertex_edge_agent.graph_manager_v4")
 class SessionGraphManagerV4:
     """Maintains isolated GraphV4 instances per session synchronized with VertexStoreV4."""
 
-    def __init__(self, store: VertexStoreV4, snapshot_dir: Optional[Union[str, Path]] = "snapshots"):
+    def __init__(
+        self,
+        store: VertexStoreV4,
+        snapshot_dir: Optional[Union[str, Path]] = "snapshots",
+        script_roots: Optional[Sequence[Union[str, Path]]] = None,
+    ):
         self.store = store
         self._graphs: Dict[str, GraphV4] = {}
         self._event_broadcasters: Dict[str, List[asyncio.Queue]] = {}
@@ -33,6 +41,13 @@ class SessionGraphManagerV4:
         # P2: Track running executors per session for task cancellation on reentry
         self._running_executors: Dict[str, "ExecutorV4"] = {}
         self.snapshot_dir = snapshot_dir
+        # Directories that client-supplied edge script specs may load from.
+        # ``None``/empty means "use the defaults" (repository root plus
+        # ``VEA_SCRIPT_ROOTS``); a non-empty list *replaces* them, which is how a
+        # deployment narrows where scripts can come from.
+        self.script_roots: Optional[List[Path]] = (
+            [Path(p).resolve() for p in script_roots] if script_roots else None
+        )
         self.snapshot_manager: Optional[GraphSnapshotManagerV4] = (
             GraphSnapshotManagerV4(base_dir=snapshot_dir) if snapshot_dir else None
         )
@@ -72,7 +87,12 @@ class SessionGraphManagerV4:
 
     def load_graph_from_store(self, session_id: str) -> GraphV4:
         """Read and update a fresh GraphV4 instance directly from SQLite store for the session."""
-        hydrated = GraphV4.load_from_store(self.store, session_id, name=f"graph_{session_id}")
+        hydrated = GraphV4.load_from_store(
+            self.store,
+            session_id,
+            name=f"graph_{session_id}",
+            script_roots=self.script_roots,
+        )
         old_graph = self._graphs.get(session_id)
         if old_graph:
             hydrated.loaded_nodes.update(old_graph.loaded_nodes)
@@ -86,7 +106,12 @@ class SessionGraphManagerV4:
 
     def get_or_create_graph(self, session_id: str) -> GraphV4:
         """Fetch or instantiate an isolated GraphV4 for a session, reading from store if available."""
-        hydrated = GraphV4.load_from_store(self.store, session_id, name=f"graph_{session_id}")
+        hydrated = GraphV4.load_from_store(
+            self.store,
+            session_id,
+            name=f"graph_{session_id}",
+            script_roots=self.script_roots,
+        )
         if hydrated.vertices or hydrated.edges:
             old_graph = self._graphs.get(session_id)
             if old_graph:
@@ -160,14 +185,39 @@ class SessionGraphManagerV4:
         max_retries: Optional[int] = None,
     ) -> EdgeV4:
         """Online edge addition or update. Persists to SQLite store."""
-        if edge_type not in ("code", "llm", "reflexive") and input_vertex != output_vertex:
-            raise ValueError(f"Unsupported edge type: {edge_type}")
+        dynamic_type = is_dynamic_edge_type(edge_type)
+        if not is_registered_edge_type(edge_type) and not dynamic_type and input_vertex != output_vertex:
+            from framework.edges.registry import edge_type_choices
+
+            raise ValueError(
+                f"Unsupported edge type: {edge_type}. Use a registered type "
+                f"({', '.join(edge_type_choices())}) or a script spec such as 'my_edge.py:MyEdge'."
+            )
+        if dynamic_type:
+            # A dynamic type is a code path: screen it like any other untrusted
+            # script reference before the loader touches the filesystem.
+            try:
+                validate_script_reference(edge_type, allowed_roots=self.script_roots)
+            except ScriptNotAllowedError as exc:
+                raise ValueError(f"Invalid edge type script: {exc}") from exc
         edge_settings = dict(settings or {})
+        # Inline code execution is never allowed through the HTTP API.
+        edge_settings.pop("allow_inline_script", None)
         script_str = script if isinstance(script, str) else None
+
+        if script_str:
+            try:
+                validate_script_reference(script_str, allowed_roots=self.script_roots)
+            except ScriptNotAllowedError as exc:
+                raise ValueError(f"Invalid edge script: {exc}") from exc
 
         # Delegate instantiation and validation to EdgeV4.from_config
         cfg = dict(edge_settings)
         cfg.update({
+            # Keep the nested form too: per-type from_config_dict overrides read
+            # data["settings"], and flattening alone silently dropped keys such
+            # as temperature / merge_strategy from the live edge.
+            "settings": edge_settings,
             "id": edge_id,
             "type": edge_type,
             "input_vertex": input_vertex,
@@ -177,7 +227,11 @@ class SessionGraphManagerV4:
             "target_state": target_state or (VertexStateV4.TODO_URGENT.value if edge_type == "reflexive" or input_vertex == output_vertex else None),
             "max_retries": max_retries if max_retries is not None else int(edge_settings.get("max_retries", 3)),
         })
-        edge = EdgeV4.from_config(cfg)
+        try:
+            edge = EdgeV4.from_config(cfg, script_roots=self.script_roots)
+        except (FileNotFoundError, ImportError, ScriptNotAllowedError) as exc:
+            # A bad client-supplied script reference is a 400, not a 500.
+            raise ValueError(f"Could not load edge script '{edge_type}': {exc}") from exc
         if callable(script):
             edge.script = script
             if hasattr(edge, "_callable"):
@@ -193,7 +247,7 @@ class SessionGraphManagerV4:
             trigger_state=getattr(edge, "trigger_state", None),
             target_state=getattr(edge, "target_state", None),
             max_retries=getattr(edge, "max_retries", 3),
-            settings=edge_settings,
+            settings=edge.settings,
         )
         self.record_snapshot(session_id, trigger=f"edge_saved:{edge_id}")
         return edge

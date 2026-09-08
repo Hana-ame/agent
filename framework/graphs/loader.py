@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Union
 
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _REPO_ROOT not in sys.path:
@@ -137,9 +137,11 @@ class DiscreteGraphLoaderV4:
             for item in items:
                 if not isinstance(item, dict):
                     continue
+                from framework.edges.registry import is_registered_edge_type
+
                 if (
                     any(k in item for k in ("input_vertex", "output_vertex", "edge_id", "source", "destination"))
-                    or item.get("type") in ("code", "reflexive", "llm", "llm_chat", "llm_generate", "llm_process", "llm_callable")
+                    or is_registered_edge_type(item.get("type"))
                 ):
                     edge_instance = EdgeV4.from_config(item, base_dir=str(d_p))
                     graph.add_edge(edge_instance)
@@ -203,77 +205,52 @@ class DiscreteGraphLoaderV4:
             )
 
 
-def load_from_store_fn(cls: Any, store: VertexStoreV4, session_id: str, name: str = "v4_graph") -> "GraphV4":
-    """Hydrate a GraphV4 instance from SQLite persisted vertices and edges."""
-    from framework.chat_llm_edge_v4 import ChatLLMEdgeV4
-    from framework.generate_llm_edge_v4 import GenerateLLMEdgeV4
-    from framework.process_llm_edge_v4 import ProcessLLMEdgeV4
-    from framework.callable_llm_edge_v4 import CallableLLMEdgeV4
-    from framework.edges.tool import ToolEdgeV4, LLMToolEdgeV4
-    from framework.edges.llm import LLMEdgeV4
+def load_from_store_fn(
+    cls: Any,
+    store: VertexStoreV4,
+    session_id: str,
+    name: str = "v4_graph",
+    script_roots: Optional[Sequence[Union[str, Path]]] = None,
+) -> "GraphV4":
+    """Hydrate a GraphV4 instance from SQLite persisted vertices and edges.
+
+    Edge construction goes through the same registry-driven
+    :meth:`EdgeV4.from_config` path as manifest loading, so every registered edge
+    type round-trips identically (including ``llm_tool`` and its tool catalog).
+    """
+    from framework.edges.base import EdgeV4
 
     graph = cls(session_id=session_id, name=name)
+    # Remember where this graph's edge scripts may load from, so a later
+    # rehydrate (ExecutorV4's store sync) resolves dynamic edges identically.
+    graph.script_roots = [Path(p).resolve() for p in script_roots] if script_roots else None
     for v in store.list_vertices(session_id):
         graph.add_vertex(v, source="sqlite_store")
 
     for er in store.list_edges(session_id):
-        edge_type = er.edge_type
-        if edge_type == "reflexive" or er.input_vertex == er.output_vertex:
-            edge: EdgeV4 = ReflexiveEdgeV4(
-                edge_id=er.edge_id,
-                vertex_name=er.input_vertex,
-                trigger_state=er.trigger_state or VertexStateV4.REJECT.value,
-                target_state=er.target_state or VertexStateV4.TODO_URGENT.value,
-                max_retries=er.max_retries,
-                script=er.script,
-                settings=er.settings,
+        settings = dict(er.settings or {})
+        cfg: Dict[str, Any] = {
+            # Keep the type the user declared ("my_edge.py:MyEdge").
+            # EdgeV4.from_config prefers the absolute "_edge_class_spec" recorded
+            # in settings for *loading*, so a relative spec still resolves from a
+            # different cwd without the persisted type being rewritten.
+            "id": er.edge_id,
+            "type": er.edge_type,
+            "input_vertex": er.input_vertex,
+            "output_vertex": er.output_vertex,
+            "script": er.script,
+            "trigger_state": er.trigger_state,
+            "target_state": er.target_state,
+            "max_retries": er.max_retries,
+            "settings": settings,
+        }
+        try:
+            edge = EdgeV4.from_config(cfg, script_roots=script_roots)
+        except Exception as exc:
+            logger.warning(
+                "Skipping edge '%s' (type '%s'): %s", er.edge_id, er.edge_type, exc
             )
-        elif edge_type in ("tool", "tool_call"):
-            edge = ToolEdgeV4(
-                edge_id=er.edge_id,
-                input_vertex=er.input_vertex,
-                output_vertex=er.output_vertex,
-                tool_name=er.settings.get("tool_name", er.settings.get("tool", "bash")),
-                arguments=er.settings.get("arguments", er.settings.get("args", {})),
-                arguments_template=er.settings.get("arguments_template"),
-                settings=er.settings,
-            )
-        elif edge_type in ("llm_tool", "llm_tool_call"):
-            edge = LLMToolEdgeV4(
-                edge_id=er.edge_id,
-                input_vertex=er.input_vertex,
-                output_vertex=er.output_vertex,
-                model=er.settings.get("model", "sensenova-6.8-flash-lite"),
-                prompt_template=er.settings.get("prompt"),
-                tools=er.settings.get("tools", []),
-                settings=er.settings,
-            )
-        elif edge_type in ("llm", "llm_chat", "llm_generate", "llm_process", "llm_callable"):
-            cls_map = {
-                "llm": LLMEdgeV4,
-                "llm_chat": ChatLLMEdgeV4,
-                "llm_generate": GenerateLLMEdgeV4,
-                "llm_process": ProcessLLMEdgeV4,
-                "llm_callable": CallableLLMEdgeV4,
-            }
-            target_cls = cls_map.get(edge_type, LLMEdgeV4)
-            edge = target_cls(
-                edge_id=er.edge_id,
-                input_vertex=er.input_vertex,
-                output_vertex=er.output_vertex,
-                model=er.settings.get("model", "sensenova-6.8-flash-lite"),
-                prompt_template=er.settings.get("prompt"),
-                settings=er.settings,
-                agent_mode=er.settings.get("agent_mode"),
-            )
-        else:
-            edge = CodeEdgeV4(
-                edge_id=er.edge_id,
-                input_vertex=er.input_vertex,
-                output_vertex=er.output_vertex,
-                script=er.script,
-                settings=er.settings,
-            )
+            continue
         graph.add_edge(edge)
 
     try:

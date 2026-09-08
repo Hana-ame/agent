@@ -29,6 +29,7 @@ from .builders.builder import GraphBuilder
 # V4 Core Architecture
 from .vertex_v4 import (
     VertexStateV4,
+    TraversalColor,
     VertexAttributeV4,
     VertexRecordV4,
     VertexV4,
@@ -54,6 +55,7 @@ from .edge_v4 import (
     EdgeResultV4,
 )
 from .sensenova_edge_v4 import SensenovaEdgeV4, SenseNovaEdgeV4
+from .edges.registry import register_edge_type, edge_type_choices
 from .snapshot_v4 import GraphSnapshotManagerV4
 from .graph_v4 import (
     GraphV4,
@@ -104,12 +106,13 @@ __all__ = [
     'ThrottleTimeoutError',
     'load_script',
     # V4 exports
-    'VertexStateV4', 'VertexAttributeV4', 'VertexRecordV4', 'VertexV4',
+    'VertexStateV4', 'TraversalColor', 'VertexAttributeV4', 'VertexRecordV4', 'VertexV4',
     'EdgeRecordV4', 'EdgeMetricRecordV4', 'EdgeMetricV4',
     'StagingRecordV4', 'VertexStoreV4', 'MergeStrategyV4',
     'EdgeV4', 'CodeEdgeV4', 'ToolEdgeV4', 'LLMToolEdgeV4', 'LLMEdgeV4', 'MockAgentV4',
     'ChatLLMEdgeV4', 'GenerateLLMEdgeV4', 'ProcessLLMEdgeV4', 'CallableLLMEdgeV4',
     'ReflexiveEdgeV4', 'EdgeResultV4', 'SensenovaEdgeV4', 'SenseNovaEdgeV4',
+    'register_edge_type', 'edge_type_choices',
     'GraphV4', 'DiscreteGraphLoaderV4', 'GraphTopologyError', 'NodeColor',
     'GraphSnapshotManagerV4',
     'ExecutorV4', 'OrchestratorV4', 'ExecutionResultV4', 'GraphEventV4',

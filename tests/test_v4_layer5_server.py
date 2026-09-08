@@ -130,13 +130,13 @@ def test_pydantic_validation_edge_types(app_and_client):
     data = res.json()
     assert any(err["loc"][-1] == "input_vertex" for err in data["detail"])
     
-    # Invalid edge type handled in route? Actually Pydantic allows any string for `type` but the route rejects it
-    # Pydantic schema doesn't validate type, so it passes Pydantic but route raises ValueError
-    with pytest.raises(ValueError, match="Unsupported edge type: INVALID_TYPE"):
-        client.post("/api/sessions/test_session/graph/edges", json={
-            "id": "e1",
-            "input_vertex": "v1",
-            "output_vertex": "v2",
-            "type": "INVALID_TYPE"
-        })
+    # Invalid edge type is rejected by the route with HTTP 400 (not a 500 traceback).
+    res = client.post("/api/sessions/test_session/graph/edges", json={
+        "id": "e1",
+        "input_vertex": "v1",
+        "output_vertex": "v2",
+        "type": "INVALID_TYPE"
+    })
+    assert res.status_code == 400
+    assert "Unsupported edge type" in str(res.json()["detail"])
 

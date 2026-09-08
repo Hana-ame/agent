@@ -16,7 +16,11 @@ from framework.server.schemas import (
     VertexCreateOrUpdateRequest,
     VertexReentryRequest,
 )
-from framework.server.security import validate_path_security
+from framework.server.security import (
+    resolve_manifest_path,
+    validate_path_security,
+)
+from framework.utils.paths import default_manifest_base_dir
 
 router = APIRouter(tags=["graph"])
 
@@ -104,11 +108,12 @@ async def dump_session_graph(
     if not target_path and payload and isinstance(payload, dict):
         target_path = payload.get("path")
     if target_path:
-        base_dir = Path(request.app.state.manifest_base_dir or Path.cwd()).resolve()
-        # Must end in .json
+        base_dir = Path(request.app.state.manifest_base_dir or default_manifest_base_dir()).resolve()
         if not str(target_path).endswith('.json'):
             raise HTTPException(400, "Dump path must end in .json")
-        validate_path_security(target_path, base_dir)
+        # Use the resolved path so the check cannot be bypassed between
+        # validation and use.
+        target_path = str(validate_path_security(target_path, base_dir))
     dumped = manager.dump_graph(session_id, path=target_path)
     return {"status": "dumped", "session_id": session_id, "graph": dumped}
 
@@ -151,18 +156,21 @@ async def create_or_update_edge(
     """Add or update an edge online."""
     manager = request.app.state.manager
     async with manager.get_session_lock(session_id):
-        edge = manager.add_or_update_edge(
-            session_id=session_id,
-            edge_id=req.id,
-            edge_type=req.type,
-            input_vertex=req.input_vertex,
-            output_vertex=req.output_vertex,
-            settings=req.settings,
-            script=req.script,
-            trigger_state=req.trigger_state,
-            target_state=req.target_state,
-            max_retries=req.max_retries,
-        )
+        try:
+            edge = manager.add_or_update_edge(
+                session_id=session_id,
+                edge_id=req.id,
+                edge_type=req.type,
+                input_vertex=req.input_vertex,
+                output_vertex=req.output_vertex,
+                settings=req.settings,
+                script=req.script,
+                trigger_state=req.trigger_state,
+                target_state=req.target_state,
+                max_retries=req.max_retries,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         val = manager.validate_graph(session_id)
         return {
             "status": "saved",
@@ -269,7 +277,10 @@ async def splice_subgraph_route(
     async with manager.get_session_lock(session_id):
         subgraph: GraphV4
         if req.subgraph_manifest:
-            subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
+            manifest_path = resolve_manifest_path(
+                req.subgraph_manifest, request.app.state.manifest_base_dir
+            )
+            subgraph = DiscreteGraphLoaderV4.load_from_manifest(manifest_path)
         elif req.subgraph_data:
             subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
         else:
@@ -296,7 +307,10 @@ async def insert_subgraph_route(
     async with manager.get_session_lock(session_id):
         subgraph: GraphV4
         if req.subgraph_manifest:
-            subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
+            manifest_path = resolve_manifest_path(
+                req.subgraph_manifest, request.app.state.manifest_base_dir
+            )
+            subgraph = DiscreteGraphLoaderV4.load_from_manifest(manifest_path)
         elif req.subgraph_data:
             subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
         else:
@@ -324,7 +338,10 @@ async def add_subgraph_route(
     async with manager.get_session_lock(session_id):
         subgraph: GraphV4
         if req.subgraph_manifest:
-            subgraph = DiscreteGraphLoaderV4.load_from_manifest(req.subgraph_manifest)
+            manifest_path = resolve_manifest_path(
+                req.subgraph_manifest, request.app.state.manifest_base_dir
+            )
+            subgraph = DiscreteGraphLoaderV4.load_from_manifest(manifest_path)
         elif req.subgraph_data:
             subgraph = DiscreteGraphLoaderV4.load_from_dict(req.subgraph_data)
         else:

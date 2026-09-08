@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from framework.graph_v4 import DiscreteGraphLoaderV4, GraphV4
+from framework.utils.paths import PathNotAllowedError, snapshot_session_dir, validate_session_id
 from framework.vertex_v4 import VertexStoreV4
 
 logger = logging.getLogger(__name__)
@@ -38,15 +39,27 @@ class GraphSnapshotManagerV4:
     def __init__(self, base_dir: Union[str, Path] = "snapshots") -> None:
         self.base_dir = Path(base_dir).resolve()
 
+    def _session_dir(self, session_id: str, create: bool = False) -> Path:
+        """Return the validated session directory, optionally creating it.
+
+        Raises:
+            PathNotAllowedError: ``session_id`` is unsafe or escapes ``base_dir``.
+        """
+        if create:
+            return snapshot_session_dir(self.base_dir, session_id)
+        safe = validate_session_id(session_id)
+        target = (self.base_dir / safe).resolve()
+        if target != self.base_dir and self.base_dir not in target.parents:
+            raise PathNotAllowedError(f"Session path escapes the snapshot directory: {session_id}")
+        return target
+
     def get_session_dir(self, session_id: str) -> Path:
         """Return and ensure directory for a session's snapshots."""
-        s_dir = self.base_dir / session_id
-        s_dir.mkdir(parents=True, exist_ok=True)
-        return s_dir
+        return self._session_dir(session_id, create=True)
 
     def get_next_step(self, session_id: str) -> int:
         """Determine next sequential step number for a session."""
-        s_dir = self.base_dir / session_id
+        s_dir = self._session_dir(session_id)
         if not s_dir.exists():
             return 0
         existing_steps: List[int] = []
@@ -130,7 +143,7 @@ class GraphSnapshotManagerV4:
 
     def list_snapshots(self, session_id: str) -> List[Dict[str, Any]]:
         """List all historical complete graph snapshots for a session, sorted by step."""
-        s_dir = self.base_dir / session_id
+        s_dir = self._session_dir(session_id)
         if not s_dir.exists():
             return []
 
@@ -162,7 +175,7 @@ class GraphSnapshotManagerV4:
 
     def get_snapshot_data(self, session_id: str, step: int) -> Optional[Dict[str, Any]]:
         """Retrieve complete raw graph snapshot dictionary for a specific step."""
-        s_dir = self.base_dir / session_id
+        s_dir = self._session_dir(session_id)
         if not s_dir.exists():
             return None
 

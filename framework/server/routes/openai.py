@@ -13,6 +13,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from framework.edge_v4 import ToolEdgeV4
+from framework.edges.registry import is_tool_edge
 from framework.executor_v4 import ExecutorV4
 from framework.graph_v4 import DiscreteGraphLoaderV4, GraphV4
 from framework.server.helpers import get_effective_catalog_dir
@@ -218,7 +219,6 @@ async def openai_chat_completions(
     messages = req_body.get("messages", [])
     is_stream = req_body.get("stream", False)
     execution_mode = req_body.get("vea_execution_mode", "full")
-    manifest_override = req_body.get("vea_manifest_path")
 
     if not messages:
         raise HTTPException(status_code=422, detail="messages must not be empty")
@@ -229,9 +229,7 @@ async def openai_chat_completions(
     # Resolve or create graph for this session
     template = _graph_templates.get(model)
     manifest_path = None
-    if manifest_override:
-        manifest_path = manifest_override
-    elif template and template.get("manifest_path"):
+    if template and template.get("manifest_path"):
         manifest_path = template["manifest_path"]
 
     # Load graph from manifest if needed, otherwise from store/memory
@@ -267,10 +265,10 @@ async def openai_chat_completions(
         cat_dir = get_effective_catalog_dir(request.app.state.tool_catalog_dir)
         if cat_dir:
             try:
-                from examples.dynamic_tool_library.tool_scripts import classify_intent_with_llm
+                from framework.tool_catalog.router import classify_intent_with_llm
                 tool_name, _ = await classify_intent_with_llm(user_content, cat_dir)
             except Exception:
-                from examples.dynamic_tool_library.tool_scripts import classify_intent
+                from framework.tool_catalog.router import classify_intent
                 tool_name = classify_intent(user_content)
 
             tool_manifest_file = cat_dir / f"{tool_name}.json"
@@ -393,7 +391,7 @@ async def openai_chat_completions(
 
     # --- Non-streaming: full, harness, or hop-by-hop ---
     has_tool_edges = any(
-        isinstance(e, ToolEdgeV4) or getattr(e, "type", "") in ("tool", "tool_call", "llm_tool", "llm_tool_call")
+        is_tool_edge(e)
         for e in graph.edges.values()
     )
     is_tool_reply = latest_msg.get("role") == "tool"

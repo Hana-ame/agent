@@ -178,6 +178,7 @@
                   <option value="idle">idle</option>
                   <option value="reject">reject</option>
                   <option value="forbidden">forbidden</option>
+                  <option value="pruning">pruning</option>
                 </select>
               </div>
               <div style="flex: 1;">
@@ -213,14 +214,20 @@
                 <label style="font-size: 0.75rem; color: var(--text-muted);">Edge ID:</label>
                 <input type="text" id="eId" placeholder="e_pipeline" style="width: 100%;">
               </div>
-              <div style="width: 140px;">
+              <div style="width: 190px;">
                 <label style="font-size: 0.75rem; color: var(--text-muted);">Type:</label>
-                <select id="eType" style="width: 100%;">
-                  <option value="code">code</option>
-                  <option value="tool">tool</option>
-                  <option value="reflexive">reflexive</option>
-                  <option value="llm">llm</option>
-                </select>
+                <!-- Free-text with suggestions: registered types are loaded from
+                     /api/edge-types, and a script spec ("my_edge.py:MyEdge") can
+                     always be typed. A <select> here silently reset custom types. -->
+                <input type="text" id="eType" list="edgeTypeOptions" placeholder="code"
+                       title="Registered edge type or a script spec: my_edge.py:MyEdge"
+                       style="width: 100%;">
+                <datalist id="edgeTypeOptions">
+                  <option value="code"></option>
+                  <option value="tool"></option>
+                  <option value="reflexive"></option>
+                  <option value="llm"></option>
+                </datalist>
               </div>
             </div>
             <div style="display: flex; gap: 10px;">

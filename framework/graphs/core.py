@@ -7,7 +7,7 @@ import logging
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from framework.edges.base import EdgeV4
 from framework.edges.code import CodeEdgeV4
@@ -22,6 +22,7 @@ from framework.graphs.subgraph_ops import (
     splice_subgraph_op,
 )
 from framework.vertex_v4 import (
+    TraversalColor,
     VertexAttributeV4,
     VertexRecordV4,
     VertexStateV4,
@@ -32,8 +33,8 @@ logger = logging.getLogger("vertex_edge_agent.graphs.core")
 
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 
-# NodeColor is unified into VertexStateV4 for state coloring
-NodeColor = VertexStateV4
+# NodeColor is the DFS traversal colour enum (not a lifecycle state).
+NodeColor = TraversalColor
 
 
 class GraphV4:
@@ -52,17 +53,17 @@ class GraphV4:
         self.edges: Dict[str, EdgeV4] = {}
         self.edge_tiers: Dict[str, int] = {}
         self.node_tiers: Dict[str, int] = {}
-        self.node_states: Dict[str, VertexStateV4] = {}
+        self.node_states: Dict[str, TraversalColor] = {}
         self.loaded_nodes: Dict[str, Dict[str, Any]] = {}
         self._active_overrides: Dict[str, bool] = {}
 
     @property
-    def node_colors(self) -> Dict[str, VertexStateV4]:
+    def node_colors(self) -> Dict[str, TraversalColor]:
         """Backward-compatible alias for node_states."""
         return self.node_states
 
     @node_colors.setter
-    def node_colors(self, val: Dict[str, VertexStateV4]) -> None:
+    def node_colors(self, val: Dict[str, TraversalColor]) -> None:
         self.node_states = val
 
     def add_vertex(
@@ -804,9 +805,17 @@ class GraphV4:
 
     # Store Hydration and Live Sync (eliminates dual-source divergence)
     @classmethod
-    def load_from_store(cls, store: VertexStoreV4, session_id: str, name: str = "v4_graph") -> "GraphV4":
+    def load_from_store(
+        cls,
+        store: VertexStoreV4,
+        session_id: str,
+        name: str = "v4_graph",
+        script_roots: Optional[Sequence[Union[str, Path]]] = None,
+    ) -> "GraphV4":
         from framework.graphs.loader import load_from_store_fn
-        return load_from_store_fn(cls, store=store, session_id=session_id, name=name)
+        return load_from_store_fn(
+            cls, store=store, session_id=session_id, name=name, script_roots=script_roots
+        )
 
     def sync_vertex_from_store(
         self,

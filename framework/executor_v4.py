@@ -7,6 +7,7 @@ Schedules edges based on the two-sided handshake contract and in-memory dispatch
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from collections import defaultdict
@@ -25,6 +26,7 @@ from framework.edge_v4 import (
     ProcessLLMEdgeV4,
     ReflexiveEdgeV4,
 )
+from framework.edges.registry import is_tool_edge
 from framework.graph_v4 import GraphV4
 from framework.vertex_v4 import (
     VertexAttributeV4,
@@ -75,6 +77,42 @@ class GraphEventV4:
     vertex_name: Optional[str] = None
     payload: Optional[Any] = None
     timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class _SettlementV4:
+    """Per-vertex fan-in settlement state.
+
+    Replaces the previous ``_fan_in_completed`` / ``_fan_in_counts`` /
+    ``_fan_in_failures`` triple, whose completion set accepted *any* incoming
+    edge while ``expected`` counted only participating edges. That mismatch let a
+    late non-participating edge re-open a settled vertex and re-run its siblings
+    forever (review finding E1), and let one failure permanently blacklist an
+    edge (E2).
+    """
+
+    #: Edge ids that must settle before this vertex can become data ready.
+    participating: Set[str] = field(default_factory=set)
+    #: Edge ids that finished successfully in the current cycle.
+    completed: Set[str] = field(default_factory=set)
+    #: Edge ids that failed in the current cycle.
+    failed: Set[str] = field(default_factory=set)
+    #: Last vertex state observed by the scheduler, used to detect re-opening.
+    last_state: Optional[str] = None
+
+    @property
+    def settled_ids(self) -> Set[str]:
+        """Edges already settled in this cycle (success or failure)."""
+        return self.completed | self.failed
+
+    def is_settled(self) -> bool:
+        """True when every participating edge has settled."""
+        return bool(self.participating) and self.participating <= self.settled_ids
+
+    def reset(self) -> None:
+        """Start a new cycle for this vertex."""
+        self.completed.clear()
+        self.failed.clear()
 
 
 class ExecutorV4:
@@ -154,9 +192,7 @@ class ExecutorV4:
         self._event_queue: asyncio.Queue[Optional[GraphEventV4]] = asyncio.Queue()
         self._result = ExecutionResultV4(session_id=self.session_id)
         
-        self._fan_in_counts: Dict[str, int] = defaultdict(int)
-        self._fan_in_failures: Dict[str, int] = defaultdict(int)
-        self._fan_in_completed: Dict[str, Set[str]] = defaultdict(set)
+        self._settlements: Dict[str, _SettlementV4] = {}
         self._scheduler_event = asyncio.Event()
         # P2: Track running tasks by output vertex for cancellation on reentry
         self._running_tasks_by_output: Dict[str, Set[asyncio.Task]] = defaultdict(set)
@@ -196,9 +232,9 @@ class ExecutorV4:
         """
         cancelled: List[str] = []
         for vname in vertex_names:
-            self._fan_in_completed.pop(vname, None)
-            self._fan_in_counts.pop(vname, None)
-            self._fan_in_failures.pop(vname, None)
+            settlement = self._settlements.get(vname)
+            if settlement is not None:
+                settlement.reset()
             tasks = self._running_tasks_by_output.get(vname, set())
             for task in list(tasks):
                 if not task.done():
@@ -266,6 +302,121 @@ class ExecutorV4:
         )
         self._event_queue.put_nowait(ev)
 
+    # ------------------------------------------------------------------
+    # Fan-in settlement bookkeeping
+    # ------------------------------------------------------------------
+
+    def _participating_edges(self, output_vertex: str) -> List[EdgeV4]:
+        """Edges that must settle before ``output_vertex`` becomes data ready.
+
+        Any vertex with more than one *forward* incoming edge is a fan-in barrier:
+        every participant must settle before the vertex can become data ready.
+        This keeps a plain ``overwrite`` sibling from settling the barrier early
+        or re-opening it later (review finding E1) and guarantees that one failed
+        edge cannot prevent its healthy siblings from running (E2).
+
+        Feedback edges (whose input is not upstream of the output in the current
+        topological tiering) are excluded, so a cyclic graph can start its forward
+        pass without waiting for a back edge that can never fire first.
+        """
+        incoming = [
+            e for e in self.graph.get_incoming_edges(output_vertex)
+            if not (e.is_reflexive or isinstance(e, ReflexiveEdgeV4))
+            and (not hasattr(self.graph, "is_vertex_active") or self.graph.is_vertex_active(e.input_vertex))
+        ]
+        node_tiers = getattr(self.graph, "node_tiers", None) or {}
+        out_tier = node_tiers.get(output_vertex)
+        forward: List[EdgeV4] = []
+        for e in incoming:
+            in_tier = node_tiers.get(e.input_vertex)
+            if out_tier is None or in_tier is None or in_tier < out_tier:
+                forward.append(e)
+        return forward if len(forward) > 1 else []
+
+    def _settlement_for(self, output_vertex: str) -> _SettlementV4:
+        """Return (creating on first use) the settlement state for a vertex."""
+        settlement = self._settlements.get(output_vertex)
+        if settlement is None:
+            settlement = _SettlementV4(
+                participating={e.id for e in self._participating_edges(output_vertex)}
+            )
+            self._settlements[output_vertex] = settlement
+        return settlement
+
+    def _sync_settlement_cycle(self, output_vertex: str, state: str) -> None:
+        """Start a new settlement cycle when a vertex is re-opened for work.
+
+        A vertex legitimately sits in ``todo`` *during* a barrier, so a reset only
+        happens on a real transition back from a settled state (``data ready`` /
+        ``reject`` / ``forbidden``) to ``todo`` — i.e. an external reentry.
+        """
+        settlement = self._settlements.get(output_vertex)
+        if settlement is None:
+            return
+        previous = settlement.last_state
+        settled_states = (
+            VertexStateV4.DATA_READY.value,
+            VertexStateV4.REJECT.value,
+            VertexStateV4.FORBIDDEN.value,
+        )
+        is_demanded = state in (VertexStateV4.TODO.value, VertexStateV4.TODO_URGENT.value)
+        reopened = bool(settlement.settled_ids) and is_demanded and (
+            # Single-writer vertex: sitting in todo with a settled edge means an
+            # external reentry re-opened it.
+            not settlement.participating
+            # Barrier vertex: only a real transition out of a settled state counts;
+            # todo *during* a barrier is normal and must not reset the cycle.
+            or (previous is not None and previous != state and previous in settled_states)
+        )
+        if reopened:
+            settlement.reset()
+        settlement.last_state = state
+
+    def _record_edge_settlement(self, edge: EdgeV4, res: EdgeResultV4) -> None:
+        """Update fan-in bookkeeping and settle the output vertex when complete."""
+        if edge.is_reflexive or isinstance(edge, ReflexiveEdgeV4):
+            return
+        out = edge.output_vertex
+        settlement = self._settlement_for(out)
+        if edge.id in settlement.settled_ids:
+            return
+
+        def set_state(state: str) -> None:
+            self.store.update_vertex_state(self.session_id, out, state)
+            settlement.last_state = state
+
+        if res.success:
+            settlement.completed.add(edge.id)
+        else:
+            settlement.failed.add(edge.id)
+
+        if not settlement.participating:
+            # Single-writer vertex: the edge already transitioned it itself.
+            # A failure still needs an explicit reject so reflexive recovery (and
+            # the terminal state check) can see it.
+            if not res.success:
+                set_state(VertexStateV4.REJECT.value)
+            return
+
+        if settlement.is_settled():
+            if settlement.failed:
+                set_state(VertexStateV4.REJECT.value)
+                self._emit(
+                    "fan_in_failed",
+                    vertex_name=out,
+                    payload={
+                        "failed": sorted(settlement.failed),
+                        "participating": sorted(settlement.participating),
+                    },
+                )
+            else:
+                set_state(VertexStateV4.DATA_READY.value)
+                self.store.increment_processed_count(self.session_id, out)
+        else:
+            # Still waiting for the remaining participants: keep the vertex
+            # demanded so its siblings can still be dispatched.
+            set_state(VertexStateV4.TODO.value)
+
     def _get_eligible_edges(self) -> List[Tuple[int, int, int, EdgeV4]]:
         """Identify edges whose trigger prerequisites are met, sorted by priority and DAG tier.
 
@@ -281,10 +432,6 @@ class ExecutorV4:
             key = (self.session_id, edge.input_vertex, edge.output_vertex)
             if key in self.active_dispatches:
                 # Already executing in-flight
-                continue
-
-            if edge.id in self._fan_in_completed[edge.output_vertex]:
-                # Already executed for the current fan-in cycle
                 continue
 
             tier = self.graph.edge_tiers.get(edge.id, 0)
@@ -306,6 +453,11 @@ class ExecutorV4:
                 in_v = self.store.get_vertex(self.session_id, edge.input_vertex)
                 out_v = self.store.get_vertex(self.session_id, edge.output_vertex)
                 if in_v and out_v:
+                    # A vertex back in todo starts a fresh settlement cycle, so an
+                    # edge that already settled may run again after a reentry.
+                    self._sync_settlement_cycle(edge.output_vertex, out_v.state)
+                    if edge.id in self._settlement_for(edge.output_vertex).settled_ids:
+                        continue
                     upstream_ready = in_v.state == VertexStateV4.DATA_READY.value
                     if upstream_ready:
                         if out_v.state == VertexStateV4.TODO_URGENT.value:
@@ -344,33 +496,55 @@ class ExecutorV4:
 
                 try:
                     edge_to_run = self.llm_edge_cls.from_base(edge) if type(edge) is LLMEdgeV4 else edge
-                    participating_fan_in = [
-                        e for e in self.graph.get_incoming_edges(edge.output_vertex)
-                        if not (e.is_reflexive or isinstance(e, ReflexiveEdgeV4))
-                        and (
-                            e.settings.get("merge_strategy", "overwrite") in ("json_merge", "list_append", "reducer_script")
-                            or e.settings.get("settlement_barrier", False)
+                    res: EdgeResultV4
+                    if is_tool_edge(edge):
+                        # ExecutorV4 has no external harness to execute a tool
+                        # call, so fabricating a result would silently pass the
+                        # upstream content through. Fail loudly instead.
+                        err = (
+                            f"Tool edge '{edge.id}' cannot be executed by ExecutorV4. "
+                            "Use HttpHarnessExecutorV4 so the external harness performs the call."
                         )
-                    ]
-                    expected = len(participating_fan_in)
-                    is_fan_in = expected > 1
-                    try:
-                        res = await asyncio.wait_for(
-                            edge_to_run.run(
-                                session_id=self.session_id,
-                                store=self.store,
-                                agent=self.agent,
-                                auto_transition=(not is_fan_in),
-                            ),
-                            timeout=edge_timeout,
+                        self.store.stage_output(
+                            session_id=self.session_id,
+                            edge_id=edge.id,
+                            key="error_feedback",
+                            value=err,
+                            vertex_name=edge.output_vertex,
+                            metadata={"error": "tool_edge_requires_harness"},
                         )
-                    except TypeError:
+                        self.store.update_vertex_state(
+                            self.session_id, edge.output_vertex, VertexStateV4.REJECT.value
+                        )
+                        res = EdgeResultV4(
+                            edge_id=edge.id,
+                            success=False,
+                            error=err,
+                            reason="tool edge requires the request-driven harness executor",
+                        )
+                    else:
+                        # A vertex that requires a settlement barrier runs every
+                        # participant with auto_transition disabled and settles
+                        # once all of them finish.
+                        is_fan_in = bool(self._settlement_for(edge.output_vertex).participating) and not (
+                            edge.is_reflexive or isinstance(edge, ReflexiveEdgeV4)
+                        )
+                        run_kwargs: Dict[str, Any] = {
+                            "session_id": self.session_id,
+                            "store": self.store,
+                            "agent": self.agent,
+                        }
+                        try:
+                            params = inspect.signature(edge_to_run.run).parameters
+                        except (TypeError, ValueError):
+                            params = {}
+                        accepts_auto = "auto_transition" in params or any(
+                            p.kind == p.VAR_KEYWORD for p in params.values()
+                        )
+                        if accepts_auto:
+                            run_kwargs["auto_transition"] = not is_fan_in
                         res = await asyncio.wait_for(
-                            edge_to_run.run(
-                                session_id=self.session_id,
-                                store=self.store,
-                                agent=self.agent,
-                            ),
+                            edge_to_run.run(**run_kwargs),
                             timeout=edge_timeout,
                         )
                 except asyncio.TimeoutError:
@@ -394,6 +568,9 @@ class ExecutorV4:
                 except Exception as exc:
                     err_msg = str(exc)
                     logger.error("[ExecutorV4] Unhandled edge error in '%s': %s", edge.id, err_msg)
+                    # Reject the output so a permanently failing edge cannot be
+                    # re-dispatched in a tight loop.
+                    self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.REJECT.value)
                     res = EdgeResultV4(
                         edge_id=edge.id,
                         success=False,
@@ -436,50 +613,13 @@ class ExecutorV4:
 
         if res.success:
             self._emit("edge_completed", edge_id=edge.id, payload={"output": res.output})
-
-            # Fan-in accumulation and settlement barrier
-            if is_fan_in and not edge.is_reflexive and not isinstance(edge, ReflexiveEdgeV4):
-                self._fan_in_completed[edge.output_vertex].add(edge.id)
-                self._fan_in_counts[edge.output_vertex] = len(self._fan_in_completed[edge.output_vertex])
-                if len(self._fan_in_completed[edge.output_vertex]) >= expected:
-                    if self._fan_in_failures[edge.output_vertex] > 0:
-                        self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.REJECT.value)
-                        self._emit("fan_in_failed", vertex_name=edge.output_vertex,
-                                   payload={"failures": self._fan_in_failures[edge.output_vertex],
-                                            "expected": expected})
-                    else:
-                        self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.DATA_READY.value)
-                        self.store.increment_processed_count(self.session_id, edge.output_vertex)
-                    self._fan_in_completed[edge.output_vertex].clear()
-                    self._fan_in_counts[edge.output_vertex] = 0
-                    self._fan_in_failures[edge.output_vertex] = 0
-                else:
-                    self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.TODO.value)
+            self._record_edge_settlement(edge, res)
 
         elif not res.skipped:
             self._emit("edge_failed", edge_id=edge.id, payload={"error": res.error})
-
-            # P0 FIX: Track failures for fan-in settlement. When all incoming
-            # edges have settled and any failed, downgrade to reject to
-            # prevent deadlock (instead of staying todo forever).
-            if not edge.is_reflexive and not isinstance(edge, ReflexiveEdgeV4):
-                self._fan_in_completed[edge.output_vertex].add(edge.id)
-                self._fan_in_counts[edge.output_vertex] = len(self._fan_in_completed[edge.output_vertex])
-                self._fan_in_failures[edge.output_vertex] += 1
-                settlement_expected = expected if is_fan_in else len([e for e in self.graph.get_incoming_edges(edge.output_vertex) if not (e.is_reflexive or isinstance(e, ReflexiveEdgeV4))])
-                if self._fan_in_counts[edge.output_vertex] >= settlement_expected:
-                    if self._fan_in_failures[edge.output_vertex] > 0:
-                        # At least one predecessor failed permanently → reject to
-                        # allow reflexive recovery or deadlock-free termination.
-                        self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.REJECT.value)
-                        self._emit("fan_in_failed", vertex_name=edge.output_vertex,
-                                   payload={"failures": self._fan_in_failures[edge.output_vertex],
-                                            "expected": settlement_expected})
-                    else:
-                        self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.DATA_READY.value)
-                    self._fan_in_completed[edge.output_vertex].clear()
-                    self._fan_in_counts[edge.output_vertex] = 0
-                    self._fan_in_failures[edge.output_vertex] = 0
+            # Record the failure against the settlement cycle only; a failed edge
+            # must never be added to a set that blocks its siblings (finding E2).
+            self._record_edge_settlement(edge, res)
 
         # P3: Clear dispatch lease on completion
         self._dispatch_leases.pop(edge.id, None)
@@ -534,8 +674,16 @@ class ExecutorV4:
             if _is_active(v_name)
         )
 
-        # Success condition: All designated end vertices are 'data ready' and no forbidden nodes
-        if end_vertices and all(v.state == VertexStateV4.DATA_READY.value for v in end_vertices) and not has_forbidden:
+        # Success condition: all designated end vertices are 'data ready', no
+        # forbidden nodes, and nothing is still in flight. Waiting for in-flight
+        # dispatches prevents the terminal shutdown from cancelling a sibling
+        # edge and silently discarding its data while reporting success (H8).
+        if (
+            end_vertices
+            and all(v.state == VertexStateV4.DATA_READY.value for v in end_vertices)
+            and not has_forbidden
+            and not self.active_dispatches
+        ):
             return True, True
 
         # Check if any vertices are still actionable
@@ -687,7 +835,14 @@ class ExecutorV4:
                 )
 
         # 2. Read and update fresh graph from store
-        fresh_graph = GraphV4.load_from_store(self.store, self.session_id, name=self.graph.name)
+        fresh_graph = GraphV4.load_from_store(
+            self.store,
+            self.session_id,
+            name=self.graph.name,
+            # Roots travel with the graph so a deployment that narrowed
+            # script loading can still rehydrate dynamic edges.
+            script_roots=getattr(self.graph, "script_roots", None),
+        )
         for eid, fresh_e in list(fresh_graph.edges.items()):
             old_e = self.graph.edges.get(eid)
             if old_e:

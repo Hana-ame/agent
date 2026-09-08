@@ -13,13 +13,16 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from framework.edges.llm import LLMEdgeV4
+from framework.edges.registry import register_edge_type
 
 
+@register_edge_type("llm_process")
 class ProcessLLMEdgeV4(LLMEdgeV4):
     """LLMEdgeV4 with agent_mode='process'."""
 
     def __init__(self, *args, **kwargs):
         kwargs["agent_mode"] = "process"
+        kwargs.setdefault("edge_type", "llm_process")
         super().__init__(*args, **kwargs)
 
 

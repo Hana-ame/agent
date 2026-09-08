@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from framework.executor_v4 import ExecutorV4, GraphEventV4
 from framework.server.schemas import WorkflowRunRequest
-from framework.server.security import validate_path_security
+from framework.server.security import resolve_manifest_path, validate_path_security
 
 router = APIRouter(tags=["execution"])
 
@@ -100,16 +100,27 @@ async def execute_via_sse(
     input_payload = payload.get("input_payload")
     manifest_path = payload.get("manifest_path")
     if manifest_path:
-        base_dir = Path(request.app.state.manifest_base_dir or Path.cwd()).resolve()
-        # Must end in .json
-        if not str(manifest_path).endswith('.json'):
-            raise HTTPException(400, "Manifest path must end in .json")
-        validate_path_security(manifest_path, base_dir)
-    max_concurrency = int(payload.get("max_concurrency", 4))
-    timeout = float(payload.get("timeout", 120.0))
+        # Confine and normalise before handing to the runtime; use the resolved
+        # path so validation cannot be bypassed between check and use.
+        manifest_path = str(
+            resolve_manifest_path(manifest_path, request.app.state.manifest_base_dir)
+        )
+    try:
+        max_concurrency = int(payload.get("max_concurrency", 4))
+        timeout = float(payload.get("timeout", 120.0))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, f"Invalid max_concurrency/timeout: {exc}") from exc
+    if not (1 <= max_concurrency <= 64):
+        raise HTTPException(400, "max_concurrency must be between 1 and 64")
+    if not (0 < timeout <= 86400):
+        raise HTTPException(400, "timeout must be between 0 and 86400 seconds")
     is_stream = bool(payload.get("stream", True))
 
-    workflow_exec = WorkflowExecutorV4(manager=manager, store=store)
+    workflow_exec = WorkflowExecutorV4(
+        manager=manager,
+        store=store,
+        manifest_base_dir=request.app.state.manifest_base_dir,
+    )
 
     if is_stream:
         workflow_stream = workflow_exec.stream(

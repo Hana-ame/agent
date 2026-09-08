@@ -7,13 +7,18 @@ import logging
 from typing import Any, Callable, Dict, Optional, Union
 
 from framework.edges.base import EdgeResultV4, EdgeV4, AgentProtocol, _resolve_script_callable
+from framework.edges.registry import register_edge_type
+from framework.utils.script_loader import ScriptNotAllowedError
 from framework.vertex_v4 import VertexStateV4, VertexStoreV4
 
 logger = logging.getLogger("vertex_edge_agent.edges.reflexive")
 
 
+@register_edge_type("reflexive", "recovery")
 class ReflexiveEdgeV4(EdgeV4):
     """Reflexive recovery edge (input == output) designed for reset on reject."""
+
+    IS_RECOVERY = True
 
     def __init__(
         self,
@@ -54,6 +59,37 @@ class ReflexiveEdgeV4(EdgeV4):
         if callable(script):
             self._callable = script
 
+    @classmethod
+    def from_config_dict(cls, data: Dict[str, Any], base_dir: Optional[str] = None) -> "ReflexiveEdgeV4":
+        """Build a reflexive recovery edge from a config dict."""
+        from framework.edges.base import (
+            _config_common_kwargs,
+            _config_edge_id,
+            _config_endpoint,
+            _config_script,
+        )
+
+        settings = dict(data.get("settings") or {})
+        node = _config_endpoint(data, "input") or _config_endpoint(data, "output")
+        if not node:
+            raise ValueError("Target vertex ('input' or 'output') is required for reflexive edge")
+        trigger_state = data.get("trigger_state") or settings.get(
+            "trigger_state", VertexStateV4.REJECT.value
+        )
+        target_state = data.get("target_state") or settings.get(
+            "target_state", VertexStateV4.TODO_URGENT.value
+        )
+        raw_retries = data.get("max_retries") or settings.get("max_retries", 3)
+        return cls(
+            edge_id=_config_edge_id(data),
+            vertex_name=str(node),
+            trigger_state=trigger_state,
+            target_state=target_state,
+            max_retries=int(raw_retries),
+            script=_config_script(data, base_dir),
+            **_config_common_kwargs(data),
+        )
+
     def _resolve_callable(self) -> Optional[Callable]:
         """Resolve optional recovery script to callable function."""
         if self._callable is not None:
@@ -66,6 +102,15 @@ class ReflexiveEdgeV4(EdgeV4):
         if isinstance(self.script, str):
             stripped = self.script.strip()
             if stripped.startswith("lambda ") or stripped.startswith("lambda:"):
+                if not self.settings.get("allow_inline_script"):
+                    raise ScriptNotAllowedError(
+                        "Inline lambda scripts are disabled. Set settings['allow_inline_script']=true "
+                        "in a trusted local configuration, or reference a script path instead."
+                    )
+                logger.warning(
+                    "[ReflexiveEdgeV4:%s] Evaluating inline lambda script (allow_inline_script=True).",
+                    self.id,
+                )
                 try:
                     self._callable = eval(stripped, {"__builtins__": __builtins__})
                     return self._callable

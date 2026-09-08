@@ -8,6 +8,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from framework.edges.base import EdgeResultV4, EdgeV4, AgentProtocol, _resolve_script_callable
+from framework.edges.registry import register_edge_type
 from framework.vertex_v4 import (
     VertexAttributeV4,
     VertexRecordV4,
@@ -18,6 +19,7 @@ from framework.vertex_v4 import (
 logger = logging.getLogger("vertex_edge_agent.edges.llm")
 
 
+@register_edge_type("llm", "llm_edge")
 class LLMEdgeV4(EdgeV4):
     """Executes LLM inference between upstream input and downstream output.
 
@@ -43,6 +45,7 @@ class LLMEdgeV4(EdgeV4):
         priority: int = 0,
         timeout: Optional[float] = None,
         agent_mode: Optional[str] = None,
+        edge_type: Optional[str] = None,
     ):
         edge_settings = dict(settings or {})
         edge_settings["model"] = model
@@ -54,7 +57,7 @@ class LLMEdgeV4(EdgeV4):
             edge_id=edge_id,
             input_vertex=input_vertex,
             output_vertex=output_vertex,
-            edge_type="llm",
+            edge_type=edge_type or "llm",
             settings=edge_settings,
             concurrency_limit=concurrency_limit,
             concurrency_group=concurrency_group or "llm",
@@ -183,6 +186,32 @@ class LLMEdgeV4(EdgeV4):
     def temperature(self) -> float:
         """Sampling temperature."""
         return float(self.settings.get("temperature", 0.7))
+
+    @classmethod
+    def from_config_dict(cls, data: Dict[str, Any], base_dir: Optional[str] = None) -> "LLMEdgeV4":
+        """Build an LLM edge from a config dict (``model``/``prompt``/``agent_mode``)."""
+        from framework.edges.base import _config_common_kwargs, _config_edge_id, _config_endpoint
+
+        settings = dict(data.get("settings") or {})
+        in_v = _config_endpoint(data, "input")
+        out_v = _config_endpoint(data, "output")
+        if not in_v or not out_v:
+            raise ValueError(f"Both input and output vertices are required for '{cls.__name__}'")
+        model = data.get("model") or settings.get("model", "sensenova-6.8-flash-lite")
+        prompt_template = (
+            data.get("prompt_template") or data.get("prompt") or settings.get("prompt")
+        )
+        agent_mode = data.get("agent_mode") or settings.get("agent_mode")
+        return cls(
+            edge_id=_config_edge_id(data),
+            input_vertex=str(in_v),
+            output_vertex=str(out_v),
+            model=model,
+            prompt_template=prompt_template,
+            agent_mode=agent_mode,
+            edge_type=data.get("type") or data.get("edge_type"),
+            **_config_common_kwargs(data),
+        )
 
     @classmethod
     def from_base(cls, base_edge: LLMEdgeV4) -> LLMEdgeV4:

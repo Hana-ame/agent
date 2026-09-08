@@ -23,6 +23,7 @@ Each example contains a `README.md` following the "Problem / Solution / Changes 
 | `subgraph/` | Nested subgraph execution with input/output boundary translation | `python examples/subgraph/demo.py` |
 | `simple_chain/` | Programmatic graph construction via fluent builder without JSON | `python examples/simple_chain/demo.py` |
 | `dynamic_topology/` | Dynamic runtime graph growth and edge creation | `python examples/dynamic_topology/demo.py` |
+| `custom_edge/` | Zero-registration custom edge classes via `"type": "my_edges.py:MyEdge"` | `python examples/custom_edge/demo.py` |
 | `race_mode/` | Race execution (first-to-finish wins, cancels laggards) | `python examples/race_mode/demo.py` |
 | `hn_ai_report/` | Hacker News automated AI summary report (legacy MapEdge) | `python examples/hn_ai_report/demo.py` |
 | `s1_ai_report/` | Direct multi-fetch AI report (8-way parallel fan-out) | `python examples/s1_ai_report/demo.py` |
