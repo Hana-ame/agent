@@ -183,8 +183,8 @@ class VertexStoreV4:
     def __init__(self, db_path: Union[str, Path] = ":memory:"):
         self.db_path = str(db_path)
         self._is_memory = (self.db_path == ":memory:")
-        self._write_lock = threading.Lock()
-        self._conn_lock = threading.Lock()
+        self._write_lock = threading.RLock()
+        self._conn_lock = threading.RLock()
         self._mem_lock = threading.RLock()
         self._local = threading.local()
         self._connections: List[sqlite3.Connection] = []
@@ -458,47 +458,48 @@ class VertexStoreV4:
         reducer_fn: Optional[Callable] = None,
     ) -> str:
         """Apply fan-in merge strategy when multiple edges write to the same vertex."""
-        if strategy == MergeStrategyV4.OVERWRITE.value or strategy == "overwrite":
-            self.update_vertex_content(session_id, name, incoming_content)
-            return incoming_content
-        
-        existing = self.get_vertex(session_id, name)
-        existing_content = existing.content if existing else ""
-        
-        if strategy == MergeStrategyV4.JSON_MERGE.value or strategy == "json_merge":
-            try:
-                existing_dict = json.loads(existing_content) if existing_content else {}
-                incoming_dict = json.loads(incoming_content) if incoming_content else {}
-                merged = {**existing_dict, **incoming_dict}
-                merged_content = json.dumps(merged)
-            except (json.JSONDecodeError, TypeError):
-                merged_content = incoming_content  # Fall back to overwrite
-            self.update_vertex_content(session_id, name, merged_content)
-            return merged_content
-        
-        elif strategy == MergeStrategyV4.LIST_APPEND.value or strategy == "list_append":
-            try:
-                existing_list = json.loads(existing_content) if existing_content else []
-                if not isinstance(existing_list, list):
-                    existing_list = [existing_list] if existing_content else []
-                existing_list.append(json.loads(incoming_content) if incoming_content else incoming_content)
-            except (json.JSONDecodeError, TypeError):
-                existing_list = [existing_content, incoming_content] if existing_content else [incoming_content]
-            merged_content = json.dumps(existing_list)
-            self.update_vertex_content(session_id, name, merged_content)
-            return merged_content
-        
-        elif strategy == MergeStrategyV4.REDUCER_SCRIPT.value or strategy == "reducer_script":
-            if reducer_fn is None:
+        with self._write_lock_ctx():
+            if strategy == MergeStrategyV4.OVERWRITE.value or strategy == "overwrite":
                 self.update_vertex_content(session_id, name, incoming_content)
                 return incoming_content
-            result = reducer_fn(existing_content, incoming_content)
-            self.update_vertex_content(session_id, name, str(result))
-            return str(result)
-        
-        # Unknown strategy — fallback to overwrite
-        self.update_vertex_content(session_id, name, incoming_content)
-        return incoming_content
+            
+            existing = self.get_vertex(session_id, name)
+            existing_content = existing.content if existing else ""
+            
+            if strategy == MergeStrategyV4.JSON_MERGE.value or strategy == "json_merge":
+                try:
+                    existing_dict = json.loads(existing_content) if existing_content else {}
+                    incoming_dict = json.loads(incoming_content) if incoming_content else {}
+                    merged = {**existing_dict, **incoming_dict}
+                    merged_content = json.dumps(merged)
+                except (json.JSONDecodeError, TypeError):
+                    merged_content = incoming_content  # Fall back to overwrite
+                self.update_vertex_content(session_id, name, merged_content)
+                return merged_content
+            
+            elif strategy == MergeStrategyV4.LIST_APPEND.value or strategy == "list_append":
+                try:
+                    existing_list = json.loads(existing_content) if existing_content else []
+                    if not isinstance(existing_list, list):
+                        existing_list = [existing_list] if existing_content else []
+                    existing_list.append(json.loads(incoming_content) if incoming_content else incoming_content)
+                except (json.JSONDecodeError, TypeError):
+                    existing_list = [existing_content, incoming_content] if existing_content else [incoming_content]
+                merged_content = json.dumps(existing_list)
+                self.update_vertex_content(session_id, name, merged_content)
+                return merged_content
+            
+            elif strategy == MergeStrategyV4.REDUCER_SCRIPT.value or strategy == "reducer_script":
+                if reducer_fn is None:
+                    self.update_vertex_content(session_id, name, incoming_content)
+                    return incoming_content
+                result = reducer_fn(existing_content, incoming_content)
+                self.update_vertex_content(session_id, name, str(result))
+                return str(result)
+            
+            # Unknown strategy — fallback to overwrite
+            self.update_vertex_content(session_id, name, incoming_content)
+            return incoming_content
 
     def delete_vertex(self, session_id: str, name: str) -> bool:
         """Delete a single vertex record by session_id and name, including associated staging entries."""
