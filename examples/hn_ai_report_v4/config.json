@@ -34,7 +34,7 @@
       "type": "code",
       "input_vertex": "v_start",
       "output_vertex": "v_stories",
-      "script": "hn_edges_v4.py:fetch_stories",
+      "script": "examples/hn_ai_report_v4/hn_edges_v4.py:fetch_stories",
       "settings": {
         "limit": 30,
         "timeout": 30,
@@ -48,12 +48,13 @@
       "input_vertex": "v_stories",
       "output_vertex": "v_ai_stories",
       "settings": {
-        "prompt": "Here is a list of top Hacker News stories in JSON format:\n{input}\n\nTask: Select stories related to AI, LLMs, machine learning, and deep learning. Select all relevant candidates without restricting count.\n\nOutput only a valid JSON array whose elements contain 'id', 'title', and 'url' fields. Do not include markdown formatting or explanations.",
+        "prompt": "Select AI/LLM/ML stories from this JSON list. Output ONLY a JSON array of {id,title,url} objects.\n{input}",
         "model": "sensenova-6.8-flash-lite",
         "base_url": "https://sensenova.moonchan.xyz/v1/chat/completions",
         "api_key": "",
         "temperature": 0.1,
-        "timeout": 7200
+        "max_tokens": 2000,
+        "timeout": 120
       },
       "concurrency_group": "llm"
     },
@@ -62,7 +63,7 @@
       "type": "code",
       "input_vertex": "v_ai_stories",
       "output_vertex": "v_report",
-      "script": "hn_edges_v4.py:summarize_all",
+      "script": "examples/hn_ai_report_v4/hn_edges_v4.py:summarize_all",
       "settings": {
         "model": "sensenova-6.8-flash-lite",
         "base_url": "https://sensenova.moonchan.xyz/v1/chat/completions",
