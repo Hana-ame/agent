@@ -27,6 +27,7 @@ from framework.graph_v4 import (
     NodeColor,
 )
 from framework.vertex_v4 import (
+    TraversalColor,
     VertexAttributeV4,
     VertexRecordV4,
     VertexStateV4,
@@ -48,18 +49,22 @@ def mem_store() -> VertexStoreV4:
 
 
 def test_node_color_enum_values():
-    """Verify NodeColor is unified into VertexStateV4 and supports int/str comparisons."""
-    assert NodeColor is VertexStateV4
-    assert VertexStateV4.WHITE == "white"
-    assert VertexStateV4.GRAY == "gray"
-    assert VertexStateV4.BLACK == "black"
+    """Verify NodeColor is the dedicated traversal-colour enum, not a lifecycle state."""
+    assert NodeColor is TraversalColor
+    assert TraversalColor.WHITE == "white"
+    assert TraversalColor.GRAY == "gray"
+    assert TraversalColor.BLACK == "black"
     assert NodeColor.WHITE == 0
     assert NodeColor.GRAY == 1
     assert NodeColor.BLACK == 2
+    # Traversal colours must not be lifecycle states.
+    for color in ("white", "gray", "black"):
+        with pytest.raises(ValueError):
+            VertexStateV4(color)
 
 
 def test_state_coloring_acyclic_dag_all_turn_black():
-    """Verify that an acyclic graph completes DFS with all nodes colored BLACK in node_states and vertex.state."""
+    """Verify DFS records colours in node_states only, leaving vertex.state untouched."""
     graph = GraphV4("acyclic_test")
     v1 = VertexRecordV4(0, "acyclic_test", "v1")
     v2 = VertexRecordV4(0, "acyclic_test", "v2")
@@ -73,15 +78,16 @@ def test_state_coloring_acyclic_dag_all_turn_black():
 
     topo_order = graph.detect_cycles_and_order()
     assert topo_order == ["v1", "v2", "v3"]
-    assert graph.node_states["v1"] == VertexStateV4.BLACK
-    assert graph.node_states["v2"] == VertexStateV4.BLACK
-    assert graph.node_states["v3"] == VertexStateV4.BLACK
+    assert graph.node_states["v1"] == TraversalColor.BLACK
+    assert graph.node_states["v2"] == TraversalColor.BLACK
+    assert graph.node_states["v3"] == TraversalColor.BLACK
     assert graph.node_colors["v1"] == NodeColor.BLACK
     assert graph.node_colors["v2"] == NodeColor.BLACK
     assert graph.node_colors["v3"] == NodeColor.BLACK
-    assert v1.state == VertexStateV4.BLACK.value
-    assert v2.state == VertexStateV4.BLACK.value
-    assert v3.state == VertexStateV4.BLACK.value
+    # Lifecycle state is preserved: validation must never persist DFS colours.
+    assert v1.state == VertexStateV4.IDLE.value
+    assert v2.state == VertexStateV4.IDLE.value
+    assert v3.state == VertexStateV4.IDLE.value
 
 
 def test_state_coloring_direct_mutual_cycle():

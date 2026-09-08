@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union, runtime_checkable
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Type, Union, runtime_checkable
 
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _REPO_ROOT not in sys.path:
@@ -85,12 +86,18 @@ class EdgeResultV4:
 
 
 def _resolve_script_callable(script_str: str, default_func_names: list[str]) -> Callable:
-    """Resolve script to callable function."""
+    """Resolve script to callable function.
+
+    Untrusted references are screened at the API boundary
+    (``SessionGraphManagerV4.add_or_update_edge``); this runtime path trusts the
+    configured script and only enforces ``VEA_SCRIPT_ROOTS`` when set.
+    """
+    from framework.utils.script_loader import load_script
+
     parts = script_str.split(":")
     file_path = parts[0]
     func_name = parts[1] if len(parts) > 1 else None
 
-    from framework.utils.script_loader import load_script
     mod = load_script(file_path)
     if func_name:
         fn = getattr(mod, func_name, None)
@@ -107,8 +114,190 @@ def _resolve_script_callable(script_str: str, default_func_names: list[str]) -> 
     raise ValueError(f"No valid callable entrypoint found in '{file_path}'")
 
 
+def _config_endpoint(data: Dict[str, Any], role: str) -> Optional[str]:
+    """Extract an input/output vertex name from the accepted config aliases."""
+    if role == "input":
+        return data.get("input_vertex") or data.get("input") or data.get("source") or data.get("source_id")
+    return data.get("output_vertex") or data.get("output") or data.get("destination") or data.get("destination_id")
+
+
+def _config_edge_id(data: Dict[str, Any]) -> str:
+    """Extract the edge id from the accepted config aliases."""
+    return str(data.get("id") or data.get("edge_id") or "edge_1")
+
+
+def _config_script(data: Dict[str, Any], base_dir: Optional[str]) -> Optional[Any]:
+    """Resolve a relative ``script`` reference against ``base_dir``."""
+    script = data.get("script")
+    if script and isinstance(script, str) and not os.path.isabs(script) and base_dir:
+        if ":" in script:
+            s_file, s_func = script.split(":", 1)
+            cand = os.path.join(base_dir, s_file)
+            if os.path.exists(cand):
+                script = f"{cand}:{s_func}"
+        else:
+            cand = os.path.join(base_dir, script)
+            if os.path.exists(cand):
+                script = cand
+    return script
+
+
+def _config_common_kwargs(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Collect the constructor kwargs shared by every edge type."""
+    settings = dict(data.get("settings") or {})
+    return {
+        "settings": settings,
+        "concurrency_limit": data.get("concurrency_limit", settings.get("concurrency_limit")),
+        "concurrency_group": data.get("concurrency_group", settings.get("concurrency_group")),
+        "priority": int(data.get("priority", settings.get("priority", 0))),
+        "timeout": data.get("timeout", settings.get("timeout")),
+    }
+
+
+def is_dynamic_edge_type(edge_type: Optional[str]) -> bool:
+    """Return True when ``edge_type`` names a user script/class instead of a built-in.
+
+    Examples: ``"my_edge.py:MyEdge"``, ``"edges/custom.py"``.
+    """
+    if not edge_type or not isinstance(edge_type, str):
+        return False
+    return ":" in edge_type or edge_type.strip().endswith(".py")
+
+
+def _filter_kwargs(func: Callable, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop kwargs ``func`` does not accept (so custom ``__init__``s stay simple)."""
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins
+        return dict(kwargs)
+    if any(p.kind == p.VAR_KEYWORD for p in params.values()):
+        return dict(kwargs)
+    return {k: v for k, v in kwargs.items() if k in params}
+
+
+def _resolve_script_spec(
+    spec: str,
+    base_dir: Optional[str],
+    script_roots: Optional[Sequence[Union[str, Path]]] = None,
+) -> Tuple[str, Optional[str]]:
+    """Split ``"path.py:ClassName"`` and resolve ``path.py`` on disk.
+
+    Relative paths are resolved against ``base_dir`` first (the directory of the
+    config file), then any ``script_roots`` the caller configured (for example a
+    server started with ``--script-root ./my_edges``).
+    """
+    path_part, _, cls_name = spec.partition(":")
+    if path_part and not os.path.isabs(path_part):
+        candidates: List[str] = []
+        if base_dir:
+            candidates.append(os.path.join(base_dir, path_part))
+        candidates.extend(os.path.join(str(root), path_part) for root in (script_roots or ()))
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                path_part = candidate
+                break
+    return path_part, (cls_name or None)
+
+
+def _load_dynamic_edge_class(
+    spec: str,
+    base_dir: Optional[str],
+    script_roots: Optional[Sequence[Union[str, Path]]] = None,
+) -> Type["EdgeV4"]:
+    """Load a user-defined edge class from ``"my_edge.py:MyEdge"``.
+
+    Confinement is enforced by :func:`framework.utils.script_loader.load_script`
+    (``VEA_SCRIPT_ROOTS``, or ``script_roots`` when provided). The HTTP layer
+    additionally screens the spec with :func:`validate_script_reference` before
+    reaching this point.
+    """
+    from framework.utils.script_loader import load_class_from_script
+
+    path_part, cls_name = _resolve_script_spec(spec, base_dir, script_roots)
+    allowed = [Path(root).resolve() for root in script_roots] if script_roots else None
+    loaded = load_class_from_script(path_part, EdgeV4, cls_name, allowed_roots=allowed)
+    if loaded is EdgeV4:
+        raise ValueError(
+            f"'{spec}' does not define an EdgeV4 subclass"
+            + (f" named '{cls_name}'" if cls_name else "")
+        )
+    return loaded
+
+
+def _instantiate_edge_class(
+    cls: Type["EdgeV4"],
+    data: Dict[str, Any],
+    base_dir: Optional[str] = None,
+    type_spec: Optional[str] = None,
+    dynamic: bool = False,
+    load_spec: Optional[str] = None,
+) -> "EdgeV4":
+    """Build ``cls`` from a config dict, tolerating custom constructor signatures.
+
+    If the class overrides :meth:`EdgeV4.from_config_dict` that override is used;
+    otherwise the config is mapped onto the constructor, and any kwarg the
+    constructor does not accept is dropped.
+    """
+    overrides = getattr(cls, "from_config_dict", None)
+    if overrides is not None and getattr(overrides, "__func__", None) is not EdgeV4.from_config_dict.__func__:
+        # The override owns its own requirements (a reflexive edge needs only one
+        # endpoint, an LLM edge needs a model, ...).
+        edge = overrides(data, base_dir=base_dir)
+    else:
+        in_v = _config_endpoint(data, "input")
+        out_v = _config_endpoint(data, "output")
+        if not in_v or not out_v:
+            raise ValueError(f"Both input and output vertices are required for '{cls.__name__}'")
+        settings = dict(data.get("settings") or {})
+        kwargs: Dict[str, Any] = {
+            "edge_id": _config_edge_id(data),
+            "input_vertex": str(in_v),
+            "output_vertex": str(out_v),
+            "script": _config_script(data, base_dir),
+            "settings": settings,
+            "concurrency_limit": data.get("concurrency_limit", settings.get("concurrency_limit")),
+            "concurrency_group": data.get("concurrency_group", settings.get("concurrency_group")),
+            "priority": int(data.get("priority", settings.get("priority", 0))),
+            "timeout": data.get("timeout", settings.get("timeout")),
+            "edge_type": type_spec,
+        }
+        edge = cls(**_filter_kwargs(cls.__init__, kwargs))
+
+    if type_spec:
+        # Preserve the declared spec so to_dict()/DB round trips resolve the same class.
+        edge.type = type_spec
+        if dynamic:
+            # A relative spec only resolves next to its manifest (or inside a
+            # configured script root), so record the absolute form for
+            # store/snapshot round trips. Prefer the module the class actually
+            # came from: re-resolving the raw spec here resolved it against the
+            # repository root and recorded a path that did not exist.
+            path_part, cls_name = _resolve_script_spec(load_spec or type_spec, base_dir)
+            module = sys.modules.get(getattr(type(edge), "__module__", ""))
+            resolved = os.path.abspath(getattr(module, "__file__", None) or path_part)
+            edge.settings.setdefault(
+                "_edge_class_spec", f"{resolved}:{cls_name}" if cls_name else resolved
+            )
+    return edge
+
+
 class EdgeV4:
-    """Base class for V4 executable edges."""
+    """Base class for V4 executable edges.
+
+    Class-level capability flags let the executor and server layer branch on
+    behaviour instead of on concrete class identity:
+
+    * ``EMITS_TOOL_CALL`` — the edge yields OpenAI ``tool_calls`` for an external
+      harness instead of computing a result (``ToolEdgeV4``, ``LLMToolEdgeV4``).
+    * ``IS_RECOVERY`` — a self-loop recovery edge (``ReflexiveEdgeV4``).
+    """
+
+    #: Edge type strings this class is registered under (set by the registry).
+    edge_type_names: Tuple[str, ...] = ()
+    #: True when the edge emits OpenAI tool calls rather than computing output.
+    EMITS_TOOL_CALL: bool = False
+    #: True for reflexive recovery edges.
+    IS_RECOVERY: bool = False
 
     def __init__(
         self,
@@ -210,10 +399,18 @@ class EdgeV4:
         cls,
         config: Union[str, Path, Dict[str, Any]],
         base_dir: Optional[str] = None,
+        script_roots: Optional[Sequence[Union[str, Path]]] = None,
     ) -> "EdgeV4":
-        """Instantiate an EdgeV4 or appropriate subclass from a JSON file or dict.
+        """Instantiate the right EdgeV4 subclass from a JSON file or dict.
 
-        Supports driving all edge parameters from a single JSON configuration.
+        Dispatch is driven by :data:`framework.edges.registry.EDGE_REGISTRY`, so a
+        new edge type only needs to register itself (see
+        :func:`framework.edges.registry.register_edge_type`) and implement
+        :meth:`from_config_dict`.
+
+        ``script_roots`` restricts where a dynamic ``"my_edge.py:MyEdge"`` spec may
+        be loaded from (and is searched when the spec is relative). Omit it to use
+        the defaults: repository root plus ``VEA_SCRIPT_ROOTS``.
         """
         if isinstance(config, (str, Path)):
             cfg_path = Path(config)
@@ -231,149 +428,79 @@ class EdgeV4:
         else:
             raise TypeError(f"Config must be a file path or dict, got {type(config).__name__}")
 
-        edge_id = str(data.get("id") or data.get("edge_id") or "edge_1")
+        from framework.edges import registry as edge_registry
+
         e_type = str(data.get("type") or data.get("edge_type") or "code")
-        in_v = data.get("input_vertex") or data.get("input") or data.get("source") or data.get("source_id")
-        out_v = data.get("output_vertex") or data.get("output") or data.get("destination") or data.get("destination_id")
-        settings = dict(data.get("settings") or {})
-        script = data.get("script")
-        priority = int(data.get("priority", settings.get("priority", 0)))
-        concurrency_limit = data.get("concurrency_limit", settings.get("concurrency_limit"))
-        concurrency_group = data.get("concurrency_group", settings.get("concurrency_group"))
-        timeout = data.get("timeout", settings.get("timeout"))
+        in_v = _config_endpoint(data, "input")
+        out_v = _config_endpoint(data, "output")
 
-        # Resolve script path against base_dir if relative
-        if script and isinstance(script, str) and not os.path.isabs(script) and base_dir:
-            if ":" in script:
-                s_file, s_func = script.split(":", 1)
-                cand = os.path.join(base_dir, s_file)
-                if os.path.exists(cand):
-                    script = f"{cand}:{s_func}"
-            else:
-                cand = os.path.join(base_dir, script)
-                if os.path.exists(cand):
-                    script = cand
+        # Resolution order:
+        #   1. the class this was called on (MyEdge.from_config(...))
+        #   2. a registered built-in type name ("code", "llm", "tool", ...)
+        #   3. a user script/class spec ("my_edge.py:MyEdge")
+        explicit_cls = cls is not EdgeV4 and issubclass(cls, EdgeV4)
+        target_cls: Optional[Type["EdgeV4"]] = cls if explicit_cls else edge_registry.get_edge_class(e_type)
+        dynamic = False
+        load_spec: Optional[str] = None
+        if target_cls is None and is_dynamic_edge_type(e_type):
+            # to_dict()/DB records the absolute spec under "_edge_class_spec" so a
+            # relative "my_edge.py:MyEdge" still resolves from another directory.
+            recorded = (data.get("settings") or {}).get("_edge_class_spec")
+            load_spec = recorded or e_type
+            target_cls = _load_dynamic_edge_class(load_spec, base_dir, script_roots)
+            dynamic = True
 
-        # Dynamically import subclasses to prevent circular imports
-        from framework.edges.code import CodeEdgeV4
-        from framework.edges.tool import ToolEdgeV4, LLMToolEdgeV4
-        from framework.edges.reflexive import ReflexiveEdgeV4
-        from framework.edges.llm import LLMEdgeV4
-        from framework.chat_llm_edge_v4 import ChatLLMEdgeV4
-        from framework.generate_llm_edge_v4 import GenerateLLMEdgeV4
-        from framework.process_llm_edge_v4 import ProcessLLMEdgeV4
-        from framework.callable_llm_edge_v4 import CallableLLMEdgeV4
+        # A self-loop is a reflexive recovery edge by default — but never override
+        # a class the caller named explicitly.
+        if (
+            not explicit_cls
+            and not dynamic
+            and in_v
+            and out_v
+            and in_v == out_v
+            and not getattr(target_cls, "IS_RECOVERY", False)
+        ):
+            reflexive_cls = edge_registry.get_edge_class("reflexive")
+            if reflexive_cls is not None:
+                target_cls = reflexive_cls
 
-        # Select target class
-        if cls is not EdgeV4 and issubclass(cls, EdgeV4):
-            target_cls = cls
-        elif e_type == "reflexive" or (in_v and out_v and in_v == out_v):
-            target_cls = ReflexiveEdgeV4
-        elif e_type in ("tool", "tool_call"):
-            target_cls = ToolEdgeV4
-        elif e_type in ("llm_tool", "llm_tool_call"):
-            target_cls = LLMToolEdgeV4
-        elif e_type == "code":
-            target_cls = CodeEdgeV4
-        elif e_type == "llm_chat":
-            target_cls = ChatLLMEdgeV4
-        elif e_type == "llm_generate":
-            target_cls = GenerateLLMEdgeV4
-        elif e_type == "llm_process":
-            target_cls = ProcessLLMEdgeV4
-        elif e_type == "llm_callable":
-            target_cls = CallableLLMEdgeV4
-        elif e_type == "llm":
-            target_cls = LLMEdgeV4
-        else:
-            target_cls = CodeEdgeV4
-
-        if issubclass(target_cls, ReflexiveEdgeV4):
-            target_node = in_v or out_v
-            if not target_node:
-                raise ValueError("Target vertex ('input' or 'output') is required for reflexive edge")
-            trigger_state = data.get("trigger_state") or settings.get("trigger_state", VertexStateV4.REJECT.value)
-            target_state = data.get("target_state") or settings.get("target_state", VertexStateV4.TODO_URGENT.value)
-            raw_retries = data.get("max_retries") or settings.get("max_retries", 3)
-            return ReflexiveEdgeV4(
-                edge_id=edge_id,
-                vertex_name=str(target_node),
-                trigger_state=trigger_state,
-                target_state=target_state,
-                max_retries=int(raw_retries),
-                script=script,
-                settings=settings,
-                concurrency_limit=concurrency_limit,
-                concurrency_group=concurrency_group,
-                priority=priority,
-                timeout=timeout,
+        if target_cls is None:
+            raise ValueError(
+                f"Unsupported edge type '{e_type}'. Use a registered type "
+                f"({', '.join(edge_registry.edge_type_choices())}) or a script spec "
+                "such as 'my_edge.py:MyEdge'."
             )
-        else:
-            if not in_v or not out_v:
-                raise ValueError(f"Both input and output vertices are required for {e_type} edge")
-            if issubclass(target_cls, ToolEdgeV4):
-                tool_name = data.get("tool_name") or data.get("tool") or settings.get("tool_name") or settings.get("tool") or "bash"
-                arguments = data.get("arguments") or data.get("args") or settings.get("arguments") or settings.get("args") or {}
-                arguments_template = data.get("arguments_template") or settings.get("arguments_template")
-                return ToolEdgeV4(
-                    edge_id=edge_id,
-                    input_vertex=str(in_v),
-                    output_vertex=str(out_v),
-                    tool_name=str(tool_name),
-                    arguments=arguments,
-                    arguments_template=arguments_template,
-                    settings=settings,
-                    concurrency_limit=concurrency_limit,
-                    concurrency_group=concurrency_group,
-                    priority=priority,
-                    timeout=timeout,
-                )
-            if issubclass(target_cls, LLMToolEdgeV4):
-                model = data.get("model") or settings.get("model", "sensenova-6.8-flash-lite")
-                prompt_template = data.get("prompt_template") or data.get("prompt") or settings.get("prompt")
-                tools = data.get("tools") or settings.get("tools") or []
-                return LLMToolEdgeV4(
-                    edge_id=edge_id,
-                    input_vertex=str(in_v),
-                    output_vertex=str(out_v),
-                    model=model,
-                    prompt_template=prompt_template,
-                    tools=tools,
-                    settings=settings,
-                    concurrency_limit=concurrency_limit,
-                    concurrency_group=concurrency_group,
-                    priority=priority,
-                    timeout=timeout,
-                )
-            if issubclass(target_cls, LLMEdgeV4):
-                model = data.get("model") or settings.get("model", "sensenova-6.8-flash-lite")
-                prompt_template = data.get("prompt_template") or data.get("prompt") or settings.get("prompt")
-                agent_mode = data.get("agent_mode") or settings.get("agent_mode")
-                return target_cls(
-                    edge_id=edge_id,
-                    input_vertex=str(in_v),
-                    output_vertex=str(out_v),
-                    model=model,
-                    prompt_template=prompt_template,
-                    settings=settings,
-                    concurrency_limit=concurrency_limit,
-                    concurrency_group=concurrency_group,
-                    priority=priority,
-                    timeout=timeout,
-                    agent_mode=agent_mode,
-                )
-            else:
-                return CodeEdgeV4(
-                    edge_id=edge_id,
-                    input_vertex=str(in_v),
-                    output_vertex=str(out_v),
-                    script=script,
-                    settings=settings,
-                    concurrency_limit=concurrency_limit,
-                    concurrency_group=concurrency_group,
-                    priority=priority,
-                    timeout=timeout,
-                )
+        return _instantiate_edge_class(
+            target_cls,
+            data,
+            base_dir,
+            type_spec=e_type if dynamic else None,
+            dynamic=dynamic,
+            load_spec=load_spec,
+        )
+
+    @classmethod
+    def from_config_dict(
+        cls,
+        data: Dict[str, Any],
+        base_dir: Optional[str] = None,
+    ) -> "EdgeV4":
+        """Build this edge type from a flattened config dict.
+
+        Subclasses override this to read their own fields; the default handles a
+        plain edge with an optional script.
+        """
+        in_v = _config_endpoint(data, "input")
+        out_v = _config_endpoint(data, "output")
+        if not in_v or not out_v:
+            raise ValueError(f"Both input and output vertices are required for '{cls.__name__}'")
+        return cls(
+            edge_id=_config_edge_id(data),
+            input_vertex=str(in_v),
+            output_vertex=str(out_v),
+            script=_config_script(data, base_dir),
+            **_config_common_kwargs(data),
+        )
 
     def check_handshake(
         self,

@@ -7,7 +7,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Dict, List, Tuple
 
 from framework.graphs.exceptions import GraphTopologyError
-from framework.vertex_v4 import VertexAttributeV4, VertexStateV4
+from framework.vertex_v4 import TraversalColor, VertexAttributeV4, VertexStateV4
 
 if TYPE_CHECKING:
     from framework.graphs.core import GraphV4
@@ -18,10 +18,9 @@ logger = logging.getLogger("vertex_edge_agent.graphs.validation")
 def detect_cycles_and_order(graph: "GraphV4", strict_dag: bool = True) -> List[str]:
     """Detect cycles using state coloring DFS and return topological ordering.
 
-    Uses VertexStateV4 (WHITE, GRAY, BLACK) directly on vertex states:
-        - WHITE: Unvisited node.
-        - GRAY: Currently visiting (ancestor in active DFS recursion path).
-        - BLACK: Visited and fully explored (verified acyclic).
+    Uses :class:`TraversalColor` (WHITE, GRAY, BLACK) held **only** in
+    ``graph.node_states``. Vertex lifecycle states are never touched: doing so
+    used to overwrite persisted ``idle``/``todo`` states with DFS colours.
 
     Args:
         graph: Target GraphV4 instance.
@@ -40,23 +39,17 @@ def detect_cycles_and_order(graph: "GraphV4", strict_dag: bool = True) -> List[s
             if edge.input_vertex in adj:
                 adj[edge.input_vertex].append(edge.output_vertex)
 
-    states: Dict[str, VertexStateV4] = {v: VertexStateV4.WHITE for v in graph.vertices}
+    states: Dict[str, TraversalColor] = {v: TraversalColor.WHITE for v in graph.vertices}
     current_path: List[str] = []
     post_order: List[str] = []
 
     def dfs(node: str) -> None:
-        states[node] = VertexStateV4.GRAY
-        if node in graph.vertices and graph.vertices[node].state in (
-            VertexStateV4.IDLE.value,
-            VertexStateV4.WHITE.value,
-            VertexStateV4.GRAY.value,
-        ):
-            graph.vertices[node].state = VertexStateV4.GRAY.value
+        states[node] = TraversalColor.GRAY
         current_path.append(node)
 
         for neighbor in adj.get(node, []):
             state = states.get(neighbor)
-            if state == VertexStateV4.GRAY:
+            if state == TraversalColor.GRAY:
                 cycle_start_idx = current_path.index(neighbor)
                 cycle_path = current_path[cycle_start_idx:] + [neighbor]
                 cycle_str = " -> ".join(cycle_path)
@@ -69,7 +62,7 @@ def detect_cycles_and_order(graph: "GraphV4", strict_dag: bool = True) -> List[s
                 else:
                     logger.info("Cycle detected at definition time: %s (will be resolved at runtime)", cycle_str)
                     continue
-            elif state == VertexStateV4.WHITE:
+            elif state == TraversalColor.WHITE:
                 dfs(neighbor)
             elif state is None:
                 graph.node_states = dict(states)
@@ -78,17 +71,11 @@ def detect_cycles_and_order(graph: "GraphV4", strict_dag: bool = True) -> List[s
                 )
 
         current_path.pop()
-        states[node] = VertexStateV4.BLACK
-        if node in graph.vertices and graph.vertices[node].state in (
-            VertexStateV4.IDLE.value,
-            VertexStateV4.WHITE.value,
-            VertexStateV4.GRAY.value,
-        ):
-            graph.vertices[node].state = VertexStateV4.BLACK.value
+        states[node] = TraversalColor.BLACK
         post_order.append(node)
 
     for v in sorted(graph.vertices.keys()):
-        if states[v] == VertexStateV4.WHITE:
+        if states[v] == TraversalColor.WHITE:
             dfs(v)
 
     graph.node_states = dict(states)

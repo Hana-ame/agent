@@ -19,9 +19,17 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 logger = logging.getLogger(__name__)
 
+#: Current store schema version (bumped when a migration is required).
+SCHEMA_VERSION = 1
+
 
 class VertexStateV4(str, Enum):
-    """Execution, lifecycle, and topological traversal states for V4 vertices."""
+    """Persisted lifecycle state of a vertex.
+
+    Graph-traversal colors are deliberately **not** part of this enum: a DFS
+    colour describes a traversal in progress, not vertex data, and persisting it
+    used to overwrite real states (see :class:`TraversalColor`).
+    """
 
     DATA_READY = "data ready"
     IDLE = "idle"
@@ -31,28 +39,29 @@ class VertexStateV4(str, Enum):
     REJECT = "reject"
     PRUNING = "pruning"
 
-    # State coloring and DFS traversal states
+
+class TraversalColor(str, Enum):
+    """Depth-first-search colors, used only during topology validation."""
+
     WHITE = "white"
     GRAY = "gray"
     BLACK = "black"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, int):
-            color_ints = {
-                VertexStateV4.WHITE: 0,
-                VertexStateV4.GRAY: 1,
-                VertexStateV4.BLACK: 2,
-            }
-            if self in color_ints:
-                return color_ints[self] == other
+            return _COLOR_INTS[self] == other
         return super().__eq__(other)
 
     def __hash__(self) -> int:
         return super().__hash__()
 
 
-# Unified alias for state coloring functionality
-NodeColor = VertexStateV4
+#: Legacy integer mapping for DFS colors (WHITE=0, GRAY=1, BLACK=2).
+_COLOR_INTS = {TraversalColor.WHITE: 0, TraversalColor.GRAY: 1, TraversalColor.BLACK: 2}
+
+#: Backward-compatible alias. Historically this was an alias of VertexStateV4;
+#: it now points at the dedicated traversal-colour enum.
+NodeColor = TraversalColor
 
 
 
@@ -285,7 +294,7 @@ class VertexStoreV4:
                     name TEXT NOT NULL,
                     content TEXT NOT NULL DEFAULT '',
                     attributes TEXT NOT NULL DEFAULT '[]',
-                    state TEXT NOT NULL DEFAULT 'idle' CHECK (state IN ('data ready', 'idle', 'forbidden', 'todo', 'todo urgent', 'reject', 'pruning', 'white', 'gray', 'black')),
+                    state TEXT NOT NULL DEFAULT 'idle' CHECK (state IN ('data ready', 'idle', 'forbidden', 'todo', 'todo urgent', 'reject', 'pruning')),
                     processed_count INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -378,6 +387,72 @@ class VertexStoreV4:
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_edge_metrics_session_edge ON edge_metrics(session_id, edge_id);"
             )
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Bring an existing database up to the current schema version.
+
+        Version 1 removes the DFS colour values (white/gray/black) from the
+        ``vertices.state`` CHECK constraint. SQLite cannot ALTER a CHECK, so the
+        table is rebuilt; any row still holding a colour is reset to ``idle``.
+        """
+        with self._write_lock_ctx():
+            cur = self._get_connection().cursor()
+            cur.execute("PRAGMA user_version;")
+            row = cur.fetchone()
+            version = int(row[0]) if row else 0
+            if version >= SCHEMA_VERSION:
+                return
+
+            cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='vertices';")
+            row = cur.fetchone()
+            ddl = (row[0] if row else "") or ""
+            if "white" in ddl.lower() or "gray" in ddl.lower():
+                logger.info("Migrating 'vertices' table: removing traversal colours from state CHECK")
+                cur.execute("BEGIN;")
+                try:
+                    cur.execute("DROP INDEX IF EXISTS idx_vertices_session_state;")
+                    cur.execute("DROP INDEX IF EXISTS idx_vertices_session_name;")
+                    cur.execute("ALTER TABLE vertices RENAME TO vertices_legacy;")
+                    cur.execute(
+                        """
+                        CREATE TABLE vertices (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            session_id TEXT NOT NULL,
+                            name TEXT NOT NULL,
+                            content TEXT NOT NULL DEFAULT '',
+                            attributes TEXT NOT NULL DEFAULT '[]',
+                            state TEXT NOT NULL DEFAULT 'idle' CHECK (state IN ('data ready', 'idle', 'forbidden', 'todo', 'todo urgent', 'reject', 'pruning')),
+                            processed_count INTEGER NOT NULL DEFAULT 0,
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            UNIQUE(session_id, name)
+                        );
+                        """
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO vertices (id, session_id, name, content, attributes, state, processed_count, created_at, updated_at)
+                        SELECT id, session_id, name, content, attributes,
+                               CASE WHEN state IN ('white', 'gray', 'black') THEN 'idle' ELSE state END,
+                               processed_count, created_at, updated_at
+                        FROM vertices_legacy;
+                        """
+                    )
+                    cur.execute("DROP TABLE vertices_legacy;")
+                    cur.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_vertices_session_state ON vertices(session_id, state);"
+                    )
+                    cur.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_vertices_session_name ON vertices(session_id, name);"
+                    )
+                    cur.execute("COMMIT;")
+                except Exception:
+                    cur.execute("ROLLBACK;")
+                    raise
+
+            cur.execute(f"PRAGMA user_version = {SCHEMA_VERSION};")
+            logger.info("Store schema migrated to version %d", SCHEMA_VERSION)
 
     # ------------------------------------------------------------------
     # Vertex Operations

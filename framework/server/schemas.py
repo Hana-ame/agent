@@ -92,8 +92,5 @@ class RouteAndRunRequest(BaseModel):
     task: str = Field(..., description="User task description or query")
     tool_id: Optional[str] = Field(default=None, description="Explicit tool override. If None, classifier is used.")
     use_llm: bool = Field(default=True, description="Whether to use LLM for semantic intent routing")
-    api_key: Optional[str] = Field(default=None, description="Optional LLM API key override")
-    base_url: Optional[str] = Field(default=None, description="Optional LLM Base URL override")
-    model: Optional[str] = Field(default=None, description="Optional LLM Model override")
     max_concurrency: int = Field(default=4, ge=1, le=64, description="Max concurrent edges")
     timeout: float = Field(default=120.0, gt=0.0, description="Execution timeout in seconds")

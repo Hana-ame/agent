@@ -61,6 +61,7 @@ from pathlib import Path  # noqa: F401 — used by EdgeV4.run_standalone signatu
 from typing import Any, AsyncGenerator, Dict, Optional, Union  # noqa: F401 — Union used by base class
 
 from framework.edge_v4 import EdgeResultV4, EdgeV4
+from framework.edges.registry import register_edge_type
 from framework.vertex_v4 import (
     VertexAttributeV4,
     VertexRecordV4,
@@ -80,6 +81,7 @@ DEFAULT_MODEL = "sensenova-6.8-flash-lite"
 API_KEY_ENV = "SENSENOVA_API_KEY"
 
 
+@register_edge_type("sensenova", "sensenova_edge")
 class SensenovaEdgeV4(EdgeV4):
     """V4 edge dedicated to SenseNova 6.8 Flash Lite inference.
 
@@ -120,6 +122,10 @@ class SensenovaEdgeV4(EdgeV4):
         model: str = DEFAULT_MODEL,
         prompt_template: Optional[str] = None,
         settings: Optional[Dict[str, Any]] = None,
+        concurrency_limit: Optional[int] = None,
+        concurrency_group: Optional[str] = None,
+        priority: int = 0,
+        timeout: Optional[float] = None,
     ) -> None:
         edge_settings = dict(settings or {})
         edge_settings.setdefault("model", model)
@@ -131,6 +137,10 @@ class SensenovaEdgeV4(EdgeV4):
             output_vertex=output_vertex,
             edge_type="sensenova",
             settings=edge_settings,
+            concurrency_limit=concurrency_limit,
+            concurrency_group=concurrency_group,
+            priority=priority,
+            timeout=timeout,
         )
 
         # ------------------------------------------------------------------
@@ -163,6 +173,29 @@ class SensenovaEdgeV4(EdgeV4):
             self.id,
             self.base_url,
             self.model,
+        )
+
+    @classmethod
+    def from_config_dict(cls, data: Dict[str, Any], base_dir: Optional[str] = None) -> "SensenovaEdgeV4":
+        """Build a SenseNova edge from a config dict."""
+        from framework.edges.base import _config_common_kwargs, _config_edge_id, _config_endpoint
+
+        settings = dict(data.get("settings") or {})
+        in_v = _config_endpoint(data, "input")
+        out_v = _config_endpoint(data, "output")
+        if not in_v or not out_v:
+            raise ValueError("Both input and output vertices are required for a sensenova edge")
+        model = data.get("model") or settings.get("model", DEFAULT_MODEL)
+        prompt_template = (
+            data.get("prompt_template") or data.get("prompt") or settings.get("prompt")
+        )
+        return cls(
+            edge_id=_config_edge_id(data),
+            input_vertex=str(in_v),
+            output_vertex=str(out_v),
+            model=model,
+            prompt_template=prompt_template,
+            **_config_common_kwargs(data),
         )
 
     # ------------------------------------------------------------------

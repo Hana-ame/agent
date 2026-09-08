@@ -7,11 +7,14 @@ import logging
 from typing import Any, Callable, Dict, Optional, Union
 
 from framework.edges.base import EdgeResultV4, EdgeV4, AgentProtocol, _resolve_script_callable
+from framework.edges.registry import register_edge_type
+from framework.utils.script_loader import ScriptNotAllowedError
 from framework.vertex_v4 import VertexStateV4, VertexStoreV4
 
 logger = logging.getLogger("vertex_edge_agent.edges.code")
 
 
+@register_edge_type("code", "code_edge")
 class CodeEdgeV4(EdgeV4):
     """Executes Python transformation logic or scripts between vertices."""
 
@@ -55,6 +58,16 @@ class CodeEdgeV4(EdgeV4):
         if isinstance(self.script, str):
             stripped = self.script.strip()
             if stripped.startswith("lambda ") or stripped.startswith("lambda:"):
+                if not self.settings.get("allow_inline_script"):
+                    raise ScriptNotAllowedError(
+                        "Inline lambda scripts are disabled. Set settings['allow_inline_script']=true "
+                        "in a trusted local configuration, or reference a script path instead."
+                    )
+                logger.warning(
+                    "[CodeEdgeV4:%s] Evaluating inline lambda script (allow_inline_script=True). "
+                    "Inline scripts execute arbitrary Python and must never be accepted from untrusted input.",
+                    self.id,
+                )
                 try:
                     self._callable = eval(stripped, {"__builtins__": __builtins__})
                     return self._callable

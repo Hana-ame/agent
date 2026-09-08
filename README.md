@@ -16,7 +16,13 @@ pip install -r requirements.txt
 
 # 2. Install editable package
 pip install -e .
+
+# Optional: extra deps used only by the bundled example graphs
+pip install -e ".[examples]"
 ```
+
+Once installed, `vea-server` is available as a console script (same entry point as
+`python3 -m framework.server_v4`).
 
 ---
 
@@ -35,6 +41,7 @@ Vertex-Edge Agent Framework supports multiple execution paradigms: standalone CL
 | **OpenCode & Proxied Agent** | `python3 examples/opencode_zen/proxy_demo.py` | Dynamic proxy agent, OpenCode integration, token tracking |
 | **Generic JSON Config Runner** | `python3 examples/run.py <path/to/config.json>` | Generic engine runner for legacy and discrete pipeline definitions |
 | **Runtime Topology Mutation** | `python3 examples/dynamic_topology/demo.py` | Dynamic vertex insertion and runtime graph modification |
+| **Custom Edge Extension** | `python3 examples/custom_edge/demo.py` | Zero-registration custom edge classes referenced as `"type": "my_edges.py:MyEdge"` |
 | **Self-Correction Loop** | `python3 examples/self_correction/demo.py` | Reflexive error recovery and multi-pass correction |
 | **Real-time Streaming Pipeline** | `python3 examples/realtime_streaming/demo.py` | Token/chunk streaming through execution nodes |
 | **Human-in-the-Loop Approval** | `python3 examples/hitl_approval/demo.py` | Interactive pause-and-resume execution flow |
@@ -102,10 +109,31 @@ while True:
 
 ### 2.3 Starting the API Server & Dashboard (启动 HTTP 服务端)
 
-#### Standard Service Launch (Default Port 11434)
+> 🔒 **Security defaults (changed in this revision)**
+> - The server binds **`127.0.0.1`** by default. Binding any other host **requires** an API key.
+> - Set `VEA_API_KEY` (or pass `--api-key`) to require `X-API-Key` / `Authorization: Bearer`
+>   on every `/api/*` and `/v1/*` route. `/dashboard` stays reachable so the console can load;
+>   the browser prompts for the key once and stores it in `localStorage.vea_api_key`.
+> - CORS is **disabled** unless you pass `--cors-origin`.
+> - Client-supplied manifest paths are confined to the repository root (override with
+>   `--manifest-base-dir`); the `vea_manifest_path` request field was removed.
+> - Inline `lambda` scripts are disabled by default; trusted local configs must opt in with
+>   `settings.allow_inline_script = true`. The HTTP API never allows them.
+> - Client-supplied edge script specs (`"my_edge.py:MyEdge"`) may only load from the repository
+>   root plus `VEA_SCRIPT_ROOTS` (`os.pathsep`-separated). Pass `--script-root DIR` (repeatable)
+>   to replace that set — recommended for a deployed server, so only your own edge directory
+>   is loadable.
+
+#### Standard Service Launch (loopback only, default port 11434)
 ```bash
 # Launch unified V4 server (supports OpenAI API + Dashboard + Graph Mutation)
 python3 -m framework.server_v4 --port 11434
+```
+
+#### Launch with an API key (required for any non-loopback bind)
+```bash
+export VEA_API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+python3 -m framework.server_v4 --host 0.0.0.0 --port 11434 --api-key "$VEA_API_KEY"
 ```
 
 #### Launch with SQLite Database Persistence
@@ -114,14 +142,21 @@ python3 -m framework.server_v4 --port 11434
 python3 -m framework.server_v4 --port 11434 --db agent_data.db
 ```
 
+#### Launch with a custom edge directory (zero-registration edges)
+```bash
+# Only scripts under ./my_edges may be referenced by "type": "my_edge.py:MyEdge"
+python3 -m framework.server_v4 --port 11434 --script-root ./my_edges
+```
+
 #### Production Launch via Uvicorn
 ```bash
-uvicorn framework.server_v4:app --host 0.0.0.0 --port 11434 --workers 1
+# VEA_API_KEY must be exported — uvicorn bypasses the CLI's bind guard.
+VEA_API_KEY=... uvicorn framework.server_v4:app --host 127.0.0.1 --port 11434 --workers 1
 ```
 
 #### Legacy V1 Server
 ```bash
-uvicorn framework.serve.app:app --host 0.0.0.0 --port 8000
+uvicorn framework.serve.app:app --host 127.0.0.1 --port 8000
 ```
 
 ---

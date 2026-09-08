@@ -98,6 +98,47 @@ Vertex-Edge 4.0 确立了五大核心架构原则：
 | **`ToolEdgeV4`** | `tool` | 声明式工具生成（生成标准 OpenAI `tool_calls`） | 外部沙箱命令执行（如 `bash` 命令、文件操作） |
 | **`LLMToolEdgeV4`** | `llm_tool` | 大模型自主 Function Calling 动态工具路由 | 复杂多工具交互智能体 |
 | **`ReflexiveEdgeV4`** | `reflexive` | 自环自愈边（`input_vertex == output_vertex`） | 捕获 `reject` 状态自动纠错与重试，无需重启整图 |
+| **自定义子类** | `my_edge.py:MyEdge` | 脚本路径即类型：无需注册、无需改动框架 | 业务专属算子、项目私有边 |
+
+#### 2.2.1 自定义边：写一个子类即可（零注册）
+
+在任意脚本中继承 `EdgeV4` 并实现 `run()`，然后在图/边 JSON 里把 `type` 写成
+`<相对路径>:<类名>` 即可使用（相对路径按 JSON 所在目录解析）：
+
+```python
+# my_edges.py
+from framework.edges.base import EdgeResultV4, EdgeV4
+from framework.vertex_v4 import VertexStateV4, VertexStoreV4
+
+class WordCountEdge(EdgeV4):
+    def __init__(self, edge_id, input_vertex, output_vertex, settings=None):
+        super().__init__(edge_id, input_vertex, output_vertex, edge_type="word_count", settings=settings)
+
+    async def run(self, session_id, store: VertexStoreV4, agent=None, auto_transition=True, **kwargs):
+        ok, reason, in_v, out_v = self.check_handshake(session_id, store)
+        if not ok:
+            return EdgeResultV4(edge_id=self.id, success=False, skipped=True, reason=reason)
+        store.apply_merge_strategy(session_id=session_id, name=self.output_vertex,
+                                   incoming_content=str(len(str(in_v.content).split())))
+        if auto_transition:
+            store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.DATA_READY.value)
+        return EdgeResultV4(edge_id=self.id, success=True)
+```
+
+```json
+{ "id": "e_count", "type": "my_edges.py:WordCountEdge",
+  "input_vertex": "v_in", "output_vertex": "v_out", "settings": { "label": "words" } }
+```
+
+要点：
+- **无需注册**：`type` 不是内置标识符时按脚本路径解析；内置类型仍走注册表。
+- **构造参数按签名裁剪**：自定义 `__init__` 只声明它需要的参数即可，框架不会传入多余的
+  `concurrency_limit`/`timeout` 等。
+- **往返持久化**：序列化时保留你写的 `type`，并在 `settings._edge_class_spec` 记录解析后的
+  绝对路径，使 SQLite / 快照恢复在任意工作目录下都能重新加载同一个类。
+- **可覆盖 `from_config_dict(data, base_dir)`** 来自定义 JSON → 构造参数的映射。
+- 完整可运行示例：`examples/custom_edge/`（`python3 examples/custom_edge/demo.py`）。
+- 安全边界：HTTP API 只接受位于允许根目录内的脚本路径；内联 `lambda` 默认禁用。
 
 ---
 
@@ -280,6 +321,21 @@ graph.add_edge(healing_edge)
 python3 -m framework.server_v4 --port 11434 --db agent_data.db --snapshot-dir snapshots
 ```
 
+> 🔒 **安全默认值**：服务默认只监听 `127.0.0.1`。绑定非回环地址时必须提供 API Key
+> （`--api-key` 或环境变量 `VEA_API_KEY`），否则启动即报错退出。配置 Key 后，所有
+> `/api/*` 与 `/v1/*` 接口都要求 `X-API-Key: <key>` 或 `Authorization: Bearer <key>`；
+> `/dashboard` 保持免鉴权以便页面加载，浏览器会提示输入一次 Key 并保存在
+> `localStorage.vea_api_key`。CORS 默认关闭（可用 `--cors-origin` 显式开启）。
+>
+> 客户端提交的 manifest 路径被限制在仓库根目录内（可用 `--manifest-base-dir` 覆盖），
+> `vea_manifest_path` 请求字段已移除；内联 `lambda` 脚本默认禁用，仅可信本地配置可通过
+> `settings.allow_inline_script = true` 显式开启，HTTP API 永远不允许。
+>
+> 客户端提交的边脚本路径（`"type": "my_edge.py:MyEdge"`）只能从仓库根目录与
+> `VEA_SCRIPT_ROOTS`（`os.pathsep` 分隔）加载；部署时建议用 `--script-root DIR`（可重复）
+> 替换该集合，使服务只加载你自己的边目录。`GET /api/edge-types` 会返回当前可用类型，
+> 仪表盘的类型输入框即由此自动填充（支持手写脚本路径）。
+
 ### 常用 REST API
 | 接口 | 方法 | 说明 |
 | :--- | :--- | :--- |
@@ -292,6 +348,7 @@ python3 -m framework.server_v4 --port 11434 --db agent_data.db --snapshot-dir sn
 | `/api/sessions/{id}/snapshots/{step}` | `GET` | 读取指定历史步骤的完整 Graph JSON |
 | `/api/sessions/{id}/snapshots/{step}/restore` | `POST` | **一键回滚还原到指定历史快照** |
 | `/api/tool-catalog` | `GET` | 查询已注册的动态工具子图列表与元数据 |
+| `/api/edge-types` | `GET` | 列出可用边类型（含自定义注册类型），供仪表盘与客户端填充 |
 | `/api/tool-catalog/{tool_id}` | `GET` | 查询指定工具子图的完整 Manifest 定义 |
 | `/api/sessions/{id}/route-and-run` | `POST` | **动态意图路由、自动缝合子图并执行工作流** |
 | `/dashboard` | `GET` | 可视化拓扑 DAG 与数据库检查器前端控制台 |

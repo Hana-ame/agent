@@ -17,6 +17,7 @@ from framework.edge_v4 import CodeEdgeV4
 from framework.executor_v4 import ExecutorV4, GraphEventV4
 from framework.graph_v4 import DiscreteGraphLoaderV4, GraphV4
 from framework.graph_manager_v4 import SessionGraphManagerV4
+from framework.utils.paths import is_within
 from framework.vertex_v4 import (
     VertexAttributeV4,
     VertexRecordV4,
@@ -74,10 +75,13 @@ class WorkflowExecutorV4:
         manager: SessionGraphManagerV4,
         store: Optional[VertexStoreV4] = None,
         default_manifest: Optional[Union[str, Path]] = None,
+        manifest_base_dir: Optional[Union[str, Path]] = None,
     ):
         self.manager = manager
         self.store = store or manager.store
         self.default_manifest = default_manifest
+        #: Additional root that nested subgraph manifests may be loaded from.
+        self.manifest_base_dir = Path(manifest_base_dir).resolve() if manifest_base_dir else None
 
     def resolve_session_and_graph(
         self,
@@ -153,7 +157,18 @@ class WorkflowExecutorV4:
                         sub_manifest_path = str(cand)
 
                 if sub_manifest_path and Path(sub_manifest_path).exists():
-                    sub_p = Path(sub_manifest_path)
+                    sub_p = Path(sub_manifest_path).resolve()
+                    # Confinement is enforced only when a base directory is
+                    # configured. The HTTP layer always configures one (default:
+                    # repository root); direct library use stays unrestricted
+                    # because the caller is trusted code.
+                    if self.manifest_base_dir and not is_within(sub_p, self.manifest_base_dir):
+                        logger.warning(
+                            "[WorkflowExecutorV4] Refusing subgraph manifest outside %s: %s",
+                            self.manifest_base_dir,
+                            sub_p,
+                        )
+                        continue
                     if sub_p.is_dir():
                         sub_graph = DiscreteGraphLoaderV4.load_from_directory(
                             directory_path=sub_p,
@@ -161,7 +176,7 @@ class WorkflowExecutorV4:
                         )
                     else:
                         sub_graph = DiscreteGraphLoaderV4.load_from_manifest(
-                            manifest_path=sub_manifest_path,
+                            manifest_path=sub_p,
                             override_session_id=sub_session_id,
                         )
                     DiscreteGraphLoaderV4.populate_store(sub_graph, self.store)
@@ -227,6 +242,12 @@ class WorkflowExecutorV4:
                                 max_concurrency=2,
                             )
                             sub_res = await sub_executor.run()
+                            if not sub_res.success:
+                                # Never report a failed child graph as parent success.
+                                raise RuntimeError(
+                                    f"Subgraph '{v.name}' failed: "
+                                    f"{'; '.join(sub_res.errors) if sub_res.errors else 'unknown error'}"
+                                )
 
                             final_output = ""
                             if out_map:

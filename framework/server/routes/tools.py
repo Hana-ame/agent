@@ -70,7 +70,7 @@ async def route_and_run_session_endpoint(
     if not selected_tool:
         if req.use_llm:
             try:
-                from examples.dynamic_tool_library.tool_scripts import classify_intent_with_llm
+                from framework.tool_catalog.router import classify_intent_with_llm
                 selected_tool, route_reason = await classify_intent_with_llm(
                     query=req.task,
                     catalog_dir=cat_dir,
@@ -81,11 +81,11 @@ async def route_and_run_session_endpoint(
                 )
             except Exception as e:
                 logger.warning("LLM router failed, falling back to heuristic: %s", e)
-                from examples.dynamic_tool_library.tool_scripts import classify_intent
+                from framework.tool_catalog.router import classify_intent
                 selected_tool = classify_intent(req.task)
                 route_reason = f"Heuristic fallback (LLM exception: {e})"
         else:
-            from examples.dynamic_tool_library.tool_scripts import classify_intent
+            from framework.tool_catalog.router import classify_intent
             selected_tool = classify_intent(req.task)
             route_reason = "Rule-based heuristic classifier"
 

@@ -16,6 +16,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from framework.edges.base import AgentProtocol, EdgeV4, MockAgentV4
+from framework.edges.registry import edge_type_choices
 from framework.vertex_v4 import VertexStateV4, VertexStoreV4
 
 logger = logging.getLogger("vertex_edge_agent.edges.cli")
@@ -31,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--edge-id", default=None, help="Edge identifier")
     parser.add_argument(
         "--type",
-        choices=["code", "llm", "llm_chat", "llm_generate", "llm_process", "llm_callable", "reflexive"],
+        choices=edge_type_choices(),
         default=None,
         help="Edge type",
     )
