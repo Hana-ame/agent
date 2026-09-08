@@ -854,7 +854,7 @@ def create_v4_server(
     ) -> Dict[str, Any]:
         """Execute session graph with specified concurrency limit and broadcast events."""
         async with manager.get_session_lock(session_id):
-            # 每次执行前都从 store 进行读取更新，不使用内存脏状态
+            # Reload latest state from store before execution to avoid dirty in-memory state
             graph = manager.load_graph_from_store(session_id)
             executor = ExecutorV4(
                 graph=graph,

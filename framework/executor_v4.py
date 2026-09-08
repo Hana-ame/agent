@@ -582,7 +582,7 @@ class ExecutorV4:
         running_tasks: Set[asyncio.Task] = set()
 
         try:
-            # 每次执行前都进行读取更新，从 store 重新载入最新图状态
+            # Reload latest graph state from store before each execution
             self._sync_and_reload_graph_from_store()
 
             self._emit(

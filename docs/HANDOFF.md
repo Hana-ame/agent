@@ -1,108 +1,108 @@
-# Vertex-Edge Agent Framework V4.0 交付与交接文档 (Handoff)
+# Vertex-Edge Agent Framework V4.0 System Handoff
 
-## 1. 文档概述 (Executive Summary)
+## 1. Executive Summary
 
-本文档为 **Vertex-Edge Agent Framework V4.0** 的系统交付与交接说明书。
-当前代码仓库已全面完成 V4.0 架构重构、安全性加固、分层调度、多源汇聚（Fan-In）、分布式工作节点队列接口、嵌套子图（Subgraph）以及离散 JSON / 文件夹批量加载特性的开发与验证。
+This document serves as the official system handoff and technical specification for **Vertex-Edge Agent Framework V4.0**.
+The codebase has undergone complete architectural hardening, multi-source fan-in consolidation, priority-based tiered DAG scheduling, path traversal security enforcement, distributed worker queue abstractions, nested subgraph execution, and modular JSON / directory batch loading.
 
-- **当前分支**：`vertex-edge-agent`
-- **运行环境**：`Python 3.12+` / Linux
-- **自动化测试状态**：**526 项测试全部通过**（包括系统级 E2E 测试、安全防御测试、执行器调度并发测试、子图集成测试及历史回归测试），CI 验证均为绿色。
+- **Active Branch**: `vertex-edge-agent`
+- **Execution Environment**: `Python 3.12+` / Linux
+- **Automated Test Suite**: **526 automated tests passing with 0 failures** (covering system E2E, server security defenses, executor scheduling concurrency, subgraph integration, and legacy regression suites).
 
 ---
 
-## 2. 核心架构与设计原则
+## 2. Core Architecture & Design Tenets
 
-V4 架构旨在构建确定性、高吞吐、生产级可靠的数据驱动型 AI Agent 编排框架：
+The V4 architecture provides a deterministic, high-throughput, production-grade agent orchestration framework:
 
 ```
 +-------------------------------------------------------------------------+
 |                        FastAPI Gateway / WebUI                          |
-|    - 独立会话隔离 (SessionGraphManagerV4)                                |
-|    - 路径穿越防护 / JSON 扩展名白名单校验                                |
-|    - SSE 流式推送 & OpenAI Tool-Call Echo 规范                           |
+|    - Session Isolation (SessionGraphManagerV4)                          |
+|    - Path Traversal Security & JSON Whitelist Validation                |
+|    - Server-Sent Events (SSE) & OpenAI Tool-Call Echo Format            |
 +-------------------------------------------------------------------------+
                                     |
                                     v
 +-------------------------------------------------------------------------+
 |                          Execution Layer                                |
-|    - SSEExecutorV4: 动态子图解析、递归桥接边挂载 (Proxy Bridge)         |
-|    - ExecutorV4: 事件驱动唤醒、拓扑分层调度、优先级队列                 |
-|    - 并发控制: 信号量与并发组隔离、在途任务内存去重 (Active Dispatches)  |
-|    - BaseWorkerQueueV4: 分布式工作节点适配器抽象接口                     |
+|    - SSEExecutorV4: Dynamic Subgraph Resolution & Proxy Bridge Edges    |
+|    - ExecutorV4: Event-Driven Waking, Tiered DAG Priority Scheduling     |
+|    - Concurrency Controls: Semaphores, Concurrency Groups, Deduping     |
+|    - BaseWorkerQueueV4: Distributed Edge Worker Adapter Protocol        |
 +-------------------------------------------------------------------------+
                                     |
                                     v
 +-------------------------------------------------------------------------+
 |                           Data & Store Layer                            |
-|    - VertexStoreV4: SQLite 持久化、严格两阶段握手协议                   |
-|    - MergeStrategyV4: 多源汇聚 (Overwrite / JSON Merge / List Append)    |
-|    - 自愈与容错: 异常拒绝 (REJECT) -> 自环重试 (Reflexive) -> 熔断锁定  |
+|    - VertexStoreV4: SQLite Engine, Strict Two-Sided Handshake           |
+|    - MergeStrategyV4: Fan-In (Overwrite / JSON Merge / List Append)     |
+|    - Fault Tolerance: Error REJECT -> Reflexive Retry -> Circuit Break  |
 +-------------------------------------------------------------------------+
 ```
 
-### 关键设计原则：
-1. **持久化顶点状态机**：所有 Vertex 状态持久化于 SQLite（`data ready`、`idle`、`todo`、`todo urgent`、`reject`、`forbidden`、`pruning`），内存不持有长驻运行态，具备抗崩溃自恢复能力。
-2. **两阶段握手合约 (Two-Sided Handshake)**：前向边仅在“上游为 `data ready` 且下游为 `todo` 或 `todo urgent`”时触发；执行完毕后原子更新下游内容并流转状态。
-3. **自环容错自愈与熔断 (Reflexive Self-Healing)**：节点执行失败置为 `reject`，自环边响应并读取故障上下文执行恢复逻辑，累计重试次数超限自动置为 `forbidden` 熔断。
-4. **事件驱动与优先级分层**：执行器废弃纯轮询，采用 `asyncio.Event` 结合首任务完成唤醒机制，按“自环自愈 (Priority 0) > 紧急任务 (Priority 1) > 常规任务 (Priority 2)”结合 DAG Topological Tiers 调度。
-5. **多源汇聚屏障 (Fan-In Barrier)**：支持多个上游边同时汇入同一顶点，通过汇聚屏障与合并策略（覆盖、字典合并、列表追加、自定义归约函数）保证状态更新原子性。
-6. **无缝嵌套子图 (Subgraph)**：包含 `subgraph` 属性的容器节点由 `SSEExecutorV4` 递归解析，自动构建代理输出节点与桥接边，实现跨层级数据流动。
-7. **灵活的配置加载**：支持 Master Manifest JSON、单文件 JSON 路径加载、文件夹一键批量加载（支持分目录结构与扁平结构）。
+### Foundational Principles:
+1. **Persistent Vertex State Machine**: All vertex states reside in SQLite (`data ready`, `idle`, `todo`, `todo urgent`, `reject`, `forbidden`, `pruning`). In-flight transient states are tracked in memory without holding database row locks, ensuring crash-resilience.
+2. **Strict Two-Sided Handshake**: Forward edges fire if and only if upstream is `data ready` and downstream is `todo` or `todo urgent`. On completion, content updates and target state transitions occur atomically.
+3. **Reflexive Self-Healing & Circuit Breaking**: Edge execution failures transition downstream to `reject`. Reflexive edges (`input_vertex == output_vertex`) read diagnostic staging, execute optional recovery logic, and increment `processed_count`. Vertices exceeding `max_retries` lock into `forbidden`.
+4. **Event-Driven Tiered Scheduling**: Replaces polling loops with `asyncio.Event` synchronization combined with task wait timeouts. Tasks are prioritized by edge type (`reflexive` = 0, `todo urgent` = 1, `todo` = 2) and DAG topological tiers.
+5. **Fan-In Accumulation Barrier**: Coordinates multiple upstream edges writing into a shared downstream vertex. Supports configurable merge strategies: `overwrite`, `json_merge`, `list_append`, and `reducer_script`.
+6. **Hierarchical Subgraphs**: Container vertices with the `subgraph` attribute are resolved dynamically by `SSEExecutorV4`, automatically constructing proxy output vertices and execution bridges.
+7. **Modular Discrete Configuration Loading**: Graph definitions support master manifest JSON files, discrete individual JSON file paths, and one-step directory batch loading.
 
 ---
 
-## 3. 核心模块与文件清单
+## 3. Core Modules & Key Files
 
-### 核心框架模块 (`framework/`)
-- [`framework/vertex_v4.py`](file:///home/luminovoez/agent/framework/vertex_v4.py)：SQLite 存储引擎，定义 `VertexStoreV4`、`VertexRecordV4`、`VertexStateV4`、`VertexAttributeV4` 与 `MergeStrategyV4`。
-- [`framework/edge_v4.py`](file:///home/luminovoez/agent/framework/edge_v4.py)：边基类 `EdgeV4`，以及 `CodeEdgeV4`、`LLMEdgeV4`、`ReflexiveEdgeV4` 实现，内置握手校验与灵活的入参调用适配。
-- [`framework/sensenova_edge_v4.py`](file:///home/luminovoez/agent/framework/sensenova_edge_v4.py)：商汤 SenseNova 6.8 Flash Lite 大模型原生直连边。
-- [`framework/graph_v4.py`](file:///home/luminovoez/agent/framework/graph_v4.py)：`GraphV4` 图定义与拓扑分析（Kahn DAG 分层），`DiscreteGraphLoaderV4`（支持离散 JSON 路径、清单以及文件夹批量加载）。
-- [`framework/executor_v4.py`](file:///home/luminovoez/agent/framework/executor_v4.py)：DAG 分层事件驱动调度器，支持多源汇聚屏障与并发隔离。
-- [`framework/sse_executor_v4.py`](file:///home/luminovoez/agent/framework/sse_executor_v4.py)：会话路由器、递归子图解析与桥接、OpenAI Tool-Call Echo SSE 流式适配。
-- [`framework/worker_queue_v4.py`](file:///home/luminovoez/agent/framework/worker_queue_v4.py)：分布式工作节点抽象接口 `BaseWorkerQueueV4` 及内存参考实现 `InMemoryWorkerQueueV4`。
-- [`framework/server_v4.py`](file:///home/luminovoez/agent/framework/server_v4.py)：FastAPI 生产服务、会话图管理 `SessionGraphManagerV4`、REST API、路径穿越安全防御。
-- [`framework/templates/dashboard.html`](file:///home/luminovoez/agent/framework/templates/dashboard.html)：Web 可视化拓扑与状态监控仪表盘。
+### Core Framework Modules (`framework/`)
+- [`framework/vertex_v4.py`](file:///home/luminovoez/agent/framework/vertex_v4.py): SQLite storage engine, defining `VertexStoreV4`, `VertexRecordV4`, `VertexStateV4`, `VertexAttributeV4`, and `MergeStrategyV4`.
+- [`framework/edge_v4.py`](file:///home/luminovoez/agent/framework/edge_v4.py): Base class `EdgeV4`, alongside `CodeEdgeV4`, `LLMEdgeV4`, and `ReflexiveEdgeV4` implementations with flexible callable arity handling.
+- [`framework/sensenova_edge_v4.py`](file:///home/luminovoez/agent/framework/sensenova_edge_v4.py): Remote SenseNova 6.8 Flash Lite model edge implementation.
+- [`framework/graph_v4.py`](file:///home/luminovoez/agent/framework/graph_v4.py): `GraphV4` topological validation (Kahn algorithm), DAG tiering, and `DiscreteGraphLoaderV4` (supporting discrete JSON files and directory loading).
+- [`framework/executor_v4.py`](file:///home/luminovoez/agent/framework/executor_v4.py): Event-driven scheduler with fan-in accumulation barrier, concurrency groups, and task deduplication.
+- [`framework/sse_executor_v4.py`](file:///home/luminovoez/agent/framework/sse_executor_v4.py): Session routing, recursive subgraph resolution, proxy bridge construction, and OpenAI Tool-Call Echo SSE formatting.
+- [`framework/worker_queue_v4.py`](file:///home/luminovoez/agent/framework/worker_queue_v4.py): Abstract distributed worker adapter interface `BaseWorkerQueueV4` and reference `InMemoryWorkerQueueV4`.
+- [`framework/server_v4.py`](file:///home/luminovoez/agent/framework/server_v4.py): FastAPI application, `SessionGraphManagerV4`, REST APIs, and path traversal defense.
+- [`framework/templates/dashboard.html`](file:///home/luminovoez/agent/framework/templates/dashboard.html): Interactive DAG visualization and node inspector dashboard.
 
-### 示例工程 (`examples/`)
-- [`examples/subgraph_v4/`](file:///home/luminovoez/agent/examples/subgraph_v4/)：完整且自包含的 Subgraph 嵌套子图、离散 JSON 配置与文件夹批量加载端到端示例。
-  - [`examples/subgraph_v4/run.py`](file:///home/luminovoez/agent/examples/subgraph_v4/run.py)：包含 3 种加载与执行方法的演示脚本。
-  - [`examples/subgraph_v4/child/`](file:///home/luminovoez/agent/examples/subgraph_v4/child/)：子图配置、文本清洗与数据丰富处理脚本。
-  - [`examples/subgraph_v4/discrete_dir_demo/`](file:///home/luminovoez/agent/examples/subgraph_v4/discrete_dir_demo/)：分目录批量加载演示。
-- [`examples/sensenova_v4/`](file:///home/luminovoez/agent/examples/sensenova_v4/)：SenseNova 大模型边直连示例。
+### Example Projects (`examples/`)
+- [`examples/subgraph_v4/`](file:///home/luminovoez/agent/examples/subgraph_v4/): Complete nested subgraph, discrete JSON path, and directory batch loading demo.
+  - [`examples/subgraph_v4/run.py`](file:///home/luminovoez/agent/examples/subgraph_v4/run.py): Runnable script showcasing 3 loading and execution methods.
+  - [`examples/subgraph_v4/child/`](file:///home/luminovoez/agent/examples/subgraph_v4/child/): Child subgraph manifest, normalization script, and enrichment script.
+  - [`examples/subgraph_v4/discrete_dir_demo/`](file:///home/luminovoez/agent/examples/subgraph_v4/discrete_dir_demo/): Directory batch loading structure demo.
+- [`examples/sensenova_v4/`](file:///home/luminovoez/agent/examples/sensenova_v4/): SenseNova model inference edge demo.
 
-### 测试套件 (`tests/`)
-- [`tests/test_v4_subgraph_and_discrete_loader.py`](file:///home/luminovoez/agent/tests/test_v4_subgraph_and_discrete_loader.py)：文件路径加载、文件夹加载、子图端到端运行集成测试。
-- [`tests/test_v4_layer4_executor.py`](file:///home/luminovoez/agent/tests/test_v4_layer4_executor.py)：并发控制、优先级调度、Fan-In 汇聚屏障测试。
-- [`tests/test_v4_layer5_server.py`](file:///home/luminovoez/agent/tests/test_v4_layer5_server.py)：网关路径穿越攻击防护、Pydantic 输入校验、JSON 扩展名白名单测试。
-- [`tests/test_v4_layer6_e2e.py`](file:///home/luminovoez/agent/tests/test_v4_layer6_e2e.py)：多步全链路、深层递归子图、分布式 Worker Queue 接口测试。
-- [`tests/test_v4_system.py`](file:///home/luminovoez/agent/tests/test_v4_system.py)：系统核心链路与自环恢复测试。
-- [`tests/test_v4_server.py`](file:///home/luminovoez/agent/tests/test_v4_server.py)：API 路由、检查器与 SSE 端点测试。
+### Test Suites (`tests/`)
+- [`tests/test_v4_subgraph_and_discrete_loader.py`](file:///home/luminovoez/agent/tests/test_v4_subgraph_and_discrete_loader.py): Integration tests for path-based loading, directory loading, and nested subgraph execution.
+- [`tests/test_v4_layer4_executor.py`](file:///home/luminovoez/agent/tests/test_v4_layer4_executor.py): Concurrency limits, priority queues, and fan-in merge barrier tests.
+- [`tests/test_v4_layer5_server.py`](file:///home/luminovoez/agent/tests/test_v4_layer5_server.py): Path traversal security attacks, Pydantic validation, and JSON extension whitelist tests.
+- [`tests/test_v4_layer6_e2e.py`](file:///home/luminovoez/agent/tests/test_v4_layer6_e2e.py): Multi-step pipeline, deep recursive subgraphs, and worker queue interface tests.
+- [`tests/test_v4_system.py`](file:///home/luminovoez/agent/tests/test_v4_system.py): Core workflow execution and reflexive self-loop recovery tests.
+- [`tests/test_v4_server.py`](file:///home/luminovoez/agent/tests/test_v4_server.py): API routing, node inspector, and SSE streaming tests.
 
 ---
 
-## 4. 关键特性与典型用法
+## 4. Key Patterns & Common Usages
 
-### 4.1 离散 JSON 配置文件与文件夹加载
+### 4.1 Loading via Discrete JSON Paths or Directories
 ```python
 from framework import GraphV4
 
 graph = GraphV4(session_id="my_session")
 
-# 1. 直接传入 JSON 配置文件路径加载
+# 1. Load vertices and edges by JSON file path
 graph.add_vertex("examples/subgraph_v4/parent_in.json")
 graph.add_edge("examples/subgraph_v4/e_start_to_subgraph.json")
 
-# 2. 从文件夹一键批量加载
+# 2. Batch load entire directory
 dir_graph = GraphV4.from_directory("examples/subgraph_v4/discrete_dir_demo")
 ```
 
-### 4.2 嵌套子图 (Subgraph) 编排
-父图中声明包含 `subgraph` 属性的节点：
+### 4.2 Subgraph Orchestration
+Define a container vertex in the parent graph:
 ```json
 {
-  "name": "text_subgraph_processor",
+  "name": "enrichment_box",
   "attributes": ["subgraph"],
   "state": "todo",
   "content": {
@@ -110,7 +110,7 @@ dir_graph = GraphV4.from_directory("examples/subgraph_v4/discrete_dir_demo")
   }
 }
 ```
-执行时由 `SSEExecutorV4` 自动解析并挂接桥接边：
+Execute with `SSEExecutorV4`:
 ```python
 from framework import SSEExecutorV4, SessionGraphManagerV4, VertexStoreV4
 
@@ -120,48 +120,47 @@ executor = SSEExecutorV4(manager=manager, store=store, default_manifest="parent_
 result = await executor.execute_harness_call()
 ```
 
-### 4.3 多源汇聚 (Fan-In Merge)
+### 4.3 Multi-Source Fan-In Accumulation
 ```python
 from framework import MergeStrategyV4
 
-# 支持 OVERWRITE、JSON_MERGE、LIST_APPEND 与 REDUCER_SCRIPT
+# Supported strategies: OVERWRITE, JSON_MERGE, LIST_APPEND, REDUCER_SCRIPT
 store.apply_merge_strategy(session_id, "output_node", incoming_json, strategy=MergeStrategyV4.JSON_MERGE)
 ```
 
 ---
 
-## 5. 常用运维与验证命令
+## 5. Verification & Commands
 
-### 运行全套自动化测试
+### Run Full Test Suite
 ```bash
-# 运行离线测试套件 (526 passed)
+# Offline test suite (526 passed)
 .venv/bin/python -m pytest tests/ -v -m "not live"
 
-# 针对离散加载与子图的独立测试
+# Subgraph and discrete loader tests
 .venv/bin/python -m pytest tests/test_v4_subgraph_and_discrete_loader.py -v
 ```
 
-### 运行可执行演示示例
+### Run Demos
 ```bash
-# 运行子图与离散配置加载示例
+# Subgraph and discrete loading demo
 python3 examples/subgraph_v4/run.py
 
-# 运行 SenseNova 大模型示例 (需设置 SENSENOVA_API_KEY)
+# Remote model inference demo (requires SENSENOVA_API_KEY)
 python3 examples/sensenova_v4/demo.py
 ```
 
-### 启动服务与访问仪表盘
+### Start Server & Web Dashboard
 ```bash
 uvicorn framework.server_v4:app --host 0.0.0.0 --port 8000
-# 浏览器访问: http://localhost:8000/dashboard
+# Browser UI: http://localhost:8000/dashboard
 ```
 
 ---
 
-## 6. 后续维护建议 (Next Steps)
+## 6. Maintenance & Future Roadmap
 
-1. **分布式队列落地**：如需接入 Celery 或 Redis Queue，直接继承并实现 [`framework/worker_queue_v4.py`](file:///home/luminovoez/agent/framework/worker_queue_v4.py) 中的 `BaseWorkerQueueV4` 抽象接口。
-2. **文档规范守则**：
-   - 根目录 `README.md` 保持作为面向开发者的**纯使用手册**，不包含任何设计对比或历史长篇大论。
-   - 所有历史架构演进草案、缺陷排查报告已归档在 [`docs/archive/`](file:///home/luminovoez/agent/docs/archive/) 统一维护。
-   - 严格避免使用任何禁止词汇，统一称呼为“代码仓库”或“repo”。
+1. **Distributed Worker Backend**: Implement `BaseWorkerQueueV4` in [`framework/worker_queue_v4.py`](file:///home/luminovoez/agent/framework/worker_queue_v4.py) for external distributed message brokers (e.g. Celery or Redis Queue).
+2. **Documentation Integrity**:
+   - Keep root `README.md` strictly as a user guide without comparison tables or legacy essays.
+   - Maintain historical reports and architecture drafts in [`docs/archive/`](file:///home/luminovoez/agent/docs/archive/).

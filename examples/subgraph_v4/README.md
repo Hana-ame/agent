@@ -1,12 +1,12 @@
-# Subgraph & 离散配置加载使用说明
+# Subgraph & Discrete Configuration Loading Guide
 
-本示例展示了在 Vertex-Edge Agent Framework v4 中如何通过独立 JSON 配置文件与文件夹加载顶点（Vertex）和边（Edge），以及如何构建和运行嵌套子图（Subgraph）。
+This example demonstrates how to define and load vertices and edges via individual JSON configuration files or directories in the Vertex-Edge Agent Framework v4, as well as how to construct and execute nested subgraphs.
 
 ---
 
-## 1. 快速运行
+## 1. Quick Run
 
-进入代码仓库根目录，执行以下命令：
+Run the following command from the repository root:
 
 ```bash
 python3 examples/subgraph_v4/run.py
@@ -14,58 +14,58 @@ python3 examples/subgraph_v4/run.py
 
 ---
 
-## 2. 目录结构
+## 2. Directory Structure
 
 ```
 examples/subgraph_v4/
-├── parent_in.json                # 父图起始 Vertex 配置
-├── parent_subgraph.json          # 子图容器 Vertex 配置（指向 child_graph.json）
-├── parent_out.json               # 父图结束 Vertex 配置
-├── e_start_to_subgraph.json      # 父图连接边（输入 -> 子图）
-├── e_subgraph_to_output.json     # 父图连接边（子图 -> 输出）
-├── parent_graph.json             # 父图 Master 清单文件
-├── run.py                        # 可直接运行的演示脚本
-├── child/                        # 子图配置与脚本目录
-│   ├── child_start.json          # 子图起始 Vertex
-│   ├── child_middle.json         # 子图中间 Vertex
-│   ├── child_end.json            # 子图结束 Vertex
-│   ├── child_edge1.json          # 子图内部边 1（执行 cleaner.py）
-│   ├── child_edge2.json          # 子图内部边 2（执行 enricher.py）
-│   ├── child_graph.json          # 子图清单文件
-│   ├── cleaner.py                # 文本清洗处理脚本
-│   └── enricher.py               # 数据丰富处理脚本
-└── discrete_dir_demo/            # 文件夹批量加载演示目录
-    ├── vertices/                 # 存放顶点 JSON
+├── parent_in.json                # Parent graph start vertex configuration
+├── parent_subgraph.json          # Subgraph container vertex (references child_graph.json)
+├── parent_out.json               # Parent graph end vertex configuration
+├── e_start_to_subgraph.json      # Parent edge (input -> subgraph)
+├── e_subgraph_to_output.json     # Parent edge (subgraph -> output)
+├── parent_graph.json             # Parent master manifest
+├── run.py                        # Executable demo script
+├── child/                        # Subgraph configuration and transform scripts
+│   ├── child_start.json          # Child start vertex
+│   ├── child_middle.json         # Child intermediate vertex
+│   ├── child_end.json            # Child end vertex
+│   ├── child_edge1.json          # Child edge 1 (executes cleaner.py)
+│   ├── child_edge2.json          # Child edge 2 (executes enricher.py)
+│   ├── child_graph.json          # Child subgraph manifest
+│   ├── cleaner.py                # Text normalization script
+│   └── enricher.py               # Metadata enrichment script
+└── discrete_dir_demo/            # Directory batch loading demo
+    ├── vertices/                 # Vertex JSON definitions
     │   ├── v1_in.json
     │   └── v2_out.json
-    └── edges/                    # 存放边 JSON
+    └── edges/                    # Edge JSON definitions
         └── e1_dir.json
 ```
 
 ---
 
-## 3. 使用方式
+## 3. Usage Patterns
 
-### 方式一：直接指定单个 JSON 文件路径加载
+### Pattern 1: Load via Individual JSON File Paths
 
-`graph.add_vertex()` 和 `graph.add_edge()` 支持直接传入 `.json` 配置文件路径：
+`graph.add_vertex()` and `graph.add_edge()` accept direct `.json` file paths:
 
 ```python
 from framework.graph_v4 import GraphV4
 
 graph = GraphV4(session_id="my_session")
 
-# 指定 JSON 文件位置加载 Vertex
+# Load vertices by JSON path
 graph.add_vertex("examples/subgraph_v4/parent_in.json")
 graph.add_vertex("examples/subgraph_v4/parent_subgraph.json")
 graph.add_vertex("examples/subgraph_v4/parent_out.json")
 
-# 指定 JSON 文件位置加载 Edge
+# Load edges by JSON path
 graph.add_edge("examples/subgraph_v4/e_start_to_subgraph.json")
 graph.add_edge("examples/subgraph_v4/e_subgraph_to_output.json")
 ```
 
-#### Vertex JSON 配置格式示例 (`parent_in.json`)：
+#### Vertex JSON format example (`parent_in.json`):
 ```json
 {
   "name": "session_input",
@@ -75,7 +75,7 @@ graph.add_edge("examples/subgraph_v4/e_subgraph_to_output.json")
 }
 ```
 
-#### Edge JSON 配置格式示例 (`e_start_to_subgraph.json`)：
+#### Edge JSON format example (`e_start_to_subgraph.json`):
 ```json
 {
   "id": "e_in_to_subgraph",
@@ -87,37 +87,37 @@ graph.add_edge("examples/subgraph_v4/e_subgraph_to_output.json")
 
 ---
 
-### 方式二：指定文件夹一键批量加载
+### Pattern 2: Batch Load All Vertices and Edges from a Directory
 
-支持指定包含顶点和边配置的文件夹进行加载：
+Load entire directories containing vertex and edge definitions:
 
 ```python
 from framework.graph_v4 import GraphV4
 
-# 1. 直接通过类方法从文件夹加载新图
+# 1. Construct a new graph directly from a directory
 graph = GraphV4.from_directory("examples/subgraph_v4/discrete_dir_demo", session_id="my_session")
 
-# 2. 或在已有图实例中加载文件夹
+# 2. Merge directory contents into an existing graph
 existing_graph = GraphV4(session_id="existing_session")
 existing_graph.load_directory("examples/subgraph_v4/discrete_dir_demo")
 
-# 3. 也可以分别把文件夹路径传给 add_vertex / add_edge
+# 3. Pass specific component subdirectories to add_vertex / add_edge
 existing_graph.add_vertex("examples/subgraph_v4/discrete_dir_demo/vertices")
 existing_graph.add_edge("examples/subgraph_v4/discrete_dir_demo/edges")
 ```
 
-文件夹支持以下结构：
-- 包含 `vertices/`（或 `nodes/`）与 `edges/` 子目录。
-- 扁平目录（自动根据 JSON 中的字段识别 Vertex 与 Edge）。
-- 包含 `graph.json` 或 `manifest.json` 清单文件的目录。
+Supported directory layouts:
+- Structured subdirectories: `vertices/` (or `vertex/`, `nodes/`) and `edges/` (or `edge/`).
+- Flat directory: automatically detects vertices and edges based on JSON fields.
+- Manifest directory: contains `graph.json` or `manifest.json`.
 
 ---
 
-### 方式三：嵌套子图（Subgraph）配置与执行
+### Pattern 3: Nested Subgraphs
 
-在父图中定义一个属性包含 `"subgraph"` 的节点，其 `content` 指定子图清单路径或子图目录：
+Define a vertex with attribute `subgraph` and specify its child manifest or directory in `content`:
 
-#### 子图节点配置 (`parent_subgraph.json`)：
+#### Subgraph vertex configuration (`parent_subgraph.json`):
 ```json
 {
   "name": "enrichment_box",
@@ -129,9 +129,7 @@ existing_graph.add_edge("examples/subgraph_v4/discrete_dir_demo/edges")
 }
 ```
 
-子图内部定义起始节点（`attributes: ["start"]`）和结束节点（`attributes: ["end"]`）。
-
-通过 `SSEExecutorV4` 执行流程时，框架会自动解析嵌套子图并挂载执行桥接：
+When executed via `SSEExecutorV4`, the framework resolves child subgraphs and constructs bridge edges:
 
 ```python
 from framework.graph_v4 import DiscreteGraphLoaderV4
