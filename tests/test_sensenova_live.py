@@ -34,6 +34,7 @@ def live_store() -> VertexStoreV4:
     store.close()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_sensenova_live_handshake_and_generation(live_store: VertexStoreV4):
     """Execute live SenseNova inference and verify handshake, output, and staging."""
@@ -83,6 +84,7 @@ async def test_sensenova_live_handshake_and_generation(live_store: VertexStoreV4
         await edge.close_agent()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_sensenova_live_json_validation(live_store: VertexStoreV4):
     """Execute live SenseNova inference with downstream JSON attribute enforcement."""
@@ -125,6 +127,7 @@ async def test_sensenova_live_json_validation(live_store: VertexStoreV4):
         await edge.close_agent()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_sensenova_live_streaming(live_store: VertexStoreV4):
     """Execute live SenseNova SSE streaming and verify real-time chunks and final state."""
@@ -166,6 +169,7 @@ async def test_sensenova_live_streaming(live_store: VertexStoreV4):
         await edge.close_agent()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_sensenova_live_in_graph_pipeline(live_store: VertexStoreV4):
     """Execute a multi-tier GraphV4 pipeline with live SenseNova edge and CodeEdge."""
