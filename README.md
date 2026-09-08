@@ -18,7 +18,214 @@ pip install -e .
 
 ---
 
-## 2. Quick Start
+## 2. All Execution Modes & Running Guide (运行方式全景指南)
+
+Vertex-Edge Agent Framework supports multiple execution paradigms: standalone CLI scripts, headless programmatic Python calls, request-driven agent harness clocks, and OpenAI-compatible HTTP services.
+
+### 2.1 Command-Line Example Pipelines (命令行一键运行示例)
+
+| Task / Scenario | Command | Key Architecture Features Demonstrated |
+| :--- | :--- | :--- |
+| **Hacker News V4 Full Pipeline** | `python3 examples/hn_v4/run.py` | Multi-branch Fan-In (`JSON_MERGE`), ReflexiveEdge self-healing, real-time streaming, SQLite edge metrics, declarative ToolEdge |
+| **Hacker News AI Report V4** | `python3 examples/hn_ai_report_v4/demo.py --limit 5` | V4 migration of MapEdge fan-out, async batch story summarization, Markdown report |
+| **Nested Subgraphs & Discrete Paths** | `python3 examples/subgraph_v4/run.py` | Hierarchical execution (`parent -> child -> parent`), discrete `.json` vertex/edge loading |
+| **SenseNova Remote LLM Pipeline** | `python3 examples/sensenova_v4/demo.py` | Remote LLM inference with two-sided handshake and state transitions |
+| **OpenCode & Proxied Agent** | `python3 examples/opencode_zen/proxy_demo.py` | Dynamic proxy agent, OpenCode integration, token tracking |
+| **Generic JSON Config Runner** | `python3 examples/run.py <path/to/config.json>` | Generic engine runner for legacy and discrete pipeline definitions |
+| **Runtime Topology Mutation** | `python3 examples/dynamic_topology/demo.py` | Dynamic vertex insertion and runtime graph modification |
+| **Self-Correction Loop** | `python3 examples/self_correction/demo.py` | Reflexive error recovery and multi-pass correction |
+| **Real-time Streaming Pipeline** | `python3 examples/realtime_streaming/demo.py` | Token/chunk streaming through execution nodes |
+| **Human-in-the-Loop Approval** | `python3 examples/hitl_approval/demo.py` | Interactive pause-and-resume execution flow |
+| **Speculative Race Mode** | `python3 examples/race_mode/demo.py` | Parallel competitive path execution (first-to-finish wins) |
+
+---
+
+### 2.2 Headless Python SDK Execution Modes (代码内调用模式)
+
+You can invoke workflows directly within your Python applications using 4 execution modes:
+
+#### 1. Complete Workflow Execution (`ExecutorV4.run()`)
+Runs the graph concurrently to completion according to DAG topological order:
+```python
+from framework import GraphV4, VertexStoreV4, ExecutorV4
+
+store = VertexStoreV4(":memory:")
+executor = ExecutorV4(graph=graph, store=store, max_concurrency=4)
+result = await executor.run()
+print(f"Success: {result.success}, Completed Edges: {result.completed_edges}")
+```
+
+#### 2. Real-Time Event Streaming (`ExecutorV4.stream()`)
+Streams lifecycle events (`edge_started`, `edge_completed`, `edge_failed`) asynchronously for live telemetry or UI progress bars:
+```python
+async for event in executor.stream():
+    if event.event_type == "edge_started":
+        print(f"▶ Started Edge: {event.edge_id} ({event.payload['input']} ➔ {event.payload['output']})")
+    elif event.event_type == "edge_completed":
+        print(f"✔ Completed Edge: {event.edge_id}")
+```
+
+#### 3. Single-Edge Hop-by-Hop Stepping (`ExecutorV4.step()`)
+Advances the graph by exactly one eligible edge, enabling step-debugging without DAG tier batching:
+```python
+step_res = await executor.step()
+print(f"Executed edge: {step_res.completed_edges}, Remaining: {not step_res.success}")
+```
+
+#### 4. Agent Harness Request-Clock Stepping (`HttpHarnessExecutorV4.step()`)
+Drives execution via passive external request pulses, emitting OpenAI standard `tool_calls` when a `ToolEdgeV4` is encountered:
+```python
+from framework import HttpHarnessExecutorV4
+
+http_exec = HttpHarnessExecutorV4(store=store)
+messages = [{"role": "user", "content": "Start workflow"}]
+
+while True:
+    resp = await http_exec.step(session_id, graph, messages, model="default")
+    finish_reason = resp["choices"][0]["finish_reason"]
+    msg = resp["choices"][0]["message"]
+    messages.append(msg)
+
+    if finish_reason == "stop":
+        print("Completed! Final answer:", msg["content"])
+        break
+    elif finish_reason == "tool_calls":
+        # External harness executes command in its sandbox:
+        tool_call = msg["tool_calls"][0]
+        sandbox_output = "command execution result"
+        messages.append({"role": "tool", "tool_call_id": tool_call["id"], "content": sandbox_output})
+```
+
+---
+
+### 2.3 Starting the API Server & Dashboard (启动 HTTP 服务端)
+
+#### Standard Service Launch (Default Port 11434)
+```bash
+# Launch unified V4 server (supports OpenAI API + Dashboard + Graph Mutation)
+python3 -m framework.server_v4 --port 11434
+```
+
+#### Launch with SQLite Database Persistence
+```bash
+# Persist all sessions, vertices, staging, and edge metrics to SQLite file
+python3 -m framework.server_v4 --port 11434 --db agent_data.db
+```
+
+#### Production Launch via Uvicorn
+```bash
+uvicorn framework.server_v4:app --host 0.0.0.0 --port 11434 --workers 1
+```
+
+#### Legacy V1 Server
+```bash
+uvicorn framework.serve.app:app --host 0.0.0.0 --port 8000
+```
+
+---
+
+### 2.4 Client API Invocations & Agent Harness (客户端调用与接入)
+
+Once the server is running on `http://localhost:11434`, you can interact with it using any standard client:
+
+#### 1. Official OpenAI Python SDK (Non-Streaming)
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:11434/v1", api_key="not-needed")
+response = client.chat.completions.create(
+    model="default",
+    messages=[{"role": "user", "content": "Run AI digest pipeline"}],
+)
+print(response.choices[0].message.content)
+```
+
+#### 2. Official OpenAI Python SDK (Streaming)
+```python
+stream = client.chat.completions.create(
+    model="default",
+    messages=[{"role": "user", "content": "Analyze repository"}],
+    stream=True,
+)
+for chunk in stream:
+    if chunk.choices and chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
+```
+
+#### 3. Standard `curl` CLI Requests
+```bash
+# List available models
+curl http://localhost:11434/v1/models
+
+# Standard chat completion
+curl -X POST http://localhost:11434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "default", "messages": [{"role": "user", "content": "Execute task"}]}'
+
+# Server-Sent Events (SSE) graph execution
+curl -N -X POST http://localhost:11434/api/sse/execute \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "test_sess", "input": "Hello V4"}'
+```
+
+#### 4. Web Console & Visual Dashboard
+Open in browser:
+```text
+http://localhost:11434/dashboard
+```
+Visualizes active DAG topologies, vertex states (`DATA_READY`, `TODO`, `REJECT`), SQLite database tables, and live edge metrics.
+
+#### 5. Edge Performance Benchmarking REST APIs
+```bash
+# Query edge metrics summary (total executions, error rate, latency breakdown)
+curl http://localhost:11434/api/metrics/summary
+
+# Query edge metrics for a specific session
+curl http://localhost:11434/api/sessions/{session_id}/metrics
+
+# Database table statistics
+curl http://localhost:11434/api/db/stats
+```
+
+#### 6. Online Graph Mutation REST APIs
+```bash
+# Add or update vertex
+curl -X POST http://localhost:11434/api/sessions/{session_id}/vertices \
+  -H "Content-Type: application/json" \
+  -d '{"name": "new_node", "content": "data", "state": "data ready"}'
+
+# Dynamically connect edge
+curl -X POST http://localhost:11434/api/sessions/{session_id}/edges \
+  -H "Content-Type: application/json" \
+  -d '{"id": "e_new", "input_vertex": "src", "output_vertex": "dst", "type": "code"}'
+
+# Replay/reenter vertex with automatic downstream invalidation
+curl -X POST http://localhost:11434/api/sessions/{session_id}/vertices/{vertex_name}/reenter \
+  -H "Content-Type: application/json" \
+  -d '{"content": "revised input"}'
+```
+
+---
+
+### 2.5 Automated Testing (运行自动化测试)
+
+```bash
+# Run complete test suite (551 tests, 100% pass rate)
+pytest -q
+
+# Run edge metrics telemetry benchmarks
+pytest tests/test_v4_edge_metrics.py -v
+
+# Run OpenAI API compatibility tests
+pytest tests/test_openai_v4_endpoints.py -v
+
+# Run Agent Harness multi-turn interaction tests
+pytest tests/test_harness_http_executor.py -v
+```
+
+---
+
+## 3. Quick Start & Graph Authoring Guide
 
 ### Approach A: Orchestration via JSON Manifest (Recommended)
 
@@ -160,7 +367,7 @@ dir_graph = GraphV4.from_directory("examples/subgraph_v4/discrete_dir_demo", ses
 
 ---
 
-## 3. Remote Model Pipeline (SenseNova)
+## 4. Remote Model Pipeline (SenseNova)
 
 Built-in support for remote model inference (optionally set credentials via `SENSENOVA_API_KEY`):
 
@@ -227,7 +434,7 @@ if __name__ == "__main__":
 
 ---
 
-## 4. Core Features
+## 5. Core Architectural Features
 
 ### 1. Fan-In Merge Strategies
 
@@ -368,7 +575,7 @@ print(f"Average Latency: {summary['avg_execution_time_ms']:.1f}ms, Total Tokens:
 
 ---
 
-## 5. Server & Web Dashboard
+## 6. Server & Web Dashboard Deep Dive
 
 ### 1. Launch API Server (Default Port: 11434)
 
@@ -431,7 +638,7 @@ Navigate to `http://localhost:11434/dashboard` in your browser:
 
 ---
 
-## 6. Testing
+## 7. Testing & Quality Assurance
 
 The framework includes a comprehensive test suite covering unit tests, SQLite persistence, concurrency semaphores, security defenses, Agent Harness HTTP execution, and performance benchmarks:
 
@@ -445,7 +652,7 @@ pytest tests/test_v4_edge_metrics.py tests/test_openai_v4_endpoints.py tests/tes
 
 ---
 
-## 7. Documentation & Architecture Reference
+## 8. Documentation & Architecture Reference
 
 - **System Handoff & Technical Specification**: See [docs/HANDOFF.md](docs/HANDOFF.md).
 - **Documentation Index & Archives**: See [docs/README.md](docs/README.md).
