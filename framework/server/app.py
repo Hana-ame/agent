@@ -79,7 +79,38 @@ def create_v4_server(
     app.include_router(tools_router)
     app.include_router(openai_router)
 
+    # Auto-register graph templates from examples/ directory
+    _auto_register_graph_templates(app)
+
     return app
+
+
+def _auto_register_graph_templates(app: FastAPI) -> None:
+    """Scan examples/ for manifest.json and config.json, register as model templates."""
+    import json
+
+    examples_dir = Path(__file__).resolve().parent.parent.parent / "examples"
+    if not examples_dir.is_dir():
+        return
+
+    for subdir in sorted(examples_dir.iterdir()):
+        if not subdir.is_dir():
+            continue
+        # Prefer manifest.json, fall back to config.json
+        for filename in ("manifest.json", "config.json"):
+            fpath = subdir / filename
+            if fpath.is_file():
+                try:
+                    cfg = json.loads(fpath.read_text(encoding="utf-8"))
+                    register_graph_template(
+                        name=subdir.name,
+                        manifest_path=str(fpath),
+                        config=cfg,
+                    )
+                    logger.info("Registered graph template '%s' from %s", subdir.name, fpath)
+                except Exception as exc:
+                    logger.warning("Failed to register template from %s: %s", fpath, exc)
+                break  # only use the first matching file
 
 
 def parse_server_args() -> argparse.Namespace:
