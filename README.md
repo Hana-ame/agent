@@ -3,6 +3,8 @@
 A data-driven, highly extensible DAG execution engine for orchestrating AI Agent workflows. All interactions are routed through a unified `EdgeSignal` messaging channel (`COMPLETED / ABORTED / FAILED`).
 
 > This documentation follows the "Problem / Solution / Changes / Tests" paradigm: each entry documents an architectural issue, its resolution, and verification evidence. See "Quick Start" below for usage examples.
+>
+> 📖 **完整使用指南与操作手册请查阅**：[USAGE_GUIDE.md](USAGE_GUIDE.md)（涵盖 V4.0 代码编排、SenseNova 大模型直连、Web 仪表盘、API 网关及旧版兼容指南）。
 
 ---
 
