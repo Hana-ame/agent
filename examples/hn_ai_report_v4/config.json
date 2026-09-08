@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "name": "HN AI Report V4",
+    "description": "Hackers News AI digest: fetch top stories → LLM filter → parallel summarize → final report. Built on V4 vertex-edge framework."
+  },
+  "vertices": [
+    {
+      "name": "v_start",
+      "content": "trigger",
+      "attributes": ["start"],
+      "state": "data ready"
+    },
+    {
+      "name": "v_stories",
+      "content": "",
+      "state": "todo"
+    },
+    {
+      "name": "v_ai_stories",
+      "content": "",
+      "attributes": ["json"],
+      "state": "todo"
+    },
+    {
+      "name": "v_report",
+      "content": "",
+      "attributes": ["end"],
+      "state": "todo"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_fetch_stories",
+      "type": "code",
+      "input_vertex": "v_start",
+      "output_vertex": "v_stories",
+      "script": "hn_edges_v4.py:fetch_stories",
+      "settings": {
+        "limit": 30,
+        "timeout": 30,
+        "proxy": null
+      },
+      "concurrency_group": "fetch"
+    },
+    {
+      "id": "e_filter_ai",
+      "type": "llm",
+      "input_vertex": "v_stories",
+      "output_vertex": "v_ai_stories",
+      "settings": {
+        "prompt": "Here is a list of top Hacker News stories in JSON format:\n{input}\n\nTask: Select stories related to AI, LLMs, machine learning, and deep learning. Select all relevant candidates without restricting count.\n\nOutput only a valid JSON array whose elements contain 'id', 'title', and 'url' fields. Do not include markdown formatting or explanations.",
+        "model": "sensenova-6.8-flash-lite",
+        "base_url": "https://sensenova.moonchan.xyz/v1/chat/completions",
+        "api_key": "",
+        "temperature": 0.1,
+        "timeout": 7200
+      },
+      "concurrency_group": "llm"
+    },
+    {
+      "id": "e_summarize_all",
+      "type": "code",
+      "input_vertex": "v_ai_stories",
+      "output_vertex": "v_report",
+      "script": "hn_edges_v4.py:summarize_all",
+      "settings": {
+        "model": "sensenova-6.8-flash-lite",
+        "base_url": "https://sensenova.moonchan.xyz/v1/chat/completions",
+        "api_key": "",
+        "max_conc": 1,
+        "timeout": 7200,
+        "proxy": null
+      },
+      "concurrency_group": "llm",
+      "concurrency_limit": 1
+    }
+  ]
+}
