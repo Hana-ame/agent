@@ -191,3 +191,44 @@ async def test_event_driven_scheduling():
     assert res.success is True
     # If events work properly, it shouldn't hit the 10-second timeout wait
     assert duration < 5.0 
+
+
+@pytest.mark.asyncio
+async def test_executor_graph_and_store_cache_coherence():
+    """Verify that in-memory graph.vertices and SQLite store never diverge during execution (Issue 5 fix)."""
+    store = VertexStoreV4(":memory:")
+    graph = GraphV4("sess_coherence")
+
+    graph.add_vertex("v_source", state=VertexStateV4.DATA_READY.value, content="initial_data")
+    graph.add_vertex("v_target", state=VertexStateV4.TODO.value, content="")
+
+    def transform_fn(content, settings, staging=None):
+        return f"transformed_{content}"
+
+    e1 = CodeEdgeV4("edge_trans", "v_source", "v_target", script=transform_fn)
+    graph.add_edge(e1)
+
+    executor = ExecutorV4(graph, store)
+
+    # Before run: in-memory vertex is empty and todo
+    assert graph.get_vertex("v_target").content == ""
+    assert graph.get_vertex("v_target").state == VertexStateV4.TODO.value
+
+    # Run workflow
+    res = await executor.run()
+    assert res.success is True
+
+    # Check store
+    db_v = store.get_vertex("sess_coherence", "v_target")
+    assert db_v is not None
+    assert db_v.state == VertexStateV4.DATA_READY.value
+    assert db_v.content == "transformed_initial_data"
+
+    # Check in-memory graph: MUST be in 100% coherence with store (NO dual-source divergence!)
+    mem_v = executor.graph.get_vertex("v_target")
+    assert mem_v is not None
+    assert mem_v.state == VertexStateV4.DATA_READY.value
+    assert mem_v.content == "transformed_initial_data"
+    assert mem_v.state == db_v.state
+    assert mem_v.content == db_v.content
+

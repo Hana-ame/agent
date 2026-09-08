@@ -1,6 +1,7 @@
-# HN AI Report V4 — Legacy MapEdge → V4 Migration
+# HN AI Report V4 — Legacy MapEdge → V4 Migration Study
 
-> **Problem / Solution / Changes / Verification** format
+> **Architectural Comparison**: This directory is a focused migration study demonstrating how legacy v1 `MapEdge` patterns translate into V4 `CodeEdgeV4` internal parallelism.
+> For the comprehensive, production-grade V4 Hacker News pipeline (featuring multi-branch Fan-In barriers, ReflexiveEdge self-healing, and event streaming), see **[`examples/hn_v4/`](../hn_v4/)**.
 
 ## Problem: MapEdge Fan-Out Doesn't Exist in V4
 

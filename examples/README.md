@@ -24,10 +24,20 @@ Each example contains a `README.md` following the "Problem / Solution / Changes 
 | `simple_chain/` | Programmatic graph construction via fluent builder without JSON | `python examples/simple_chain/demo.py` |
 | `dynamic_topology/` | Dynamic runtime graph growth and edge creation | `python examples/dynamic_topology/demo.py` |
 | `race_mode/` | Race execution (first-to-finish wins, cancels laggards) | `python examples/race_mode/demo.py` |
-| `hn_ai_report/` | Hacker News automated AI summary report (MapEdge) | `python examples/hn_ai_report/demo.py` |
+| `hn_ai_report/` | Hacker News automated AI summary report (legacy MapEdge) | `python examples/hn_ai_report/demo.py` |
 | `s1_ai_report/` | Direct multi-fetch AI report (8-way parallel fan-out) | `python examples/s1_ai_report/demo.py` |
 | `s1_ai_report_map/` | Dynamic MapEdge-based AI report generator | `python examples/s1_ai_report_map/demo.py` |
-| `finance_ai_report/` | Financial AI report with domain filtering (MapEdge) | `python examples/finance_ai_report/demo.py` |
+| `finance_ai_report/` | Financial AI report with domain filtering (legacy MapEdge) | `python examples/finance_ai_report/demo.py` |
+
+## V4 Production Pipelines & Architectural References
+
+| V4 Example | Role & Capabilities Demonstrated | Execution Command |
+|---|---|---|
+| **`hn_v4/`** *(Canonical)* | **Recommended Full-Stack V4 Pipeline**: multi-branch Fan-In settlement barrier (`MergeStrategyV4.JSON_MERGE`), self-healing `ReflexiveEdgeV4` on network reject, SQLite edge metrics, and live SSE event streaming. | `python examples/hn_v4/run.py` |
+| `hn_ai_report_v4/` | **Migration Study**: Comparative reference demonstrating how legacy v1 `MapEdge` fan-out translates into V4 `CodeEdgeV4` internal `asyncio.gather`. | `python examples/hn_ai_report_v4/demo.py` |
+| `subgraph_v4/` | **Discrete Graph Architecture**: Discrete JSON loading, directory-level manifest ingestion, dynamic runtime subgraph splicing and insertion. | `python examples/subgraph_v4/run.py` |
+| `sensenova_v4/` | **SenseNova LLM Integration**: Production SenseNova flash-lite / chat / generate edge orchestration. | `python examples/sensenova_v4/run.py` |
+| `dynamic_tool_library/` | **Intent Router & Sandboxed Tools**: Declarative tool catalog with intent routing and SSE agent stepping. | `python examples/dynamic_tool_library/demo.py` |
 
 Helper directories: `scripts/` (shared subclass scripts), `s1profile_collect/` (data collection helper).
 

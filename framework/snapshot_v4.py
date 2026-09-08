@@ -91,15 +91,13 @@ class GraphSnapshotManagerV4:
         filename = f"step_{step:04d}_{clean_trig}.json"
         target_path = s_dir / filename
 
-        # If store is provided, rehydrate from SQLite to capture latest vertex state
+        # If store is provided, synchronize in-memory graph from SQLite
         if store is not None:
             try:
-                target_graph = GraphV4.load_from_store(store, session_id, name=graph.name)
+                graph.sync_from_store(store, session_id)
             except Exception as e:
-                logger.warning("Could not rehydrate graph from store for snapshot: %s", e)
-                target_graph = graph
-        else:
-            target_graph = graph
+                logger.warning("Could not sync graph from store for snapshot: %s", e)
+        target_graph = graph
 
         # Complete graph dump
         graph_data = target_graph.dump()
