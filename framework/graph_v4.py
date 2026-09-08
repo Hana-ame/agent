@@ -1317,6 +1317,28 @@ class GraphV4:
                     script=er.script,
                     settings=er.settings,
                 )
+            elif edge_type in ("tool", "tool_call"):
+                from framework.edge_v4 import ToolEdgeV4
+                edge = ToolEdgeV4(
+                    edge_id=er.edge_id,
+                    input_vertex=er.input_vertex,
+                    output_vertex=er.output_vertex,
+                    tool_name=er.settings.get("tool_name", er.settings.get("tool", "bash")),
+                    arguments=er.settings.get("arguments", er.settings.get("args", {})),
+                    arguments_template=er.settings.get("arguments_template"),
+                    settings=er.settings,
+                )
+            elif edge_type in ("llm_tool", "llm_tool_call"):
+                from framework.edge_v4 import LLMToolEdgeV4
+                edge = LLMToolEdgeV4(
+                    edge_id=er.edge_id,
+                    input_vertex=er.input_vertex,
+                    output_vertex=er.output_vertex,
+                    model=er.settings.get("model", "sensenova-6.8-flash-lite"),
+                    prompt_template=er.settings.get("prompt"),
+                    tools=er.settings.get("tools", []),
+                    settings=er.settings,
+                )
             elif edge_type in ("llm", "llm_chat", "llm_generate", "llm_process", "llm_callable"):
                 cls_map = {
                     "llm": LLMEdgeV4,

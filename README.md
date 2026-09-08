@@ -305,50 +305,148 @@ python3 examples/subgraph_v4/run.py
 
 ---
 
-## 5. Server & Web Dashboard
+### 4. Tool Call Edges for Agent Harness (`ToolEdgeV4` & `LLMToolEdgeV4`)
 
-### 1. Launch API Server
+Define edges that yield OpenAI-compatible tool calls to an external execution sandbox (e.g. bash, git, python):
 
-```bash
-uvicorn framework.server_v4:app --host 0.0.0.0 --port 8000
+```python
+from framework import ToolEdgeV4, LLMToolEdgeV4
+
+# 1. Declarative static tool call
+tool_edge = ToolEdgeV4(
+    edge_id="e_run_sandbox",
+    input_vertex="prompt_vertex",
+    output_vertex="result_vertex",
+    tool_name="bash",
+    arguments_template='{"command": "cat {input}"}',
+)
+
+# 2. Dynamic LLM-driven tool call
+llm_tool_edge = LLMToolEdgeV4(
+    edge_id="e_llm_tool",
+    input_vertex="query_node",
+    output_vertex="action_node",
+    tools=[{
+        "type": "function",
+        "function": {
+            "name": "bash",
+            "description": "Execute bash commands in the workspace",
+            "parameters": {
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"]
+            }
+        }
+    }],
+    prompt_template="Analyze workspace for {input}"
+)
 ```
 
-### 2. Web Dashboard
+When connected to an Agent Harness via `/v1/chat/completions`, these edges return `finish_reason: "tool_calls"`. When the harness posts back `role: "tool"` with the command output, the vertex transitions to `data ready` and continues.
 
-Navigate to `http://localhost:8000/dashboard` in a browser.
+---
+
+### 5. Edge-Level Benchmarking & Metrics (`edge_metrics`)
+
+Every edge execution automatically records execution duration (ms), prompt/completion tokens, costs, success status, and error traces in SQLite:
+
+```python
+from framework import VertexStoreV4
+
+store = VertexStoreV4("agent_data.db")
+
+# 1. List individual edge metrics
+metrics = store.list_edge_metrics(session_id="sess_1")
+for m in metrics:
+    print(f"[{m.edge_id}] {m.edge_type}: {m.execution_time_ms:.1f}ms, {m.total_tokens} tokens")
+
+# 2. Get aggregate session or global summary
+summary = store.get_edge_metrics_summary(session_id="sess_1")
+print(f"Total Executions: {summary['total_executions']}, Error Rate: {summary['error_rate']:.2%}")
+print(f"Average Latency: {summary['avg_execution_time_ms']:.1f}ms, Total Tokens: {summary['total_tokens']}")
+```
+
+---
+
+## 5. Server & Web Dashboard
+
+### 1. Launch API Server (Default Port: 11434)
+
+```bash
+# Launch server using default port 11434 (Ollama-compatible standard port)
+python3 -m framework.server_v4 --port 11434
+
+# Or using uvicorn directly
+uvicorn framework.server_v4:app --host 0.0.0.0 --port 11434
+```
+
+### 2. Native OpenAI-Compatible API (`/v1/chat/completions`)
+
+The V4 server natively implements the OpenAI API protocol, enabling seamless integration with Agent Harnesses, LangChain, or standard OpenAI client libraries:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:11434/v1", api_key="not-needed")
+
+response = client.chat.completions.create(
+    model="default",
+    messages=[{"role": "user", "content": "Analyze repository files"}],
+)
+
+# Tool calls emitted by ToolEdgeV4 / LLMToolEdgeV4 are yielded directly:
+if response.choices[0].finish_reason == "tool_calls":
+    tool_call = response.choices[0].message.tool_calls[0]
+    print("Execute in Sandbox:", tool_call.function.name, tool_call.function.arguments)
+```
+
+### 3. Web Dashboard
+
+Navigate to `http://localhost:11434/dashboard` in your browser:
 - Real-time visualization of DAG topology and vertex state highlights.
-- Inspect vertex data, states, and execution metrics.
+- Live inspection of vertex contents, SQLite tables, and edge execution metrics.
 
-### 3. API Invocation
+### 4. REST & Metrics APIs
 
-- **Execute session workflow**:
+- **Session Edge Performance Metrics**:
   ```bash
-  curl -X POST http://localhost:8000/api/sessions/{session_id}/run \
-       -H "Content-Type: application/json" \
-       -d '{"max_concurrency": 4}'
+  # Query performance records and timing for a session
+  curl http://localhost:11434/api/sessions/{session_id}/metrics
   ```
-
-- **SSE stream execution**:
+- **Global Benchmarking Summary**:
   ```bash
-  curl -N http://localhost:8000/api/sse/execute \
-       -H "Content-Type: application/json" \
-       -d '{"session_id": "sess_1", "manifest_path": "workflow/graph.json"}'
+  # Aggregated latency, token counts, and error rates across all sessions
+  curl http://localhost:11434/api/metrics/summary
   ```
+- **Database Statistics**:
+  ```bash
+  curl http://localhost:11434/api/db/stats
+  ```
+- **Online Graph Mutation**:
+  - `POST /api/sessions/{session_id}/vertices` — Dynamically add or update a vertex.
+  - `POST /api/sessions/{session_id}/edges` — Dynamically connect a new edge.
+  - `POST /api/sessions/{session_id}/edges/{edge_id}/reconnect` — Reconnect edge endpoints.
+  - `POST /api/sessions/{session_id}/vertices/{vertex_name}/reenter` — Replay/reenter a vertex with downstream reset.
+  - `POST /api/db/sessions/{session_id}/clear` — Atomically purge session vertices, staging, and metrics.
 
 ---
 
 ## 6. Testing
 
-```bash
-# Run offline test suite
-python -m pytest tests/ -v -m "not live"
+The framework includes a comprehensive test suite covering unit tests, SQLite persistence, concurrency semaphores, security defenses, Agent Harness HTTP execution, and performance benchmarks:
 
-# Run full test suite
-python -m pytest tests/ -v
+```bash
+# Run full test suite (551 tests, 100% pass rate)
+pytest
+
+# Run specific V4 tests
+pytest tests/test_v4_edge_metrics.py tests/test_openai_v4_endpoints.py tests/test_harness_http_executor.py -v
 ```
 
 ---
 
-## 7. Documentation Archive
+## 7. Documentation & Architecture Reference
 
-Historical specifications, review records, and troubleshooting reports are located in [docs/archive/](docs/archive/).
+- **System Handoff & Technical Specification**: See [docs/HANDOFF.md](docs/HANDOFF.md).
+- **Documentation Index & Archives**: See [docs/README.md](docs/README.md).
+- **Historical Reports & Architecture Specifications**: Located in [docs/archive/](docs/archive/).

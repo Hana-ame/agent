@@ -147,7 +147,7 @@ class TestHttpLLMAgentConstruction:
         agent = HttpLLMAgent()
         assert agent.base_url == "https://opencode.ai/zen/v1/chat/completions"
         assert agent.api_key == "public"
-        assert agent.max_retries == 3
+        assert agent.max_retries == 20
         assert agent.client is not None
 
     def test_custom_values(self):

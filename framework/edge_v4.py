@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sys
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Protocol, Tuple, Union, runtime_checkable
@@ -247,6 +248,10 @@ class EdgeV4:
             target_cls = cls
         elif e_type == "reflexive" or (in_v and out_v and in_v == out_v):
             target_cls = ReflexiveEdgeV4
+        elif e_type in ("tool", "tool_call"):
+            target_cls = ToolEdgeV4
+        elif e_type in ("llm_tool", "llm_tool_call"):
+            target_cls = LLMToolEdgeV4
         elif e_type == "code":
             target_cls = CodeEdgeV4
         elif e_type == "llm_chat":
@@ -285,6 +290,40 @@ class EdgeV4:
         else:
             if not in_v or not out_v:
                 raise ValueError(f"Both input and output vertices are required for {e_type} edge")
+            if issubclass(target_cls, ToolEdgeV4):
+                tool_name = data.get("tool_name") or data.get("tool") or settings.get("tool_name") or settings.get("tool") or "bash"
+                arguments = data.get("arguments") or data.get("args") or settings.get("arguments") or settings.get("args") or {}
+                arguments_template = data.get("arguments_template") or settings.get("arguments_template")
+                return ToolEdgeV4(
+                    edge_id=edge_id,
+                    input_vertex=str(in_v),
+                    output_vertex=str(out_v),
+                    tool_name=str(tool_name),
+                    arguments=arguments,
+                    arguments_template=arguments_template,
+                    settings=settings,
+                    concurrency_limit=concurrency_limit,
+                    concurrency_group=concurrency_group,
+                    priority=priority,
+                    timeout=timeout,
+                )
+            if issubclass(target_cls, LLMToolEdgeV4):
+                model = data.get("model") or settings.get("model", "sensenova-6.8-flash-lite")
+                prompt_template = data.get("prompt_template") or data.get("prompt") or settings.get("prompt")
+                tools = data.get("tools") or settings.get("tools") or []
+                return LLMToolEdgeV4(
+                    edge_id=edge_id,
+                    input_vertex=str(in_v),
+                    output_vertex=str(out_v),
+                    model=model,
+                    prompt_template=prompt_template,
+                    tools=tools,
+                    settings=settings,
+                    concurrency_limit=concurrency_limit,
+                    concurrency_group=concurrency_group,
+                    priority=priority,
+                    timeout=timeout,
+                )
             if issubclass(target_cls, LLMEdgeV4):
                 model = data.get("model") or settings.get("model", "sensenova-6.8-flash-lite")
                 prompt_template = data.get("prompt_template") or data.get("prompt") or settings.get("prompt")
@@ -460,6 +499,13 @@ class CodeEdgeV4(EdgeV4):
             return self._callable
 
         if isinstance(self.script, str):
+            stripped = self.script.strip()
+            if stripped.startswith("lambda ") or stripped.startswith("lambda:"):
+                try:
+                    self._callable = eval(stripped, {"__builtins__": __builtins__})
+                    return self._callable
+                except Exception as exc:
+                    logger.warning("Failed to evaluate inline lambda '%s': %s", stripped, exc)
             self._callable = _resolve_script_callable(self.script, ["execute", "process", "run", "transform"])
             return self._callable
 
@@ -566,6 +612,119 @@ class CodeEdgeV4(EdgeV4):
                 error=err_msg,
                 reason="Execution threw exception",
             )
+
+
+class ToolEdgeV4(EdgeV4):
+    """Declarative static tool edge for Agent Harness integration.
+
+    Directly produces an OpenAI-compatible tool call (e.g. bash(command="ls"))
+    that the external agent harness executes in its environment/sandbox.
+    """
+
+    def __init__(
+        self,
+        edge_id: str,
+        input_vertex: str,
+        output_vertex: str,
+        tool_name: str = "bash",
+        arguments: Optional[Union[Dict[str, Any], str]] = None,
+        arguments_template: Optional[str] = None,
+        settings: Optional[Dict[str, Any]] = None,
+        concurrency_limit: Optional[int] = None,
+        concurrency_group: Optional[str] = None,
+        priority: int = 0,
+        timeout: Optional[float] = None,
+    ):
+        edge_settings = dict(settings or {})
+        edge_settings["tool_name"] = tool_name
+        if arguments is not None:
+            edge_settings["arguments"] = arguments
+        if arguments_template is not None:
+            edge_settings["arguments_template"] = arguments_template
+        super().__init__(
+            edge_id=edge_id,
+            input_vertex=input_vertex,
+            output_vertex=output_vertex,
+            edge_type="tool",
+            settings=edge_settings,
+            concurrency_limit=concurrency_limit,
+            concurrency_group=concurrency_group,
+            priority=priority,
+            timeout=timeout,
+        )
+        self.tool_name = tool_name
+        self.arguments = arguments if arguments is not None else {}
+        self.arguments_template = arguments_template
+
+    def build_tool_call(self, in_v_content: str = "", call_id: Optional[str] = None) -> Dict[str, Any]:
+        """Generate OpenAI standard tool_call dictionary."""
+        cid = call_id or f"call_{uuid.uuid4().hex[:12]}"
+        if self.arguments_template:
+            interpolated = self.arguments_template.replace("{input}", in_v_content)
+            try:
+                args = json.loads(interpolated)
+            except Exception:
+                args = {"command": interpolated}
+        elif isinstance(self.arguments, dict):
+            args = {}
+            for k, v in self.arguments.items():
+                if isinstance(v, str) and "{input}" in v:
+                    args[k] = v.replace("{input}", in_v_content)
+                else:
+                    args[k] = v
+        elif isinstance(self.arguments, str):
+            args = {"command": self.arguments.replace("{input}", in_v_content)}
+        else:
+            args = {}
+
+        return {
+            "id": cid,
+            "type": "function",
+            "function": {
+                "name": self.tool_name,
+                "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+            },
+        }
+
+    async def run(
+        self,
+        session_id: str,
+        store: VertexStoreV4,
+        agent: Optional[AgentProtocol] = None,
+        auto_transition: bool = True,
+        tool_output: Optional[str] = None,
+        **kwargs: Any,
+    ) -> EdgeResultV4:
+        """Settle tool execution output into downstream vertex."""
+        satisfied, reason, in_v, out_v = self.check_handshake(session_id, store)
+        if not satisfied or in_v is None or out_v is None:
+            return EdgeResultV4(
+                edge_id=self.id,
+                success=False,
+                skipped=True,
+                reason=reason,
+            )
+
+        output_str = str(tool_output) if tool_output is not None else in_v.content
+
+        merge_strategy = self.settings.get("merge_strategy", "overwrite")
+        store.apply_merge_strategy(
+            session_id=session_id,
+            name=self.output_vertex,
+            incoming_content=output_str,
+            strategy=merge_strategy,
+        )
+
+        if auto_transition:
+            store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.DATA_READY.value)
+            store.increment_processed_count(session_id, self.output_vertex)
+
+        return EdgeResultV4(
+            edge_id=self.id,
+            success=True,
+            output=output_str,
+            metadata={"tool_name": self.tool_name},
+        )
 
 
 class LLMEdgeV4(EdgeV4):
@@ -771,6 +930,58 @@ class LLMEdgeV4(EdgeV4):
         raise TypeError(
             f"Agent {type(agent).__name__} has no callable chat/process/generate method"
         )
+
+
+class LLMToolEdgeV4(LLMEdgeV4):
+    """Dynamic LLM-driven tool edge for Agent Harness integration.
+
+    The LLM inspects upstream context and determines which tool call to emit
+    to the external agent harness.
+    """
+
+    def __init__(
+        self,
+        edge_id: str,
+        input_vertex: str,
+        output_vertex: str,
+        model: str = "sensenova-6.8-flash-lite",
+        prompt_template: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        agent: Optional[AgentProtocol] = None,
+        settings: Optional[Dict[str, Any]] = None,
+        priority: int = 0,
+        timeout: Optional[float] = None,
+    ):
+        super().__init__(
+            edge_id=edge_id,
+            input_vertex=input_vertex,
+            output_vertex=output_vertex,
+            model=model,
+            prompt_template=prompt_template,
+            settings=settings,
+            priority=priority,
+            timeout=timeout,
+        )
+        self.type = "llm_tool"
+        self.tools = tools or []
+        if agent:
+            self.agent = agent
+
+    def build_tool_call_from_llm_response(
+        self,
+        response: Dict[str, Any],
+        call_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Extract tool_call structure from agent or LLM response dict."""
+        choices = response.get("choices", [{}])
+        msg = choices[0].get("message", {}) if choices else {}
+        tcs = msg.get("tool_calls")
+        if tcs and isinstance(tcs, list) and len(tcs) > 0:
+            tc = dict(tcs[0])
+            if call_id and "id" in tc:
+                tc["id"] = call_id
+            return tc
+        return None
 
 
 class ReflexiveEdgeV4(EdgeV4):
@@ -1091,6 +1302,8 @@ __all__ = [
     "EdgeResultV4",
     "EdgeV4",
     "CodeEdgeV4",
+    "ToolEdgeV4",
+    "LLMToolEdgeV4",
     "LLMEdgeV4",
     "MockAgentV4",
     "ChatLLMEdgeV4",

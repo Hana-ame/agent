@@ -11,7 +11,7 @@ import logging
 import os
 import sys
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlparse
 
 import httpx
@@ -290,10 +290,55 @@ class TestStreaming:
 
     @pytest.mark.asyncio
     async def test_stream_transport_error_propagates(self):
-        agent = HttpLLMAgent()
+        agent = HttpLLMAgent(max_retries=1)
         agent.client.stream = MagicMock(side_effect=httpx.ReadError("socket closed"))
         with pytest.raises(httpx.ReadError, match="socket closed"):
             [c async for c in agent.stream_process("d", "p", "m")]
+        await agent.close()
+
+    @pytest.mark.asyncio
+    async def test_stream_retry_on_429_then_success(self):
+        agent = HttpLLMAgent(max_retries=3)
+        stream_429 = _HTTPHelpers.make_stream(status_code=429, body=b'{"error":"rate limit"}')
+        stream_ok = _HTTPHelpers.make_stream(status_code=200, lines=[
+            'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            'data: [DONE]',
+        ])
+        agent.client.stream = MagicMock(side_effect=[stream_429, stream_ok])
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            chunks = [c async for c in agent.stream_process("d", "p", "m")]
+            assert chunks == ["ok"]
+            assert agent.client.stream.call_count == 2
+            mock_sleep.assert_awaited_once()
+        await agent.close()
+
+    @pytest.mark.asyncio
+    async def test_stream_retry_on_500_then_success(self):
+        agent = HttpLLMAgent(max_retries=3)
+        stream_500 = _HTTPHelpers.make_stream(status_code=500, body=b'{"error":"internal error"}')
+        stream_ok = _HTTPHelpers.make_stream(status_code=200, lines=[
+            'data: {"choices":[{"delta":{"content":"recovered"}}]}',
+            'data: [DONE]',
+        ])
+        agent.client.stream = MagicMock(side_effect=[stream_500, stream_ok])
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            chunks = [c async for c in agent.stream_process("d", "p", "m")]
+            assert chunks == ["recovered"]
+            assert agent.client.stream.call_count == 2
+            mock_sleep.assert_awaited_once()
+        await agent.close()
+
+    @pytest.mark.asyncio
+    async def test_stream_retry_exhausted_raises(self):
+        agent = HttpLLMAgent(max_retries=2)
+        stream_429_1 = _HTTPHelpers.make_stream(status_code=429, body=b'{"error":"rate limit 1"}')
+        stream_429_2 = _HTTPHelpers.make_stream(status_code=429, body=b'{"error":"rate limit 2"}')
+        agent.client.stream = MagicMock(side_effect=[stream_429_1, stream_429_2])
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(NonRetryableHTTPError) as excinfo:
+                [c async for c in agent.stream_process("d", "p", "m")]
+            assert excinfo.value.status_code == 429
+            assert agent.client.stream.call_count == 2
         await agent.close()
 
     @pytest.mark.asyncio

@@ -1,0 +1,137 @@
+{
+  "version": "4.0",
+  "session_id": "hn_v4_digest_session",
+  "metadata": {
+    "name": "Hacker News AI & Tech Digest V4",
+    "description": "Multi-path autonomous V4 graph pipeline: HN API fetch & comments concurrent with Host Runtime Telemetry, Fan-In convergence via JSON_MERGE, and executive report synthesis with reflexive recovery."
+  },
+  "vertices": [
+    {
+      "name": "v_trigger",
+      "content": "{\"topic\": \"AI, Systems, Agents\", \"limit\": 6}",
+      "attributes": ["start"],
+      "state": "data ready"
+    },
+    {
+      "name": "v_raw_stories",
+      "content": "",
+      "attributes": ["json"],
+      "state": "todo"
+    },
+    {
+      "name": "v_filtered_stories",
+      "content": "",
+      "attributes": ["json"],
+      "state": "todo"
+    },
+    {
+      "name": "v_discussions",
+      "content": "",
+      "attributes": ["json"],
+      "state": "todo"
+    },
+    {
+      "name": "v_sys_env",
+      "content": "",
+      "attributes": ["json"],
+      "state": "todo"
+    },
+    {
+      "name": "v_context_bundle",
+      "content": "{}",
+      "attributes": ["json"],
+      "state": "todo"
+    },
+    {
+      "name": "v_final_report",
+      "content": "",
+      "attributes": ["end", "plain text"],
+      "state": "todo"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_fetch_top",
+      "type": "code",
+      "input_vertex": "v_trigger",
+      "output_vertex": "v_raw_stories",
+      "script": "examples/hn_v4/hn_transforms.py:fetch_hn_top_stories",
+      "settings": {
+        "limit": 6,
+        "timeout": 20.0
+      },
+      "priority": 10
+    },
+    {
+      "id": "e_recover_fetch",
+      "type": "reflexive",
+      "input_vertex": "v_raw_stories",
+      "output_vertex": "v_raw_stories",
+      "trigger_state": "reject",
+      "target_state": "data ready",
+      "max_retries": 2,
+      "script": "examples/hn_v4/hn_transforms.py:recovery_fetch_fallback"
+    },
+    {
+      "id": "e_filter",
+      "type": "code",
+      "input_vertex": "v_raw_stories",
+      "output_vertex": "v_filtered_stories",
+      "script": "examples/hn_v4/hn_transforms.py:filter_stories",
+      "settings": {
+        "max_selected": 3,
+        "timeout": 20.0
+      },
+      "priority": 10
+    },
+    {
+      "id": "e_comments",
+      "type": "code",
+      "input_vertex": "v_filtered_stories",
+      "output_vertex": "v_discussions",
+      "script": "examples/hn_v4/hn_transforms.py:fetch_comments_and_context",
+      "settings": {
+        "timeout": 20.0
+      },
+      "priority": 10
+    },
+    {
+      "id": "e_merge_hn",
+      "type": "code",
+      "input_vertex": "v_discussions",
+      "output_vertex": "v_context_bundle",
+      "script": "examples/hn_v4/hn_transforms.py:package_hn_data",
+      "settings": {
+        "merge_strategy": "json_merge"
+      },
+      "priority": 5
+    },
+    {
+      "id": "e_sys_probe",
+      "type": "code",
+      "input_vertex": "v_trigger",
+      "output_vertex": "v_sys_env",
+      "script": "examples/hn_v4/hn_transforms.py:probe_system_environment",
+      "priority": 10
+    },
+    {
+      "id": "e_merge_sys",
+      "type": "code",
+      "input_vertex": "v_sys_env",
+      "output_vertex": "v_context_bundle",
+      "script": "examples/hn_v4/hn_transforms.py:package_sys_data",
+      "settings": {
+        "merge_strategy": "json_merge"
+      },
+      "priority": 5
+    },
+    {
+      "id": "e_report",
+      "type": "code",
+      "input_vertex": "v_context_bundle",
+      "output_vertex": "v_final_report",
+      "script": "examples/hn_v4/hn_transforms.py:generate_markdown_report",
+      "priority": 10
+    }
+  ]
+}

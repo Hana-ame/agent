@@ -53,7 +53,7 @@ class HttpLLMAgent(_HTTPAgentBase):
         self,
         api_key: str = "public",
         base_url: str = "https://opencode.ai/zen/v1/chat/completions",
-        max_retries: int = 3,
+        max_retries: int = 20,
         timeout: float = 300.0,
         extra_headers: Optional[Dict[str, str]] = None,
         proxy: Optional[str] = None,
