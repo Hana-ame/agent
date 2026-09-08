@@ -23,7 +23,7 @@ from framework.graph_v4 import GraphV4, DiscreteGraphLoaderV4
 from framework.vertex_v4 import VertexStoreV4, VertexStateV4
 from framework.executor_v4 import ExecutorV4
 from framework.snapshot_v4 import GraphSnapshotManagerV4
-from examples.dynamic_tool_library.tool_scripts import classify_intent
+from examples.dynamic_tool_library.tool_scripts import classify_intent, classify_intent_with_llm
 
 
 TOOL_CATALOG_DIR = Path(__file__).parent / "tools"
@@ -54,14 +54,16 @@ async def run_pipeline_with_dynamic_tool(task_query: str, session_id: str) -> Di
         attributes=["end"]
     )
 
-    # 3. Router logic: Determine which tool subgraph to activate
-    tool_name = classify_intent(task_query)
+    # 3. Router logic: Determine which tool subgraph to activate using real LLM
+    print(f"🤖 [Intent Router] Invoking LLM Router over tool catalog...")
+    tool_name, route_reason = await classify_intent_with_llm(task_query, TOOL_CATALOG_DIR)
     tool_manifest_path = TOOL_CATALOG_DIR / f"{tool_name}.json"
     
     if not tool_manifest_path.exists():
         raise FileNotFoundError(f"Requested tool '{tool_name}' not found in catalog: {tool_manifest_path}")
 
-    print(f"🧭 [Intent Router] Classified Task ➔ Category: '{tool_name}'")
+    print(f"🧭 [Intent Router] Target Tool: '{tool_name}'")
+    print(f"                   Reason: {route_reason}")
     print(f"📦 [Tool Library] Splicing Tool Subgraph from '{tool_manifest_path.name}' on-the-fly...")
 
     # 4. Dynamically load and splice the tool subgraph into the main graph
