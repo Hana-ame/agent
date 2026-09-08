@@ -1,0 +1,6 @@
+{
+  "id": "e_subgraph_to_out",
+  "type": "code",
+  "input_vertex": "enrichment_box",
+  "output_vertex": "final_output"
+}

@@ -1,0 +1,16 @@
+{
+  "version": "4.0",
+  "session_id": "child_subgraph",
+  "metadata": {
+    "name": "text_enrichment_subgraph"
+  },
+  "vertices": [
+    "child_start.json",
+    "child_middle.json",
+    "child_end.json"
+  ],
+  "edges": [
+    "child_edge1.json",
+    "child_edge2.json"
+  ]
+}

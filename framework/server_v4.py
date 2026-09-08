@@ -176,6 +176,8 @@ class SessionGraphManagerV4:
         hydrated = GraphV4.load_from_store(self.store, session_id, name=f"graph_{session_id}")
         old_graph = self._graphs.get(session_id)
         if old_graph:
+            hydrated.loaded_nodes.update(old_graph.loaded_nodes)
+            hydrated.metadata.update(old_graph.metadata)
             for eid, edge in hydrated.edges.items():
                 old_edge = old_graph.edges.get(eid)
                 if old_edge and callable(getattr(old_edge, "script", None)):
@@ -189,6 +191,8 @@ class SessionGraphManagerV4:
         if hydrated.vertices or hydrated.edges:
             old_graph = self._graphs.get(session_id)
             if old_graph:
+                hydrated.loaded_nodes.update(old_graph.loaded_nodes)
+                hydrated.metadata.update(old_graph.metadata)
                 for eid, edge in hydrated.edges.items():
                     old_edge = old_graph.edges.get(eid)
                     if old_edge and callable(getattr(old_edge, "script", None)):

@@ -1,0 +1,10 @@
+{
+  "name": "enrichment_box",
+  "content": {
+    "subgraph_manifest": "child/child_graph.json"
+  },
+  "attributes": [
+    "subgraph"
+  ],
+  "state": "todo"
+}

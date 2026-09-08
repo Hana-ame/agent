@@ -491,10 +491,27 @@ class CodeEdgeV4(EdgeV4):
             latest_staging = store.get_latest_staged_for_vertex(session_id, self.output_vertex)
             staging_dict = latest_staging.to_dict() if latest_staging else {}
 
+            import inspect
+            try:
+                sig = inspect.signature(fn)
+                pos_params = [
+                    p for p in sig.parameters.values()
+                    if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+                ]
+                has_var = any(p.kind == p.VAR_POSITIONAL for p in sig.parameters.values())
+                if len(pos_params) == 1 and not has_var:
+                    args = (in_v.content,)
+                elif len(pos_params) == 2 and not has_var:
+                    args = (in_v.content, self.settings)
+                else:
+                    args = (in_v.content, self.settings, staging_dict)
+            except Exception:
+                args = (in_v.content, self.settings, staging_dict)
+
             if asyncio.iscoroutinefunction(fn):
-                res = await fn(in_v.content, self.settings, staging_dict)
+                res = await fn(*args)
             else:
-                res = fn(in_v.content, self.settings, staging_dict)
+                res = fn(*args)
 
             output_str = str(res) if res is not None else ""
 

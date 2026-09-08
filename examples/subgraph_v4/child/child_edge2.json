@@ -1,0 +1,7 @@
+{
+  "id": "e_child_enrich",
+  "type": "code",
+  "input_vertex": "child_middle",
+  "output_vertex": "child_end",
+  "script": "enricher.py:enrich_text"
+}

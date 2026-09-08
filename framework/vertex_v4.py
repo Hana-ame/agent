@@ -770,7 +770,10 @@ class VertexStoreV4:
 
     def _validate_state(self, state: Union[str, VertexStateV4]) -> str:
         state_str = state.value if isinstance(state, VertexStateV4) else str(state)
+        normalized = state_str.replace("_", " ").lower()
         valid_states = {s.value for s in VertexStateV4}
+        if normalized in valid_states:
+            return normalized
         if state_str not in valid_states:
             raise ValueError(f"Invalid state: {state_str}. Must be one of {valid_states}")
         return state_str
@@ -781,10 +784,16 @@ class VertexStoreV4:
             for a in (attributes or [])
         ]
         valid_attrs = {a.value for a in VertexAttributeV4}
+        result = []
         for attr in attr_list:
-            if attr not in valid_attrs:
+            norm = attr.replace("_", " ").lower()
+            if norm in valid_attrs:
+                result.append(norm)
+            elif attr in valid_attrs:
+                result.append(attr)
+            else:
                 raise ValueError(f"Invalid attribute: {attr}. Must be one of {valid_attrs}")
-        return attr_list
+        return result
 
     def _row_to_vertex(self, row: sqlite3.Row) -> VertexRecordV4:
         attrs = []
