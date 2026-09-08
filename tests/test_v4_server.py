@@ -42,6 +42,16 @@ def test_dashboard_endpoint(client: TestClient):
     assert res_dash.status_code == 200
     assert "Live Vertices (Click row to inspect/edit)" in res_dash.text
 
+    res_js = client.get("/dashboard/app.js")
+    assert res_js.status_code == 200
+    assert "application/javascript" in res_js.headers["content-type"]
+    assert "renderDagGraph" in res_js.text
+
+    res_css = client.get("/dashboard/app.css")
+    assert res_css.status_code == 200
+    assert "text/css" in res_css.headers["content-type"]
+    assert "brand" in res_css.text
+
 
 def test_online_graph_manipulation_and_validation(client: TestClient):
     """Test dynamically adding vertices and edges, validating DAG, and tier recalculation."""

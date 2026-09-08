@@ -18,7 +18,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Union
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from framework.edge_v4 import (
@@ -658,7 +658,25 @@ def create_v4_server(
     @app.get("/dashboard", response_class=HTMLResponse)
     async def get_dashboard() -> HTMLResponse:
         """Serve live single-page dashboard."""
-        return HTMLResponse(content=DASHBOARD_HTML)
+        return HTMLResponse(content=_load_dashboard_html())
+
+    @app.get("/dashboard/app.js")
+    async def get_dashboard_js() -> Response:
+        """Serve dashboard JavaScript."""
+        p = _TEMPLATE_DIR / "dashboard.js"
+        return Response(
+            content=p.read_text(encoding="utf-8") if p.exists() else "",
+            media_type="application/javascript",
+        )
+
+    @app.get("/dashboard/app.css")
+    async def get_dashboard_css() -> Response:
+        """Serve dashboard CSS stylesheet."""
+        p = _TEMPLATE_DIR / "dashboard.css"
+        return Response(
+            content=p.read_text(encoding="utf-8") if p.exists() else "",
+            media_type="text/css",
+        )
 
     # -----------------------------------------------------------------------
     # Database Inspection Endpoints
