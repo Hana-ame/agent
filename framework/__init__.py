@@ -43,6 +43,7 @@ from .edge_v4 import (
     ReflexiveEdgeV4,
     EdgeResultV4,
 )
+from .sensenova_edge_v4 import SensenovaEdgeV4
 from .graph_v4 import (
     GraphV4,
     DiscreteGraphLoaderV4,
@@ -79,7 +80,7 @@ __all__ = [
     # V4 exports
     'VertexStateV4', 'VertexAttributeV4', 'VertexRecordV4', 'VertexV4',
     'StagingRecordV4', 'VertexStoreV4',
-    'EdgeV4', 'CodeEdgeV4', 'LLMEdgeV4', 'ReflexiveEdgeV4', 'EdgeResultV4',
+    'EdgeV4', 'CodeEdgeV4', 'LLMEdgeV4', 'ReflexiveEdgeV4', 'EdgeResultV4', 'SenseNovaEdgeV4',
     'GraphV4', 'DiscreteGraphLoaderV4', 'GraphTopologyError',
     'ExecutorV4', 'OrchestratorV4', 'ExecutionResultV4', 'GraphEventV4',
     'create_v4_server', 'SessionGraphManagerV4',
