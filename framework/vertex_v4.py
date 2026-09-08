@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,14 @@ class VertexAttributeV4(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     ORPHAN = "orphan"
+
+
+class MergeStrategyV4(str, Enum):
+    """Fan-in merge strategies for vertices receiving from multiple upstream edges."""
+    OVERWRITE = "overwrite"      # Default: last write wins
+    JSON_MERGE = "json_merge"    # Merge JSON objects: {**existing, **incoming}
+    LIST_APPEND = "list_append"  # Append to JSON list
+    REDUCER_SCRIPT = "reducer_script"  # Custom reducer function
 
 
 @dataclass
@@ -440,6 +448,57 @@ class VertexStoreV4:
             )
             row = cur.fetchone()
             return int(row["processed_count"]) if row else 0
+
+    def apply_merge_strategy(
+        self,
+        session_id: str,
+        name: str,
+        incoming_content: str,
+        strategy: str = "overwrite",
+        reducer_fn: Optional[Callable] = None,
+    ) -> str:
+        """Apply fan-in merge strategy when multiple edges write to the same vertex."""
+        if strategy == MergeStrategyV4.OVERWRITE.value or strategy == "overwrite":
+            self.update_vertex_content(session_id, name, incoming_content)
+            return incoming_content
+        
+        existing = self.get_vertex(session_id, name)
+        existing_content = existing.content if existing else ""
+        
+        if strategy == MergeStrategyV4.JSON_MERGE.value or strategy == "json_merge":
+            try:
+                existing_dict = json.loads(existing_content) if existing_content else {}
+                incoming_dict = json.loads(incoming_content) if incoming_content else {}
+                merged = {**existing_dict, **incoming_dict}
+                merged_content = json.dumps(merged)
+            except (json.JSONDecodeError, TypeError):
+                merged_content = incoming_content  # Fall back to overwrite
+            self.update_vertex_content(session_id, name, merged_content)
+            return merged_content
+        
+        elif strategy == MergeStrategyV4.LIST_APPEND.value or strategy == "list_append":
+            try:
+                existing_list = json.loads(existing_content) if existing_content else []
+                if not isinstance(existing_list, list):
+                    existing_list = [existing_list] if existing_content else []
+                existing_list.append(json.loads(incoming_content) if incoming_content else incoming_content)
+            except (json.JSONDecodeError, TypeError):
+                existing_list = [existing_content, incoming_content] if existing_content else [incoming_content]
+            merged_content = json.dumps(existing_list)
+            self.update_vertex_content(session_id, name, merged_content)
+            return merged_content
+        
+        elif strategy == MergeStrategyV4.REDUCER_SCRIPT.value or strategy == "reducer_script":
+            if reducer_fn is None:
+                self.update_vertex_content(session_id, name, incoming_content)
+                return incoming_content
+            result = reducer_fn(existing_content, incoming_content)
+            self.update_vertex_content(session_id, name, str(result))
+            return str(result)
+        
+        # Unknown strategy — fallback to overwrite
+        self.update_vertex_content(session_id, name, incoming_content)
+        return incoming_content
 
     def delete_vertex(self, session_id: str, name: str) -> bool:
         """Delete a single vertex record by session_id and name, including associated staging entries."""

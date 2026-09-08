@@ -490,14 +490,27 @@ class CodeEdgeV4(EdgeV4):
 
             output_str = str(res) if res is not None else ""
 
-            # Handshake fulfillment: Update downstream content, set to 'data ready', increment count
-            store.update_vertex_content(
+            # Handshake fulfillment: Apply merge strategy
+            merge_strategy = self.settings.get("merge_strategy", "overwrite")
+            reducer_script_path = self.settings.get("reducer_script")
+            reducer_fn = None
+            if reducer_script_path:
+                try:
+                    reducer_fn = _resolve_script_callable(reducer_script_path, ["reduce", "merge"])
+                except Exception as e:
+                    logger.warning("Failed to resolve reducer script %s: %s", reducer_script_path, e)
+            
+            store.apply_merge_strategy(
                 session_id=session_id,
                 name=self.output_vertex,
-                content=output_str,
-                state=VertexStateV4.DATA_READY.value,
-                increment_count=True,
+                incoming_content=output_str,
+                strategy=merge_strategy,
+                reducer_fn=reducer_fn,
             )
+
+            # Handshake fulfillment: transition to 'data ready' and increment count
+            store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.DATA_READY.value)
+            store.increment_processed_count(session_id, self.output_vertex)
 
             return EdgeResultV4(
                 edge_id=self.id,
@@ -617,14 +630,26 @@ class LLMEdgeV4(EdgeV4):
                 except Exception as json_err:
                     raise ValueError(f"Malformed JSON output: {json_err}") from json_err
 
-            # Success: update downstream content and transition to 'data ready'
-            store.update_vertex_content(
+            # Apply merge strategy
+            merge_strategy = self.settings.get("merge_strategy", "overwrite")
+            reducer_script_path = self.settings.get("reducer_script")
+            reducer_fn = None
+            if reducer_script_path:
+                try:
+                    reducer_fn = _resolve_script_callable(reducer_script_path, ["reduce", "merge"])
+                except Exception as e:
+                    logger.warning("Failed to resolve reducer script %s: %s", reducer_script_path, e)
+                    
+            store.apply_merge_strategy(
                 session_id=session_id,
                 name=self.output_vertex,
-                content=output_str,
-                state=VertexStateV4.DATA_READY.value,
-                increment_count=True,
+                incoming_content=output_str,
+                strategy=merge_strategy,
+                reducer_fn=reducer_fn,
             )
+
+            store.update_vertex_state(session_id, self.output_vertex, VertexStateV4.DATA_READY.value)
+            store.increment_processed_count(session_id, self.output_vertex)
 
             return EdgeResultV4(
                 edge_id=self.id,

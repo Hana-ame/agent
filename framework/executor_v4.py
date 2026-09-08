@@ -130,6 +130,13 @@ class ExecutorV4:
         self.active_dispatches: Set[Tuple[str, str, str]] = set()
         self._event_queue: asyncio.Queue[Optional[GraphEventV4]] = asyncio.Queue()
         self._result = ExecutionResultV4(session_id=self.session_id)
+        
+        self._fan_in_counts: Dict[str, int] = defaultdict(int)
+        self._scheduler_event = asyncio.Event()
+
+    def _notify_scheduler(self) -> None:
+        """Wake up the scheduler loop if it's waiting."""
+        self._scheduler_event.set()
 
     @property
     def result(self) -> ExecutionResultV4:
@@ -287,9 +294,21 @@ class ExecutorV4:
 
         if res.success:
             self._emit("edge_completed", edge_id=edge.id, payload={"output": res.output})
+            
+            # Fan-in accumulation and settlement barrier
+            if not edge.is_reflexive and not isinstance(edge, ReflexiveEdgeV4):
+                self._fan_in_counts[edge.output_vertex] += 1
+                expected = len([e for e in self.graph.get_incoming_edges(edge.output_vertex) if not (e.is_reflexive or isinstance(e, ReflexiveEdgeV4))])
+                if self._fan_in_counts[edge.output_vertex] >= expected:
+                    self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.DATA_READY.value)
+                    self._fan_in_counts[edge.output_vertex] = 0
+                else:
+                    self.store.update_vertex_state(self.session_id, edge.output_vertex, VertexStateV4.TODO.value)
+                    
         elif not res.skipped:
             self._emit("edge_failed", edge_id=edge.id, payload={"error": res.error})
-
+            
+        self._notify_scheduler()
         return res
 
     def _is_terminal(self) -> Tuple[bool, bool]:
@@ -461,8 +480,11 @@ class ExecutorV4:
                         except Exception as t_err:
                             self._result.errors.append(str(t_err))
                 else:
-                    # Brief sleep before re-checking conditions
-                    await asyncio.sleep(self.scan_interval)
+                    self._scheduler_event.clear()
+                    try:
+                        await asyncio.wait_for(self._scheduler_event.wait(), timeout=self.scan_interval)
+                    except asyncio.TimeoutError:
+                        pass
 
                 # 3. Check termination conditions
                 is_done, is_success = self._is_terminal()

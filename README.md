@@ -16,7 +16,7 @@ A data-driven, highly extensible DAG execution engine for orchestrating AI Agent
 | `Executor` | Asynchronous scheduler supporting `run()` and non-blocking event streams via `stream()` |
 | Agent | `MockAgent` / `HttpLLMAgent` / `OpenCodeAgent` / `PiAgentRunner`; spec: `mock|http|opencode|pi` |
 | Extensions | `script` = `filename[:ClassName]`, loading subclasses of `Vertex/Edge/MapEdge` |
-| Advanced | `SubgraphVertex`, `MemoryStore`, `TelemetryTracker`, `SchemaRegistry`, `SQLiteStateStore`/`CheckpointedExecutor`, `race_mode`, `GraphBuilder`/`LinearChain` |
+| Advanced | `BaseWorkerQueueV4` distributed queue, `SubgraphVertex`, `MemoryStore`, `TelemetryTracker`, `SchemaRegistry`, `SQLiteStateStore`/`CheckpointedExecutor`, `race_mode`, `GraphBuilder`/`LinearChain` |
 
 ---
 

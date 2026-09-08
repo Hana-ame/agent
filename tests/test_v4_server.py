@@ -712,6 +712,7 @@ def test_api_dump_graph_endpoint(client: TestClient, tmp_path: Path):
     assert g["relationships"]["sinks"] == ["v_stop"]
 
     # 2. POST dump to filesystem
+    client.app.state.manifest_base_dir = tmp_path
     target_file = str(tmp_path / "dump_export.json")
     post_res = client.post(f"/api/sessions/{session_id}/graph/dump?path={target_file}")
     assert post_res.status_code == 200
