@@ -1,13 +1,17 @@
-# 📚 Vertex-Edge Agent Framework 文档归档中心 (Documentation Archive)
+# 📚 Vertex-Edge Agent Framework 文档中心 (Documentation)
 
-本目录归档了项目演进历程中的历史架构规范、阶段报告、审查记录、交接备忘与问题排查记录。日常使用请直接查阅根目录 [README.md](../README.md)。
+- **最新交付交接说明书**：请查阅 [HANDOFF.md](HANDOFF.md)。
+- **日常使用指南**：请查阅根目录 [README.md](../README.md)。
 
 ---
 
 ## 🗂️ 归档文档清单 (`docs/archive/`)
 
+本目录归档了项目演进历程中的历史架构规范、阶段报告、审查记录、交接备忘与问题排查记录：
+
 ```
 docs/
+├── HANDOFF.md                                       # V4.0 系统最新交付与交接说明书
 └── archive/                                         # 历史文档归档目录
     ├── v4-runtime-issues-analysis.md                # 运行时潜在问题（并发修改/死锁/在途踩踏）审查与修复记录
     ├── legacy-issues-log.md                         # 早期版本架构缺陷与优化记录（Issue 1-11）
