@@ -33,6 +33,7 @@ from framework.vertex_v4 import (
 
 logger = logging.getLogger("vertex_edge_agent.graph_v4")
 
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 
 # NodeColor is unified into VertexStateV4 for state coloring
 NodeColor = VertexStateV4
@@ -86,30 +87,91 @@ class GraphV4:
 
         Supports VertexRecordV4 instances, configuration dicts, or vertex names.
         """
+        if isinstance(vertex, (str, Path)):
+            v_p = Path(str(vertex))
+            if not v_p.is_absolute() and not v_p.exists():
+                cand = Path(_REPO_ROOT) / v_p
+                if cand.exists():
+                    v_p = cand
+            if v_p.is_dir():
+                loaded_list = []
+                for json_file in sorted(v_p.glob("*.json")):
+                    with open(json_file, "r", encoding="utf-8") as vf:
+                        v_data = json.load(vf)
+                    if isinstance(v_data, list):
+                        for item in v_data:
+                            loaded_list.append(self.add_vertex(item, source=f"file:{json_file}", metadata=metadata, **kwargs))
+                    else:
+                        loaded_list.append(self.add_vertex(v_data, source=f"file:{json_file}", metadata=metadata, **kwargs))
+                return loaded_list[0] if len(loaded_list) == 1 else loaded_list
+            elif str(vertex).endswith(".json") or v_p.is_file():
+                if not v_p.exists():
+                    raise FileNotFoundError(f"Vertex config file not found: {vertex}")
+                with open(v_p, "r", encoding="utf-8") as vf:
+                    v_data = json.load(vf)
+                if isinstance(v_data, list):
+                    res = [self.add_vertex(item, source=f"file:{v_p}", metadata=metadata, **kwargs) for item in v_data]
+                    return res[0] if len(res) == 1 else res
+                return self.add_vertex(v_data, source=f"file:{v_p}", metadata=metadata, **kwargs)
+
         if isinstance(vertex, VertexRecordV4):
             v_record = vertex
         elif isinstance(vertex, dict):
             raw_state = vertex.get("state", state or VertexStateV4.IDLE.value)
-            st_val = raw_state.value if isinstance(raw_state, VertexStateV4) else str(raw_state)
+            if isinstance(raw_state, VertexStateV4):
+                st_val = raw_state.value
+            else:
+                raw_str = str(raw_state)
+                norm = raw_str.replace("_", " ").lower()
+                valid_states = {s.value for s in VertexStateV4}
+                st_val = norm if norm in valid_states else raw_str
+
+            raw_attrs = list(vertex.get("attributes", attributes or []))
+            valid_attrs = {a.value for a in VertexAttributeV4}
+            norm_attrs = []
+            for a in raw_attrs:
+                a_str = a.value if isinstance(a, VertexAttributeV4) else str(a)
+                norm_a = a_str.replace("_", " ").lower()
+                norm_attrs.append(norm_a if norm_a in valid_attrs else a_str)
+
+            raw_content = vertex.get("content", content)
+            content_str = json.dumps(raw_content) if isinstance(raw_content, (dict, list)) else str(raw_content)
             v_record = VertexRecordV4(
                 id=int(vertex.get("id", 0)),
                 session_id=str(vertex.get("session_id", self.session_id)),
                 name=str(vertex["name"]),
-                content=str(vertex.get("content", content)),
-                attributes=list(vertex.get("attributes", attributes or [])),
+                content=content_str,
+                attributes=norm_attrs,
                 state=st_val,
                 processed_count=int(vertex.get("processed_count", processed_count)),
             )
             metadata = metadata or vertex.get("metadata")
             source = vertex.get("source", source)
         elif isinstance(vertex, str):
-            st_val = state.value if isinstance(state, VertexStateV4) else (str(state) if state else VertexStateV4.IDLE.value)
+            if isinstance(state, VertexStateV4):
+                st_val = state.value
+            elif state:
+                raw_str = str(state)
+                norm = raw_str.replace("_", " ").lower()
+                valid_states = {s.value for s in VertexStateV4}
+                st_val = norm if norm in valid_states else raw_str
+            else:
+                st_val = VertexStateV4.IDLE.value
+
+            raw_attrs = list(attributes or [])
+            valid_attrs = {a.value for a in VertexAttributeV4}
+            norm_attrs = []
+            for a in raw_attrs:
+                a_str = a.value if isinstance(a, VertexAttributeV4) else str(a)
+                norm_a = a_str.replace("_", " ").lower()
+                norm_attrs.append(norm_a if norm_a in valid_attrs else a_str)
+
             v_record = VertexRecordV4(
                 id=0,
                 session_id=self.session_id,
                 name=vertex,
                 content=content,
-                attributes=list(attributes or []),
+                attributes=norm_attrs,
                 state=st_val,
                 processed_count=processed_count,
             )
@@ -181,6 +243,43 @@ class GraphV4:
         Supports EdgeV4 instances, configuration dicts, edge IDs with keyword args,
         or pure keyword arguments.
         """
+        if isinstance(edge, (str, Path)):
+            e_p = Path(str(edge))
+            if not e_p.is_absolute() and not e_p.exists():
+                cand = Path(_REPO_ROOT) / e_p
+                if cand.exists():
+                    e_p = cand
+            if e_p.is_dir():
+                loaded_list = []
+                for json_file in sorted(e_p.glob("*.json")):
+                    with open(json_file, "r", encoding="utf-8") as ef:
+                        e_data = json.load(ef)
+                    if isinstance(e_data, list):
+                        for item in e_data:
+                            edge_obj = EdgeV4.from_config(item, base_dir=str(json_file.parent))
+                            self.edges[edge_obj.id] = edge_obj
+                            loaded_list.append(edge_obj)
+                    else:
+                        edge_obj = EdgeV4.from_config_file(json_file, base_dir=str(json_file.parent))
+                        self.edges[edge_obj.id] = edge_obj
+                        loaded_list.append(edge_obj)
+                return loaded_list[0] if len(loaded_list) == 1 else loaded_list
+            elif str(edge).endswith(".json") or e_p.is_file():
+                if not e_p.exists():
+                    raise FileNotFoundError(f"Edge config file not found: {edge}")
+                with open(e_p, "r", encoding="utf-8") as ef:
+                    e_data = json.load(ef)
+                if isinstance(e_data, list):
+                    loaded_list = []
+                    for item in e_data:
+                        edge_obj = EdgeV4.from_config(item, base_dir=str(e_p.parent))
+                        self.edges[edge_obj.id] = edge_obj
+                        loaded_list.append(edge_obj)
+                    return loaded_list[0] if len(loaded_list) == 1 else loaded_list
+                edge_obj = EdgeV4.from_config_file(e_p, base_dir=str(e_p.parent))
+                self.edges[edge_obj.id] = edge_obj
+                return edge_obj
+
         if isinstance(edge, EdgeV4):
             edge_obj = edge
         elif isinstance(edge, dict):
@@ -206,6 +305,30 @@ class GraphV4:
 
         self.edges[edge_obj.id] = edge_obj
         return edge_obj
+
+    def load_directory(self, directory_path: Union[str, Path]) -> "GraphV4":
+        """Load vertex and edge configurations from a directory into this graph."""
+        loaded = DiscreteGraphLoaderV4.load_from_directory(
+            directory_path, override_session_id=self.session_id
+        )
+        for v in loaded.vertices.values():
+            self.vertices[v.name] = v
+            if v.name in loaded.loaded_nodes:
+                self.loaded_nodes[v.name] = loaded.loaded_nodes[v.name]
+        for e in loaded.edges.values():
+            self.edges[e.id] = e
+        return self
+
+    @classmethod
+    def from_directory(
+        cls,
+        directory_path: Union[str, Path],
+        session_id: Optional[str] = None,
+    ) -> "GraphV4":
+        """Construct a new GraphV4 from a directory containing configurations."""
+        return DiscreteGraphLoaderV4.load_from_directory(
+            directory_path, override_session_id=session_id
+        )
 
     def get_vertex(self, name: str) -> Optional[VertexRecordV4]:
         """Retrieve vertex definition by name."""
@@ -1241,49 +1364,122 @@ class DiscreteGraphLoaderV4:
         """Construct GraphV4 from in-memory dictionary definition."""
         session_id = override_session_id or data.get("session_id", "default_session")
         name = (data.get("metadata") or {}).get("name", "subgraph")
-        graph = GraphV4(session_id=session_id, name=name, metadata=data.get("metadata") or {})
-
+        meta = dict(data.get("metadata") or {})
         b_dir = Path(base_dir).resolve() if base_dir else None
+        if b_dir:
+            meta.setdefault("base_dir", str(b_dir))
+        graph = GraphV4(session_id=session_id, name=name, metadata=meta)
+
+        def _resolve_item_path(item: Union[str, Path]) -> Path:
+            p = Path(item)
+            if b_dir and (b_dir / p).exists():
+                return (b_dir / p).resolve()
+            if p.is_absolute() and p.exists():
+                return p.resolve()
+            if p.exists():
+                return p.resolve()
+            if (Path(_REPO_ROOT) / p).exists():
+                return (Path(_REPO_ROOT) / p).resolve()
+            target = (b_dir / p) if b_dir else p
+            raise FileNotFoundError(f"Configuration path not found: {target}")
 
         # Load discrete vertices
         for v_item in data.get("vertices", []):
-            if isinstance(v_item, str) and b_dir:
-                v_path = (b_dir / v_item).resolve()
-                if not v_path.exists():
-                    raise FileNotFoundError(f"Discrete vertex file not found: {v_path}")
-                with open(v_path, "r", encoding="utf-8") as vf:
-                    v_data = json.load(vf)
+            if isinstance(v_item, (str, Path)):
+                v_path = _resolve_item_path(v_item)
+                if v_path.is_dir():
+                    for vf in sorted(v_path.glob("*.json")):
+                        graph.add_vertex(vf)
+                else:
+                    graph.add_vertex(v_path)
             elif isinstance(v_item, dict):
-                v_data = v_item
-            else:
-                continue
-
-            v_record = VertexRecordV4(
-                id=0,
-                session_id=session_id,
-                name=v_data["name"],
-                content=v_data.get("content", ""),
-                attributes=v_data.get("attributes", []),
-                state=v_data.get("state", VertexStateV4.IDLE.value),
-                processed_count=v_data.get("processed_count", 0),
-            )
-            src = f"file:{v_item}" if isinstance(v_item, str) else "manifest_dict"
-            graph.add_vertex(v_record, source=src)
+                graph.add_vertex(v_item, source="manifest_dict")
 
         # Load discrete edges
         for e_item in data.get("edges", []):
-            if isinstance(e_item, str) and b_dir:
-                e_path = (b_dir / e_item).resolve()
-                if not e_path.exists():
-                    raise FileNotFoundError(f"Discrete edge file not found: {e_path}")
-                edge_instance = EdgeV4.from_config_file(e_path, base_dir=str(b_dir))
+            if isinstance(e_item, (str, Path)):
+                e_path = _resolve_item_path(e_item)
+                if e_path.is_dir():
+                    for ef in sorted(e_path.glob("*.json")):
+                        graph.add_edge(ef)
+                else:
+                    graph.add_edge(e_path)
             elif isinstance(e_item, dict):
                 edge_instance = EdgeV4.from_config(e_item, base_dir=str(b_dir) if b_dir else None)
-            else:
-                continue
-            graph.add_edge(edge_instance)
+                graph.add_edge(edge_instance)
 
         # Validate structural bindings without enforcing strict DAG conclusion at definition time
+        graph.validate(strict_dag=False)
+        return graph
+
+    @classmethod
+    def load_from_directory(
+        cls,
+        directory_path: Union[str, Path],
+        override_session_id: Optional[str] = None,
+    ) -> GraphV4:
+        """Construct GraphV4 by loading all vertex and edge configurations in a directory.
+
+        Supports:
+        1. Manifest files inside the directory (graph.json or manifest.json).
+        2. Subdirectories: vertices/ (or vertex/, nodes/) and edges/ (or edge/).
+        3. Flat directory with individual vertex and edge JSON files.
+        """
+        d_p = Path(directory_path)
+        if not d_p.is_absolute() and not d_p.exists():
+            cand = Path(_REPO_ROOT) / d_p
+            if cand.exists():
+                d_p = cand
+        if not d_p.is_dir():
+            raise FileNotFoundError(f"Graph directory not found: {directory_path}")
+        d_p = d_p.resolve()
+
+        # Check for standard manifest file in directory
+        for m_name in ("graph.json", "manifest.json"):
+            cand_m = d_p / m_name
+            if cand_m.is_file():
+                return cls.load_from_manifest(cand_m, override_session_id=override_session_id)
+
+        session_id = override_session_id or d_p.name
+        graph = GraphV4(session_id=session_id, name=d_p.name, metadata={"base_dir": str(d_p)})
+
+        # Check for vertices subdir
+        has_subdirs = False
+        for v_sub in ("vertices", "vertex", "nodes"):
+            sub_dir = d_p / v_sub
+            if sub_dir.is_dir():
+                has_subdirs = True
+                for vf in sorted(sub_dir.glob("*.json")):
+                    graph.add_vertex(vf)
+                break
+
+        # Check for edges subdir
+        for e_sub in ("edges", "edge"):
+            sub_dir = d_p / e_sub
+            if sub_dir.is_dir():
+                has_subdirs = True
+                for ef in sorted(sub_dir.glob("*.json")):
+                    graph.add_edge(ef)
+                break
+
+        # If not already populated via subdirs, or to pick up top-level loose configs
+        for jf in sorted(d_p.glob("*.json")):
+            with open(jf, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            items = data if isinstance(data, list) else [data]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                # Determine if item is an edge config
+                if (
+                    any(k in item for k in ("input_vertex", "output_vertex", "edge_id", "source", "destination"))
+                    or item.get("type") in ("code", "reflexive", "llm", "llm_chat", "llm_generate", "llm_process", "llm_callable")
+                ):
+                    edge_instance = EdgeV4.from_config(item, base_dir=str(d_p))
+                    graph.add_edge(edge_instance)
+                elif "name" in item:
+                    graph.add_vertex(item, source=f"file:{jf}")
+
         graph.validate(strict_dag=False)
         return graph
 

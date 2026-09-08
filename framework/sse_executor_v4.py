@@ -30,6 +30,8 @@ from framework.vertex_v4 import (
 
 logger = logging.getLogger("vertex_edge_agent.sse_executor_v4")
 
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+
 
 @dataclass
 class ToolCallEcho:
@@ -104,6 +106,12 @@ class SSEExecutorV4:
             session_id = f"sess_{uuid.uuid4().hex[:10]}"
 
         manifest_to_use = manifest_path or self.default_manifest
+        if manifest_to_use:
+            m_path = Path(manifest_to_use)
+            if not m_path.is_absolute() and not m_path.exists():
+                cand = Path(_REPO_ROOT) / m_path
+                if cand.exists():
+                    manifest_to_use = str(cand)
 
         # Load from manifest if provided
         if manifest_to_use and Path(manifest_to_use).exists():
@@ -111,6 +119,7 @@ class SSEExecutorV4:
                 manifest_path=manifest_to_use,
                 override_session_id=session_id,
             )
+            self.manager._graphs[session_id] = graph
             DiscreteGraphLoaderV4.populate_store(graph, self.store)
             return session_id, self.manager.load_graph_from_store(session_id)
 
@@ -130,17 +139,48 @@ class SSEExecutorV4:
                 if v.content:
                     try:
                         content_dict = json.loads(v.content)
-                        sub_manifest_path = content_dict.get("subgraph_manifest")
+                        sub_manifest_path = (
+                            content_dict.get("subgraph_manifest")
+                            or content_dict.get("subgraph_dir")
+                            or content_dict.get("directory")
+                        )
                         sub_input_map = content_dict.get("input_map", {})
                         sub_output_map = content_dict.get("output_map", {})
                     except Exception:
                         sub_manifest_path = v.content.strip()
 
+                if sub_manifest_path:
+                    cand = Path(sub_manifest_path)
+                    if not cand.is_absolute() and not cand.exists():
+                        # 1. Try relative to vertex's loaded source file directory
+                        v_info = graph.loaded_nodes.get(v.name) if hasattr(graph, "loaded_nodes") else None
+                        if v_info and str(v_info.get("source", "")).startswith("file:"):
+                            src_dir = Path(str(v_info["source"])[5:]).resolve().parent
+                            if (src_dir / cand).exists():
+                                cand = (src_dir / cand).resolve()
+                        # 2. Try relative to parent graph's base_dir if present
+                        if not cand.exists():
+                            p_base = graph.metadata.get("base_dir")
+                            if p_base and (Path(p_base) / cand).exists():
+                                cand = (Path(p_base) / cand).resolve()
+                        # 3. Try relative to repo root
+                        if not cand.exists() and (Path(_REPO_ROOT) / cand).exists():
+                            cand = (Path(_REPO_ROOT) / cand).resolve()
+                    if cand.exists():
+                        sub_manifest_path = str(cand)
+
                 if sub_manifest_path and Path(sub_manifest_path).exists():
-                    sub_graph = DiscreteGraphLoaderV4.load_from_manifest(
-                        manifest_path=sub_manifest_path,
-                        override_session_id=sub_session_id,
-                    )
+                    sub_p = Path(sub_manifest_path)
+                    if sub_p.is_dir():
+                        sub_graph = DiscreteGraphLoaderV4.load_from_directory(
+                            directory_path=sub_p,
+                            override_session_id=sub_session_id,
+                        )
+                    else:
+                        sub_graph = DiscreteGraphLoaderV4.load_from_manifest(
+                            manifest_path=sub_manifest_path,
+                            override_session_id=sub_session_id,
+                        )
                     DiscreteGraphLoaderV4.populate_store(sub_graph, self.store)
                     self.manager._graphs[sub_session_id] = sub_graph
 

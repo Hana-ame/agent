@@ -1,0 +1,7 @@
+{
+  "id": "e_child_clean",
+  "type": "code",
+  "input_vertex": "child_start",
+  "output_vertex": "child_middle",
+  "script": "cleaner.py:clean_text"
+}

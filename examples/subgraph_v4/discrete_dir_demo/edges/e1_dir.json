@@ -1,0 +1,6 @@
+{
+  "id": "e_dir_passthrough",
+  "type": "code",
+  "input_vertex": "dir_input",
+  "output_vertex": "dir_output"
+}

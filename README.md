@@ -136,6 +136,30 @@ if __name__ == "__main__":
 
 ---
 
+### 3. 方式 C：通过独立 JSON 文件或文件夹加载 Vertex 与 Edge
+
+`graph.add_vertex()` 和 `graph.add_edge()` 支持直接传入 `.json` 配置文件路径或包含配置文件的文件夹路径：
+
+```python
+from framework import GraphV4
+
+graph = GraphV4(session_id="path_loading_session")
+
+# 1. 直接通过独立 JSON 配置文件加载 Vertex
+graph.add_vertex("examples/subgraph_v4/parent_in.json")
+graph.add_vertex("examples/subgraph_v4/parent_subgraph.json")
+graph.add_vertex("examples/subgraph_v4/parent_out.json")
+
+# 2. 直接通过独立 JSON 配置文件加载 Edge
+graph.add_edge("examples/subgraph_v4/e_start_to_subgraph.json")
+graph.add_edge("examples/subgraph_v4/e_subgraph_to_output.json")
+
+# 3. 也支持指定文件夹一键批量加载其中的所有 Vertex 与 Edge
+dir_graph = GraphV4.from_directory("examples/subgraph_v4/discrete_dir_demo", session_id="dir_sess")
+```
+
+---
+
 ## 三、大模型推理管道 (SenseNova)
 
 框架开箱即用支持商汤 SenseNova 6.8 远程大模型推理（可选择通过环境变量 `SENSENOVA_API_KEY` 设置密钥）：
@@ -254,20 +278,30 @@ reflexive_edge = ReflexiveEdgeV4(
 
 ---
 
-### 3. 嵌套子图
+### 3. 嵌套子图 (Subgraph)
 
-在节点的 `attributes` 中添加 `subgraph`，并在 `content` 中配置子图清单路径：
+在节点的 `attributes` 中添加 `subgraph`，并在 `content` 中通过 `subgraph_manifest` 配置子图清单文件路径或子图目录：
 
 ```json
 {
   "name": "subgraph_box",
-  "content": "{\"subgraph_manifest\": \"sub_workflow/graph.json\"}",
+  "content": {
+    "subgraph_manifest": "child/child_graph.json"
+  },
   "attributes": ["subgraph"],
   "state": "todo"
 }
 ```
 
-执行器会自动挂接子图桥接边并递归执行。
+执行时，`SSEExecutorV4` 会自动解析子图并在父子图边界建立桥接：
+- 父图输入数据自动注入子图中带有 `start` 属性的起始节点。
+- 子图内部边按 DAG 拓扑执行。
+- 子图中带有 `end` 属性的节点数据自动输出回父图。
+
+完整可运行示例可参见 [examples/subgraph_v4/](examples/subgraph_v4/)：
+```bash
+python3 examples/subgraph_v4/run.py
+```
 
 ---
 
