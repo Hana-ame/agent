@@ -88,7 +88,7 @@
 | 4 | Race Mode (`wait_policy: any` first-to-finish execution) | ✅ Completed |
 | 5 | Dynamic topology generation (`LinearChain.build`) | ✅ Completed |
 | 6 | `SchemaRegistry` Pydantic payload validation | ✅ Completed |
-| 7 | Distributed multi-node execution workers | ⏳ Planned |
+| 7 | Distributed multi-node execution workers | ✅ Completed |
 
 ### Upcoming: Distributed Execution
 - **Objective**: Decouple task dispatching across distributed worker nodes via Redis or message queues.
