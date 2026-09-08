@@ -1,0 +1,33 @@
+{
+  "metadata": {
+    "name": "SenseNova 6.8 Flash Lite V4 (direct connection)",
+    "description": "V4 Vertex-Edge framework example using SenseNovaEdgeV4 — the SenseNova 6.8 Flash Lite dedicated edge. Reads SENSENOVA_API_KEY from environment; base_url and model come from settings."
+  },
+  "vertices": [
+    {
+      "name": "user_input",
+      "initial_content": "Please write a short haiku about artificial intelligence.",
+      "attributes": ["start", "plain_text"],
+      "state": "data ready"
+    },
+    {
+      "name": "sensenova_output",
+      "attributes": ["plain_text"],
+      "state": "todo"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_sensenova",
+      "type": "sensenova",
+      "input_vertex": "user_input",
+      "output_vertex": "sensenova_output",
+      "script": "sensenova_edge_v4.py:SenseNovaEdgeV4",
+      "settings": {
+        "prompt": "You are a creative poet.",
+        "model": "sensenova-6.8-flash-lite",
+        "temperature": 0.7
+      }
+    }
+  ]
+}
