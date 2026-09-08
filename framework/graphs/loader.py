@@ -264,6 +264,7 @@ def load_from_store_fn(cls: Any, store: VertexStoreV4, session_id: str, name: st
                 model=er.settings.get("model", "sensenova-6.8-flash-lite"),
                 prompt_template=er.settings.get("prompt"),
                 settings=er.settings,
+                agent_mode=er.settings.get("agent_mode"),
             )
         else:
             edge = CodeEdgeV4(

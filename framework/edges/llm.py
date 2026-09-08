@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -18,7 +19,16 @@ logger = logging.getLogger("vertex_edge_agent.edges.llm")
 
 
 class LLMEdgeV4(EdgeV4):
-    """Executes LLM inference between upstream input and downstream output."""
+    """Executes LLM inference between upstream input and downstream output.
+
+    Supports four agent invocation modes via ``agent_mode``:
+    - ``"chat"``: calls ``agent.chat(prompt, ...)`` (default)
+    - ``"generate"``: calls ``agent.generate(prompt, ...)``
+    - ``"process"``: calls ``agent.process(raw_input, prompt, ...)``
+    - ``"callable"``: calls ``agent(prompt, ...)``
+
+    If ``agent_mode`` is not set, it auto-detects from agent capabilities.
+    """
 
     def __init__(
         self,
@@ -32,11 +42,14 @@ class LLMEdgeV4(EdgeV4):
         concurrency_group: Optional[str] = "llm",
         priority: int = 0,
         timeout: Optional[float] = None,
+        agent_mode: Optional[str] = None,
     ):
         edge_settings = dict(settings or {})
         edge_settings["model"] = model
         if prompt_template:
             edge_settings["prompt"] = prompt_template
+        if agent_mode:
+            edge_settings["agent_mode"] = agent_mode
         super().__init__(
             edge_id=edge_id,
             input_vertex=input_vertex,
@@ -173,7 +186,8 @@ class LLMEdgeV4(EdgeV4):
 
     @classmethod
     def from_base(cls, base_edge: LLMEdgeV4) -> LLMEdgeV4:
-        """Create a specialized subclass instance from an existing base LLMEdgeV4."""
+        """Create a specialized instance from an existing base LLMEdgeV4."""
+        agent_mode = base_edge.settings.get("agent_mode")
         return cls(
             edge_id=base_edge.id,
             input_vertex=base_edge.input_vertex,
@@ -185,6 +199,7 @@ class LLMEdgeV4(EdgeV4):
             concurrency_group=base_edge.concurrency_group,
             priority=base_edge.priority,
             timeout=base_edge.timeout,
+            agent_mode=agent_mode,
         )
 
     async def _invoke_agent(
@@ -194,24 +209,66 @@ class LLMEdgeV4(EdgeV4):
         in_v: VertexRecordV4,
         out_v: VertexRecordV4,
     ) -> Any:
-        """Invoke agent with rendered prompt."""
-        from framework.chat_llm_edge_v4 import ChatLLMEdgeV4
-        from framework.generate_llm_edge_v4 import GenerateLLMEdgeV4
-        from framework.process_llm_edge_v4 import ProcessLLMEdgeV4
-        from framework.callable_llm_edge_v4 import CallableLLMEdgeV4
+        """Invoke agent with rendered prompt.
 
-        if hasattr(agent, "chat") and callable(agent.chat):
-            sub = ChatLLMEdgeV4.from_base(self)
-            return await sub._invoke_agent(agent, rendered_prompt, in_v, out_v)
-        if hasattr(agent, "process") and callable(agent.process):
-            sub = ProcessLLMEdgeV4.from_base(self)
-            return await sub._invoke_agent(agent, rendered_prompt, in_v, out_v)
-        if hasattr(agent, "generate") and callable(agent.generate):
-            sub = GenerateLLMEdgeV4.from_base(self)
-            return await sub._invoke_agent(agent, rendered_prompt, in_v, out_v)
-        if callable(agent):
-            sub = CallableLLMEdgeV4.from_base(self)
-            return await sub._invoke_agent(agent, rendered_prompt, in_v, out_v)
-        raise TypeError(
-            f"Agent {type(agent).__name__} has no callable chat/process/generate method"
-        )
+        Dispatches based on ``agent_mode`` setting or auto-detects from agent capabilities:
+        - "chat": agent.chat(prompt, ...)
+        - "process": agent.process(raw_input, prompt, ...)
+        - "generate": agent.generate(prompt, ...)
+        - "callable": agent(prompt, ...)
+
+        Handles both sync and async agent methods.
+        """
+        mode = self.settings.get("agent_mode")
+
+        # Auto-detect if not explicitly set
+        if not mode:
+            if hasattr(agent, "chat") and callable(agent.chat):
+                mode = "chat"
+            elif hasattr(agent, "process") and callable(agent.process):
+                mode = "process"
+            elif hasattr(agent, "generate") and callable(agent.generate):
+                mode = "generate"
+            elif callable(agent):
+                mode = "callable"
+            else:
+                raise TypeError(
+                    f"Agent {type(agent).__name__} has no callable chat/process/generate method"
+                )
+
+        if mode == "chat":
+            if not hasattr(agent, "chat") or not callable(agent.chat):
+                raise TypeError(f"Agent {type(agent).__name__} does not implement callable 'chat'")
+            res = agent.chat(
+                [{"role": "user", "content": rendered_prompt}],
+                model=self.model,
+                temperature=self.temperature,
+            )
+            return await res if asyncio.iscoroutine(res) else res
+        if mode == "process":
+            if not hasattr(agent, "process") or not callable(agent.process):
+                raise TypeError(f"Agent {type(agent).__name__} does not implement callable 'process'")
+            res = agent.process(
+                in_v.content,
+                rendered_prompt,
+                model=self.model,
+                temperature=self.temperature,
+                settings=self.settings,
+            )
+            return await res if asyncio.iscoroutine(res) else res
+        if mode == "generate":
+            if not hasattr(agent, "generate") or not callable(agent.generate):
+                raise TypeError(f"Agent {type(agent).__name__} does not implement callable 'generate'")
+            res = agent.generate(
+                rendered_prompt,
+                model=self.model,
+                temperature=self.temperature,
+            )
+            return await res if asyncio.iscoroutine(res) else res
+        if mode == "callable":
+            if not callable(agent):
+                raise TypeError(f"Agent {type(agent).__name__} is not callable")
+            res = agent(rendered_prompt)
+            return await res if asyncio.iscoroutine(res) else res
+
+        raise ValueError(f"Unknown agent_mode '{mode}', expected chat|process|generate|callable")
