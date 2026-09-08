@@ -211,25 +211,6 @@ class SessionGraphManagerV4:
         graph.add_vertex(db_record)
         return db_record
 
-    def add_vertex(
-        self,
-        session_id: str,
-        name: str,
-        content: str = "",
-        attributes: Optional[List[str]] = None,
-        state: str = VertexStateV4.IDLE.value,
-        processed_count: int = 0,
-    ) -> VertexRecordV4:
-        """Add or update a vertex record in session graph and SQLite store."""
-        return self.add_or_update_vertex(
-            session_id=session_id,
-            name=name,
-            content=content,
-            attributes=attributes,
-            state=state,
-            processed_count=processed_count,
-        )
-
     def delete_vertex(self, session_id: str, name: str) -> bool:
         """Delete vertex from graph and database, cleaning up connected edges in memory and SQLite."""
         graph = self.get_or_create_graph(session_id)
@@ -361,43 +342,6 @@ class SessionGraphManagerV4:
                 graph.validate()
             except Exception as exc:
                 logger.warning("[SessionGraphManagerV4] Validation after reconnect_edge: %s", exc)
-        return success
-
-    def replace_vertex(
-        self,
-        session_id: str,
-        old_name: str,
-        new_vertex: VertexRecordV4,
-        transfer_edges: bool = True,
-    ) -> bool:
-        """Replace an existing vertex with a new vertex, syncing to database."""
-        graph = self.get_or_create_graph(session_id)
-        success = graph.replace_vertex(old_name, new_vertex, transfer_edges=transfer_edges)
-        if success:
-            self.store.delete_vertex(session_id, old_name)
-            self.store.save_vertex(
-                session_id=session_id,
-                name=new_vertex.name,
-                content=new_vertex.content,
-                attributes=new_vertex.attributes,
-                state=new_vertex.state,
-                processed_count=new_vertex.processed_count,
-            )
-            if transfer_edges and old_name != new_vertex.name:
-                for e in graph.edges.values():
-                    if e.input_vertex == new_vertex.name or e.output_vertex == new_vertex.name:
-                        self.store.save_edge(
-                            session_id=session_id,
-                            edge_id=e.id,
-                            edge_type=e.type,
-                            input_vertex=e.input_vertex,
-                            output_vertex=e.output_vertex,
-                            script=getattr(e, "script", None) if isinstance(getattr(e, "script", None), str) else None,
-                            trigger_state=getattr(e, "trigger_state", None),
-                            target_state=getattr(e, "target_state", None),
-                            max_retries=getattr(e, "max_retries", 3),
-                            settings=e.settings,
-                        )
         return success
 
     def reenter_vertex(
