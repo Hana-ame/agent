@@ -8,3 +8,8 @@ examples/s1profile_collect/data/
 
 *.egg-info/
 .pytest_cache/
+
+# Secrets — never commit .env
+.env
+.env.local
+*.env
