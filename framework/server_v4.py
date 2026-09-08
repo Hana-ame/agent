@@ -171,15 +171,32 @@ class SessionGraphManagerV4:
         """Get the currently running executor for a session, if any."""
         return self._running_executors.get(session_id)
 
+    def load_graph_from_store(self, session_id: str) -> GraphV4:
+        """Read and update a fresh GraphV4 instance directly from SQLite store for the session."""
+        hydrated = GraphV4.load_from_store(self.store, session_id, name=f"graph_{session_id}")
+        old_graph = self._graphs.get(session_id)
+        if old_graph:
+            for eid, edge in hydrated.edges.items():
+                old_edge = old_graph.edges.get(eid)
+                if old_edge and callable(getattr(old_edge, "script", None)):
+                    edge.script = old_edge.script
+        self._graphs[session_id] = hydrated
+        return hydrated
+
     def get_or_create_graph(self, session_id: str) -> GraphV4:
-        """Fetch or instantiate an isolated GraphV4 for a session, hydrating from store if available."""
+        """Fetch or instantiate an isolated GraphV4 for a session, reading from store if available."""
+        hydrated = GraphV4.load_from_store(self.store, session_id, name=f"graph_{session_id}")
+        if hydrated.vertices or hydrated.edges:
+            old_graph = self._graphs.get(session_id)
+            if old_graph:
+                for eid, edge in hydrated.edges.items():
+                    old_edge = old_graph.edges.get(eid)
+                    if old_edge and callable(getattr(old_edge, "script", None)):
+                        edge.script = old_edge.script
+            self._graphs[session_id] = hydrated
+            return hydrated
         if session_id not in self._graphs:
-            # Attempt to hydrate from database if vertices or edges exist
-            hydrated = GraphV4.load_from_store(self.store, session_id, name=f"graph_{session_id}")
-            if hydrated.vertices or hydrated.edges:
-                self._graphs[session_id] = hydrated
-            else:
-                self._graphs[session_id] = GraphV4(session_id=session_id, name=f"graph_{session_id}")
+            self._graphs[session_id] = GraphV4(session_id=session_id, name=f"graph_{session_id}")
         return self._graphs[session_id]
 
     def list_active_sessions(self) -> List[str]:
@@ -197,9 +214,7 @@ class SessionGraphManagerV4:
         state: str = VertexStateV4.IDLE.value,
         processed_count: int = 0,
     ) -> VertexRecordV4:
-        """Online vertex addition or update. Syncs to SQLite and updates graph."""
-        graph = self.get_or_create_graph(session_id)
-        # Persist to database
+        """Online vertex addition or update. Persists to SQLite without in-memory graph mutation."""
         db_record = self.store.save_vertex(
             session_id=session_id,
             name=name,
@@ -208,25 +223,13 @@ class SessionGraphManagerV4:
             state=state,
             processed_count=processed_count,
         )
-        graph.add_vertex(db_record)
         return db_record
 
     def delete_vertex(self, session_id: str, name: str) -> bool:
-        """Delete vertex from graph and database, cleaning up connected edges in memory and SQLite."""
-        graph = self.get_or_create_graph(session_id)
-        # Find incident edges to delete from SQLite as well
-        incident_edges = [
-            eid for eid, e in graph.edges.items()
-            if e.input_vertex == name or e.output_vertex == name
-        ]
-        for eid in incident_edges:
-            self.store.delete_edge(session_id, eid)
-
-        graph.delete_vertex(name)
-        try:
-            graph.compute_dag_tiers()
-        except Exception as e:
-            logger.warning('Exception ignored: %s', e)
+        """Delete vertex from database, cleaning up connected edges in SQLite."""
+        for er in self.store.list_edges(session_id):
+            if er.input_vertex == name or er.output_vertex == name:
+                self.store.delete_edge(session_id, er.edge_id)
         return self.store.delete_vertex(session_id, name)
 
     def add_or_update_edge(
@@ -242,76 +245,47 @@ class SessionGraphManagerV4:
         target_state: Optional[str] = None,
         max_retries: Optional[int] = None,
     ) -> EdgeV4:
-        """Online edge addition or update. Persists to SQLite and recalculates DAG tiers."""
-        graph = self.get_or_create_graph(session_id)
-        edge_settings = dict(settings or {})
-
-        edge: EdgeV4
-        if edge_type == "code":
-            edge = CodeEdgeV4(
-                edge_id=edge_id,
-                input_vertex=input_vertex,
-                output_vertex=output_vertex,
-                script=script,
-                settings=edge_settings,
-            )
-        elif edge_type == "llm":
-            edge = LLMEdgeV4(
-                edge_id=edge_id,
-                input_vertex=input_vertex,
-                output_vertex=output_vertex,
-                model=edge_settings.get("model", "sensenova-6.8-flash-lite"),
-                prompt_template=edge_settings.get("prompt"),
-                settings=edge_settings,
-            )
-        elif edge_type == "reflexive" or input_vertex == output_vertex:
-            edge = ReflexiveEdgeV4(
-                edge_id=edge_id,
-                vertex_name=input_vertex,
-                trigger_state=trigger_state or VertexStateV4.REJECT.value,
-                target_state=target_state or VertexStateV4.TODO_URGENT.value,
-                max_retries=max_retries if max_retries is not None else int(edge_settings.get("max_retries", 3)),
-                script=script,
-                settings=edge_settings,
-            )
-        else:
+        """Online edge addition or update. Persists to SQLite store."""
+        if edge_type not in ("code", "llm", "reflexive") and input_vertex != output_vertex:
             raise ValueError(f"Unsupported edge type: {edge_type}")
+        edge_settings = dict(settings or {})
+        script_str = script if isinstance(script, str) else None
 
-        graph.add_edge(edge)
-        # Persist edge to SQLite database
+        # Delegate instantiation and validation to EdgeV4.from_config
+        cfg = dict(edge_settings)
+        cfg.update({
+            "id": edge_id,
+            "type": edge_type,
+            "input_vertex": input_vertex,
+            "output_vertex": output_vertex,
+            "script": script_str,
+            "trigger_state": trigger_state or (VertexStateV4.REJECT.value if edge_type == "reflexive" or input_vertex == output_vertex else None),
+            "target_state": target_state or (VertexStateV4.TODO_URGENT.value if edge_type == "reflexive" or input_vertex == output_vertex else None),
+            "max_retries": max_retries if max_retries is not None else int(edge_settings.get("max_retries", 3)),
+        })
+        edge = EdgeV4.from_config(cfg)
+        if callable(script):
+            edge.script = script
+            if hasattr(edge, "_callable"):
+                edge._callable = script
+
         self.store.save_edge(
             session_id=session_id,
             edge_id=edge_id,
             edge_type=edge.type,
             input_vertex=input_vertex,
             output_vertex=output_vertex,
-            script=script,
+            script=script_str,
             trigger_state=getattr(edge, "trigger_state", None),
             target_state=getattr(edge, "target_state", None),
             max_retries=getattr(edge, "max_retries", 3),
             settings=edge_settings,
         )
-
-        # Validate and recalculate DAG tiers if all endpoints are registered
-        if input_vertex in graph.vertices and output_vertex in graph.vertices:
-            try:
-                graph.validate()
-            except Exception as exc:
-                logger.warning("[SessionGraphManagerV4] Graph validation note: %s", exc)
-
         return edge
 
     def delete_edge(self, session_id: str, edge_id: str) -> bool:
-        """Delete edge from session graph and SQLite database."""
-        graph = self.get_or_create_graph(session_id)
-        deleted = graph.delete_edge(edge_id)
-        self.store.delete_edge(session_id, edge_id)
-        if deleted:
-            try:
-                graph.compute_dag_tiers()
-            except Exception as e:
-                logger.warning('Exception ignored: %s', e)
-        return deleted
+        """Delete edge from SQLite database."""
+        return self.store.delete_edge(session_id, edge_id)
 
     def reconnect_edge(
         self,
@@ -321,28 +295,25 @@ class SessionGraphManagerV4:
         new_output_vertex: Optional[str] = None,
     ) -> bool:
         """Dynamically reconnect an existing edge to new input or output vertices, syncing to database."""
-        graph = self.get_or_create_graph(session_id)
-        success = graph.reconnect_edge(edge_id, new_input_vertex, new_output_vertex)
-        if success:
-            e = graph.get_edge(edge_id)
-            if e:
-                self.store.save_edge(
-                    session_id=session_id,
-                    edge_id=e.id,
-                    edge_type=e.type,
-                    input_vertex=e.input_vertex,
-                    output_vertex=e.output_vertex,
-                    script=getattr(e, "script", None) if isinstance(getattr(e, "script", None), str) else None,
-                    trigger_state=getattr(e, "trigger_state", None),
-                    target_state=getattr(e, "target_state", None),
-                    max_retries=getattr(e, "max_retries", 3),
-                    settings=e.settings,
-                )
-            try:
-                graph.validate()
-            except Exception as exc:
-                logger.warning("[SessionGraphManagerV4] Validation after reconnect_edge: %s", exc)
-        return success
+        edges = {e.edge_id: e for e in self.store.list_edges(session_id)}
+        if edge_id not in edges:
+            return False
+        er = edges[edge_id]
+        new_in = new_input_vertex or er.input_vertex
+        new_out = new_output_vertex or er.output_vertex
+        self.store.save_edge(
+            session_id=session_id,
+            edge_id=edge_id,
+            edge_type=er.edge_type,
+            input_vertex=new_in,
+            output_vertex=new_out,
+            script=er.script,
+            trigger_state=er.trigger_state,
+            target_state=er.target_state,
+            max_retries=er.max_retries,
+            settings=er.settings,
+        )
+        return True
 
     def reenter_vertex(
         self,
@@ -879,7 +850,8 @@ def create_v4_server(
     ) -> Dict[str, Any]:
         """Execute session graph with specified concurrency limit and broadcast events."""
         async with manager.get_session_lock(session_id):
-            graph = manager.get_or_create_graph(session_id)
+            # 每次执行前都从 store 进行读取更新，不使用内存脏状态
+            graph = manager.load_graph_from_store(session_id)
             executor = ExecutorV4(
                 graph=graph,
                 store=store,
