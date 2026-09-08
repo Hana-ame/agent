@@ -73,6 +73,45 @@ def _extract_user_content(messages: List[Dict[str, Any]]) -> str:
     return ""
 
 
+def _format_edge_thinking(edge_results: Dict[str, Any]) -> str:
+    """Format edge execution results into a readable thinking/reasoning trace.
+
+    Each edge's output is shown as a numbered step with its status,
+    duration, and a truncated preview of the output content.
+    """
+    if not edge_results:
+        return ""
+
+    lines = []
+    step_num = 0
+    for edge_id, result in edge_results.items():
+        step_num += 1
+        success = result.get("success", False)
+        status = "✅" if success else "❌"
+        error = result.get("error")
+        output = result.get("output", "")
+        metadata = result.get("metadata", {})
+        duration = metadata.get("duration_ms", metadata.get("execution_time_ms"))
+
+        line = f"[Step {step_num}] {status} **{edge_id}**"
+        if duration:
+            line += f" ({duration:.0f}ms)"
+        lines.append(line)
+
+        if success and output:
+            # Truncate long outputs for readability
+            preview = output[:500]
+            if len(output) > 500:
+                preview += f" ... (+{len(output) - 500} chars)"
+            lines.append(f"  → `{preview}`")
+        elif error:
+            lines.append(f"  ✗ {error[:200]}")
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def _get_end_vertex_content(
     _store: VertexStoreV4,
     _session_id: str,
@@ -307,18 +346,19 @@ async def openai_chat_completions(
                         payload = event.payload or {}
                         output = payload.get("output")
                         if isinstance(output, str) and output:
+                            # Edge output goes to reasoning_content
                             delta_chunk = {
                                 "id": request_id,
                                 "object": "chat.completion.chunk",
                                 "created": int(_time.time()),
                                 "model": model,
-                                "choices": [{"index": 0, "delta": {"content": output}, "finish_reason": None}],
+                                "choices": [{"index": 0, "delta": {"reasoning_content": output}, "finish_reason": None}],
                             }
                             yield f"data: {json.dumps(delta_chunk)}\n\n"
             finally:
                 manager.unregister_executor(session_id)
 
-            # Final content from END vertex
+            # Final content from END vertex goes to content
             final_content = _get_end_vertex_content(store, session_id, graph)
             if final_content:
                 final_chunk = {
@@ -457,6 +497,9 @@ async def openai_chat_completions(
                             final_content = result.vertex_contents[vname]
                             break
 
+                # Build thinking trace from edge results
+                thinking = _format_edge_thinking(result.edge_results)
+
                 return JSONResponse({
                     "id": request_id,
                     "object": "chat.completion",
@@ -467,6 +510,7 @@ async def openai_chat_completions(
                         "message": {
                             "role": "assistant",
                             "content": final_content,
+                            "reasoning_content": thinking,
                         },
                         "finish_reason": "stop",
                     }],
