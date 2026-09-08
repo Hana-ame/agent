@@ -206,3 +206,93 @@ bash run_hn_v4_curl.sh
 3. **script 路径**: 相对于服务器 CWD，不是相对于 config.json
 4. **JSON_MERGE**: `settings.merge_strategy = "json_merge"` 让 fan-in 顶点合并多分支数据
 5. **reflexive 边**: `input_vertex == output_vertex` + `trigger_state` + `target_state` 实现自修复
+
+---
+
+## 方法二: OpenAI 兼容 API（推荐 — 一次调用）
+
+通过 `/v1/chat/completions` 端点，使用 manifest 自动加载并执行完整流水线。
+
+### 一次调用
+
+```bash
+curl -s -X POST http://127.0.0.1:13434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hn_v4",
+    "messages": [{"role": "user", "content": "Generate HN digest"}],
+    "vea_manifest_path": "examples/hn_v4/manifest.json",
+    "vea_execution_mode": "full",
+    "user": "hn_v4_digest_session"
+  }' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(data['choices'][0]['message']['content'])
+" > report.md
+```
+
+### 参数说明
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `model` | string | 图模板标识（任意字符串） |
+| `messages` | array | OpenAI 标准消息数组 |
+| `vea_manifest_path` | string | 图清单 JSON 路径（相对于服务器 CWD） |
+| `vea_execution_mode` | string | `"full"` 一次跑完 / `"per_tier"` 按层级 / `"per_edge"` 按边 |
+| `user` | string | 会话 ID（跨请求保持状态） |
+
+### 响应格式
+
+```json
+{
+  "id": "chatcmpl-9cd24bc609d04557a6be94d9",
+  "model": "hn_v4",
+  "object": "chat.completion",
+  "choices": [{
+    "index": 0,
+    "finish_reason": "stop",
+    "message": {
+      "role": "assistant",
+      "content": "# ⚡ Hacker News AI & Tech Executive Digest..."
+    }
+  }],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  }
+}
+```
+
+### 对比
+
+| 方法 | 调用次数 | 复杂度 | 适用场景 |
+|---|---|---|---|
+| **OpenAI API** (`/v1/chat/completions`) | 1 | 低 | 快速集成、Agent Harness |
+| **Graph API** (`/api/sessions/*/graph/*`) | 16+ | 高 | 精细控制、调试、动态拓扑 |
+| **Python API** (`ExecutorV4.run()`) | 1 | 低 | 嵌入 Python 程序 |
+
+### 会话持久化
+
+`user` 字段作为会话 ID，同一会话多次调用会复用已加载的图：
+
+```bash
+# 第一次：加载 manifest + 执行
+curl -s -X POST "$BASE/v1/chat/completions" \
+  -d '{"model":"hn_v4","messages":[...],"vea_manifest_path":"examples/hn_v4/manifest.json","user":"hn_v4"}'
+
+# 第二次：同一会话继续执行（无需重新加载）
+curl -s -X POST "$BASE/v1/chat/completions" \
+  -d '{"model":"hn_v4","messages":[...],"user":"hn_v4"}'
+```
+
+### Hop-by-Hop 模式（Agent Harness 集成）
+
+```bash
+# 每次调用只推进一个层级
+curl -s -X POST "$BASE/v1/chat/completions" \
+  -d '{"model":"hn_v4","messages":[...],"vea_manifest_path":"examples/hn_v4/manifest.json","vea_execution_mode":"per_tier","user":"hn_v4"}'
+
+# 当 finish_reason = "tool_calls" 时，harness 执行工具后再次调用
+# 当 finish_reason = "stop" 时，流水线完成
+```
