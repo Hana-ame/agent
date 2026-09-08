@@ -118,7 +118,28 @@ __all__ = [
     'ExecutorV4', 'OrchestratorV4', 'ExecutionResultV4', 'GraphEventV4',
     'BaseWorkerQueueV4', 'InMemoryWorkerQueueV4', 'EdgeTaskPayload', 'EdgeTaskResult',
     'create_v4_server', 'SessionGraphManagerV4',
+    'load_v4_manifest', 'run_from_manifest', 'run_manifest_async',
     'SSEExecutorV4', 'ToolCallEcho', 'HttpHarnessExecutorV4',
     'WorkflowExecutorV4', 'WorkflowEventV4', 'WorkflowResultV4',
 ]
+
+# Exported lazily so that ``python -m framework.run_v4`` does not trip runpy's
+# "already in sys.modules" warning, and so importing the package does not eagerly
+# pull the CLI runner into every consumer.
+_RUN_V4_EXPORTS = ("load_v4_manifest", "run_from_manifest", "run_manifest_async")
+
+
+def __getattr__(name):
+    if name in _RUN_V4_EXPORTS:
+        from .run_v4 import (
+            load_v4_manifest,
+            run_from_manifest,
+            run_manifest_async,
+        )
+        return {
+            "load_v4_manifest": load_v4_manifest,
+            "run_from_manifest": run_from_manifest,
+            "run_manifest_async": run_manifest_async,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

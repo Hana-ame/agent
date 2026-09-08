@@ -21,8 +21,19 @@ pip install -e .
 pip install -e ".[examples]"
 ```
 
-Once installed, `vea-server` is available as a console script (same entry point as
-`python3 -m framework.server_v4`).
+Once installed, two console scripts are available:
+
+- `vea-server` — the V4 API server (same entry point as `python3 -m framework.server_v4`)
+- `vea-run-v4` — run a V4 manifest end to end (same entry point as
+  `python3 -m framework.run_v4`):
+
+  ```bash
+  vea-run-v4 examples/custom_edge/config.json --session demo
+  ```
+
+  `python3 examples/run.py <config.json>` is the **V1** runner and is unchanged;
+  it refuses V4 manifests and `vea-run-v4` refuses V1 ones, each pointing at the
+  other.
 
 ---
 
@@ -40,6 +51,7 @@ Vertex-Edge Agent Framework supports multiple execution paradigms: standalone CL
 | **SenseNova Remote LLM Pipeline** | `python3 examples/sensenova_v4/demo.py` | Remote LLM inference with two-sided handshake and state transitions |
 | **OpenCode & Proxied Agent** | `python3 examples/opencode_zen/proxy_demo.py` | Dynamic proxy agent, OpenCode integration, token tracking |
 | **Generic JSON Config Runner** | `python3 examples/run.py <path/to/config.json>` | Generic engine runner for legacy and discrete pipeline definitions |
+| **V4 Manifest Runner** | `vea-run-v4 <path/to/graph.json> [--session ID] [--db DB] [--script-root DIR] [--json]` | Load + seed SQLite + execute in one call; V4 manifests only (`examples/run.py` stays V1) |
 | **Runtime Topology Mutation** | `python3 examples/dynamic_topology/demo.py` | Dynamic vertex insertion and runtime graph modification |
 | **Custom Edge Extension** | `python3 examples/custom_edge/demo.py` | Zero-registration custom edge classes referenced as `"type": "my_edges.py:MyEdge"` |
 | **Self-Correction Loop** | `python3 examples/self_correction/demo.py` | Reflexive error recovery and multi-pass correction |
@@ -330,6 +342,19 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+The same manifest can be run without any boilerplate — the runner does the load,
+the store seeding and the execution in a single call:
+
+```python
+from framework import run_from_manifest
+
+result = run_from_manifest("workflow/graph.json", session_id="demo")
+print(result.success, result.vertex_contents["output_node"])
+```
+
+Outside the repository, pass `--script-root DIR` (repeatable) to `vea-run-v4` so a
+manifest can reference your own edge classes by script path.
 
 ---
 

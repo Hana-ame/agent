@@ -33,8 +33,14 @@ class DiscreteGraphLoaderV4:
         data: Dict[str, Any],
         base_dir: Optional[Union[str, Path]] = None,
         override_session_id: Optional[str] = None,
+        script_roots: Optional[Sequence[Union[str, Path]]] = None,
     ) -> "GraphV4":
-        """Construct GraphV4 from in-memory dictionary definition."""
+        """Construct GraphV4 from in-memory dictionary definition.
+
+        ``script_roots`` restricts where a dynamic edge spec (``"my_edge.py:MyEdge"``)
+        may load from and is searched when the spec is relative. Omit for the
+        defaults: repository root plus ``VEA_SCRIPT_ROOTS``.
+        """
         from framework.graphs.core import GraphV4
 
         session_id = override_session_id or data.get("session_id", "default_session")
@@ -80,7 +86,9 @@ class DiscreteGraphLoaderV4:
                 else:
                     graph.add_edge(e_path)
             elif isinstance(e_item, dict):
-                edge_instance = EdgeV4.from_config(e_item, base_dir=str(b_dir) if b_dir else None)
+                edge_instance = EdgeV4.from_config(
+                    e_item, base_dir=str(b_dir) if b_dir else None, script_roots=script_roots
+                )
                 graph.add_edge(edge_instance)
 
         graph.validate(strict_dag=False)
@@ -156,6 +164,7 @@ class DiscreteGraphLoaderV4:
         cls,
         manifest_path: Union[str, Path],
         override_session_id: Optional[str] = None,
+        script_roots: Optional[Sequence[Union[str, Path]]] = None,
     ) -> "GraphV4":
         """Parse master manifest JSON and all discrete vertex/edge JSON files."""
         path = Path(manifest_path).resolve()
@@ -169,6 +178,7 @@ class DiscreteGraphLoaderV4:
             data=data,
             base_dir=path.parent,
             override_session_id=override_session_id or data.get("session_id", path.stem),
+            script_roots=script_roots,
         )
 
     @classmethod

@@ -36,6 +36,7 @@ examples = [
 
 [project.scripts]
 vea-server = "framework.server.app:main"
+vea-run-v4 = "framework.run_v4:main"
 
 [tool.setuptools.packages.find]
 include = ["framework*"]

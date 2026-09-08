@@ -3,7 +3,17 @@
 This directory contains **19 executable examples** (along with `scripts/` and `s1profile_collect/` as helper directories).
 Each example contains a `README.md` following the "Problem / Solution / Changes / Verification" format detailing the problem addressed, design, code modifications, and verification results.
 
-> Unified entry point: `python examples/run.py <example>/config.json` (or via the directory's standalone `demo.py` / `run.py`).
+> **Two runners — pick by manifest version:**
+>
+> - **V4** (recommended): `python examples/run_v4.py <example>/config.json`, or the
+>   installed console script `vea-run-v4 <config.json>` (identical entry point).
+>   It loads the manifest, seeds SQLite and executes in one call; add
+>   `--script-root DIR` (repeatable) for edge classes outside the repository.
+> - **V1** (legacy, unchanged): `python examples/run.py <example>/config.json`,
+>   or the directory's standalone `demo.py` / `run.py`.
+>
+> Each runner rejects the other stack's manifests with a message naming the correct
+> one.
 
 ## Overview Index
 
@@ -34,6 +44,7 @@ Each example contains a `README.md` following the "Problem / Solution / Changes 
 
 | V4 Example | Role & Capabilities Demonstrated | Execution Command |
 |---|---|---|
+| **`run_v4.py`** *(Generic runner)* | **Run any V4 manifest**: one-call load + SQLite seeding + execution, `--script-root` for edge classes outside the repo, `--db` for persistence, `--json` / `--print-events` output. Thin wrapper over `framework/run_v4.py` (`vea-run-v4`). | `python examples/run_v4.py <config.json>` |
 | **`hn_v4/`** *(Canonical)* | **Recommended Full-Stack V4 Pipeline**: multi-branch Fan-In settlement barrier (`MergeStrategyV4.JSON_MERGE`), self-healing `ReflexiveEdgeV4` on network reject, SQLite edge metrics, and live SSE event streaming. | `python examples/hn_v4/run.py` |
 | `hn_ai_report_v4/` | **Migration Study**: Comparative reference demonstrating how legacy v1 `MapEdge` fan-out translates into V4 `CodeEdgeV4` internal `asyncio.gather`. | `python examples/hn_ai_report_v4/demo.py` |
 | `subgraph_v4/` | **Discrete Graph Architecture**: Discrete JSON loading, directory-level manifest ingestion, dynamic runtime subgraph splicing and insertion. | `python examples/subgraph_v4/run.py` |

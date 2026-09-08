@@ -175,15 +175,20 @@ def load_script(
 
     script_path = os.path.abspath(script_path)
 
+    # Existence is checked before confinement: confinement only matters for a
+    # file that is actually about to be executed, and a "missing" error is far
+    # more useful than an "outside the allowed roots" error for a path that does
+    # not exist (searching for ``lib/upper.py`` must not report a path that no
+    # candidate matched).
+    if not os.path.exists(script_path):
+        raise FileNotFoundError(f"Script not found: {script_path}")
+
     if allowed_roots is not None:
         roots = list(allowed_roots)
     else:
         roots = _env_script_roots()
     if roots and not is_within(script_path, roots):
         raise ScriptNotAllowedError(f"Script path is outside the allowed roots: {script_path}")
-
-    if not os.path.exists(script_path):
-        raise FileNotFoundError(f"Script not found: {script_path}")
 
     if _REPO_ROOT not in sys.path:
         sys.path.insert(0, _REPO_ROOT)

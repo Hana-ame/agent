@@ -335,6 +335,12 @@ python3 -m framework.server_v4 --port 11434 --db agent_data.db --snapshot-dir sn
 > `VEA_SCRIPT_ROOTS`（`os.pathsep` 分隔）加载；部署时建议用 `--script-root DIR`（可重复）
 > 替换该集合，使服务只加载你自己的边目录。`GET /api/edge-types` 会返回当前可用类型，
 > 仪表盘的类型输入框即由此自动填充（支持手写脚本路径）。
+>
+> **两套运行器，按 manifest 版本选择**：V4 用 `vea-run-v4 <config.json>`（等价于
+> `python -m framework.run_v4` / `python examples/run_v4.py`），代码内调用用
+> `framework.run_from_manifest(path, session_id=...)`（一次完成加载 + 写入 SQLite + 执行）；
+> 旧版 `examples/run.py` 仍是 **V1** 运行器且未改动。两者都会拒绝对方栈的 manifest，
+> 并在错误信息里指向正确的运行器。
 
 ### 常用 REST API
 | 接口 | 方法 | 说明 |
