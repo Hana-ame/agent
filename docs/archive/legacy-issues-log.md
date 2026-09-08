@@ -1,6 +1,6 @@
-# 🛠️ 历史架构问题解决记录归档 (Legacy Resolved Architectural Issues)
+# Legacy Resolved Architectural Issues Log
 
-本文档归档了 Vertex-Edge Agent Framework 早期迭代过程中排查并解决的 11 项历史架构问题记录。
+This document archives the 11 architectural issues investigated and resolved during early development iterations of the Vertex-Edge Agent Framework.
 
 ---
 
