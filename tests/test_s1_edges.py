@@ -74,7 +74,7 @@ def test_time_regex_handles_prefix():
     from datetime import datetime, timedelta, timezone
 
     raw = "Posted at 2026-8-29 13:10"
-    stripped = __import__("re").sub(r"^(Post on|Posted at)[\s:：]*", "", raw).strip()
+    stripped = __import__("re").sub(r"^(Post on|Posted at)[\s:\uFF1A]*", "", raw).strip()
     m = __import__("re").search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})", stripped)
     assert m, "timestamp regex did not match 2026-8-29 13:10"
     y, mo, d, h, mi = map(int, m.groups())

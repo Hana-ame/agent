@@ -243,10 +243,15 @@ class ExecutorV4:
                     break
                 yield ev
         finally:
-            await run_task
+            if not run_task.done():
+                run_task.cancel()
+            try:
+                await run_task
+            except asyncio.CancelledError:
+                pass
 
     async def run(self) -> ExecutionResultV4:
-        """Run workflow to completion synchronously and return result."""
+        """Run workflow to completion and return result."""
         async for _ in self.stream():
             pass
         return self._result
@@ -329,10 +334,12 @@ class ExecutorV4:
                     break
 
         finally:
-            # Cancel any remaining tasks
+            # Cancel any remaining tasks and await them to ensure clean shutdown
             for t in running_tasks:
                 if not t.done():
                     t.cancel()
+            if running_tasks:
+                await asyncio.gather(*running_tasks, return_exceptions=True)
 
             # Record final vertex snapshots
             for v in self.store.list_vertices(self.session_id):

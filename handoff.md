@@ -4,10 +4,10 @@
 
 This handoff documents the full review, audit, bug-fixing, and verification of the **V4 Vertex-Edge Framework** in accordance with [`v4-architecture-spec.md`](./v4-architecture-spec.md).
 
-All **371 tests** across the repository (both legacy v1–v3 suites and the v4 system/server test suites) pass cleanly:
+All **374 tests** across the repository (both legacy v1–v3 suites and the v4 system/server test suites) pass cleanly:
 ```bash
 uv run --with pytest --with pytest-asyncio --with fastapi --with uvicorn --with beautifulsoup4 --with httpx --with aiohttp pytest tests/ -v
-# Output: 371 passed, 2 warnings in 31.40s
+# Output: 374 passed, 2 warnings in 40.46s
 ```
 
 ---

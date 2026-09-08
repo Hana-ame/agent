@@ -74,16 +74,23 @@ class SessionGraphManagerV4:
         self.store = store
         self._graphs: Dict[str, GraphV4] = {}
         self._event_broadcasters: Dict[str, List[asyncio.Queue]] = {}
+        self._session_locks: Dict[str, asyncio.Lock] = {}
+
+    def get_session_lock(self, session_id: str) -> asyncio.Lock:
+        """Fetch or create an asyncio.Lock for the session."""
+        if session_id not in self._session_locks:
+            self._session_locks[session_id] = asyncio.Lock()
+        return self._session_locks[session_id]
 
     def get_or_create_graph(self, session_id: str) -> GraphV4:
-        """Fetch or instantiate an isolated GraphV4 for a session."""
+        """Fetch or instantiate an isolated GraphV4 for a session, hydrating from store if available."""
         if session_id not in self._graphs:
-            graph = GraphV4(session_id=session_id, name=f"graph_{session_id}")
-            # Preload existing vertices from database if present
-            existing_vertices = self.store.list_vertices(session_id)
-            for v in existing_vertices:
-                graph.add_vertex(v)
-            self._graphs[session_id] = graph
+            # Attempt to hydrate from database if vertices or edges exist
+            hydrated = GraphV4.load_from_store(self.store, session_id, name=f"graph_{session_id}")
+            if hydrated.vertices or hydrated.edges:
+                self._graphs[session_id] = hydrated
+            else:
+                self._graphs[session_id] = GraphV4(session_id=session_id, name=f"graph_{session_id}")
         return self._graphs[session_id]
 
     def list_active_sessions(self) -> List[str]:
@@ -116,8 +123,16 @@ class SessionGraphManagerV4:
         return db_record
 
     def delete_vertex(self, session_id: str, name: str) -> bool:
-        """Delete vertex from graph and database, cleaning up connected edges."""
+        """Delete vertex from graph and database, cleaning up connected edges in memory and SQLite."""
         graph = self.get_or_create_graph(session_id)
+        # Find incident edges to delete from SQLite as well
+        incident_edges = [
+            eid for eid, e in graph.edges.items()
+            if e.input_vertex == name or e.output_vertex == name
+        ]
+        for eid in incident_edges:
+            self.store.delete_edge(session_id, eid)
+
         graph.delete_vertex(name)
         try:
             graph.compute_dag_tiers()
@@ -138,7 +153,7 @@ class SessionGraphManagerV4:
         target_state: Optional[str] = None,
         max_retries: Optional[int] = None,
     ) -> EdgeV4:
-        """Online edge addition or update. Automatically recalculates DAG tiers."""
+        """Online edge addition or update. Persists to SQLite and recalculates DAG tiers."""
         graph = self.get_or_create_graph(session_id)
         edge_settings = dict(settings or {})
 
@@ -166,7 +181,7 @@ class SessionGraphManagerV4:
                 vertex_name=input_vertex,
                 trigger_state=trigger_state or VertexStateV4.REJECT.value,
                 target_state=target_state or VertexStateV4.TODO_URGENT.value,
-                max_retries=max_retries or int(edge_settings.get("max_retries", 3)),
+                max_retries=max_retries if max_retries is not None else int(edge_settings.get("max_retries", 3)),
                 script=script,
                 settings=edge_settings,
             )
@@ -174,6 +189,20 @@ class SessionGraphManagerV4:
             raise ValueError(f"Unsupported edge type: {edge_type}")
 
         graph.add_edge(edge)
+        # Persist edge to SQLite database
+        self.store.save_edge(
+            session_id=session_id,
+            edge_id=edge_id,
+            edge_type=edge.type,
+            input_vertex=input_vertex,
+            output_vertex=output_vertex,
+            script=script,
+            trigger_state=getattr(edge, "trigger_state", None),
+            target_state=getattr(edge, "target_state", None),
+            max_retries=getattr(edge, "max_retries", 3),
+            settings=edge_settings,
+        )
+
         # Validate and recalculate DAG tiers if all endpoints are registered
         if input_vertex in graph.vertices and output_vertex in graph.vertices:
             try:
@@ -184,9 +213,10 @@ class SessionGraphManagerV4:
         return edge
 
     def delete_edge(self, session_id: str, edge_id: str) -> bool:
-        """Delete edge from session graph."""
+        """Delete edge from session graph and SQLite database."""
         graph = self.get_or_create_graph(session_id)
         deleted = graph.delete_edge(edge_id)
+        self.store.delete_edge(session_id, edge_id)
         if deleted:
             try:
                 graph.compute_dag_tiers()
@@ -220,18 +250,27 @@ class SessionGraphManagerV4:
         self._event_broadcasters[session_id].append(q)
 
     def unregister_event_queue(self, session_id: str, q: asyncio.Queue) -> None:
-        """Remove an SSE broadcast subscriber queue."""
+        """Remove an SSE broadcast subscriber queue and clean up empty session registry."""
         if session_id in self._event_broadcasters:
             try:
                 self._event_broadcasters[session_id].remove(q)
             except ValueError:
                 pass
+            if not self._event_broadcasters[session_id]:
+                self._event_broadcasters.pop(session_id, None)
 
     def broadcast_event(self, session_id: str, event: GraphEventV4) -> None:
-        """Broadcast an execution event to all active SSE subscribers."""
-        queues = self._event_broadcasters.get(session_id, [])
+        """Broadcast an execution event to all active SSE subscribers with backpressure protection."""
+        queues = list(self._event_broadcasters.get(session_id, []))
         for q in queues:
-            q.put_nowait(event)
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                try:
+                    q.get_nowait()
+                    q.put_nowait(event)
+                except Exception:
+                    pass
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +496,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <div class="form-row">
           <input type="text" id="eScript" placeholder="Script path or callable (e.g. scripts/run.py:execute)">
         </div>
+        <div class="form-row">
+          <input type="text" id="eTriggerState" placeholder="Trigger State (e.g. reject)">
+          <input type="text" id="eTargetState" placeholder="Target State (e.g. todo urgent)">
+          <input type="number" id="eMaxRetries" placeholder="Max Retries" value="3">
+        </div>
         <div>
           <textarea id="eSettings" rows="3" style="width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: monospace; font-size: 0.85rem;" placeholder="Edge Settings (JSON)"></textarea>
         </div>
@@ -498,6 +542,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     let eventSource = null;
     let cachedVertices = {};
     let cachedEdges = {};
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
 
     function getBadgeClass(state) {
       const s = (state || "").toLowerCase().replace(" ", "-");
@@ -554,7 +600,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const row = document.createElement("tr");
         row.style.cursor = "pointer";
         row.onclick = () => selectVertex(v.name);
-        const esc = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
         row.innerHTML = `
           <td><strong>${esc(v.name)}</strong></td>
           <td><span class="${getBadgeClass(v.state)}">${esc(v.state)}</span></td>
@@ -603,10 +648,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         row.style.cursor = "pointer";
         row.onclick = () => selectEdge(eId);
         row.innerHTML = `
-          <td><strong>${eId}</strong></td>
-          <td>${e.type}</td>
-          <td>${e.input_vertex} &rarr; ${e.output_vertex}</td>
-          <td><strong>Tier ${tier}</strong></td>
+          <td><strong>${esc(eId)}</strong></td>
+          <td>${esc(e.type)}</td>
+          <td>${esc(e.input_vertex)} &rarr; ${esc(e.output_vertex)}</td>
+          <td><strong>Tier ${esc(String(tier))}</strong></td>
         `;
         tbody.appendChild(row);
       }
@@ -620,6 +665,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById("eIn").value = e.input_vertex || "";
       document.getElementById("eOut").value = e.output_vertex || "";
       document.getElementById("eScript").value = e.script || "";
+      document.getElementById("eTriggerState").value = e.trigger_state || "";
+      document.getElementById("eTargetState").value = e.target_state || "";
+      document.getElementById("eMaxRetries").value = e.max_retries !== undefined && e.max_retries !== null ? e.max_retries : 3;
       document.getElementById("eSettings").value = JSON.stringify(e.settings || {}, null, 2);
     }
 
@@ -629,6 +677,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById("eIn").value = "";
       document.getElementById("eOut").value = "";
       document.getElementById("eScript").value = "";
+      document.getElementById("eTriggerState").value = "";
+      document.getElementById("eTargetState").value = "";
+      document.getElementById("eMaxRetries").value = "3";
       document.getElementById("eSettings").value = "";
     }
 
@@ -640,12 +691,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       staging.forEach(s => {
         const row = document.createElement("tr");
         row.innerHTML = `
-          <td>${s.id}</td>
-          <td><code>${s.edge_id}</code></td>
-          <td>${s.vertex_name || "-"}</td>
-          <td><strong>${s.key}</strong></td>
-          <td><code>${(s.value || "").substring(0, 80)}</code></td>
-          <td>${s.created_at}</td>
+          <td>${esc(String(s.id))}</td>
+          <td><code>${esc(s.edge_id)}</code></td>
+          <td>${esc(s.vertex_name || "-")}</td>
+          <td><strong>${esc(s.key)}</strong></td>
+          <td><code>${esc((s.value || "").substring(0, 80))}</code></td>
+          <td>${esc(s.created_at)}</td>
         `;
         tbody.appendChild(row);
       });
@@ -682,6 +733,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const inV = document.getElementById("eIn").value.trim();
       const outV = document.getElementById("eOut").value.trim();
       const script = document.getElementById("eScript").value.trim() || null;
+      const trigger_state = document.getElementById("eTriggerState").value.trim() || null;
+      const target_state = document.getElementById("eTargetState").value.trim() || null;
+      const rawRetries = document.getElementById("eMaxRetries").value.trim();
+      const max_retries = rawRetries !== "" ? parseInt(rawRetries) : 3;
+
       let settings = {};
       try {
         const rawSettings = document.getElementById("eSettings").value.trim();
@@ -701,6 +757,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           input_vertex: inV,
           output_vertex: outV,
           script,
+          trigger_state,
+          target_state,
+          max_retries,
           settings
         })
       });
@@ -738,7 +797,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           const data = JSON.parse(e.data);
           const line = document.createElement("div");
           line.className = "event-line";
-          line.innerHTML = `[${new Date().toLocaleTimeString()}] <strong>${data.event_type}</strong> edge=${data.edge_id || '-'} node=${data.vertex_name || '-'}`;
+          line.innerHTML = `[${esc(new Date().toLocaleTimeString())}] <strong>${esc(data.event_type)}</strong> edge=${esc(data.edge_id || '-')} node=${esc(data.vertex_name || '-')}`;
           streamDiv.prepend(line);
           refreshVertices();
           refreshStaging();
@@ -769,6 +828,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 def create_v4_server(
     store_or_db: Union[VertexStoreV4, str, Path] = ":memory:",
+    manager: Optional[SessionGraphManagerV4] = None,
     agent: Optional[Any] = None,
 ) -> FastAPI:
     """Create a FastAPI application powering online graph APIs and database dashboard."""
@@ -777,7 +837,10 @@ def create_v4_server(
     else:
         store = VertexStoreV4(str(store_or_db))
 
-    manager = SessionGraphManagerV4(store=store)
+    if manager is None:
+        manager = SessionGraphManagerV4(store=store)
+    else:
+        store = manager.store
 
     app = FastAPI(
         title="VEA v4 Online Graph & Database Server",
@@ -788,7 +851,7 @@ def create_v4_server(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -849,8 +912,10 @@ def create_v4_server(
 
     @app.post("/api/db/sessions/{session_id}/clear")
     async def clear_session_db(session_id: str) -> Dict[str, str]:
-        """Purge all records for a session from SQLite."""
+        """Purge all records for a session from SQLite and in-memory state."""
         store.clear_session(session_id)
+        manager._graphs.pop(session_id, None)
+        manager._event_broadcasters.pop(session_id, None)
         return {"status": "cleared", "session_id": session_id}
 
     # -----------------------------------------------------------------------
@@ -877,9 +942,17 @@ def create_v4_server(
                 "max_retries": getattr(e, 'max_retries', None),
             }
 
-        vertices_data = {
-            vname: v.to_dict() for vname, v in graph.vertices.items()
-        }
+        # Query database store to always reflect latest real-time states and contents
+        db_vertices = {v.name: v for v in store.list_vertices(session_id)}
+        vertices_data = {}
+        for vname, v in graph.vertices.items():
+            if vname in db_vertices:
+                vertices_data[vname] = db_vertices[vname].to_dict()
+            else:
+                vertices_data[vname] = v.to_dict()
+        for vname, db_v in db_vertices.items():
+            if vname not in vertices_data:
+                vertices_data[vname] = db_v.to_dict()
 
         return {
             "session_id": session_id,
@@ -963,27 +1036,28 @@ def create_v4_server(
         req: WorkflowRunRequest = Body(default_factory=WorkflowRunRequest),
     ) -> Dict[str, Any]:
         """Execute session graph with specified concurrency limit and broadcast events."""
-        graph = manager.get_or_create_graph(session_id)
-        executor = ExecutorV4(
-            graph=graph,
-            store=store,
-            agent=app.state.agent,
-            max_concurrency=req.max_concurrency,
-            timeout=req.timeout,
-        )
+        async with manager.get_session_lock(session_id):
+            graph = manager.get_or_create_graph(session_id)
+            executor = ExecutorV4(
+                graph=graph,
+                store=store,
+                agent=app.state.agent,
+                max_concurrency=req.max_concurrency,
+                timeout=req.timeout,
+            )
 
-        # Broadcast events in real-time
-        async def stream_and_broadcast():
-            async for ev in executor.stream():
-                manager.broadcast_event(session_id, ev)
+            # Broadcast events in real-time
+            async def stream_and_broadcast():
+                async for ev in executor.stream():
+                    manager.broadcast_event(session_id, ev)
 
-        await stream_and_broadcast()
-        return executor._result.to_dict()
+            await stream_and_broadcast()
+            return executor._result.to_dict()
 
     @app.get("/api/sessions/{session_id}/events")
     async def stream_session_events(session_id: str) -> StreamingResponse:
         """SSE stream broadcasting execution events in real time."""
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=1000)
         manager.register_event_queue(session_id, q)
 
         async def event_generator() -> AsyncGenerator[str, None]:

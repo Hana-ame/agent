@@ -101,8 +101,45 @@ class StagingRecordV4:
         }
 
 
+@dataclass
+class EdgeRecordV4:
+    """Represents an entry in the edges SQLite table."""
+
+    id: int
+    session_id: str
+    edge_id: str
+    edge_type: str
+    input_vertex: str
+    output_vertex: str
+    script: Optional[str] = None
+    trigger_state: Optional[str] = None
+    target_state: Optional[str] = None
+    max_retries: int = 3
+    settings: Dict[str, Any] = field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize edge record to dictionary representation."""
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "edge_id": self.edge_id,
+            "edge_type": self.edge_type,
+            "input_vertex": self.input_vertex,
+            "output_vertex": self.output_vertex,
+            "script": self.script,
+            "trigger_state": self.trigger_state,
+            "target_state": self.target_state,
+            "max_retries": self.max_retries,
+            "settings": self.settings,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
 class VertexStoreV4:
-    """SQLite3 key-indexed storage engine for V4 vertices and session staging."""
+    """SQLite3 key-indexed storage engine for V4 vertices, edges, and session staging."""
 
     def __init__(self, db_path: Union[str, Path] = ":memory:"):
         self.db_path = str(db_path)
@@ -171,6 +208,32 @@ class VertexStoreV4:
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_staging_session_vertex ON session_staging(session_id, vertex_name);"
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS edges (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    edge_id TEXT NOT NULL,
+                    edge_type TEXT NOT NULL DEFAULT 'code',
+                    input_vertex TEXT NOT NULL,
+                    output_vertex TEXT NOT NULL,
+                    script TEXT,
+                    trigger_state TEXT,
+                    target_state TEXT,
+                    max_retries INTEGER NOT NULL DEFAULT 3,
+                    settings TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    UNIQUE(session_id, edge_id)
+                );
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edges_session ON edges(session_id);"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edges_session_endpoints ON edges(session_id, input_vertex, output_vertex);"
+            )
 
     # ------------------------------------------------------------------
     # Vertex Operations
@@ -204,7 +267,7 @@ class VertexStoreV4:
                     content = excluded.content,
                     attributes = excluded.attributes,
                     state = excluded.state,
-                    processed_count = excluded.processed_count,
+                    processed_count = CASE WHEN excluded.processed_count > 0 THEN excluded.processed_count ELSE vertices.processed_count END,
                     updated_at = excluded.updated_at
                 RETURNING id, session_id, name, content, attributes, state, processed_count, created_at, updated_at;
                 """,
@@ -313,21 +376,110 @@ class VertexStoreV4:
             return int(row["processed_count"]) if row else 0
 
     def delete_vertex(self, session_id: str, name: str) -> bool:
-        """Delete a single vertex record by session_id and name."""
+        """Delete a single vertex record by session_id and name, including associated staging entries."""
         with self._lock:
             cur = self._conn.cursor()
+            cur.execute(
+                "DELETE FROM session_staging WHERE session_id = ? AND vertex_name = ?;",
+                (session_id, name),
+            )
             cur.execute(
                 "DELETE FROM vertices WHERE session_id = ? AND name = ?;",
                 (session_id, name),
             )
             return cur.rowcount > 0
 
+    # ------------------------------------------------------------------
+    # Edge Operations
+    # ------------------------------------------------------------------
+
+    def save_edge(
+        self,
+        session_id: str,
+        edge_id: str,
+        edge_type: str = "code",
+        input_vertex: str = "",
+        output_vertex: str = "",
+        script: Optional[str] = None,
+        trigger_state: Optional[str] = None,
+        target_state: Optional[str] = None,
+        max_retries: int = 3,
+        settings: Optional[Dict[str, Any]] = None,
+    ) -> EdgeRecordV4:
+        """Insert or update an edge record."""
+        settings_json = json.dumps(settings or {})
+        now = self._now_iso()
+
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO edges (
+                    session_id, edge_id, edge_type, input_vertex, output_vertex,
+                    script, trigger_state, target_state, max_retries, settings,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id, edge_id) DO UPDATE SET
+                    edge_type = excluded.edge_type,
+                    input_vertex = excluded.input_vertex,
+                    output_vertex = excluded.output_vertex,
+                    script = excluded.script,
+                    trigger_state = excluded.trigger_state,
+                    target_state = excluded.target_state,
+                    max_retries = excluded.max_retries,
+                    settings = excluded.settings,
+                    updated_at = excluded.updated_at
+                RETURNING id, session_id, edge_id, edge_type, input_vertex, output_vertex,
+                          script, trigger_state, target_state, max_retries, settings, created_at, updated_at;
+                """,
+                (
+                    session_id, edge_id, edge_type, input_vertex, output_vertex,
+                    script, trigger_state, target_state, max_retries, settings_json,
+                    now, now,
+                ),
+            )
+            row = cur.fetchone()
+            return self._row_to_edge(row)
+
+    def get_edge(self, session_id: str, edge_id: str) -> Optional[EdgeRecordV4]:
+        """Fetch a single edge record by session_id and edge_id."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT * FROM edges WHERE session_id = ? AND edge_id = ?;",
+                (session_id, edge_id),
+            )
+            row = cur.fetchone()
+            return self._row_to_edge(row) if row else None
+
+    def list_edges(self, session_id: str) -> List[EdgeRecordV4]:
+        """List all edges registered for a session."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT * FROM edges WHERE session_id = ? ORDER BY id ASC;",
+                (session_id,),
+            )
+            return [self._row_to_edge(r) for r in cur.fetchall()]
+
+    def delete_edge(self, session_id: str, edge_id: str) -> bool:
+        """Delete a single edge record by session_id and edge_id."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "DELETE FROM edges WHERE session_id = ? AND edge_id = ?;",
+                (session_id, edge_id),
+            )
+            return cur.rowcount > 0
+
     def list_sessions(self) -> List[str]:
-        """List distinct session IDs from both vertices and staging tables."""
+        """List distinct session IDs across vertices, edges, and staging tables."""
         with self._lock:
             cur = self._conn.cursor()
             cur.execute(
                 "SELECT DISTINCT session_id FROM vertices "
+                "UNION SELECT DISTINCT session_id FROM edges "
                 "UNION SELECT DISTINCT session_id FROM session_staging;"
             )
             return sorted([row[0] for row in cur.fetchall()])
@@ -338,15 +490,21 @@ class VertexStoreV4:
             cur = self._conn.cursor()
             cur.execute("SELECT COUNT(*) FROM vertices;")
             total_vertices = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM edges;")
+            total_edges = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM session_staging;")
             total_staging = cur.fetchone()[0]
             cur.execute(
-                "SELECT COUNT(*) FROM (SELECT DISTINCT session_id FROM vertices "
-                "UNION SELECT DISTINCT session_id FROM session_staging);"
+                "SELECT COUNT(*) FROM ("
+                "  SELECT DISTINCT session_id FROM vertices "
+                "  UNION SELECT DISTINCT session_id FROM edges "
+                "  UNION SELECT DISTINCT session_id FROM session_staging"
+                ");"
             )
             active_sessions = cur.fetchone()[0]
         return {
             "total_vertices": total_vertices,
+            "total_edges": total_edges,
             "total_staging": total_staging,
             "active_sessions": active_sessions,
         }
@@ -434,12 +592,13 @@ class VertexStoreV4:
     # ------------------------------------------------------------------
 
     def clear_session(self, session_id: str) -> None:
-        """Remove all vertices and staging data for a session."""
+        """Remove all vertices, edges, and staging data for a session."""
         with self._lock:
             cur = self._conn.cursor()
             cur.execute("BEGIN;")
             try:
                 cur.execute("DELETE FROM vertices WHERE session_id = ?;", (session_id,))
+                cur.execute("DELETE FROM edges WHERE session_id = ?;", (session_id,))
                 cur.execute("DELETE FROM session_staging WHERE session_id = ?;", (session_id,))
                 cur.execute("COMMIT;")
             except Exception:
@@ -481,6 +640,30 @@ class VertexStoreV4:
             updated_at=row["updated_at"],
         )
 
+    def _row_to_edge(self, row: sqlite3.Row) -> EdgeRecordV4:
+        settings = {}
+        raw_settings = row["settings"]
+        if raw_settings:
+            try:
+                settings = json.loads(raw_settings)
+            except Exception:
+                settings = {}
+        return EdgeRecordV4(
+            id=row["id"],
+            session_id=row["session_id"],
+            edge_id=row["edge_id"],
+            edge_type=row["edge_type"],
+            input_vertex=row["input_vertex"],
+            output_vertex=row["output_vertex"],
+            script=row["script"],
+            trigger_state=row["trigger_state"],
+            target_state=row["target_state"],
+            max_retries=row["max_retries"],
+            settings=settings,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
     def _row_to_staging(self, row: sqlite3.Row) -> StagingRecordV4:
         metadata = {}
         raw_meta = row["metadata"]
@@ -503,3 +686,4 @@ class VertexStoreV4:
 
 # Alias for backward compatibility or direct instantiation
 VertexV4 = VertexRecordV4
+EdgeV4Record = EdgeRecordV4

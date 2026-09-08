@@ -127,7 +127,7 @@ def _parse_posts_from_soup(soup):
             else:
                 time_str = em_node.get_text(strip=True)
             # strip locale prefixes: Post on / Posted at
-            time_str = re.sub(r"^(Post on|Posted at)[\s:：]*", "", time_str).strip()
+            time_str = re.sub(r"^(Post on|Posted at)[\s:\uFF1A]*", "", time_str).strip()
             try:
                 # stage1st uses "2026-8-29 13:10" (single-digit month/day) with
                 # optional prefix — search anywhere, don't require a match

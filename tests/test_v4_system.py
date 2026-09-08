@@ -512,3 +512,106 @@ async def test_reflexive_retry_limit_circuit_breaker(mem_store: VertexStoreV4):
     staged_exhausted = mem_store.get_latest_staged_for_vertex(session_id, "v_target", key="retry_exhausted")
     assert staged_exhausted is not None
     assert "Exceeded max retries: 2" in staged_exhausted.value
+
+
+def test_reflexive_edge_standalone_cli_execution(tmp_path: Path):
+    """Test running a reflexive recovery edge via CLI without mandatory --input."""
+    db_file = tmp_path / "reflexive_cli.db"
+    store = VertexStoreV4(str(db_file))
+    session_id = "refl_cli_session"
+    store.save_vertex(session_id, "node_err", "faulty payload", state=VertexStateV4.REJECT, processed_count=0)
+    store.close()
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "framework.edge_v4",
+        "--db",
+        str(db_file),
+        "--session",
+        session_id,
+        "--edge-id",
+        "cli_refl_1",
+        "--type",
+        "reflexive",
+        "--output",
+        "node_err",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode == 0, f"Reflexive CLI failed: {proc.stderr}"
+
+    output_data = json.loads(proc.stdout)
+    assert output_data["success"] is True
+
+    verify_store = VertexStoreV4(str(db_file))
+    node_v = verify_store.get_vertex(session_id, "node_err")
+    assert node_v.state == VertexStateV4.TODO_URGENT.value
+    assert node_v.processed_count == 1
+    verify_store.close()
+
+
+@pytest.mark.asyncio
+async def test_deep_recursive_subgraph_execution(tmp_path: Path):
+    """Test deep recursive subgraphs where child subgraph itself invokes a grandchild subgraph."""
+    from framework.server_v4 import SessionGraphManagerV4
+    from framework.sse_executor_v4 import SSEExecutorV4
+
+    # 1. Grandchild: receives input, appends _L2
+    l2_dir = tmp_path / "l2_graph"
+    l2_dir.mkdir(parents=True)
+    (l2_dir / "l2_in.json").write_text(json.dumps({"name": "l2_start", "content": "", "attributes": ["start"], "state": "idle"}))
+    (l2_dir / "l2_out.json").write_text(json.dumps({"name": "l2_end", "content": "", "attributes": ["end"], "state": "todo"}))
+    l2_script = l2_dir / "l2_trans.py"
+    l2_script.write_text("def process(data, settings=None, staging=None):\n    return f'{data}->L2'\n")
+    (l2_dir / "l2_edge.json").write_text(json.dumps({
+        "id": "e_l2", "type": "code", "input_vertex": "l2_start", "output_vertex": "l2_end", "script": f"{l2_script}:process"
+    }))
+    l2_manifest = l2_dir / "graph.json"
+    l2_manifest.write_text(json.dumps({
+        "version": "4.0", "session_id": "l2_sess", "metadata": {"name": "L2"},
+        "vertices": ["l2_in.json", "l2_out.json"], "edges": ["l2_edge.json"]
+    }))
+
+    # 2. Child (L1): contains a subgraph vertex pointing to L2
+    l1_dir = tmp_path / "l1_graph"
+    l1_dir.mkdir(parents=True)
+    (l1_dir / "l1_in.json").write_text(json.dumps({"name": "l1_start", "content": "", "attributes": ["start"], "state": "idle"}))
+    (l1_dir / "l1_box.json").write_text(json.dumps({
+        "name": "l1_subbox", "content": json.dumps({"subgraph_manifest": str(l2_manifest)}),
+        "attributes": ["subgraph"], "state": "todo"
+    }))
+    (l1_dir / "l1_out.json").write_text(json.dumps({"name": "l1_end", "content": "", "attributes": ["end"], "state": "todo"}))
+    (l1_dir / "e_l1_in.json").write_text(json.dumps({
+        "id": "e_l1_in", "type": "code", "input_vertex": "l1_start", "output_vertex": "l1_subbox"
+    }))
+    (l1_dir / "e_l1_out.json").write_text(json.dumps({
+        "id": "e_l1_out", "type": "code", "input_vertex": "l1_subbox", "output_vertex": "l1_end"
+    }))
+    l1_manifest = l1_dir / "graph.json"
+    l1_manifest.write_text(json.dumps({
+        "version": "4.0", "session_id": "l1_sess", "metadata": {"name": "L1"},
+        "vertices": ["l1_in.json", "l1_box.json", "l1_out.json"], "edges": ["e_l1_in.json", "e_l1_out.json"]
+    }))
+
+    # 3. Parent (Root): Root -> L1Box -> Sink
+    parent_sess = "parent_recursive_sess"
+    store = VertexStoreV4(":memory:")
+    manager = SessionGraphManagerV4(store)
+    parent_graph = manager.get_or_create_graph(parent_sess)
+
+    parent_graph.add_vertex(VertexRecordV4(0, parent_sess, "root", "TOP_INPUT", [VertexAttributeV4.START.value], VertexStateV4.DATA_READY.value))
+    parent_graph.add_vertex(VertexRecordV4(0, parent_sess, "l1_box", json.dumps({"subgraph_manifest": str(l1_manifest)}), [VertexAttributeV4.SUBGRAPH.value], VertexStateV4.TODO.value))
+    parent_graph.add_vertex(VertexRecordV4(0, parent_sess, "sink", "", [VertexAttributeV4.END.value], VertexStateV4.TODO.value))
+    parent_graph.add_edge(CodeEdgeV4("e_to_l1", "root", "l1_box"))
+    parent_graph.add_edge(CodeEdgeV4("e_from_l1", "l1_box", "sink"))
+
+    # 4. Execute via SSEExecutor
+    executor = SSEExecutorV4(manager=manager, store=store)
+    res = await executor.execute_harness_call(session_id=parent_sess)
+    info = json.loads(res["function"]["arguments"])["info"]
+    assert info["success"] is True
+
+    sink_v = store.get_vertex(parent_sess, "sink")
+    assert sink_v is not None
+    assert sink_v.content == "TOP_INPUT->L2"
+    assert sink_v.state == VertexStateV4.DATA_READY.value

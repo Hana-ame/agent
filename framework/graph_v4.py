@@ -9,9 +9,8 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict, deque
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 from framework.edge_v4 import CodeEdgeV4, EdgeV4, LLMEdgeV4, ReflexiveEdgeV4
 from framework.vertex_v4 import (
@@ -199,6 +198,50 @@ class GraphV4:
         self.edge_tiers = tiers
         return tiers
 
+    @classmethod
+    def load_from_store(cls, store: VertexStoreV4, session_id: str, name: str = "v4_graph") -> GraphV4:
+        """Hydrate a GraphV4 instance from SQLite persisted vertices and edges."""
+        graph = cls(session_id=session_id, name=name)
+        for v in store.list_vertices(session_id):
+            graph.add_vertex(v)
+
+        for er in store.list_edges(session_id):
+            edge_type = er.edge_type
+            if edge_type == "reflexive" or er.input_vertex == er.output_vertex:
+                edge: EdgeV4 = ReflexiveEdgeV4(
+                    edge_id=er.edge_id,
+                    vertex_name=er.input_vertex,
+                    trigger_state=er.trigger_state or VertexStateV4.REJECT.value,
+                    target_state=er.target_state or VertexStateV4.TODO_URGENT.value,
+                    max_retries=er.max_retries,
+                    script=er.script,
+                    settings=er.settings,
+                )
+            elif edge_type == "llm":
+                edge = LLMEdgeV4(
+                    edge_id=er.edge_id,
+                    input_vertex=er.input_vertex,
+                    output_vertex=er.output_vertex,
+                    model=er.settings.get("model", "sensenova-6.8-flash-lite"),
+                    prompt_template=er.settings.get("prompt"),
+                    settings=er.settings,
+                )
+            else:
+                edge = CodeEdgeV4(
+                    edge_id=er.edge_id,
+                    input_vertex=er.input_vertex,
+                    output_vertex=er.output_vertex,
+                    script=er.script,
+                    settings=er.settings,
+                )
+            graph.add_edge(edge)
+
+        try:
+            graph.compute_dag_tiers()
+        except Exception:
+            pass
+        return graph
+
 
 class DiscreteGraphLoaderV4:
     """Loads discrete vertex and edge JSON components specified by a master manifest."""
@@ -219,8 +262,8 @@ class DiscreteGraphLoaderV4:
 
         base_dir = path.parent
         session_id = override_session_id or data.get("session_id", "default_session")
-        name = data.get("metadata", {}).get("name", path.stem)
-        graph = GraphV4(session_id=session_id, name=name, metadata=data.get("metadata", {}))
+        name = (data.get("metadata") or {}).get("name", path.stem)
+        graph = GraphV4(session_id=session_id, name=name, metadata=data.get("metadata") or {})
 
         # Load discrete vertices
         vertex_files = data.get("vertices", [])
@@ -255,14 +298,15 @@ class DiscreteGraphLoaderV4:
             e_type = e_data.get("type", "code")
             in_v = e_data["input_vertex"]
             out_v = e_data["output_vertex"]
-            settings = e_data.get("settings", {})
+            settings = e_data.get("settings") or {}
             script = e_data.get("script")
 
             edge_instance: EdgeV4
             if e_type == "reflexive" or in_v == out_v:
                 trigger_state = e_data.get("trigger_state", VertexStateV4.REJECT.value)
                 target_state = e_data.get("target_state", VertexStateV4.TODO_URGENT.value)
-                max_retries = int(settings.get("max_retries", e_data.get("max_retries", 3)))
+                raw_retries = settings.get("max_retries") or e_data.get("max_retries") or 3
+                max_retries = int(raw_retries)
                 edge_instance = ReflexiveEdgeV4(
                     edge_id=e_id,
                     vertex_name=in_v,
@@ -299,7 +343,7 @@ class DiscreteGraphLoaderV4:
 
     @classmethod
     def populate_store(cls, graph: GraphV4, store: VertexStoreV4) -> None:
-        """Seed all graph vertices into SQLite store."""
+        """Seed all graph vertices and edges into SQLite store."""
         for v in graph.vertices.values():
             db_record = store.save_vertex(
                 session_id=graph.session_id,
@@ -310,3 +354,22 @@ class DiscreteGraphLoaderV4:
                 processed_count=v.processed_count,
             )
             v.id = db_record.id
+
+        for e in graph.edges.values():
+            script_val = getattr(e, "script", None)
+            script_str = script_val if isinstance(script_val, str) else None
+            trigger_state = getattr(e, "trigger_state", None)
+            target_state = getattr(e, "target_state", None)
+            max_retries = getattr(e, "max_retries", 3)
+            store.save_edge(
+                session_id=graph.session_id,
+                edge_id=e.id,
+                edge_type=e.type,
+                input_vertex=e.input_vertex,
+                output_vertex=e.output_vertex,
+                script=script_str,
+                trigger_state=trigger_state,
+                target_state=target_state,
+                max_retries=max_retries,
+                settings=e.settings,
+            )

@@ -10,6 +10,7 @@ Verifies:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 import pytest
@@ -318,3 +319,186 @@ def test_sse_executor_streaming_echo(client: TestClient):
     assert "data: [DONE]" in text
     assert "vea-v4-sse-executor" in text
     assert '"function": {"name": "echo"' in text
+
+
+def test_edge_sqlite_persistence_and_hydration(tmp_path):
+    """Test that edges created via online API are persisted into SQLite and properly hydrated on fresh manager."""
+    from framework.vertex_v4 import VertexStoreV4
+    from framework.server_v4 import SessionGraphManagerV4, create_v4_server
+    from fastapi.testclient import TestClient
+
+    db_file = tmp_path / "test_persistence.db"
+    store = VertexStoreV4(db_file)
+    manager = SessionGraphManagerV4(store)
+    app = create_v4_server(store_or_db=store, manager=manager)
+    client = TestClient(app)
+
+    session_id = "sess_persist"
+    client.post(
+        f"/api/sessions/{session_id}/graph/vertices",
+        json={"name": "node_a", "content": "hello", "attributes": ["start"], "state": "data ready"}
+    )
+    client.post(
+        f"/api/sessions/{session_id}/graph/vertices",
+        json={"name": "node_b", "content": "", "attributes": ["end"], "state": "todo"}
+    )
+    client.post(
+        f"/api/sessions/{session_id}/graph/edges",
+        json={
+            "id": "edge_ab",
+            "type": "code",
+            "input_vertex": "node_a",
+            "output_vertex": "node_b",
+            "settings": {"k": "v"}
+        }
+    )
+
+    # Verify edge exists in SQLite
+    edges_in_db = store.list_edges(session_id)
+    assert len(edges_in_db) == 1
+    assert edges_in_db[0].edge_id == "edge_ab"
+    assert edges_in_db[0].input_vertex == "node_a"
+    assert edges_in_db[0].output_vertex == "node_b"
+
+    # Now create a fresh manager simulating server restart
+    fresh_manager = SessionGraphManagerV4(store)
+    hydrated_graph = fresh_manager.get_or_create_graph(session_id)
+    assert "node_a" in hydrated_graph.vertices
+    assert "node_b" in hydrated_graph.vertices
+    assert "edge_ab" in hydrated_graph.edges
+    assert hydrated_graph.edges["edge_ab"].input_vertex == "node_a"
+
+
+def test_online_graph_endpoint_reflects_runtime_db_state(client: TestClient):
+    """Test that GET /api/sessions/{session_id}/graph returns current DB state after workflow run."""
+    session_id = "sess_sync_check"
+    client.post(
+        f"/api/sessions/{session_id}/graph/vertices",
+        json={"name": "v_in", "content": "payload_val", "attributes": ["start"], "state": "data ready"}
+    )
+    client.post(
+        f"/api/sessions/{session_id}/graph/vertices",
+        json={"name": "v_out", "content": "", "attributes": ["end"], "state": "todo"}
+    )
+    client.post(
+        f"/api/sessions/{session_id}/graph/edges",
+        json={"id": "e1", "type": "code", "input_vertex": "v_in", "output_vertex": "v_out"}
+    )
+
+    # Run workflow
+    res_run = client.post(f"/api/sessions/{session_id}/run")
+    assert res_run.status_code == 200
+
+    # Query GET /graph
+    res_graph = client.get(f"/api/sessions/{session_id}/graph")
+    assert res_graph.status_code == 200
+    graph_data = res_graph.json()
+    assert graph_data["vertices"]["v_out"]["state"] == "data ready"
+    assert graph_data["vertices"]["v_out"]["content"] == "payload_val"
+    assert graph_data["vertices"]["v_out"]["processed_count"] == 1
+
+
+def test_subgraph_downstream_dataflow_closure(tmp_path):
+    """Test end-to-end dataflow closure across nested subgraphs and parent downstream vertices."""
+    import json
+    from framework.vertex_v4 import VertexStoreV4
+    from framework.server_v4 import SessionGraphManagerV4
+    from framework.sse_executor_v4 import SSEExecutorV4
+    from framework.graph_v4 import GraphV4
+    from framework.edge_v4 import CodeEdgeV4
+    from framework.vertex_v4 import VertexRecordV4, VertexStateV4, VertexAttributeV4
+
+    # 1. Create a child subgraph manifest on disk
+    sub_dir = tmp_path / "child_graph"
+    sub_dir.mkdir(parents=True)
+    v_start_file = sub_dir / "sub_in.json"
+    v_start_file.write_text(json.dumps({
+        "name": "sub_start",
+        "content": "",
+        "attributes": ["start"],
+        "state": "idle"
+    }))
+    v_end_file = sub_dir / "sub_out.json"
+    v_end_file.write_text(json.dumps({
+        "name": "sub_end",
+        "content": "",
+        "attributes": ["end"],
+        "state": "todo"
+    }))
+
+    # Custom script that transforms data inside the child subgraph
+    script_file = sub_dir / "transform.py"
+    script_file.write_text("def process(data, settings=None, staging=None):\n    return f'PROCESSED({data})'\n")
+
+    e_sub_file = sub_dir / "e_inner.json"
+    e_sub_file.write_text(json.dumps({
+        "id": "e_inner",
+        "type": "code",
+        "input_vertex": "sub_start",
+        "output_vertex": "sub_end",
+        "script": f"{script_file}:process"
+    }))
+
+    sub_manifest = sub_dir / "graph.json"
+    sub_manifest.write_text(json.dumps({
+        "version": "4.0",
+        "session_id": "child_sess",
+        "metadata": {"name": "Child"},
+        "vertices": ["sub_in.json", "sub_out.json"],
+        "edges": ["e_inner.json"]
+    }))
+
+    # 2. Build parent graph: Root -> SubgraphBox -> Sink
+    parent_session = "parent_sess_closure"
+    store = VertexStoreV4(":memory:")
+    manager = SessionGraphManagerV4(store)
+    parent_graph = manager.get_or_create_graph(parent_session)
+
+    v_root = VertexRecordV4(
+        id=0,
+        session_id=parent_session,
+        name="v_root",
+        content="raw_user_input",
+        attributes=[VertexAttributeV4.START.value],
+        state=VertexStateV4.DATA_READY.value,
+    )
+    v_box = VertexRecordV4(
+        id=0,
+        session_id=parent_session,
+        name="v_box",
+        content=json.dumps({"subgraph_manifest": str(sub_manifest)}),
+        attributes=[VertexAttributeV4.SUBGRAPH.value],
+        state=VertexStateV4.TODO.value,
+    )
+    v_sink = VertexRecordV4(
+        id=0,
+        session_id=parent_session,
+        name="v_sink",
+        content="",
+        attributes=[VertexAttributeV4.END.value],
+        state=VertexStateV4.TODO.value,
+    )
+    parent_graph.add_vertex(v_root)
+    parent_graph.add_vertex(v_box)
+    parent_graph.add_vertex(v_sink)
+
+    # Edges: v_root -> v_box, v_box -> v_sink
+    e1 = CodeEdgeV4("e_to_box", "v_root", "v_box")
+    e2 = CodeEdgeV4("e_from_box", "v_box", "v_sink")
+    parent_graph.add_edge(e1)
+    parent_graph.add_edge(e2)
+
+    # 3. Execute via SSEExecutor
+    executor = SSEExecutorV4(manager=manager, store=store)
+    res = asyncio.run(executor.execute_harness_call(session_id=parent_session))
+
+    assert res["type"] == "function"
+    info = json.loads(res["function"]["arguments"])["info"]
+    assert info["success"] is True
+
+    # 4. Verify that downstream sink vertex received the transformed data from the child subgraph!
+    sink_rec = store.get_vertex(parent_session, "v_sink")
+    assert sink_rec is not None
+    assert sink_rec.state == VertexStateV4.DATA_READY.value
+    assert sink_rec.content == "PROCESSED(raw_user_input)"
+
