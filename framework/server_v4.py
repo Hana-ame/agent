@@ -146,6 +146,16 @@ class SubgraphAddRequest(BaseModel):
     source: Optional[str] = Field(default=None, description="Provenance source identifier for loaded nodes")
 
 
+class RouteAndRunRequest(BaseModel):
+    task: str = Field(..., description="User task description or query")
+    tool_id: Optional[str] = Field(default=None, description="Explicit tool override. If None, classifier is used.")
+    use_llm: bool = Field(default=True, description="Whether to use LLM for semantic intent routing")
+    api_key: Optional[str] = Field(default=None, description="Optional LLM API key override")
+    base_url: Optional[str] = Field(default=None, description="Optional LLM Base URL override")
+    model: Optional[str] = Field(default=None, description="Optional LLM Model override")
+    max_concurrency: int = Field(default=4, ge=1, le=64, description="Max concurrent edges")
+    timeout: float = Field(default=120.0, gt=0.0, description="Execution timeout in seconds")
+
 
 # ---------------------------------------------------------------------------
 # Session Graph Manager
@@ -637,6 +647,51 @@ def _load_dashboard_html() -> str:
 DASHBOARD_HTML = _load_dashboard_html()
 
 
+def _get_effective_catalog_dir(catalog_dir: Optional[Union[str, Path]] = None) -> Optional[Path]:
+    """Resolve effective tool catalog directory, falling back to repository examples directory."""
+    if catalog_dir:
+        p = Path(catalog_dir).resolve()
+        if p.exists() and p.is_dir():
+            return p
+    repo_default = Path(__file__).resolve().parent.parent / "examples" / "dynamic_tool_library" / "tools"
+    if repo_default.exists() and repo_default.is_dir():
+        return repo_default
+    return None
+
+
+def _list_tool_catalog(catalog_dir: Path) -> List[Dict[str, Any]]:
+    """Enumerate and summarize all JSON tool manifests within catalog directory."""
+    tools: List[Dict[str, Any]] = []
+    if not catalog_dir.exists() or not catalog_dir.is_dir():
+        return tools
+    for f in sorted(catalog_dir.glob("*.json")):
+        tool_id = f.stem
+        try:
+            manifest = json.loads(f.read_text(encoding="utf-8"))
+            meta = manifest.get("metadata", {})
+            vertices = manifest.get("vertices", [])
+            edges = manifest.get("edges", [])
+            tools.append({
+                "id": tool_id,
+                "name": meta.get("name", tool_id),
+                "description": meta.get("description", ""),
+                "category": meta.get("category", "general"),
+                "entry_vertex": meta.get("entry_vertex", "sub_in"),
+                "exit_vertex": meta.get("exit_vertex", "sub_out"),
+                "vertex_count": len(vertices),
+                "edge_count": len(edges),
+                "manifest_path": str(f.resolve()),
+            })
+        except Exception as exc:
+            tools.append({
+                "id": tool_id,
+                "name": tool_id,
+                "description": f"Failed reading manifest: {exc}",
+                "manifest_path": str(f.resolve()),
+            })
+    return tools
+
+
 # ---------------------------------------------------------------------------
 # FastAPI Application Factory
 # ---------------------------------------------------------------------------
@@ -648,6 +703,7 @@ def create_v4_server(
     allowed_origins: List[str] = ["*"],
     manifest_base_dir: Optional[Union[str, Path]] = None,
     snapshot_dir: Optional[Union[str, Path]] = "snapshots",
+    tool_catalog_dir: Optional[Union[str, Path]] = None,
 ) -> FastAPI:
     """Create a FastAPI application powering online graph APIs and database dashboard."""
     if isinstance(store_or_db, VertexStoreV4):
@@ -679,6 +735,7 @@ def create_v4_server(
     app.state.manager = manager
     app.state.agent = agent
     app.state.manifest_base_dir = manifest_base_dir
+    app.state.tool_catalog_dir = tool_catalog_dir
 
     # -----------------------------------------------------------------------
     # Dashboard Endpoint
@@ -1187,6 +1244,167 @@ def create_v4_server(
 
 
     # -----------------------------------------------------------------------
+    # Dynamic Tool Catalog & Intelligent Routing Endpoints
+    # -----------------------------------------------------------------------
+
+    @app.get("/api/tool-catalog")
+    async def list_tool_catalog_endpoint() -> Dict[str, Any]:
+        """List all dynamic tool subgraphs registered in the tool catalog."""
+        cat_dir = _get_effective_catalog_dir(app.state.tool_catalog_dir)
+        if not cat_dir:
+            return {"catalog_dir": None, "count": 0, "tools": []}
+        tools = _list_tool_catalog(cat_dir)
+        return {
+            "catalog_dir": str(cat_dir),
+            "count": len(tools),
+            "tools": tools,
+        }
+
+    @app.get("/api/tool-catalog/{tool_id}")
+    async def get_tool_manifest_endpoint(tool_id: str) -> Dict[str, Any]:
+        """Get detailed manifest for a specific tool in the catalog."""
+        cat_dir = _get_effective_catalog_dir(app.state.tool_catalog_dir)
+        if not cat_dir:
+            raise HTTPException(404, "Tool catalog not configured or directory missing")
+        fpath = cat_dir / f"{tool_id}.json"
+        if not fpath.exists():
+            raise HTTPException(404, f"Tool '{tool_id}' not found in catalog")
+        try:
+            manifest = json.loads(fpath.read_text(encoding="utf-8"))
+            return {
+                "id": tool_id,
+                "manifest_path": str(fpath.resolve()),
+                "manifest": manifest,
+            }
+        except Exception as e:
+            raise HTTPException(500, f"Failed to parse tool manifest '{tool_id}': {e}")
+
+    @app.post("/api/sessions/{session_id}/route-and-run")
+    async def route_and_run_session_endpoint(
+        session_id: str,
+        req: RouteAndRunRequest,
+    ) -> Dict[str, Any]:
+        """Dynamically route user task to catalog tool subgraph, splice into DAG, and execute."""
+        cat_dir = _get_effective_catalog_dir(app.state.tool_catalog_dir)
+        if not cat_dir:
+            raise HTTPException(500, "Tool catalog directory not configured or does not exist")
+
+        # 1. Determine tool via explicit override, LLM reasoning, or heuristic
+        selected_tool = req.tool_id
+        route_reason = "Explicit tool specified by user request"
+        if not selected_tool:
+            if req.use_llm:
+                try:
+                    from examples.dynamic_tool_library.tool_scripts import classify_intent_with_llm
+                    selected_tool, route_reason = await classify_intent_with_llm(
+                        query=req.task,
+                        catalog_dir=cat_dir,
+                        api_key=req.api_key,
+                        base_url=req.base_url or "https://sensenova.moonchan.xyz/v1/chat/completions",
+                        model=req.model or "sensenova-6.8-flash-lite",
+                        timeout=12.0,
+                    )
+                except Exception as e:
+                    logger.warning("LLM router failed, falling back to heuristic: %s", e)
+                    from examples.dynamic_tool_library.tool_scripts import classify_intent
+                    selected_tool = classify_intent(req.task)
+                    route_reason = f"Heuristic fallback (LLM exception: {e})"
+            else:
+                from examples.dynamic_tool_library.tool_scripts import classify_intent
+                selected_tool = classify_intent(req.task)
+                route_reason = "Rule-based heuristic classifier"
+
+        tool_manifest_file = cat_dir / f"{selected_tool}.json"
+        if not tool_manifest_file.exists():
+            raise HTTPException(404, f"Tool manifest '{selected_tool}' not found in catalog {cat_dir}")
+
+        try:
+            tool_subgraph = DiscreteGraphLoaderV4.load_from_manifest(tool_manifest_file)
+        except Exception as e:
+            raise HTTPException(500, f"Failed to load tool subgraph from {tool_manifest_file}: {e}")
+
+        async with manager.get_session_lock(session_id):
+            # Reset previous session graph store records for clean dynamic execution
+            store.clear_session(session_id)
+            manager._graphs.pop(session_id, None)
+
+            # Base parent vertices
+            manager.add_or_update_vertex(
+                session_id=session_id,
+                name="v_user_query",
+                content=req.task,
+                state=VertexStateV4.DATA_READY.value,
+                attributes=["start"],
+            )
+            manager.add_or_update_vertex(
+                session_id=session_id,
+                name="v_final_output",
+                content="",
+                state=VertexStateV4.TODO.value,
+                attributes=["end"],
+            )
+
+            # Splice/insert subgraph
+            entry_v = tool_subgraph.metadata.get("entry_vertex", "sub_in")
+            exit_v = tool_subgraph.metadata.get("exit_vertex", "sub_out")
+            insert_res = manager.insert_subgraph(
+                session_id=session_id,
+                subgraph=tool_subgraph,
+                incoming_bindings={"v_user_query": entry_v},
+                outgoing_bindings={exit_v: "v_final_output"},
+                name_prefix=f"{selected_tool}_",
+            )
+
+            # Load fresh graph
+            graph = manager.load_graph_from_store(session_id)
+            executor = ExecutorV4(
+                graph=graph,
+                store=store,
+                agent=app.state.agent,
+                max_concurrency=req.max_concurrency,
+                timeout=req.timeout,
+                snapshot_manager=manager.snapshot_manager,
+            )
+            manager.register_executor(session_id, executor)
+
+            # Broadcast events in real-time
+            async def stream_and_broadcast():
+                async for ev in executor.stream():
+                    manager.broadcast_event(session_id, ev)
+
+            try:
+                await stream_and_broadcast()
+            finally:
+                manager.unregister_executor(session_id)
+
+            exec_res = executor.result
+            v_out = store.get_vertex(session_id, "v_final_output")
+            output_content = v_out.content if v_out else ""
+
+            snapshots = (
+                manager.snapshot_manager.list_snapshots(session_id)
+                if manager.snapshot_manager
+                else []
+            )
+
+            return {
+                "session_id": session_id,
+                "task": req.task,
+                "routed_tool": selected_tool,
+                "route_reason": route_reason,
+                "success": exec_res.success,
+                "output": output_content,
+                "execution_time": exec_res.execution_time,
+                "completed_edges": exec_res.completed_edges,
+                "errors": exec_res.errors,
+                "inserted_vertices": insert_res.get("inserted_vertices", []),
+                "inserted_edges": insert_res.get("inserted_edges", []),
+                "snapshot_count": len(snapshots),
+                "snapshots": snapshots,
+            }
+
+
+    # -----------------------------------------------------------------------
     # SSE Executor with Session Routing & Harness Tool Call Echo
     # -----------------------------------------------------------------------
 
@@ -1441,11 +1659,59 @@ def create_v4_server(
                 graph = manager.load_graph_from_store(session_id)
             else:
                 graph = manager.load_graph_from_store(session_id)
+        # Check for dynamic tool routing request
+        user_content = _extract_user_content(messages)
+        dynamic_route = req_body.get("vea_dynamic_route", False) or model in ("dynamic-router", "auto-router")
+        if dynamic_route and user_content:
+            cat_dir = _get_effective_catalog_dir(app.state.tool_catalog_dir)
+            if cat_dir:
+                try:
+                    from examples.dynamic_tool_library.tool_scripts import classify_intent_with_llm
+                    tool_name, _ = await classify_intent_with_llm(user_content, cat_dir)
+                except Exception:
+                    from examples.dynamic_tool_library.tool_scripts import classify_intent
+                    tool_name = classify_intent(user_content)
+
+                tool_manifest_file = cat_dir / f"{tool_name}.json"
+                if tool_manifest_file.exists():
+                    try:
+                        tool_subgraph = DiscreteGraphLoaderV4.load_from_manifest(tool_manifest_file)
+                        store.clear_session(session_id)
+                        manager._graphs.pop(session_id, None)
+                        manager.add_or_update_vertex(
+                            session_id=session_id,
+                            name="v_user_query",
+                            content=user_content,
+                            state=VertexStateV4.DATA_READY.value,
+                            attributes=["start"],
+                        )
+                        manager.add_or_update_vertex(
+                            session_id=session_id,
+                            name="v_final_output",
+                            content="",
+                            state=VertexStateV4.TODO.value,
+                            attributes=["end"],
+                        )
+                        entry_v = tool_subgraph.metadata.get("entry_vertex", "sub_in")
+                        exit_v = tool_subgraph.metadata.get("exit_vertex", "sub_out")
+                        manager.insert_subgraph(
+                            session_id=session_id,
+                            subgraph=tool_subgraph,
+                            incoming_bindings={"v_user_query": entry_v},
+                            outgoing_bindings={exit_v: "v_final_output"},
+                            name_prefix=f"{tool_name}_",
+                        )
+                        graph = manager.load_graph_from_store(session_id)
+                    except Exception as exc:
+                        logger.warning("Dynamic tool routing subgraph load failed: %s", exc)
+                        graph = manager.get_or_create_graph(session_id)
+                else:
+                    graph = manager.get_or_create_graph(session_id)
+            else:
+                graph = manager.get_or_create_graph(session_id)
         else:
             graph = manager.get_or_create_graph(session_id)
 
-        # Extract and inject the user's message into START vertices
-        user_content = _extract_user_content(messages)
         # Only inject if the latest message is a user message (not a tool result)
         latest_msg = messages[-1] if messages else {}
         if latest_msg.get("role") in ("user", "system") and user_content:
@@ -1661,6 +1927,7 @@ def parse_server_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=11434, help="Port to bind (default: 11434, same as Ollama)")
     parser.add_argument("--db", default=":memory:", help="SQLite database path")
     parser.add_argument("--snapshot-dir", default="snapshots", help="Directory for complete graph JSON snapshots")
+    parser.add_argument("--tool-catalog-dir", default=None, help="Directory for dynamic tool catalog JSON manifests")
     return parser.parse_args()
 
 
@@ -1668,7 +1935,11 @@ def main() -> None:
     """Run server directly from CLI."""
     import uvicorn
     args = parse_server_args()
-    app = create_v4_server(store_or_db=args.db, snapshot_dir=args.snapshot_dir)
+    app = create_v4_server(
+        store_or_db=args.db,
+        snapshot_dir=args.snapshot_dir,
+        tool_catalog_dir=args.tool_catalog_dir,
+    )
     uvicorn.run(app, host=args.host, port=args.port)
 
 
