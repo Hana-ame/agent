@@ -54,6 +54,7 @@ from .edge_v4 import (
     EdgeResultV4,
 )
 from .sensenova_edge_v4 import SensenovaEdgeV4, SenseNovaEdgeV4
+from .snapshot_v4 import GraphSnapshotManagerV4
 from .graph_v4 import (
     GraphV4,
     DiscreteGraphLoaderV4,
@@ -105,6 +106,7 @@ __all__ = [
     'ChatLLMEdgeV4', 'GenerateLLMEdgeV4', 'ProcessLLMEdgeV4', 'CallableLLMEdgeV4',
     'ReflexiveEdgeV4', 'EdgeResultV4', 'SensenovaEdgeV4', 'SenseNovaEdgeV4',
     'GraphV4', 'DiscreteGraphLoaderV4', 'GraphTopologyError', 'NodeColor',
+    'GraphSnapshotManagerV4',
     'ExecutorV4', 'OrchestratorV4', 'ExecutionResultV4', 'GraphEventV4',
     'BaseWorkerQueueV4', 'InMemoryWorkerQueueV4', 'EdgeTaskPayload', 'EdgeTaskResult',
     'create_v4_server', 'SessionGraphManagerV4',

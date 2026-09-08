@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "name": "Data Extractor Tool Subgraph",
+    "description": "Extracts entities, contacts, and formats markdown table"
+  },
+  "vertices": [
+    {
+      "name": "sub_in",
+      "content": "",
+      "state": "todo",
+      "attributes": ["start"]
+    },
+    {
+      "name": "sub_extracted",
+      "content": "",
+      "state": "todo"
+    },
+    {
+      "name": "sub_out",
+      "content": "",
+      "state": "todo",
+      "attributes": ["end"]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_extract",
+      "type": "code",
+      "input_vertex": "sub_in",
+      "output_vertex": "sub_extracted",
+      "script": "examples/dynamic_tool_library/tool_scripts.py:extract_entities"
+    },
+    {
+      "id": "e_table",
+      "type": "code",
+      "input_vertex": "sub_extracted",
+      "output_vertex": "sub_out",
+      "script": "examples/dynamic_tool_library/tool_scripts.py:format_extraction_table"
+    }
+  ]
+}

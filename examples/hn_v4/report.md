@@ -1,8 +1,8 @@
 # ⚡ Hacker News AI & Tech Executive Digest (V4 Graph)
 
-> **Generated at**: 2026-09-08 09:46:35 UTC  
+> **Generated at**: 2026-09-08 12:24:27 UTC  
 > **Engine**: Vertex-Edge Agent Framework V4.0  
-> **Stories Analyzed**: 3 stories  
+> **Stories Analyzed**: 2 stories  
 
 ---
 
@@ -14,31 +14,22 @@ This digest highlights trending developments, developer discussions, and archite
 
 ## 🔥 Top Stories & Community Takeaways
 
-### 1. [Mistral raises €3B](https://mistral.ai/news/mistral-makes-sovereign-open-weight-ai-to-frontier/)
-- **Score**: ⭐ 446 points | **Author**: `@kuberwastaken`
-- **Links**: [HN Discussion](https://news.ycombinator.com/item?id=49605767) | [Original Source](https://mistral.ai/news/mistral-makes-sovereign-open-weight-ai-to-frontier/)
-- **Community Perspectives & Key Takeaways**:
-  - 💬 Mistral is an interesting AI company because they clearly have a contrarian business strategy to the other AI labs. They're also landing big customers in Europe for the right reasons. People dump on them because they're not benchmaxxxing which is pretty shortsighted - do you real...
-  - 💬 Mistral is not that bad as the comments here suggest. I am not using it as a frontier model but with simple RAG tasks and its doing great. Also OCR is pretty decent. It's a positive development that Europe is at least trying. Alternative would be: do nothing.
-  - 💬 Europe absolutely needs a home-grown AI lab, especially with Pax Americana looking increasingly shaky. LLMs embody value systems, and American and European values are not the same (yes, there are overlaps, but also key differences). More nefariously, I can also imagine LLMs that ...
-  - 💬 Mistral has solid OCR, STT and TTS models and I would love to support them by switching with all of our business workloads to Mistral... but their LLM models are sadly not competitive at all. In our business benchmarks their Mistral Medium 3.5 with reasoning is worse than Gemma 4...
-
-### 2. [I've factored the RSA keys of a Certificate Authority from the 90s](https://mcpherrin.ca/2026/09/07/rsa.html)
-- **Score**: ⭐ 328 points | **Author**: `@ahlCVA`
-- **Links**: [HN Discussion](https://news.ycombinator.com/item?id=49604637) | [Original Source](https://mcpherrin.ca/2026/09/07/rsa.html)
-- **Community Perspectives & Key Takeaways**:
-  - 💬 Great writeup. The fact that CADO-NFS still takes 32 hours on a 5950X for a 512-bit key that's trivial by today's academic standards really puts into perspective how comically undersized these were even for 1999 — RSA-155 fell that same year. Also love that verifying against real...
-  - 💬 A bit unfortunate that so many of the interesting bits were left to ai. I would've enjoyed some commentary on why the custom TLS implementation was necessary. Oh well. Update: found this explanation in a comment at the top of the (surprisingly short) Go file in the linked repo: T...
-  - 💬 Basically 2 days on a consumer GPU to crack a 512 bit cert. The thing is much of the traffic back then did not use ephemeral keys. Most of it wasn't even encrypted at all! But about a decade later, it became normal to encrypt everything. I do wonder which governments around the w...
-  - 💬 > I don’t have any good reason to do that, but it seems like fun. What better reason is there to do something than it being fun?
-
-### 3. [Among European Companies That Use a CDN, Nearly 9 in 10 Use Cloudflare](https://ciphercue.com/blog/european-cdn-concentration-cloudflare-nine-in-ten)
-- **Score**: ⭐ 52 points | **Author**: `@adulion`
+### 1. [Among European Companies That Use a CDN, Nearly 9 in 10 Use Cloudflare](https://ciphercue.com/blog/european-cdn-concentration-cloudflare-nine-in-ten)
+- **Score**: ⭐ 200 points | **Author**: `@adulion`
 - **Links**: [HN Discussion](https://news.ycombinator.com/item?id=49607443) | [Original Source](https://ciphercue.com/blog/european-cdn-concentration-cloudflare-nine-in-ten)
 - **Community Perspectives & Key Takeaways**:
-  - 💬 > The front door is not the whole stack Hey Claude, can you move the ciphercue blog to Cloudflare so it can deal with traffic from HN? On a more serious note, Cloudflare comes packed with features even on its free plan which makes it useful for any size website. For a real busine...
-  - 💬 Bunny.net is a good alternative - they don’t have CF depth of offerings but are getting there
-  - 💬 The problem is that we have spent 40 years adopting US technology, across multiple generations of software developers and decision makers, while everyone was supposedly on the same side. It will take similar amount of years to go back into the cold war heterogeneous computing lan...
+  - 💬 It's seriously good value for small websites. Basically, there is no cost aside from the domain. And for registering and managing domains, they are pretty much the most affordable option as well. And they have a few other things that aren't half bad to use with pretty generous fr...
+  - 💬 When someone says cloudflare is too good / cheap to be true... maybe think about it. They have shareholders, who wouldn't allow them to provide value for free, its just not obvious to you how they are extracting that value. Maybe its by capturing a huge % of unencrypted https tra...
+  - 💬 Since it appears to have gotten hugged to death - https://web.archive.org/web/20260908084626/https://ciphercue... Not really unexpected, US domination of "tech" is near total, even if the sustained political will exists (and I'm not sure it will for long enough) unwinding that is...
+  - 💬 I was looking into the IPv6 adoption of US government websites ( https://community.ipinfo.io/t/the-state-of-ipv6-across-us-go... ) when we discovered that Cloudflare had essentially dethroned Akamai for government content hosting over a number of years. The post primarily focuses...
+
+### 2. [Antiquated HTML Snippets and Artefacts](https://vale.rocks/posts/html-relics)
+- **Score**: ⭐ 74 points | **Author**: `@patadune`
+- **Links**: [HN Discussion](https://news.ycombinator.com/item?id=49607991) | [Original Source](https://vale.rocks/posts/html-relics)
+- **Community Perspectives & Key Takeaways**:
+  - 💬 Thank you so much for this amazing resource. One of my projects is a hyper-compatible framework that builds websites that span the compatibility spectrum from Netscape 3.x to today's browsers, and this is very helpful.
+  - 💬 Forever burnt into my mind is PNG alpha work-arounds in IE: filter: progid:DXImageTransform.Microsoft.AlphaImageLoader(src='image.png');
+  - 💬 Reminds me of how awkward HTML doctypes used to be. Nowadays it's very simple, but in the past? You had to refer to the URL of the doctype declaration on every page > http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd "> This plus the X-UA-Compatible stuff mentioned in the article...
 
 ---
 
@@ -48,10 +39,10 @@ This digest highlights trending developments, developer discussions, and archite
 | :--- | :--- |
 | **Host Platform** | `Linux-6.6.143+-x86_64-with-glibc2.39` |
 | **Python Version** | `3.12.3` |
-| **Git Revision** | `vertex-edge-agent@a87585f` |
+| **Git Revision** | `vertex-edge-agent@5986f5a` |
 | **Agent Framework** | `4.0.0 (Vertex-Edge V4)` |
 | **Concurrency Mode** | `asyncio + SQLite3 WAL` |
-| **Probe Timestamp** | `2026-09-08T09:46:25.795808+00:00` |
+| **Probe Timestamp** | `2026-09-08T12:24:17.905887+00:00` |
 
 ---
 
