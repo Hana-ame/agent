@@ -9,9 +9,10 @@
 ```
 docs/
 ├── reports/                 # 阶段交付报告与专题分析
-│   ├── v4-implementation-and-verification-report.md # V4.0 全层级实现与 143 项测试验证报告
-│   └── v4-runtime-issues-analysis.md                # 运行时潜在问题（并发修改/死锁/在途踩踏）审查
-└── archive/                 # 历史迭代审查、交接备忘与旧版本设计规范
+│   └── v4-implementation-and-verification-report.md # V4.0 全层级实现与全量测试验证报告
+└── archive/                 # 历史迭代审查、交接备忘、问题排查记录与旧版本设计规范
+    ├── v4-runtime-issues-analysis.md                # 运行时潜在问题（并发修改/死锁/在途踩踏）审查与修复记录
+    ├── legacy-issues-log.md                         # 早期版本架构缺陷与优化记录（Issue 1-11）
     ├── v4-architecture-spec.md                      # V4.0 破坏性重构初始规范说明书
     ├── handoff.md                                   # V4.0 早期交付审核备忘录
     ├── framework-architecture-review.md             # 第一轮架构审查记录 (Round 1)
