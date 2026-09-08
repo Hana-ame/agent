@@ -636,3 +636,90 @@ def test_api_graph_loaded_nodes_and_relationships(client: TestClient):
     assert rel_data["adjacency_list"]["n1"] == ["n2"]
     assert rel_data["adjacency_list"]["n2"] == ["n3"]
 
+
+def test_api_add_subgraph_endpoint(client: TestClient):
+    """Test /api/sessions/{session_id}/graph/subgraphs/add REST endpoint with persistence."""
+    session_id = "test_api_add_sub_sess"
+
+    # 1. Base graph: head and tail
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "head", "state": "data ready"})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "tail", "state": "todo"})
+
+    # 2. Subgraph payload
+    subgraph_data = {
+        "version": "4.0",
+        "name": "worker_pipeline",
+        "vertices": [
+            {"name": "worker_1", "state": "idle", "content": "w1"},
+            {"name": "worker_2", "state": "idle", "content": "w2"},
+        ],
+        "edges": [
+            {"id": "w1_to_w2", "type": "code", "input_vertex": "worker_1", "output_vertex": "worker_2"}
+        ],
+    }
+
+    # 3. Add subgraph via API
+    add_res = client.post(
+        f"/api/sessions/{session_id}/graph/subgraphs/add",
+        json={
+            "subgraph_data": subgraph_data,
+            "name_prefix": "pkg",
+            "incoming_bindings": {"head": "worker_1"},
+            "connections": [{"from": "pkg_worker_2", "to": "tail", "type": "code"}],
+            "source": "registry:worker_v4",
+        },
+    )
+    assert add_res.status_code == 200
+    res_body = add_res.json()
+    assert res_body["status"] == "added"
+    assert "pkg_worker_1" in res_body["result"]["added_vertices"]
+    assert "pkg_worker_2" in res_body["result"]["added_vertices"]
+
+    # 4. Verify graph and loaded nodes
+    nodes_res = client.get(f"/api/sessions/{session_id}/graph/nodes")
+    assert nodes_res.status_code == 200
+    loaded_names = [n["name"] for n in nodes_res.json()["nodes"]]
+    assert "pkg_worker_1" in loaded_names
+    assert "pkg_worker_2" in loaded_names
+
+    # 5. Verify relationships
+    w1_rel = client.get(f"/api/sessions/{session_id}/graph/nodes/pkg_worker_1/relationships").json()
+    assert w1_rel["predecessors"] == ["head"]
+    assert w1_rel["successors"] == ["pkg_worker_2"]
+
+    tail_rel = client.get(f"/api/sessions/{session_id}/graph/nodes/tail/relationships").json()
+    assert tail_rel["predecessors"] == ["pkg_worker_2"]
+
+
+def test_api_dump_graph_endpoint(client: TestClient, tmp_path: Path):
+    """Test /api/sessions/{session_id}/graph/dump REST endpoint."""
+    session_id = "test_dump_api_sess"
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "v_start", "state": "data ready"})
+    client.post(f"/api/sessions/{session_id}/graph/vertices", json={"name": "v_stop", "state": "todo"})
+    client.post(f"/api/sessions/{session_id}/graph/edges", json={"id": "e_flow", "type": "code", "input_vertex": "v_start", "output_vertex": "v_stop"})
+
+    # 1. GET dump
+    get_res = client.get(f"/api/sessions/{session_id}/graph/dump")
+    assert get_res.status_code == 200
+    dump_data = get_res.json()
+    assert dump_data["status"] == "dumped"
+    assert dump_data["session_id"] == session_id
+    g = dump_data["graph"]
+    assert g["version"] == "4.0"
+    assert len(g["vertices"]) == 2
+    assert len(g["edges"]) == 1
+    assert g["relationships"]["roots"] == ["v_start"]
+    assert g["relationships"]["sinks"] == ["v_stop"]
+
+    # 2. POST dump to filesystem
+    target_file = str(tmp_path / "dump_export.json")
+    post_res = client.post(f"/api/sessions/{session_id}/graph/dump?path={target_file}")
+    assert post_res.status_code == 200
+    assert Path(target_file).exists()
+    with open(target_file, "r", encoding="utf-8") as f:
+        exported = json.load(f)
+    assert exported["session_id"] == session_id
+    assert len(exported["vertices"]) == 2
+
+
+

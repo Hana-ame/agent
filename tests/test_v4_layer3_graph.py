@@ -845,3 +845,135 @@ def test_node_and_graph_relationships():
     assert full_rel["orphans"] == ["iso"]
     assert full_rel["adjacency_list"]["m1"] == ["s1"]
     assert full_rel["reverse_adjacency_list"]["m1"] == ["r1", "r2"]
+
+
+def test_add_subgraph_with_connections_and_bindings():
+    """Verify adding an arbitrary subgraph with connections, bindings, and loaded nodes provenance."""
+    parent = GraphV4(session_id="p_sess", name="parent_graph")
+    parent.add_vertex(VertexRecordV4(0, "p_sess", "start_node", "", [], VertexStateV4.IDLE.value))
+    parent.add_vertex(VertexRecordV4(0, "p_sess", "end_node", "", [], VertexStateV4.IDLE.value))
+
+    sub = GraphV4(session_id="sub_sess", name="sub_pipeline")
+    sub.add_vertex(VertexRecordV4(0, "sub_sess", "step_a", "", [], VertexStateV4.IDLE.value))
+    sub.add_vertex(VertexRecordV4(0, "sub_sess", "step_b", "", [], VertexStateV4.IDLE.value))
+    sub.add_edge(CodeEdgeV4("edge_ab", "step_a", "step_b"))
+
+    res = parent.add_subgraph(
+        subgraph=sub,
+        name_prefix="sub",
+        incoming_bindings={"start_node": "step_a"},
+        connections=[{"from": "sub_step_b", "to": "end_node", "type": "code"}],
+        source="catalog:sub_pipeline_v1",
+    )
+
+    assert set(res["added_vertices"]) == {"sub_step_a", "sub_step_b"}
+    assert "sub_step_a" in parent.vertices
+    assert "sub_step_b" in parent.vertices
+    assert parent.get_loaded_node("sub_step_a")["source"] == "catalog:sub_pipeline_v1"
+    assert parent.get_loaded_node("sub_step_b")["source"] == "catalog:sub_pipeline_v1"
+
+    # Verify edge connectivity
+    assert parent.get_node_predecessors("sub_step_a") == ["start_node"]
+    assert parent.get_node_successors("sub_step_a") == ["sub_step_b"]
+    assert parent.get_node_successors("sub_step_b") == ["end_node"]
+    assert parent.get_node_predecessors("end_node") == ["sub_step_b"]
+
+    # Verify duplicate naming collision raises ValueError
+    with pytest.raises(ValueError, match="collides with existing vertex"):
+        parent.add_subgraph(subgraph=sub, name_prefix="sub")
+
+
+def test_flexible_add_vertex_and_add_edge():
+    """Verify add_vertex and add_edge with string, dict, and keyword parameters."""
+    graph = GraphV4(session_id="test_flex", name="flex_graph")
+
+    # 1. Add vertex with string name and kwargs
+    v1 = graph.add_vertex("input_a", content="hello", state=VertexStateV4.DATA_READY)
+    assert v1.name == "input_a"
+    assert v1.content == "hello"
+    assert v1.state == VertexStateV4.DATA_READY.value
+    assert "input_a" in graph.vertices
+
+    # 2. Add vertex with dict
+    v2 = graph.add_vertex({"name": "process_b", "content": "world", "state": "todo"})
+    assert v2.name == "process_b"
+    assert v2.content == "world"
+    assert v2.state == VertexStateV4.TODO.value
+
+    # 3. Add edge with pure kwargs
+    e1 = graph.add_edge(edge_id="e_ab", input_vertex="input_a", output_vertex="process_b", edge_type="code")
+    assert e1.id == "e_ab"
+    assert "e_ab" in graph.edges
+
+    # 4. Add edge with dict
+    e2 = graph.add_edge({"id": "e_dict", "type": "code", "input_vertex": "input_a", "output_vertex": "process_b"})
+    assert e2.id == "e_dict"
+    assert "e_dict" in graph.edges
+
+
+def test_graph_dump_and_to_dict(tmp_path: Path):
+    """Verify serialization via dump() to dictionary and JSON file."""
+    graph = GraphV4(session_id="dump_sess", name="dump_graph")
+    graph.add_vertex("root", content="start", state=VertexStateV4.DATA_READY)
+    graph.add_vertex("leaf", content="end", state=VertexStateV4.TODO)
+    graph.add_edge(edge_id="e_rl", input_vertex="root", output_vertex="leaf")
+
+    # Dump to dict
+    dumped = graph.dump()
+    assert dumped["version"] == "4.0"
+    assert dumped["session_id"] == "dump_sess"
+    assert dumped["name"] == "dump_graph"
+    assert len(dumped["vertices"]) == 2
+    assert len(dumped["edges"]) == 1
+    assert "relationships" in dumped
+    assert dumped["relationships"]["roots"] == ["root"]
+    assert dumped["relationships"]["sinks"] == ["leaf"]
+
+    # Dump to file
+    out_file = tmp_path / "graph_dump.json"
+    dumped_file_data = graph.dump(path=out_file)
+    assert out_file.exists()
+    with open(out_file, "r", encoding="utf-8") as f:
+        file_json = json.load(f)
+    assert file_json == dumped_file_data
+    assert graph.to_dict() == dumped
+
+
+def test_add_subgraph_from_dict_and_manifest(tmp_path: Path):
+    """Verify add_subgraph directly accepts in-memory dict and manifest JSON path."""
+    parent = GraphV4(session_id="p_sess", name="parent")
+    parent.add_vertex("start_v", content="123", state=VertexStateV4.DATA_READY)
+
+    # Subgraph dict
+    sub_dict = {
+        "metadata": {"name": "sub_worker"},
+        "vertices": [
+            {"name": "sub_w1", "state": "idle", "content": "w1"}
+        ],
+        "edges": []
+    }
+    res_dict = parent.add_subgraph(
+        subgraph=sub_dict,
+        name_prefix="d",
+        incoming_bindings={"start_v": "sub_w1"},
+    )
+    assert "d_sub_w1" in res_dict["added_vertices"]
+    assert "d_sub_w1" in parent.vertices
+
+    # Subgraph manifest file
+    manifest_path = tmp_path / "sub_manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "metadata": {"name": "file_worker"},
+            "vertices": [{"name": "file_w1", "state": "idle", "content": "fw"}],
+            "edges": []
+        }, f)
+
+    res_file = parent.add_subgraph(
+        subgraph=manifest_path,
+        name_prefix="f",
+    )
+    assert "f_file_w1" in res_file["added_vertices"]
+    assert "f_file_w1" in parent.vertices
+
+
