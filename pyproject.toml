@@ -31,3 +31,6 @@ include = ["framework*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "live: tests that make real HTTP calls to external APIs (excluded from CI)",
+]
