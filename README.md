@@ -996,6 +996,10 @@ pytest tests/test_v4_edge_metrics.py tests/test_openai_v4_endpoints.py tests/tes
   this revision answers. Its findings are kept as the original record; the banner at
   the top carries the current test count and what is still open.
 - **[agent.md](agent.md)** — developer guide: module map, conventions, where things live.
+- **[docs/DOC_STANDARDS.md](docs/DOC_STANDARDS.md)** — pinned formatting and
+  authoring rules. The mechanical subset is enforced by
+  [`scripts/check_docs.py`](scripts/check_docs.py) in CI; the rest (commands
+  actually run, API claims checked against code) is a review obligation.
 - **[docs/README.md](docs/README.md)** — documentation index.
 - **[docs/archive/](docs/archive/)** — historical specs, review logs, milestone plans
   and one-off reports (the pre-refactor review report, the pre-hardening V4.0 handoff,
