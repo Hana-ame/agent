@@ -1,6 +1,6 @@
 {
   "version": "4.0",
-  "session_id": "child_subgraph",
+  "session": "child_subgraph",
   "metadata": {
     "name": "text_enrichment_subgraph"
   },
