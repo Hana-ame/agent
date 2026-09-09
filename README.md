@@ -43,6 +43,175 @@ that already has its own web framework.
 
 ---
 
+## Quick Start (快速上手)
+
+Four things you'll probably want to do, in the order they come up. Every command
+below is copy-pasteable from a fresh clone.
+
+### 0. Install
+
+```bash
+pip install -e ".[examples]"      # editable install + the bundled example graphs' deps
+vea-run-v4 --help                 # verify both console scripts are on PATH
+```
+
+`pip install -e .` alone is enough if you don't need the example graphs (the core
+engine has no FastAPI dependency).
+
+### 1. Run a whole graph — `vea-run-v4`
+
+A **manifest** is a JSON file describing a graph: vertices with their initial
+`content`, edges with their `type`, a `session`, and the `edge_ids` to start with.
+
+```bash
+vea-run-v4 examples/custom_edge/config.json --session demo
+```
+
+```
+session:     demo
+success:     True
+elapsed:     0.010s
+completed:   e_count, e_upper, e_passthrough
+vertex data:
+  v_in: the quick brown fox jumps
+  v_count: 5 words
+  v_upper: 5 WORDS
+  v_out: 5 WORDS
+```
+
+| Flag | Meaning |
+| :--- | :--- |
+| `--session ID` | Session id. Falls back to the manifest's `"session"` key, then the filename stem. |
+| `--db graph.db` | Persist vertices and edge metrics to SQLite instead of in-memory. |
+| `--script-root DIR` | Restrict where `"my_edges.py:MyEdge"` scripts may be loaded from (repeatable). |
+| `--json` | Print the result as JSON: edge ids, outputs, failure reasons. |
+| `--print-events` / `--quiet` | Turn the live event log on or off. |
+| `--concurrency N`, `--timeout S` | Execution bounds. |
+
+`python3 examples/run.py <config.json>` is the **V1** runner and is frozen as-is;
+it refuses V4 manifests and `vea-run-v4` refuses V1 ones, each pointing at the
+other.
+
+### 2. Write your own edge — zero registration
+
+1. Subclass `EdgeV4` in any script:
+
+   ```python
+   # my_edges.py
+   from framework import EdgeV4
+   from framework.edges.base import EdgeResultV4
+   from framework.vertex_v4 import VertexStateV4
+
+
+   class UpperCaseEdge(EdgeV4):
+       async def run(self, session_id, store, agent=None, auto_transition=True, **kwargs):
+           ok, reason, in_v, out_v = self.check_handshake(session_id, store)
+           if not ok:
+               return EdgeResultV4(edge_id=self.id, success=False, skipped=True, reason=reason)
+           out = (in_v.content or "").upper()
+           store.apply_merge_strategy(
+               session_id=session_id, name=self.output_vertex, incoming_content=out
+           )
+           if auto_transition:
+               store.update_vertex_state(
+                   session_id, self.output_vertex, VertexStateV4.DATA_READY.value
+               )
+           return EdgeResultV4(edge_id=self.id, success=True, output=out)
+   ```
+
+2. Reference it as `"type": "my_edges.py:UpperCaseEdge"` — in a manifest, or via
+   the single-edge CLI:
+
+   ```bash
+   python3 -m framework.edges.cli \
+       --dir ./my_edges \
+       --type my_edges.py:UpperCaseEdge \
+       --session s1 \
+       --input v_in --output v_out \
+       --id e1 \
+       --seed "hello world"
+   # {"success": true, "output": "HELLO WORLD", "edge_id": "e1", "skipped": false, ...}
+   ```
+
+   `--seed` writes initial content into the input vertex (the CLI only has vertex
+   *names*, so something must put content in the store first).
+
+3. Done. There is no type whitelist and no registry to edit: any `script.py:ClassName`
+   that imports and defines an `EdgeV4` subclass works. Built-in edge types:
+   `code`, `llm`, `tool`, `sensenova` (plus aliases `code_edge`, `llm_chat`,
+   `llm_generate`, `llm_process`, `llm_tool_call`, `reflexive`, `sensenova_edge`,
+   `tool_call`). A server instance reports its live list at `GET /api/edge-types`.
+
+### 3. Call it from Python
+
+```python
+from framework.run_v4 import run_from_manifest
+
+result = run_from_manifest(
+    "examples/custom_edge/config.json",
+    session_id="demo",        # None = the manifest's "session", then the filename stem
+)
+print(result.success, result.completed_edges, result.errors)
+```
+
+`run_from_manifest` returns an `ExecutionResultV4`: `success`, `completed_edges`,
+`edge_results`, `vertex_states`, `vertex_contents`, `errors`, `execution_time`,
+`session_id`. Inside a running event loop (e.g. an ASGI request handler) use
+`await run_manifest_async(...)` instead — the sync wrapper refuses nested loops.
+
+Lower level, `load_v4_manifest` just loads: it returns a `GraphV4` with `.edges`
+(a dict of edge id → `EdgeV4`) and `.vertices` (name → `VertexRecordV4`).
+
+```python
+from framework import ExecutorV4, VertexStoreV4
+from framework.run_v4 import load_v4_manifest
+
+graph = load_v4_manifest("examples/custom_edge/config.json")
+print(graph.edges, graph.vertices)
+
+store = VertexStoreV4(":memory:")
+# seed the store from graph.vertices, then ExecutorV4(graph, store).run()
+```
+
+### 4. Serve it over HTTP and open the dashboard
+
+```bash
+vea-server --port 11434          # default: host 127.0.0.1, port 11434
+# → http://127.0.0.1:11434/dashboard
+```
+
+The server also exposes an OpenAI-compatible API at `/v1` and the graph/DB API at
+`/api/*`. Binding any non-loopback host requires `VEA_API_KEY` (or `--api-key`);
+`--script-root DIR` limits which edge scripts a client may reference. See
+§2.3 for the full security defaults.
+
+### Naming cheat sheet: CLI flags ↔ config JSON keys
+
+The single-edge CLI (`python3 -m framework.edges.cli`) accepts the same values
+either as flags or as keys in a `--config` JSON file; a flag always wins.
+
+| Flag | Config key | Sets |
+| :--- | :--- | :--- |
+| `--id` | `"id"` | Edge id (`--edge-id` is a deprecated alias) |
+| `--type` | `"type"` | `"code"` / `"my_edges.py:MyEdge"` (`"edge_type"` alias accepted) |
+| `--input` / `--output` | `"input_vertex"` / `"output_vertex"` | Vertex names |
+| `--session` | `"session"` | Session id (`"session_id"` is a deprecated alias) |
+| `--seed` | `"seed"` | Initial content for the input vertex (`--seed-input` / `"seed_input"` deprecated) |
+| `--script` | `"script"` | Inline source or `.py` path for `code` / `recovery` edges |
+| `--model` | `"model"` | Model for `llm` edges |
+| `--settings` | `"settings"` | JSON object, merged over the config's own `settings` |
+| `--db` | `"db"` | SQLite path (`:memory:` by default) |
+| `--mock` | `"mock"` | Use `MockAgentV4` — no API key, offline |
+| `--dir` | `"dir"` | Where `script.py:ClassName` is resolved from |
+| `--config` | — | JSON file holding all of the above |
+
+The last three (`--db`, `--mock`, `--dir`) and `--session` / `--seed` are
+**runner** parameters: consumed by the CLI itself to create the store, seed
+content and resolve paths. They are not read by `EdgeV4.from_config`, which is
+why they only appear in a single-edge `--config`, never in a graph manifest.
+
+---
+
 ## 2. All Execution Modes & Running Guide (运行方式全景指南)
 
 Vertex-Edge Agent Framework supports multiple execution paradigms: standalone CLI scripts, headless programmatic Python calls, request-driven agent harness clocks, and OpenAI-compatible HTTP services.
@@ -265,8 +434,8 @@ curl -X POST http://localhost:11434/api/sessions/{session_id}/vertices/{vertex_n
 ### 2.5 Automated Testing (运行自动化测试)
 
 ```bash
-# Run complete test suite (551 tests, 100% pass rate)
-pytest -q
+# Full suite — 723 tests; the 6 "live" ones need a real model API key, so they're deselected
+pytest tests/ -q -m "not live"
 
 # Run edge metrics telemetry benchmarks
 pytest tests/test_v4_edge_metrics.py -v
@@ -711,8 +880,11 @@ Navigate to `http://localhost:11434/dashboard` in your browser:
 The framework includes a comprehensive test suite covering unit tests, SQLite persistence, concurrency semaphores, security defenses, Agent Harness HTTP execution, and performance benchmarks:
 
 ```bash
-# Run full test suite (551 tests, 100% pass rate)
-pytest
+# Full suite: 723 passed, 0 failed (the 6 "live" tests need a real model API key)
+pytest tests/ -q -m "not live"
+
+# Include the live tests (requires network + a real model API key)
+pytest tests/ -m live
 
 # Run specific V4 tests
 pytest tests/test_v4_edge_metrics.py tests/test_openai_v4_endpoints.py tests/test_harness_http_executor.py -v
