@@ -28,7 +28,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--dir", default=None, help="Base directory for resolving relative script and database paths")
     parser.add_argument("--db", default=None, help="SQLite database path")
     parser.add_argument("--session", default=None, help="Session identifier (required if not in config JSON)")
-    parser.add_argument("--edge-id", default=None, help="Edge identifier")
+    parser.add_argument(
+        "--id",
+        "--edge-id",
+        dest="edge_id",
+        default=None,
+        help="Edge identifier (matches the 'id' key in the config JSON; '--edge-id' "
+        "is a deprecated alias)",
+    )
     parser.add_argument(
         "--type",
         default=None,
@@ -37,8 +44,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "'script.py:ClassName'. Any value containing ':' or ending in '.py' is "
         "loaded from a script, so no type is ever added to a fixed list.",
     )
-    parser.add_argument("--input", default=None, help="Input vertex name")
-    parser.add_argument("--output", default=None, help="Output vertex name")
+    parser.add_argument("--input", default=None, help="Input vertex name ('input_vertex' in the config JSON)")
+    parser.add_argument("--output", default=None, help="Output vertex name ('output_vertex' in the config JSON)")
     parser.add_argument("--script", default=None, help="Script path for code or recovery edge")
     parser.add_argument("--model", default=None, help="Model name for LLM edge")
     parser.add_argument("--settings", default=None, help="JSON settings string")
@@ -85,9 +92,14 @@ def main() -> None:
         if abs_base_dir not in sys.path:
             sys.path.insert(0, abs_base_dir)
 
+    # Canonical config key is "session"; "session_id" is kept as a deprecated
+    # alias so existing single-edge configs keep working.
     session = args.session or config_json.get("session") or config_json.get("session_id")
     if not session:
-        sys.stderr.write("Error: --session is required (either via CLI argument or 'session' in JSON config)\n")
+        sys.stderr.write(
+            "Error: --session is required (either via the CLI or the 'session' key in "
+            "the config JSON; 'session_id' is a deprecated alias)\n"
+        )
         sys.exit(1)
 
     db_path = args.db or config_json.get("db", ":memory:")
