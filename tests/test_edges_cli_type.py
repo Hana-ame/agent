@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from framework.edges.cli import parse_args
+from framework.vertex_v4 import VertexStoreV4
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -32,6 +33,30 @@ class UpperEdge(EdgeV4):
         if not ok:
             return EdgeResultV4(edge_id=self.id, success=False, skipped=True, reason=reason)
         out = str(in_v.content).upper()
+        store.apply_merge_strategy(
+            session_id=session_id, name=self.output_vertex, incoming_content=out
+        )
+        if auto_transition:
+            store.update_vertex_state(
+                session_id, self.output_vertex, VertexStateV4.DATA_READY.value
+            )
+        return EdgeResultV4(edge_id=self.id, success=True, output=out)
+"""
+
+
+SETTINGS_EDGE_SOURCE = """
+import json
+
+from framework.edges.base import EdgeResultV4, EdgeV4
+from framework.vertex_v4 import VertexStateV4
+
+
+class SettingsEdge(EdgeV4):
+    async def run(self, session_id, store, agent=None, auto_transition=True, **kwargs):
+        ok, reason, in_v, out_v = self.check_handshake(session_id, store)
+        if not ok:
+            return EdgeResultV4(edge_id=self.id, success=False, skipped=True, reason=reason)
+        out = json.dumps(self.settings, sort_keys=True)
         store.apply_merge_strategy(
             session_id=session_id, name=self.output_vertex, incoming_content=out
         )
@@ -480,3 +505,159 @@ class TestFlagJsonKeyMapping:
         assert "--session" in proc.stderr
         assert "'session'" in proc.stderr
         assert "deprecated alias" in proc.stderr
+
+
+class TestRunnerParameterCoverage:
+    """The runner parameters of ``edges/cli.py``, each with a regression test."""
+
+    def _cli(
+        self, args: list, tmp_path: Path
+    ) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "framework.edges.cli", *args],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=REPO_ROOT,
+            env=_cli_env(),
+        )
+
+    def test_model_flag_is_accepted(self) -> None:
+        assert parse_args(["--model", "gpt-test"]).model == "gpt-test"
+
+    def test_mock_flag_parses(self) -> None:
+        assert parse_args(["--mock"]).mock is True
+        assert parse_args([]).mock is None
+
+    def test_settings_flag_merges_into_the_edge_settings(self, tmp_path: Path) -> None:
+        (tmp_path / "settings_edge.py").write_text(SETTINGS_EDGE_SOURCE, encoding="utf-8")
+        config = tmp_path / "edge.json"
+        config.write_text(
+            json.dumps(
+                {
+                    "session": "settings_test",
+                    "type": "settings_edge.py:SettingsEdge",
+                    "input_vertex": "v_in",
+                    "output_vertex": "v_out",
+                    "seed": "ignored",
+                    "settings": {"from_cfg": "cfg"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        proc = self._cli(
+            [
+                "--config",
+                str(config),
+                "--dir",
+                str(tmp_path),
+                "--settings",
+                '{"from_cli": "cli"}',
+            ],
+            tmp_path,
+        )
+        assert proc.returncode == 0, proc.stderr
+        merged = json.loads(json.loads(proc.stdout)["output"])
+        # Both sides of the merge reached the edge. (from_config also records the
+        # internal _edge_class_spec marker for dynamic edges, so exact equality is
+        # not asserted.)
+        assert merged["from_cfg"] == "cfg"
+        assert merged["from_cli"] == "cli"
+
+    def test_settings_invalid_json_exits_one(self, tmp_path: Path) -> None:
+        proc = self._cli(["--settings", "{oops"], tmp_path)
+        assert proc.returncode == 1
+        assert "Invalid JSON for --settings" in proc.stderr
+
+    def test_config_file_missing_exits_one(self, tmp_path: Path) -> None:
+        proc = self._cli(["--config", str(tmp_path / "nope.json")], tmp_path)
+        assert proc.returncode == 1
+        assert "Config file not found" in proc.stderr
+
+    def test_cli_flag_wins_over_config_value(self, tmp_path: Path) -> None:
+        (tmp_path / "upper.py").write_text(EDGE_SOURCE, encoding="utf-8")
+        db_file = tmp_path / "cli.db"
+        config = tmp_path / "edge.json"
+        config.write_text(
+            json.dumps(
+                {
+                    "session": "from_cfg",
+                    "type": "upper.py:UpperEdge",
+                    "input_vertex": "v_in",
+                    "output_vertex": "v_out",
+                    "seed": "hello",
+                }
+            ),
+            encoding="utf-8",
+        )
+        proc = self._cli(
+            [
+                "--config",
+                str(config),
+                "--dir",
+                str(tmp_path),
+                "--session",
+                "cli_sess",
+                "--db",
+                str(db_file),
+            ],
+            tmp_path,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["output"] == "HELLO"
+
+        # The CLI session won and the vertices landed under it in the file db.
+        store = VertexStoreV4(str(db_file))
+        try:
+            assert store.get_vertex("cli_sess", "v_out") is not None
+            assert store.get_vertex("from_cfg", "v_out") is None
+        finally:
+            store.close()
+
+    def test_type_flag_overrides_the_config_type(self, tmp_path: Path) -> None:
+        (tmp_path / "upper.py").write_text(EDGE_SOURCE, encoding="utf-8")
+        config = tmp_path / "edge.json"
+        config.write_text(
+            json.dumps(
+                {
+                    "session": "t",
+                    "type": "code",
+                    "input_vertex": "v_in",
+                    "output_vertex": "v_out",
+                    "seed": "hello",
+                }
+            ),
+            encoding="utf-8",
+        )
+        proc = self._cli(
+            [
+                "--config",
+                str(config),
+                "--dir",
+                str(tmp_path),
+                "--type",
+                "upper.py:UpperEdge",
+            ],
+            tmp_path,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["output"] == "HELLO"
+
+    def test_config_edge_type_alias_still_accepted(self, tmp_path: Path) -> None:
+        (tmp_path / "upper.py").write_text(EDGE_SOURCE, encoding="utf-8")
+        config = tmp_path / "edge.json"
+        config.write_text(
+            json.dumps(
+                {
+                    "session": "t",
+                    "edge_type": "upper.py:UpperEdge",
+                    "input_vertex": "v_in",
+                    "output_vertex": "v_out",
+                    "seed": "hello",
+                }
+            ),
+            encoding="utf-8",
+        )
+        proc = self._cli(["--config", str(config), "--dir", str(tmp_path)], tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["output"] == "HELLO"
