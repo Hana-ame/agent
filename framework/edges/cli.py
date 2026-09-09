@@ -49,7 +49,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--script", default=None, help="Script path for code or recovery edge")
     parser.add_argument("--model", default=None, help="Model name for LLM edge")
     parser.add_argument("--settings", default=None, help="JSON settings string")
-    parser.add_argument("--seed-input", default=None, help="Optional initial input string to seed into input vertex")
+    parser.add_argument(
+        "--seed",
+        "--seed-input",
+        dest="seed_input",
+        default=None,
+        help="Initial content to seed into the input vertex before the run "
+        "('--seed-input' is a deprecated alias)",
+    )
     parser.add_argument("--mock", action="store_true", default=None, help="Run with mock LLM agent for offline testing")
     return parser.parse_args(argv)
 
@@ -106,7 +113,12 @@ def main() -> None:
     if db_path != ":memory:" and not os.path.isabs(db_path) and base_dir:
         db_path = os.path.join(base_dir, db_path)
 
-    seed_input = args.seed_input if args.seed_input is not None else config_json.get("seed_input")
+    # Canonical config key is "seed"; "seed_input" is a deprecated alias.
+    seed_input = (
+        args.seed_input
+        if args.seed_input is not None
+        else config_json.get("seed") or config_json.get("seed_input")
+    )
     is_mock = args.mock if args.mock is not None else bool(config_json.get("mock", False))
 
     edge_config = dict(config_json)

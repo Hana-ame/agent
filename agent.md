@@ -356,7 +356,8 @@ python3 -m framework.server_v4 --port 11434 --db agent_data.db --snapshot-dir sn
 > `"input_vertex"`/`"output_vertex"`、`--type`↔`"type"`、`--script`↔`"script"`、
 > `--model`↔`"model"`、`--settings`↔`"settings"`。后四个是**运行器**参数——
 > `--session`↔`"session"`（`"session_id"` 为弃用别名）、`--db`↔`"db"`、
-> `--seed-input`↔`"seed_input"`、`--mock`↔`"mock"`、`--dir`↔`"dir"`——由 CLI 自己
+> `--seed`↔`"seed"`（`--seed-input`/`"seed_input"` 为弃用别名）、`--mock`↔`"mock"`、
+> `--dir`↔`"dir"`——由 CLI 自己
 > 消费（建库、种子、路径解析），不传给 `EdgeV4.from_config`，因此只出现在单条边的
 > `--config` 里，不出现在图 manifest 中。
 >

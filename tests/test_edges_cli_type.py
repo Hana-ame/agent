@@ -333,6 +333,41 @@ class TestFlagJsonKeyMapping:
         assert parse_args(["--id", "e1"]).edge_id == "e1"
         assert parse_args(["--edge-id", "e1"]).edge_id == "e1"
 
+    def test_seed_flag_is_the_canonical_name(self, tmp_path: Path) -> None:
+        (tmp_path / "upper.py").write_text(EDGE_SOURCE, encoding="utf-8")
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "framework.edges.cli",
+                "--dir",
+                str(tmp_path),
+                "--id",
+                "seed_edge",
+                "--type",
+                "upper.py:UpperEdge",
+                "--session",
+                "seed_flag",
+                "--input",
+                "v_in",
+                "--output",
+                "v_out",
+                "--seed",
+                "seed me",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=REPO_ROOT,
+            env=_cli_env(),
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["output"] == "SEED ME"
+
+    def test_seed_input_flag_is_a_deprecated_alias(self) -> None:
+        assert parse_args(["--seed", "x"]).seed_input == "x"
+        assert parse_args(["--seed-input", "y"]).seed_input == "y"
+
     def test_help_names_both_spellings(self) -> None:
         import contextlib
 
@@ -359,7 +394,7 @@ class TestFlagJsonKeyMapping:
                     "type": "upper.py:UpperEdge",
                     "input_vertex": "v_in",
                     "output_vertex": "v_out",
-                    "seed_input": "from json",
+                    "seed": "from json",
                 }
             ),
             encoding="utf-8",
