@@ -341,6 +341,15 @@ python3 -m framework.server_v4 --port 11434 --db agent_data.db --snapshot-dir sn
 > `framework.run_from_manifest(path, session_id=...)`（一次完成加载 + 写入 SQLite + 执行）；
 > 旧版 `examples/run.py` 仍是 **V1** 运行器且未改动。两者都会拒绝对方栈的 manifest，
 > 并在错误信息里指向正确的运行器。
+>
+> 自定义边统一用 `script.py:ClassName` 一种写法，**没有类型白名单**：
+> `framework/edges/cli.py` 的 `--type` 也不再限制取值（`--type my_edge.py:MyEdge` 直接可用），
+> `is_dynamic_edge_type()` 只按"含 `:` 或以 `.py` 结尾"判断是否走脚本加载，
+> 所以新增自定义边永远不需要改任何框架文件。
+>
+> 核心引擎不依赖 Web 栈：`create_v4_server`、`SessionGraphManagerV4`、
+> `SSEExecutorV4`、`ToolCallEcho` 均改为惰性解析（PEP 562 `__getattr__`），
+> `import framework` 在未安装 FastAPI 的环境中可用；仅当访问这些符号时才加载 FastAPI。
 
 ### 常用 REST API
 | 接口 | 方法 | 说明 |

@@ -1,3 +1,5 @@
+import importlib
+
 from .executor import Executor, ExecutionResult, GraphEvent, CheckpointedExecutor, HumanGateVertex, ExecutorHooks
 from .agents import (
     BaseAgent,
@@ -75,14 +77,6 @@ from .worker_queue_v4 import (
     EdgeTaskPayload,
     EdgeTaskResult,
 )
-from .server_v4 import (
-    create_v4_server,
-    SessionGraphManagerV4,
-)
-from .sse_executor_v4 import (
-    SSEExecutorV4,
-    ToolCallEcho,
-)
 from .workflow_executor_v4 import (
     WorkflowExecutorV4,
     WorkflowEventV4,
@@ -123,23 +117,30 @@ __all__ = [
     'WorkflowExecutorV4', 'WorkflowEventV4', 'WorkflowResultV4',
 ]
 
-# Exported lazily so that ``python -m framework.run_v4`` does not trip runpy's
-# "already in sys.modules" warning, and so importing the package does not eagerly
-# pull the CLI runner into every consumer.
-_RUN_V4_EXPORTS = ("load_v4_manifest", "run_from_manifest", "run_manifest_async")
+# Exported lazily. Three reasons:
+# - ``.server_v4`` and ``.sse_executor_v4`` import FastAPI, so resolving them only
+#   on demand keeps the core engine usable without a web framework installed
+#   (``import framework`` must not require one).
+# - ``.run_v4`` is a CLI runner; pulling it in eagerly would slow every consumer.
+# - An eagerly imported submodule makes ``python -m framework.run_v4`` print
+#   runpy's "already in sys.modules" warning.
+# Symbols resolve to the same objects as before; only *when* they load changed.
+_LAZY_EXPORTS = {
+    # module (relative to this package), attribute
+    "create_v4_server": (".server_v4", "create_v4_server"),
+    "SessionGraphManagerV4": (".server_v4", "SessionGraphManagerV4"),
+    "SSEExecutorV4": (".sse_executor_v4", "SSEExecutorV4"),
+    "ToolCallEcho": (".sse_executor_v4", "ToolCallEcho"),
+    "load_v4_manifest": (".run_v4", "load_v4_manifest"),
+    "run_from_manifest": (".run_v4", "run_from_manifest"),
+    "run_manifest_async": (".run_v4", "run_manifest_async"),
+}
 
 
 def __getattr__(name):
-    if name in _RUN_V4_EXPORTS:
-        from .run_v4 import (
-            load_v4_manifest,
-            run_from_manifest,
-            run_manifest_async,
-        )
-        return {
-            "load_v4_manifest": load_v4_manifest,
-            "run_from_manifest": run_from_manifest,
-            "run_manifest_async": run_manifest_async,
-        }[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module, attribute = target
+    return getattr(importlib.import_module(module, __name__), attribute)
 
