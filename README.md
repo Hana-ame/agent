@@ -238,14 +238,16 @@ Vertex-Edge Agent Framework supports multiple execution paradigms: standalone CL
 
 ### 2.2 Headless Python SDK Execution Modes (代码内调用模式)
 
-You can invoke workflows directly within your Python applications using 4 execution modes:
+You can invoke workflows directly within your Python applications using 4 execution
+modes. The snippets below assume you already have a `graph` and a seeded `store` —
+build them with `load_v4_manifest` + `store.save_vertex` (Quick Start §3), or let
+`run_from_manifest` do both in one call.
 
 #### 1. Complete Workflow Execution (`ExecutorV4.run()`)
 Runs the graph concurrently to completion according to DAG topological order:
 ```python
-from framework import GraphV4, VertexStoreV4, ExecutorV4
+from framework import ExecutorV4
 
-store = VertexStoreV4(":memory:")
 executor = ExecutorV4(graph=graph, store=store, max_concurrency=4)
 result = await executor.run()
 print(f"Success: {result.success}, Completed Edges: {result.completed_edges}")
