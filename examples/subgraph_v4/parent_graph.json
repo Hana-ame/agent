@@ -1,6 +1,6 @@
 {
   "version": "4.0",
-  "session_id": "parent_subgraph_demo",
+  "session": "parent_subgraph_demo",
   "metadata": {
     "name": "parent_pipeline"
   },

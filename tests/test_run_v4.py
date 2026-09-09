@@ -343,3 +343,70 @@ class TestEntryPoints:
         run_v1 = (REPO_ROOT / "examples" / "run.py").read_text(encoding="utf-8")
         assert "from framework import Graph, Executor" in run_v1
         assert "framework.run_v4" not in run_v1
+
+
+class TestSessionKey:
+    """A manifest declares its session as ``"session"``, matching ``--session``.
+
+    ``"session_id"`` is accepted as a deprecated alias (existing manifests use it)
+    and the CLI flag wins over either key. This does not rename the internal
+    ``session_id`` field of the storage layer.
+    """
+
+    def _manifest(self, base: Path, extra: dict) -> Path:
+        payload = {
+            "version": "4.0",
+            "metadata": {"name": "session_key_test"},
+            "vertices": [
+                {"name": "v_in", "content": "hello", "state": "data ready"},
+                {"name": "v_out", "content": "", "state": "todo"},
+            ],
+            "edges": [
+                {
+                    "id": "e1",
+                    "type": "code",
+                    "input_vertex": "v_in",
+                    "output_vertex": "v_out",
+                }
+            ],
+        }
+        payload.update(extra)
+        path = base / "graph.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_manifest_session_key_is_honoured(self, tmp_path: Path) -> None:
+        manifest = self._manifest(tmp_path, {"session": "from_session_key"})
+        graph = load_v4_manifest(manifest)
+        assert graph.session_id == "from_session_key"
+
+    def test_session_id_key_is_a_deprecated_alias(self, tmp_path: Path) -> None:
+        manifest = self._manifest(tmp_path, {"session_id": "from_session_id"})
+        assert load_v4_manifest(manifest).session_id == "from_session_id"
+
+    def test_session_takes_precedence_over_session_id(self, tmp_path: Path) -> None:
+        manifest = self._manifest(
+            tmp_path,
+            {"session": "canonical", "session_id": "deprecated"},
+        )
+        assert load_v4_manifest(manifest).session_id == "canonical"
+
+    def test_without_any_session_key_the_filename_is_used(self, tmp_path: Path) -> None:
+        manifest = self._manifest(tmp_path, {})
+        assert load_v4_manifest(manifest).session_id == "graph"
+
+    def test_cli_session_flag_overrides_the_manifest(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        manifest = self._manifest(tmp_path, {"session": "from_manifest"})
+        rc = main([str(manifest), "--session", "from_cli"])
+        assert rc == 0, capsys.readouterr().err
+        out = capsys.readouterr().out
+        assert "session:     from_cli" in out
+
+    def test_loader_helper_prefers_the_canonical_key(self) -> None:
+        from framework.graphs.loader import _manifest_session_id
+
+        assert _manifest_session_id({"session": "a"}) == "a"
+        assert _manifest_session_id({"session_id": "b"}) == "b"
+        assert _manifest_session_id({"session": "a", "session_id": "b"}) == "a"
+        assert _manifest_session_id({}) is None
+        assert _manifest_session_id({"session": "", "session_id": "b"}) == "b"

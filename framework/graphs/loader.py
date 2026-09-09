@@ -24,6 +24,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger("vertex_edge_agent.graphs.loader")
 
 
+def _manifest_session_id(data: Dict[str, Any]) -> Optional[str]:
+    """Session declared by a manifest.
+
+    The canonical key is ``"session"`` — the same one the CLI uses (``--session``)
+    and the same one the standalone edge runner accepts. ``"session_id"`` is kept
+    as a deprecated alias because existing manifests already use it; ``session_id``
+    is still the internal field name throughout the storage layer
+    (``VertexStoreV4``, ``EdgeRecordV4``), which this does not change.
+    """
+    return data.get("session") or data.get("session_id")
+
+
 class DiscreteGraphLoaderV4:
     """Loads discrete vertex and edge JSON components specified by a master manifest."""
 
@@ -43,7 +55,7 @@ class DiscreteGraphLoaderV4:
         """
         from framework.graphs.core import GraphV4
 
-        session_id = override_session_id or data.get("session_id", "default_session")
+        session_id = override_session_id or _manifest_session_id(data) or "default_session"
         name = (data.get("metadata") or {}).get("name", "subgraph")
         meta = dict(data.get("metadata") or {})
         b_dir = Path(base_dir).resolve() if base_dir else None
@@ -177,7 +189,7 @@ class DiscreteGraphLoaderV4:
         return cls.load_from_dict(
             data=data,
             base_dir=path.parent,
-            override_session_id=override_session_id or data.get("session_id", path.stem),
+            override_session_id=override_session_id or _manifest_session_id(data) or path.stem,
             script_roots=script_roots,
         )
 

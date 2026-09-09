@@ -1,6 +1,6 @@
 {
   "version": "4.0",
-  "session_id": "hn_v4_digest_session",
+  "session": "hn_v4_digest_session",
   "metadata": {
     "name": "Hacker News AI & Tech Digest V4",
     "description": "Multi-path autonomous V4 graph pipeline: HN API fetch & comments concurrent with Host Runtime Telemetry, Fan-In convergence via JSON_MERGE, and executive report synthesis with reflexive recovery."

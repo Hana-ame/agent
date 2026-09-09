@@ -359,6 +359,10 @@ python3 -m framework.server_v4 --port 11434 --db agent_data.db --snapshot-dir sn
 > `--seed-input`↔`"seed_input"`、`--mock`↔`"mock"`、`--dir`↔`"dir"`——由 CLI 自己
 > 消费（建库、种子、路径解析），不传给 `EdgeV4.from_config`，因此只出现在单条边的
 > `--config` 里，不出现在图 manifest 中。
+>
+> 会话键全栈统一为 `"session"`：单条边 `--config`、图 manifest（`vea-run-v4` 读的那个）
+> 都是 `"session"`，`"session_id"` 仅作为弃用别名保留。存储层内部字段名（`VertexStoreV4`、
+> `EdgeRecordV4`）与 HTTP 请求体仍叫 `session_id`，那是另一层，未改。
 
 ### 常用 REST API
 | 接口 | 方法 | 说明 |
