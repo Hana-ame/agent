@@ -74,14 +74,15 @@ Two tiers, one resolution point:
 | F | Packaging fixed: `fastapi`/`uvicorn` declared (they were undeclared while `import framework` requires them), dashboard assets shipped via `package-data`, `vea-server` console script; wheel install verified standalone | `pyproject.toml`, `framework/templates/__init__.py` | §4.7 |
 | F | V4 entry point added without touching the V1 runner: `framework/run_v4.py` (`run_from_manifest` / `run_manifest_async` / `load_v4_manifest`) collapses `load_from_manifest` + `populate_store` + `ExecutorV4.run()` into one call; `vea-run-v4` console script and the thin `examples/run_v4.py` wrapper; both runners reject the other stack's manifests with a message naming the correct one; `--script-root` reachable from the CLI | `framework/run_v4.py`, `examples/run_v4.py`, `pyproject.toml`, `tests/test_run_v4.py` | usability follow-up |
 | F | Custom edges are `script.py:ClassName` everywhere — no type whitelist. `framework/edges/cli.py --type` dropped `choices=edge_type_choices()` and passes the value through to `EdgeV4.from_config`, so `--type my_edge.py:MyEdge` works; a typo now fails at the edge layer with a message explaining the script-spec format instead of an argparse "invalid choice". `parse_args(argv=None)` added for testability | `framework/edges/cli.py`, `tests/test_edges_cli_type.py` | usability follow-up |
+| F | `python -m framework.edges.cli` no longer prints runpy's "already in sys.modules" RuntimeWarning: `framework/edge_v4.py` imported `framework.edges.cli` at module level, and `framework/__init__.py` imports `edge_v4`, so the CLI module was already in `sys.modules` before runpy executed it. The `main` / `parse_args` re-export now resolves through a PEP 562 `__getattr__` (backwards compatible — `from framework.edge_v4 import main, parse_args` still works), matching what the four LLM edge modules already did inside their `__main__` blocks | `framework/edge_v4.py`, `tests/test_edges_cli_type.py` | extensibility follow-up |
 | F | Core engine no longer needs the web stack: `create_v4_server`, `SessionGraphManagerV4`, `SSEExecutorV4` and `ToolCallEcho` resolve lazily through a single PEP 562 `__getattr__` map (they are the only two modules — `server_v4`, `sse_executor_v4` — that import FastAPI). `import framework` now works with FastAPI absent; symbols resolve to the same objects and still work with it installed | `framework/__init__.py`, `tests/test_edges_cli_type.py` | §4.7 |
 
-Verification: `pytest tests/ -m "not live"` → **699 passed, 0 failed** (6 live
+Verification: `pytest tests/ -m "not live"` → **701 passed, 0 failed** (6 live
 deselected). New regression suites: `tests/test_security_hardening.py` (32),
 `tests/test_edge_registry.py` (29), `tests/test_state_color_split.py` (9),
 `tests/test_executor_settlement.py` (8), `tests/test_custom_edge_extension.py` (13),
 `tests/test_edge_type_surface.py` (16), `tests/test_run_v4.py` (25),
-`tests/test_edges_cli_type.py` (10). The built wheel was installed into a clean
+`tests/test_edges_cli_type.py` (12). The built wheel was installed into a clean
 target and served the dashboard with a non-empty body.
 
 ---
