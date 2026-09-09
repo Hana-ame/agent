@@ -22,7 +22,7 @@ docs, the current docs win.
 | `handoff.md` | Early handoff audit notes |
 | `review_report.md` | Pre-refactor framework review — describes a layout that no longer exists, and contains absolute paths to another machine |
 | `hn_v4_digest_report.md` | One-off output of the Hacker News digest example |
-| `mtnode-aio-review.md` | Review of the separate `mtnode-aio` Electron project; not tracked by git |
+| `mtnode-aio-review.md` | Review of the separate `mtnode-aio` Electron project, using this framework as a reference |
 | `v4-architecture-spec.md` | V4.0 architectural specification (superseded by ARCHITECTURE.md) |
 | `v4-implementation-and-verification-report.md` | V4.0 implementation and verification report |
 | `v4-runtime-issues-analysis.md` | Concurrency, race and deadlock review logs |
