@@ -26,7 +26,108 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        
+
     - name: Test with pytest
       run: |
         python -m pytest tests/ -v -m "not live"
+
+  # `build-and-test` runs pytest against the checked-out source tree, so it never
+  # exercises the installed distribution. This job is the "does a user who runs
+  # pip install actually succeed" gate: it catches undeclared dependencies, broken
+  # console scripts, pyproject syntax errors and assets that are missing from the
+  # wheel (an editable install cannot catch that one — it reads the source tree).
+  install-and-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Editable install (dependency declarations, pyproject syntax, entry points)
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        # Run from a neutral cwd: from the checkout the import would resolve
+        # against the source tree instead of the installed distribution.
+        cd /tmp
+        python -c "import framework; framework.run_from_manifest('$GITHUB_WORKSPACE/examples/custom_edge/config.json', session_id='ci_editable')"
+
+    - name: Console script runs outside the source tree
+      run: |
+        cd /tmp
+        vea-run-v4 "$GITHUB_WORKSPACE/examples/custom_edge/config.json" --session ci_cli | grep -q "5 WORDS"
+
+    - name: Build wheel and verify its contents
+      run: |
+        python -m pip install --upgrade build
+        python -m build --wheel
+        python - <<'PY'
+        import glob
+        import zipfile
+
+        wheel = glob.glob("dist/*.whl")[0]
+        with zipfile.ZipFile(wheel) as archive:
+            names = set(archive.namelist())
+
+        required = [
+            "framework/__init__.py",
+            "framework/run_v4.py",
+            "framework/edges/registry.py",
+            "framework/templates/__init__.py",
+            "framework/templates/dashboard.html",
+            "framework/templates/dashboard.js",
+            "framework/templates/dashboard.css",
+        ]
+        missing = [path for path in required if path not in names]
+        assert not missing, f"missing from wheel: {missing}"
+
+        entry_points = next(
+            name for name in names if name.endswith(".dist-info/entry_points.txt")
+        )
+        with zipfile.ZipFile(wheel) as archive:
+            scripts = archive.read(entry_points).decode()
+        assert "vea-run-v4 = framework.run_v4:main" in scripts, scripts
+        assert "vea-server = framework.server.app:main" in scripts, scripts
+
+        print(f"wheel ok: {wheel} ({len(names)} files)")
+        PY
+
+    - name: Clean-venv install of the wheel + server smoke
+      run: |
+        python -m venv /tmp/clean
+        /tmp/clean/bin/pip install --upgrade pip
+        /tmp/clean/bin/pip install dist/*.whl
+        # Run from a neutral cwd so the checks exercise the venv's
+        # site-packages, not the checkout next door.
+        cd /tmp
+        /tmp/clean/bin/vea-run-v4 "$GITHUB_WORKSPACE/examples/custom_edge/config.json" \
+          --session ci_wheel | grep -q "5 WORDS"
+
+        /tmp/clean/bin/vea-server --port 18181 --db /tmp/ci.db \
+          --snapshot-dir /tmp/ci_snaps >/tmp/ci_server.log 2>&1 &
+        server_pid=$!
+        up=0
+        for _ in $(seq 1 30); do
+          if curl -sf http://127.0.0.1:18181/api/edge-types | grep -q '"code"'; then
+            up=1
+            break
+          fi
+          sleep 1
+        done
+        test $up -eq 1 || { cat /tmp/ci_server.log; exit 1; }
+        curl -sf http://127.0.0.1:18181/dashboard | grep -qi "dashboard"
+        kill $server_pid 2>/dev/null || true
+
+    - name: Core engine imports without FastAPI
+      working-directory: /tmp
+      run: |
+        /tmp/clean/bin/pip uninstall -y fastapi uvicorn
+        /tmp/clean/bin/python -c "import framework; framework.run_from_manifest('$GITHUB_WORKSPACE/examples/custom_edge/config.json', session_id='ci_no_fastapi')"
