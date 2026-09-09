@@ -80,12 +80,12 @@ Two tiers, one resolution point:
 | F | CI now tests the *installed* distribution, not just the source tree. The existing job only ran pytest against the checkout, so it could never see an undeclared dependency, a broken console script or assets missing from the wheel (all three happened). A new `install-and-smoke` job does an editable install, runs the console scripts from outside the checkout, asserts wheel contents and entry points, installs the wheel into a clean venv and serves the dashboard from the packaged assets, then uninstalls FastAPI and imports the core engine | `.github/workflows/ci.yml` | §4.7 |
 | F | The session key is now `"session"` everywhere a document declares one: `graphs/loader.py` reads `"session"` (canonical) with `"session_id"` kept as a deprecated alias, and the three example manifests (`examples/hn_v4`, `subgraph_v4` parent/child) now use the canonical key. The internal storage fields (`VertexStoreV4`, `EdgeRecordV4`) and the HTTP request bodies still use `session_id` — a different layer, deliberately untouched | `framework/graphs/loader.py`, `examples/hn_v4/manifest.json`, `examples/subgraph_v4/`, `tests/test_run_v4.py` | naming follow-up |
 
-Verification: `pytest tests/ -m "not live"` → **715 passed, 0 failed** (6 live
+Verification: `pytest tests/ -m "not live"` → **723 passed, 0 failed** (6 live
 deselected). New regression suites: `tests/test_security_hardening.py` (32),
 `tests/test_edge_registry.py` (29), `tests/test_state_color_split.py` (9),
 `tests/test_executor_settlement.py` (8), `tests/test_custom_edge_extension.py` (13),
 `tests/test_edge_type_surface.py` (16), `tests/test_run_v4.py` (31),
-`tests/test_edges_cli_type.py` (20). The built wheel was installed into a clean
+`tests/test_edges_cli_type.py` (28). The built wheel was installed into a clean
 target and served the dashboard with a non-empty body, and the core engine was
 re-imported with FastAPI uninstalled — both checks now run on every push in the
 `install-and-smoke` CI job.
