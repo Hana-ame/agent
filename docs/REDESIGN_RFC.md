@@ -94,10 +94,14 @@ re-imported with FastAPI uninstalled — both checks now run on every push in th
 
 ## 3. Deliberately not changed
 
-- **V1 stack left in place** (`vertex.py`, `edge.py`, `graph.py`, `subgraph.py`,
-  `serve/`, `executor/`, `builders/`; ~4.7k lines, 14 test modules, 31 example
-  imports). Retiring it is a product decision, not a bug fix, and it would break
-  the examples that still target it.
+- **V1 stack left in place, and will not be modified** (`vertex.py`, `edge.py`,
+  `graph.py`, `subgraph.py`, `serve/`, `executor/`, `builders/`; ~4.7k lines, 14
+  test modules, 31 example imports). This is a decision, not a temporary
+  deferral: V1 is frozen as the legacy runner. The V4 work adds new entry points
+  instead of editing existing ones (`vea-run-v4`, `framework/run_v4.py`), and
+  both runners refuse the other stack's manifests with a message naming the
+  correct one. `tests/test_run_v4.py::test_v1_runner_is_untouched` pins the V1
+  runner's body so an accidental edit fails CI.
 - **`serve/app.py` (legacy V1 server)**: same hardening was *not* applied. It is a
   separate application; if it is still deployed it needs its own pass.
 - **`per_tier` semantics, SSE chunk shape, `finally: yield`** (H14/H15-adjacent):
@@ -121,7 +125,8 @@ re-imported with FastAPI uninstalled — both checks now run on every push in th
    `usage`, working `per_tier`, multimodal message handling.
 5. **SSE robustness** — keepalive frames, `X-Accel-Buffering` everywhere, and fix
    `finally: yield` (`server/sse.py`).
-6. **V1 retirement** — after migrating the examples worth keeping.
+6. ~~**V1 retirement**~~ — closed: V1 is not modified or retired; it stays as the
+   frozen legacy runner (see §3). No migration work is required to keep it.
 7. **Packaging** — ~~declare `fastapi`/`uvicorn`/`beautifulsoup4`~~ (done: deps,
    dashboard `package-data`, `vea-server` / `vea-run-v4` console scripts, and a
    wheel install verified). ~~make `import framework` not require FastAPI~~ (done:
