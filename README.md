@@ -210,6 +210,96 @@ The last three (`--db`, `--mock`, `--dir`) and `--session` / `--seed` are
 content and resolve paths. They are not read by `EdgeV4.from_config`, which is
 why they only appear in a single-edge `--config`, never in a graph manifest.
 
+### 5. Config reference
+
+#### V4 manifest — the full shape
+
+```json
+{
+  "version": "4.0",
+  "metadata": { "name": "my_graph", "description": "what this graph does" },
+  "session": "demo",
+  "vertices": [
+    { "name": "v_in",  "content": "the quick brown fox jumps",
+      "state": "data ready", "attributes": ["start"] },
+    { "name": "v_out", "content": "", "state": "todo", "attributes": ["end"] }
+  ],
+  "edges": [
+    { "id": "e1", "type": "code", "input_vertex": "v_in", "output_vertex": "v_out",
+      "script": "my_code.py", "settings": { "merge_strategy": "json_merge" } }
+  ]
+}
+```
+
+| Key | Required | Meaning |
+| :--- | :--- | :--- |
+| `version` | no | `"4.0"`. `vea-run-v4` decides a file is V1 when `version` does **not** start with `4` *and* every vertex lacks both `name` and `state`. Only unambiguous V1 manifests are refused, so a version-less V4 file still loads. |
+| `metadata` | no | Free-form dict; `metadata.name` becomes the graph name (`"subgraph"` if absent). |
+| `session` | no | Session id. Resolution order: `--session` > this key > filename stem (`"default_session"` when loading from a dict). `"session_id"` is a deprecated alias. |
+| `vertices` | yes | One entry per vertex: `name` (unique), `content`, `state`, `attributes`, `processed_count`. |
+| `edges` | yes | One entry per edge — each is passed straight to `EdgeV4.from_config` (see below). |
+| `subgraph` | no | A directory to load as a subgraph (child manifest + per-node `.json` files). |
+
+#### Edge config — the keys `EdgeV4.from_config` reads
+
+| Key | Meaning |
+| :--- | :--- |
+| `id` | Edge id (also `--id`) |
+| `type` | `"code"` / `"my_edges.py:MyEdge"`. `"edge_type"` is a lenient alias. |
+| `input_vertex`, `output_vertex` | Vertex names the edge consumes and produces |
+| `script` | `.py` path (or inline source for `code` edges when allowed) |
+| `model` | Model name for `llm` edges |
+| `settings` | Object merged with the edge's own settings (CLI `--settings` wins) |
+| `concurrency_limit`, `concurrency_group`, `priority`, `timeout` | Scheduling hints, top-level or inside `settings` |
+
+#### Vertex states, attributes, merge strategies
+
+| States (`state`) | `idle`, `data ready`, `todo`, `todo urgent`, `forbidden`, `reject`, `pruning` |
+| :--- | :--- |
+| Attributes (`attributes`) | `start`, `end`, `llm prompt`, `llm result`, `json`, `plain text`, `subgraph`, `active`, `inactive`, `orphan` |
+| Merge strategies (`settings.merge_strategy`) | `overwrite` (default), `json_merge` (shallow object merge), `list_append`, `reducer_script` (pairs with `reducer_script`) |
+
+#### Built-in edge types
+
+| Type | Purpose | `settings` keys |
+| :--- | :--- | :--- |
+| `code` (alias `code_edge`) | Run a Python script/function over the input content | `allow_inline_script`, `merge_strategy`, `reducer_script` |
+| `llm` (aliases `llm_chat`, `llm_generate`, `llm_process`, `llm_tool`, `llm_tool_call`, `llm_callable`, `llm_edge`) | Call a model through the agent protocol; the alias fixes the invocation mode | `model`, `prompt`, `temperature`, `agent_mode`, `merge_strategy`, `reducer_script` |
+| `tool` (alias `tool_call`) | Invoke a tool and merge its result | `args`, `arguments`, `arguments_template`, `agent_mode`, `merge_strategy` |
+| `sensenova` (alias `sensenova_edge`) | Remote SenseNova inference with two-sided handshake | `merge_strategy` |
+| `reflexive`, `recovery` | Self-correction / retry edges | `merge_strategy` |
+
+`script` is a **top-level** edge key, not a settings key — with
+`"settings": {"script": "..."}` the code edge silently ignores it and passes the
+input through. Relative paths resolve against the manifest's directory, and a
+script exposes any one of `execute`, `process`, `run` or `transform` as its entry
+point.
+
+`GET /api/edge-types` returns the registered types (`types`), plus
+`script_spec_supported: true` and whether script roots are configured
+(`script_roots_configured`). A script spec is **free text** in the graph editor,
+not part of that list.
+
+#### Single-edge `--config` JSON
+
+The single-edge CLI reads the same edge keys plus the runner parameters, so a
+config file is just a JSON version of the flags:
+
+```json
+{
+  "session": "s1",
+  "id": "e1",
+  "type": "my_edges.py:UpperCaseEdge",
+  "input_vertex": "v_in",
+  "output_vertex": "v_out",
+  "seed": "hello world",
+  "dir": "./my_edges",
+  "db": "graph.db",
+  "mock": false,
+  "settings": { "merge_strategy": "overwrite" }
+}
+```
+
 ---
 
 ## 2. All Execution Modes & Running Guide (运行方式全景指南)
@@ -896,6 +986,18 @@ pytest tests/test_v4_edge_metrics.py tests/test_openai_v4_endpoints.py tests/tes
 
 ## 8. Documentation & Architecture Reference
 
-- **System Handoff & Technical Specification**: See [docs/HANDOFF.md](docs/HANDOFF.md).
-- **Documentation Index & Archives**: See [docs/README.md](docs/README.md).
-- **Historical Reports & Architecture Specifications**: Located in [docs/archive/](docs/archive/).
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — full architecture guide: the
+  vertex-as-state / edge-as-computation model, the four layers, DAG scheduling,
+  fan-in settlement, the state/colour model, and the security defaults.
+- **[docs/REDESIGN_RFC.md](docs/REDESIGN_RFC.md)** — what changed in this revision
+  and why, migration notes, and the deliberately-unchanged list (V1 is frozen, not
+  retired).
+- **[docs/CODE_REVIEW_2026-09-08.md](docs/CODE_REVIEW_2026-09-08.md)** — the review
+  this revision answers. Its findings are kept as the original record; the banner at
+  the top carries the current test count and what is still open.
+- **[agent.md](agent.md)** — developer guide: module map, conventions, where things live.
+- **[docs/README.md](docs/README.md)** — documentation index.
+- **[docs/archive/](docs/archive/)** — historical specs, review logs, milestone plans
+  and one-off reports (the pre-refactor review report, the pre-hardening V4.0 handoff,
+  the legacy V1 usage guide, ...). Records, not references: when they conflict with
+  the current docs, the current docs win.
