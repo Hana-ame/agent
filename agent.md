@@ -350,6 +350,15 @@ python3 -m framework.server_v4 --port 11434 --db agent_data.db --snapshot-dir sn
 > 核心引擎不依赖 Web 栈：`create_v4_server`、`SessionGraphManagerV4`、
 > `SSEExecutorV4`、`ToolCallEcho` 均改为惰性解析（PEP 562 `__getattr__`），
 > `import framework` 在未安装 FastAPI 的环境中可用；仅当访问这些符号时才加载 FastAPI。
+>
+> 单条边的 CLI 运行器（`python -m framework.edges.cli`）flag ↔ `--config` JSON key：
+> `--id`↔`"id"`（`--edge-id` 为弃用别名，仍可用）、`--input`/`--output`↔
+> `"input_vertex"`/`"output_vertex"`、`--type`↔`"type"`、`--script`↔`"script"`、
+> `--model`↔`"model"`、`--settings`↔`"settings"`。后四个是**运行器**参数——
+> `--session`↔`"session"`（`"session_id"` 为弃用别名）、`--db`↔`"db"`、
+> `--seed-input`↔`"seed_input"`、`--mock`↔`"mock"`、`--dir`↔`"dir"`——由 CLI 自己
+> 消费（建库、种子、路径解析），不传给 `EdgeV4.from_config`，因此只出现在单条边的
+> `--config` 里，不出现在图 manifest 中。
 
 ### 常用 REST API
 | 接口 | 方法 | 说明 |

@@ -286,3 +286,162 @@ class TestCliModuleFormIsWarningFree:
         )
         assert proc.returncode == 0, proc.stderr
         assert proc.stdout.strip().split() == ["False", "True", "main", "True"]
+
+
+class TestFlagJsonKeyMapping:
+    """CLI flags line up with the config JSON keys: ``--id`` ↔ ``"id"``, and so on.
+
+    ``--input`` / ``--output`` keep their short names and map onto ``"input_vertex"``
+    / ``"output_vertex"``; ``--edge-id`` is now spelled ``--id`` (the old spelling
+    still works); the canonical config key for the session is ``"session"``.
+    """
+
+    def test_id_flag_is_the_edge_identifier(self, tmp_path: Path) -> None:
+        (tmp_path / "upper.py").write_text(EDGE_SOURCE, encoding="utf-8")
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "framework.edges.cli",
+                "--dir",
+                str(tmp_path),
+                "--id",
+                "custom_id",
+                "--type",
+                "upper.py:UpperEdge",
+                "--session",
+                "id_flag",
+                "--input",
+                "v_in",
+                "--output",
+                "v_out",
+                "--seed-input",
+                "flagged",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=REPO_ROOT,
+            env=_cli_env(),
+        )
+        assert proc.returncode == 0, proc.stderr
+        payload = json.loads(proc.stdout)
+        assert payload["edge_id"] == "custom_id"
+        assert payload["output"] == "FLAGGED"
+
+    def test_edge_id_is_a_deprecated_alias(self) -> None:
+        assert parse_args(["--id", "e1"]).edge_id == "e1"
+        assert parse_args(["--edge-id", "e1"]).edge_id == "e1"
+
+    def test_help_names_both_spellings(self) -> None:
+        import contextlib
+
+        import io
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            with pytest.raises(SystemExit) as excinfo:
+                parse_args(["--help"])
+        assert excinfo.value.code == 0
+        help_text = buffer.getvalue()
+        assert "--id" in help_text
+        assert "--edge-id" in help_text
+        assert "--input" in help_text and "input_vertex" in help_text
+
+    def test_config_json_session_key_is_canonical(self, tmp_path: Path) -> None:
+        (tmp_path / "upper.py").write_text(EDGE_SOURCE, encoding="utf-8")
+        config = tmp_path / "edge.json"
+        config.write_text(
+            json.dumps(
+                {
+                    "session": "from_json",
+                    "id": "cfg_edge",
+                    "type": "upper.py:UpperEdge",
+                    "input_vertex": "v_in",
+                    "output_vertex": "v_out",
+                    "seed_input": "from json",
+                }
+            ),
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "framework.edges.cli",
+                "--config",
+                str(config),
+                "--dir",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=REPO_ROOT,
+            env=_cli_env(),
+        )
+        assert proc.returncode == 0, proc.stderr
+        payload = json.loads(proc.stdout)
+        assert payload["edge_id"] == "cfg_edge"
+        assert payload["output"] == "FROM JSON"
+
+    def test_config_json_session_id_alias_still_works(self, tmp_path: Path) -> None:
+        (tmp_path / "upper.py").write_text(EDGE_SOURCE, encoding="utf-8")
+        config = tmp_path / "edge.json"
+        config.write_text(
+            json.dumps(
+                {
+                    "session_id": "from_json_alias",
+                    "type": "upper.py:UpperEdge",
+                    "input_vertex": "v_in",
+                    "output_vertex": "v_out",
+                    "seed_input": "alias",
+                }
+            ),
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "framework.edges.cli",
+                "--config",
+                str(config),
+                "--dir",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=REPO_ROOT,
+            env=_cli_env(),
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["output"] == "ALIAS"
+
+    def test_missing_session_mentions_the_canonical_key(self, tmp_path: Path) -> None:
+        config = tmp_path / "edge.json"
+        config.write_text(
+            json.dumps({"type": "code", "input_vertex": "a", "output_vertex": "b"}),
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "framework.edges.cli",
+                "--config",
+                str(config),
+                "--dir",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=REPO_ROOT,
+            env=_cli_env(),
+        )
+        assert proc.returncode == 1
+        assert "--session" in proc.stderr
+        assert "'session'" in proc.stderr
+        assert "deprecated alias" in proc.stderr
