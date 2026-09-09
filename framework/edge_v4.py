@@ -30,7 +30,6 @@ from framework.edges import (
     ToolEdgeV4,
 )
 from framework.edges.base import _resolve_script_callable
-from framework.edges.cli import main, parse_args
 
 __all__ = [
     "EdgeResultV4",
@@ -51,4 +50,19 @@ __all__ = [
 ]
 
 if __name__ == "__main__":
-    main()
+    from framework.edges.cli import main as _cli_main
+
+    _cli_main()
+
+
+# ``main`` / ``parse_args`` are re-exported from ``framework.edges.cli`` for
+# backwards compatibility. Importing that module eagerly here would drag the CLI
+# into every consumer of edge_v4, and then ``python -m framework.edges.cli``
+# prints runpy's "already in sys.modules" warning (runpy finds the module in
+# sys.modules before it executes it). Resolving on demand keeps both working.
+def __getattr__(name):
+    if name in ("main", "parse_args"):
+        from framework.edges import cli
+
+        return getattr(cli, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

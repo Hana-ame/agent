@@ -221,3 +221,68 @@ class TestLightImport:
         )
         assert proc.returncode != 0
         assert "AttributeError" in proc.stderr
+
+
+class TestCliModuleFormIsWarningFree:
+    """``python -m framework.edges.cli`` must not print runpy's RuntimeWarning.
+
+    ``framework.edge_v4`` used to do ``from framework.edges.cli import main,
+    parse_args`` at module level. Since ``framework/__init__.py`` imports
+    ``edge_v4``, the CLI module landed in ``sys.modules`` before runpy executed
+    it, which printed a RuntimeWarning on stderr.
+    """
+
+    def test_stderr_is_clean_when_running_the_cli(self, tmp_path: Path) -> None:
+        (tmp_path / "upper.py").write_text(EDGE_SOURCE, encoding="utf-8")
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "framework.edges.cli",
+                "--type",
+                "upper.py:UpperEdge",
+                "--session",
+                "quiet",
+                "--input",
+                "v_in",
+                "--output",
+                "v_out",
+                "--seed-input",
+                "hello runner",
+                "--dir",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=REPO_ROOT,
+            env=_cli_env(),
+        )
+        assert proc.returncode == 0
+        assert "RuntimeWarning" not in proc.stderr
+        assert proc.stderr.strip() == ""
+        assert json.loads(proc.stdout)["output"] == "HELLO RUNNER"
+
+    def test_edge_v4_imports_the_cli_lazily(self) -> None:
+        env = dict(os.environ)
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = str(REPO_ROOT) + (os.pathsep + existing if existing else "")
+        code = (
+            "import sys, framework.edge_v4 as ev\n"
+            "print('framework.edges.cli' in sys.modules)\n"
+            "ev.parse_args(['--type', 'a.py:B'])\n"
+            "print('framework.edges.cli' in sys.modules)\n"
+            "from framework.edge_v4 import main\n"
+            "print(main.__name__)\n"
+            "print('main' in ev.__all__ and 'parse_args' in ev.__all__)\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=REPO_ROOT,
+            env=env,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip().split() == ["False", "True", "main", "True"]
