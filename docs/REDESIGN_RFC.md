@@ -155,3 +155,20 @@ re-imported with FastAPI uninstalled — both checks now run on every push in th
 | Adding an edge type = 5 file edits | subclass + `"type": "file.py:ClassName"`, or one `@register_edge_type(...)` |
 | Dashboard type dropdown (4 options) | free text with suggestions from `GET /api/edge-types`; script specs accepted |
 | `create_v4_server(script_roots=...)` was ignored | wired through to validation, loading and graph rehydration; CLI flag `--script-root` |
+
+## 6. Documentation standard
+
+`docs/DOC_STANDARDS.md` pins the authoring rules this revision settled on: English
+by default (one Chinese narrative is the exception), canonical flag names that
+match their JSON keys with deprecated aliases labelled as deprecated, no bare
+test counts (state the command and its result instead), current docs at
+`docs/*.md` with history in `docs/archive/`, and no local-machine absolute paths.
+
+The mechanical subset is enforced by `scripts/check_docs.py` in CI: fence balance,
+relative-link resolution, local absolute paths, stale-count phrasing, index
+coverage, and untagged fences as a warning. Before the fixes it failed with two
+real findings: `agent.md` still linked to `file:///home/<user>/...` (a machine
+that is not this one), and a sample link in the standard itself resolved to the
+wrong directory. Two further classes of error it now guards against — quoted
+markdown that looks like a link, and byte-identical duplicate documents — are
+covered by the rules but checked by hand, since they need judgment.

@@ -179,7 +179,7 @@ async for event in executor.stream():
 
 ## 4. 历史快照与版本时间旅行（Graph Snapshots）
 
-框架内置了 [`GraphSnapshotManagerV4`](file:///home/gekkasayu/vertex_edge_agent/framework/snapshot_v4.py)，将图的每一次变更与执行过程自动归档为独立的完整 Graph JSON。
+框架内置了 [`GraphSnapshotManagerV4`](framework/snapshot_v4.py)，将图的每一次变更与执行过程自动归档为独立的完整 Graph JSON。
 
 ### 4.1 快照存储结构
 快照保存在本地目录 `snapshots/{session_id}/`，文件名带有零填充序列号与触发标识：
@@ -203,7 +203,7 @@ snapshots/
 
 ## 5. 编写你的第一个 Agent 流水线
 
-以一个纯粹且高效的 **AI 新闻摘要 Agent**（参考 [`examples/hn_ai_report_v4`](file:///home/gekkasayu/vertex_edge_agent/examples/hn_ai_report_v4/)）为例：
+以一个纯粹且高效的 **AI 新闻摘要 Agent**（参考 [`examples/hn_ai_report_v4`](examples/hn_ai_report_v4/)）为例：
 
 ### 拓扑结构
 ```text

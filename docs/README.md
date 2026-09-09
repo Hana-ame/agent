@@ -7,6 +7,7 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Full architecture guide — the vertex-as-state / edge-as-computation model, the four layers, DAG scheduling, fan-in settlement, the state/colour model, security defaults |
 | [REDESIGN_RFC.md](REDESIGN_RFC.md) | This revision: what changed and why, migration notes, and the deliberately-unchanged list (V1 is frozen, not retired) |
 | [CODE_REVIEW_2026-09-08.md](CODE_REVIEW_2026-09-08.md) | The review this revision answers; findings kept as the original record, banner carries the current test count |
+| [DOC_STANDARDS.md](DOC_STANDARDS.md) | Pinned formatting and authoring rules, enforced where possible by `scripts/check_docs.py` |
 | [../README.md](../README.md) | Usage guide — Quick Start, execution modes, config reference, API reference |
 | [../agent.md](../agent.md) | Developer guide — module map, conventions, where things live |
 
