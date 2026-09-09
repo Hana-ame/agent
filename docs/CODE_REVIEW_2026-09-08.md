@@ -17,8 +17,10 @@
 > (`install-and-smoke` in `.github/workflows/ci.yml`) instead of only testing the
 > source tree.
 > See `docs/REDESIGN_RFC.md` for what changed, migration notes, and the remaining
-> structural work (async store, snapshot policy, V4 hooks, OpenAI/SSE contract,
-> V1 retirement). Findings below are kept as the original record.
+> structural work (async store, snapshot policy, V4 hooks, OpenAI/SSE contract).
+> V1 is frozen rather than retired — it is never modified, and both runners
+> refuse the other stack's manifests. Findings below are kept as the original
+> record.
 
 - **Date**: 2026-09-08
 - **Revision reviewed**: `8cc16ef` on branch `vertex-edge-agent` (working tree clean)
