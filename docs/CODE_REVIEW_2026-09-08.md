@@ -13,7 +13,9 @@
 > was stored but never used; and `settings._edge_class_spec` recorded a
 > repository-root path that did not exist, so a stored custom edge failed to
 > rehydrate. Packaging was also fixed (undeclared `fastapi`/`uvicorn`, dashboard
-> assets missing from the wheel).
+> assets missing from the wheel), and CI now installs the package on every push
+> (`install-and-smoke` in `.github/workflows/ci.yml`) instead of only testing the
+> source tree.
 > See `docs/REDESIGN_RFC.md` for what changed, migration notes, and the remaining
 > structural work (async store, snapshot policy, V4 hooks, OpenAI/SSE contract,
 > V1 retirement). Findings below are kept as the original record.

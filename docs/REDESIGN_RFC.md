@@ -76,6 +76,7 @@ Two tiers, one resolution point:
 | F | Custom edges are `script.py:ClassName` everywhere — no type whitelist. `framework/edges/cli.py --type` dropped `choices=edge_type_choices()` and passes the value through to `EdgeV4.from_config`, so `--type my_edge.py:MyEdge` works; a typo now fails at the edge layer with a message explaining the script-spec format instead of an argparse "invalid choice". `parse_args(argv=None)` added for testability | `framework/edges/cli.py`, `tests/test_edges_cli_type.py` | usability follow-up |
 | F | `python -m framework.edges.cli` no longer prints runpy's "already in sys.modules" RuntimeWarning: `framework/edge_v4.py` imported `framework.edges.cli` at module level, and `framework/__init__.py` imports `edge_v4`, so the CLI module was already in `sys.modules` before runpy executed it. The `main` / `parse_args` re-export now resolves through a PEP 562 `__getattr__` (backwards compatible — `from framework.edge_v4 import main, parse_args` still works), matching what the four LLM edge modules already did inside their `__main__` blocks | `framework/edge_v4.py`, `tests/test_edges_cli_type.py` | extensibility follow-up |
 | F | Core engine no longer needs the web stack: `create_v4_server`, `SessionGraphManagerV4`, `SSEExecutorV4` and `ToolCallEcho` resolve lazily through a single PEP 562 `__getattr__` map (they are the only two modules — `server_v4`, `sse_executor_v4` — that import FastAPI). `import framework` now works with FastAPI absent; symbols resolve to the same objects and still work with it installed | `framework/__init__.py`, `tests/test_edges_cli_type.py` | §4.7 |
+| F | CI now tests the *installed* distribution, not just the source tree. The existing job only ran pytest against the checkout, so it could never see an undeclared dependency, a broken console script or assets missing from the wheel (all three happened). A new `install-and-smoke` job does an editable install, runs the console scripts from outside the checkout, asserts wheel contents and entry points, installs the wheel into a clean venv and serves the dashboard from the packaged assets, then uninstalls FastAPI and imports the core engine | `.github/workflows/ci.yml` | §4.7 |
 
 Verification: `pytest tests/ -m "not live"` → **701 passed, 0 failed** (6 live
 deselected). New regression suites: `tests/test_security_hardening.py` (32),
@@ -83,7 +84,9 @@ deselected). New regression suites: `tests/test_security_hardening.py` (32),
 `tests/test_executor_settlement.py` (8), `tests/test_custom_edge_extension.py` (13),
 `tests/test_edge_type_surface.py` (16), `tests/test_run_v4.py` (25),
 `tests/test_edges_cli_type.py` (12). The built wheel was installed into a clean
-target and served the dashboard with a non-empty body.
+target and served the dashboard with a non-empty body, and the core engine was
+re-imported with FastAPI uninstalled — both checks now run on every push in the
+`install-and-smoke` CI job.
 
 ---
 
@@ -121,8 +124,12 @@ target and served the dashboard with a non-empty body.
    dashboard `package-data`, `vea-server` / `vea-run-v4` console scripts, and a
    wheel install verified). ~~make `import framework` not require FastAPI~~ (done:
    the four server/SSE symbols resolve lazily, so the core engine imports without
-   the web stack — a lean wheel is now possible). Still open: a `pip install -e .`
-   CI job.
+   the web stack — a lean wheel is now possible). ~~add a `pip install -e .` CI
+   job~~ (done: `.github/workflows/ci.yml` gained an `install-and-smoke` job —
+   editable install, console scripts run from outside the checkout, wheel
+   contents and entry-point assertions, a clean-venv install that serves the
+   dashboard from the packaged assets, then a core import with FastAPI
+   uninstalled). Packaging is closed out.
 8. **Retention/eviction** — session locks/graphs grow unbounded; staging and
    `edge_metrics` have no prune path.
 
