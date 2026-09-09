@@ -4,8 +4,9 @@
 > critical engine findings, and H1–H5/H8/H9 have been fixed and covered by
 > regression tests; the lifecycle-state/traversal-colour split landed with a SQLite
 > migration; and edges can now be extended with **zero registration** via
-> `"type": "my_edge.py:MyEdge"`. Full suite: **689 passed, 0 failed** (the V4 runner
-> `vea-run-v4`, added afterwards, is documented in `docs/REDESIGN_RFC.md`).
+> `"type": "my_edge.py:MyEdge"`. Full suite: **699 passed, 0 failed** (the V4 runner
+> `vea-run-v4` and the FastAPI-free core import, added afterwards, are documented in
+> `docs/REDESIGN_RFC.md`).
 > A follow-up audit of the *client-facing* extension surface found three further
 > defects, all fixed: the dashboard's edge-type `<select>` (4 hardcoded options)
 > silently reset `llm_tool`/custom edges to `code`; `create_v4_server(script_roots=...)`

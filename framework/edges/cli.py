@@ -9,21 +9,20 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from framework.edges.base import AgentProtocol, EdgeV4, MockAgentV4
-from framework.edges.registry import edge_type_choices
 from framework.vertex_v4 import VertexStateV4, VertexStoreV4
 
 logger = logging.getLogger("vertex_edge_agent.edges.cli")
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse standalone command line arguments."""
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    """Parse standalone command line arguments (``argv`` is for tests)."""
     parser = argparse.ArgumentParser(description="Standalone V4 Edge Runner")
     parser.add_argument("--config", "-c", default=None, help="Path to JSON file specifying all edge parameters")
     parser.add_argument("--dir", default=None, help="Base directory for resolving relative script and database paths")
@@ -32,9 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--edge-id", default=None, help="Edge identifier")
     parser.add_argument(
         "--type",
-        choices=edge_type_choices(),
         default=None,
-        help="Edge type",
+        help="Edge type: a built-in name ('code', 'llm', 'tool', 'llm_tool', "
+        "'reflexive', 'sensenova', ...) or a custom edge class as a script spec "
+        "'script.py:ClassName'. Any value containing ':' or ending in '.py' is "
+        "loaded from a script, so no type is ever added to a fixed list.",
     )
     parser.add_argument("--input", default=None, help="Input vertex name")
     parser.add_argument("--output", default=None, help="Output vertex name")
@@ -43,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--settings", default=None, help="JSON settings string")
     parser.add_argument("--seed-input", default=None, help="Optional initial input string to seed into input vertex")
     parser.add_argument("--mock", action="store_true", default=None, help="Run with mock LLM agent for offline testing")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:

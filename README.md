@@ -35,6 +35,12 @@ Once installed, two console scripts are available:
   it refuses V4 manifests and `vea-run-v4` refuses V1 ones, each pointing at the
   other.
 
+The core engine (`GraphV4`, `ExecutorV4`, edges, store, runner) imports without the
+web stack: `fastapi`/`uvicorn` are loaded only when you actually use the server or
+`SSEExecutorV4` (`create_v4_server`, `SessionGraphManagerV4`, `SSEExecutorV4` and
+`ToolCallEcho` are resolved lazily). So the library can be embedded in a process
+that already has its own web framework.
+
 ---
 
 ## 2. All Execution Modes & Running Guide (运行方式全景指南)

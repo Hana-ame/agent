@@ -73,13 +73,16 @@ Two tiers, one resolution point:
 | F | Dashboard vertex state list completed (`pruning` was missing) and `setSelectValue` appends unlisted values instead of silently emptying the select | `templates/dashboard.html`, `templates/dashboard.js` | state/color follow-up |
 | F | Packaging fixed: `fastapi`/`uvicorn` declared (they were undeclared while `import framework` requires them), dashboard assets shipped via `package-data`, `vea-server` console script; wheel install verified standalone | `pyproject.toml`, `framework/templates/__init__.py` | §4.7 |
 | F | V4 entry point added without touching the V1 runner: `framework/run_v4.py` (`run_from_manifest` / `run_manifest_async` / `load_v4_manifest`) collapses `load_from_manifest` + `populate_store` + `ExecutorV4.run()` into one call; `vea-run-v4` console script and the thin `examples/run_v4.py` wrapper; both runners reject the other stack's manifests with a message naming the correct one; `--script-root` reachable from the CLI | `framework/run_v4.py`, `examples/run_v4.py`, `pyproject.toml`, `tests/test_run_v4.py` | usability follow-up |
+| F | Custom edges are `script.py:ClassName` everywhere — no type whitelist. `framework/edges/cli.py --type` dropped `choices=edge_type_choices()` and passes the value through to `EdgeV4.from_config`, so `--type my_edge.py:MyEdge` works; a typo now fails at the edge layer with a message explaining the script-spec format instead of an argparse "invalid choice". `parse_args(argv=None)` added for testability | `framework/edges/cli.py`, `tests/test_edges_cli_type.py` | usability follow-up |
+| F | Core engine no longer needs the web stack: `create_v4_server`, `SessionGraphManagerV4`, `SSEExecutorV4` and `ToolCallEcho` resolve lazily through a single PEP 562 `__getattr__` map (they are the only two modules — `server_v4`, `sse_executor_v4` — that import FastAPI). `import framework` now works with FastAPI absent; symbols resolve to the same objects and still work with it installed | `framework/__init__.py`, `tests/test_edges_cli_type.py` | §4.7 |
 
-Verification: `pytest tests/ -m "not live"` → **689 passed, 0 failed** (6 live
+Verification: `pytest tests/ -m "not live"` → **699 passed, 0 failed** (6 live
 deselected). New regression suites: `tests/test_security_hardening.py` (32),
 `tests/test_edge_registry.py` (29), `tests/test_state_color_split.py` (9),
 `tests/test_executor_settlement.py` (8), `tests/test_custom_edge_extension.py` (13),
-`tests/test_edge_type_surface.py` (16), `tests/test_run_v4.py` (25). The built wheel
-was installed into a clean target and served the dashboard with a non-empty body.
+`tests/test_edge_type_surface.py` (16), `tests/test_run_v4.py` (25),
+`tests/test_edges_cli_type.py` (10). The built wheel was installed into a clean
+target and served the dashboard with a non-empty body.
 
 ---
 
@@ -114,9 +117,11 @@ was installed into a clean target and served the dashboard with a non-empty body
    `finally: yield` (`server/sse.py`).
 6. **V1 retirement** — after migrating the examples worth keeping.
 7. **Packaging** — ~~declare `fastapi`/`uvicorn`/`beautifulsoup4`~~ (done: deps,
-   dashboard `package-data` and a `vea-server` console script are in place and a
-   wheel install was verified). Still open: make `import framework` not require
-   FastAPI (it imports `server_v4` eagerly), and add a `pip install -e .` CI job.
+   dashboard `package-data`, `vea-server` / `vea-run-v4` console scripts, and a
+   wheel install verified). ~~make `import framework` not require FastAPI~~ (done:
+   the four server/SSE symbols resolve lazily, so the core engine imports without
+   the web stack — a lean wheel is now possible). Still open: a `pip install -e .`
+   CI job.
 8. **Retention/eviction** — session locks/graphs grow unbounded; staging and
    `edge_metrics` have no prune path.
 
