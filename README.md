@@ -4,6 +4,8 @@ Vertex-Edge Agent Framework is a data-driven agent orchestration system where **
 
 > 📖 **架构与技术全景指南**：详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 以及开发者指南 [agent.md](agent.md)。
 
+> 🆕 **VEA V5 (新一代极简框架)**：`vea_v5/` 包——一句话建图 `V-E-V`、首个 VEA DAG 合并器（相似顶点用虚拟边连接）、验证驱动的闭环自演进、6 个 Tool-Call 原语。零依赖纯 `python3` 可跑，见 [docs/ARCHITECTURE_V5.md](docs/ARCHITECTURE_V5.md) 与 [docs/API_AND_TOOLS_GUIDE.md](docs/API_AND_TOOLS_GUIDE.md)，快速上手见 [§9](#9-vea-v5--next-generation-minimal-framework-新一代极简框架)。
+
 ---
 
 ## 1. Installation & Setup
@@ -1005,3 +1007,66 @@ pytest tests/test_v4_edge_metrics.py tests/test_openai_v4_endpoints.py tests/tes
   and one-off reports (the pre-refactor review report, the pre-hardening V4.0 handoff,
   the legacy V1 usage guide, ...). Records, not references: when they conflict with
   the current docs, the current docs win.
+
+---
+
+## 9. VEA V5 — Next Generation Minimal Framework (新一代极简框架)
+
+V5 is a ground-up rewrite of the orchestration model in the isolated `vea_v5/`
+package: **no 7-state vertex state machine, no SQLite sync boilerplate, no JSON
+manifest**. A graph is built one sentence at a time — `dag.add_step("x1", fn, "z1")`
+— roots and sinks are derived automatically, and the whole engine is stdlib-only
+(no installs, no API key: every example and test below runs on the built-in
+`SmartMockLLM`).
+
+Two flagship pieces ship in this repo:
+
+- **`SentenceToDAGMerger`** — the “first VEA DAG”: parses loose `V-E-V` sentences
+  (“从 x1 经过 y1 到 z1”), scores vertex similarity (“这两个挺像的”), bridges
+  similar vertices with `VirtualEdge`s (zero LLM cost), and compiles a runnable
+  business DAG.
+- **`ClosedLoopRunner` + `DAGToolKit`** — run → verify → mutate the DAG through
+  6 tool-call primitives → **incrementally re-run only the dirty downstream
+  branch** until the verifier passes.
+
+### 9.1 Quick start (零依赖快速上手)
+
+```python
+from vea_v5 import DAG, Executor
+
+dag = DAG("Hello_VEV_Pipeline")
+dag.add_step("x1", lambda text: [int(n) for n in text.split(",")], "z1")
+dag.add_step("z1", lambda nums: {"count": len(nums), "sum": sum(nums)}, "z2")
+
+report = Executor(dag).run_sync(inputs={"x1": "10, 20, 30, 40"})
+print(report.success, report.final_output)  # True {'count': 4, 'sum': 100}
+```
+
+### 9.2 Examples & verification (示例与验证)
+
+| Example | Demonstrates | Command |
+| :--- | :--- | :--- |
+| `examples/01_hello_vev.py` | One-sentence `V-E-V` building, auto roots/sinks | `python3 examples/01_hello_vev.py` |
+| `examples/02_sentence_merger_dag.py` | The first VEA DAG (merger) + virtual edges | `python3 examples/02_sentence_merger_dag.py` |
+| `examples/03_closed_loop_evolution.py` | Closed-loop self-evolution with incremental re-run | `python3 examples/03_closed_loop_evolution.py` |
+| `examples/04_llm_toolcall_builder.py` | An agent builds/fixes a DAG via the 6 tool-call primitives | `python3 examples/04_llm_toolcall_builder.py` |
+
+Unit tests — runnable with plain `python3` or `pytest`:
+
+```bash
+python3 tests/test_vea_v5_all.py
+# ALL 4 VEA V5 TEST SUITES PASSED SUCCESSFULLY!
+
+python3 -m pytest tests/test_vea_v5_all.py -q
+# 4 passed in 0.04s
+```
+
+### 9.3 Relationship to V1 / V4 (与 V1/V4 的关系)
+
+V5 **coexists** with the V1/V4 line and does not modify it: `vea_v5/` is a fully
+isolated package, and `framework/` (`GraphV4`, `ExecutorV4`, `vea-run-v4`,
+`vea-server`) keeps working exactly as documented in §1–§8. The project version
+moves to 5.0.0 to mark the new major; the V4 console scripts and entry points
+are unchanged. The V5 comparison table (what was abandoned and why) is in
+[docs/ARCHITECTURE_V5.md](docs/ARCHITECTURE_V5.md); the full API and the 6
+tool-call primitives are in [docs/API_AND_TOOLS_GUIDE.md](docs/API_AND_TOOLS_GUIDE.md).
