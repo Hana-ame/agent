@@ -15,6 +15,23 @@ Each example contains a `README.md` following the "Problem / Solution / Changes 
 > Each runner rejects the other stack's manifests with a message naming the correct
 > one.
 
+## VEA V5 Examples (新一代极简示例)
+
+Four **V5 example scripts** live directly under `examples/` (not in subdirectories).
+They use the isolated `vea_v5/` package: stdlib-only, no manifest, no SQLite, no
+API key (the built-in `SmartMockLLM` drives every `llm` edge offline). V1/V4
+examples above are unaffected.
+
+| Example | Problem Addressed | Execution Command |
+|---|---|---|
+| `01_hello_vev.py` | One-sentence `V-E-V` graph building with auto-derived roots/sinks | `python3 examples/01_hello_vev.py` |
+| `02_sentence_merger_dag.py` | The first VEA DAG: loose sentences → triplets → similar-vertex `VirtualEdge`s → runnable DAG | `python3 examples/02_sentence_merger_dag.py` |
+| `03_closed_loop_evolution.py` | Verifier-driven closed loop: fix buggy edges, incrementally re-run only the dirty branch | `python3 examples/03_closed_loop_evolution.py` |
+| `04_llm_toolcall_builder.py` | An agent builds and repairs a DAG purely through the 6 tool-call primitives | `python3 examples/04_llm_toolcall_builder.py` |
+
+Unit tests for V5 (also runnable with plain `python3`): `python3 tests/test_vea_v5_all.py`.
+Architecture and API docs: `docs/ARCHITECTURE_V5.md`, `docs/API_AND_TOOLS_GUIDE.md`.
+
 ## Overview Index
 
 | Example | Problem Addressed | Execution Command |
