@@ -375,6 +375,309 @@ def test_8_models_registry_and_layer_ordering() -> None:
     assert dag_sim.get_result() == "收到[100元]"
 
 
+def test_9_tag_based_fetch_and_reverse() -> None:
+    """测试 9：按指定 tag 获取内容、反转处理后保存回 dag.contents。"""
+    # 1. 创建 DAG，添加一条以 callable 为处理器、输入 tag=["todo"]、输出 tag=["done"] 的边
+    dag = DAG()
+    dag.add_edge(["todo"], lambda content: content[::-1], ["done"], layer=1)
+
+    # 2. 送入多条带 "todo" 标签的待办事项 + 一条不同标签的条目
+    dag.send({"tags": ["todo"], "content": "买牛奶", "gen": 0})
+    dag.send({"tags": ["todo"], "content": "写报告", "gen": 0})
+    dag.send({"tags": ["note"], "content": "这是一条备注", "gen": 0})
+
+    # 3. 运行 DAG
+    while not dag.has_tag("done"):
+        dag.run()
+
+    # 4. 验证反转结果已保存回 dag.contents
+    done_items = dag.find_by_tag("done")
+    assert len(done_items) == 2, f"应有 2 条 done 条目，实际 {len(done_items)}"
+    assert done_items[0]["content"] == "奶牛买", f"反转错误: {done_items[0]['content']}"
+    assert done_items[1]["content"] == "告报写", f"反转错误: {done_items[1]['content']}"
+
+    # 5. 验证 "note" 标签的条目未被 "todo" 边处理（tag 过滤生效）
+    assert len(dag.find_by_tag("note")) == 1
+    # note 条目没有后续处理，仍然只有 1 条
+    all_note = [c for c in dag.context if "note" in c["tags"]]
+    assert len(all_note) == 1
+    assert all_note[0]["content"] == "这是一条备注"
+
+    # 6. 验证 gen 代数递增
+    assert done_items[0]["gen"] == 1
+    assert done_items[1]["gen"] == 1
+
+    # 7. 验证原始 "todo" 条目仍在 dag.contents 中（未被删除）
+    todo_items = [c for c in dag.context if "todo" in c["tags"]]
+    assert len(todo_items) == 2
+    assert todo_items[0]["content"] == "买牛奶"
+
+
+def test_10_openai_compatible_api_edge() -> None:
+    """测试 10：OpenAI 兼容 API 边处理（model/key/params 四要素按 KEY 注入）。"""
+    # 1. 创建 SmartMockLLM 用于捕获调用参数
+    mock_llm = SmartMockLLM(
+        rules={
+            "翻译": lambda p: json.dumps({"translated": "hello"}, ensure_ascii=False),
+        }
+    )
+
+    # 2. 创建 DAG，注册 OpenAI 兼容模型（api/key/model/params）
+    dag = DAG(
+        llm=mock_llm,
+        models={
+            "gpt-4o": {
+                "api": "https://api.openai.com/v1",
+                "key": "sk-test-key",
+                "model": "gpt-4o",
+                "params": {"temperature": 0.2, "max_tokens": 256},
+            },
+        },
+    )
+
+    # 3. 添加使用 {"模型": "gpt-4o", "处理prompt": ...} 的边
+    dag.add_edge(
+        ["text"],
+        {"模型": "gpt-4o", "处理prompt": "请翻译: {content}"},
+        ["result"],
+        layer=1,
+    )
+
+    # 4. 送入文本并运行
+    dag.send({"tags": ["text"], "content": "你好", "gen": 0})
+    dag.run()
+
+    # 5. 验证模型名被正确替换为注册表中的真实模型名
+    assert len(mock_llm.call_history) == 1
+    call = mock_llm.call_history[0]
+    assert call["model"] == "gpt-4o", f"模型名错误: {call['model']}"
+    # 验证 prompt 中包含替换后的内容
+    assert "你好" in call["prompt"]
+
+    # 6. 验证处理结果
+    assert dag.has_result()
+    result = json.loads(dag.get_result())
+    assert result["translated"] == "hello"
+
+    # 7. 验证序列化结构中 models 注册表完整保存
+    serialized = dag.to_dict()
+    assert "contents" in serialized
+    assert "edges" in serialized
+    assert len(serialized["edges"]) == 1
+    edge_proc = serialized["edges"][0]["processor"]
+    assert isinstance(edge_proc, dict)
+    assert edge_proc.get("模型") == "gpt-4o"
+    assert "处理prompt" in edge_proc
+
+
+def test_11_multi_model_registry_switch() -> None:
+    """测试 11：多模型注册表切换——不同边使用不同模型 KEY，运行时自动路由。"""
+    mock_llm = SmartMockLLM(
+        rules={
+            "快速摘要": lambda p: "摘要A",
+            "深度分析": lambda p: "分析B",
+        }
+    )
+
+    dag = DAG(
+        llm=mock_llm,
+        models={
+            "fast": {
+                "api": "https://api.fast.cn/v1",
+                "key": "sk-fast",
+                "model": "fast-model-v1",
+                "params": {"temperature": 0.1},
+            },
+            "deep": {
+                "api": "https://api.deep.cn/v1",
+                "key": "sk-deep",
+                "model": "deep-model-v2",
+                "params": {"temperature": 0.0},
+            },
+        },
+    )
+
+    # 两条边使用不同模型
+    dag.add_edge(["doc"], {"模型": "fast", "处理prompt": "快速摘要: {content}"}, ["quick"], layer=1)
+    dag.add_edge(["doc"], {"模型": "deep", "处理prompt": "深度分析: {content}"}, ["deep"], layer=1)
+
+    dag.send({"tags": ["doc"], "content": "测试文档", "gen": 0})
+    dag.run()
+
+    # 验证两条边分别使用了正确的模型
+    assert len(mock_llm.call_history) == 2
+    models_used = [c["model"] for c in mock_llm.call_history]
+    assert "fast-model-v1" in models_used
+    assert "deep-model-v2" in models_used
+
+    # 验证两个结果都存在
+    assert len(dag.find_by_tag("quick")) == 1
+    assert len(dag.find_by_tag("deep")) == 1
+
+
+def test_12_bootstrap_dag_generates_framework_code() -> None:
+    """测试 12：自举 DAG —— 输入描述，在 tag="result" 产出完整框架源码。"""
+    from vea_v6 import create_bootstrap_dag
+
+    dag = create_bootstrap_dag()
+    dag.send({"tags": ["input"], "content": "", "gen": 0})
+    ticks = 0
+    while not dag.has_result() and ticks < 8:
+        dag.run()
+        ticks += 1
+
+    code = dag.get_result()
+    assert code and len(code) > 20000, "产出过短，不像完整框架"
+    # 产出必须是合法 Python
+    compile(code, "<bootstrapped>", "exec")
+    # 框架的公共 API 名都在源码里
+    for name in ("class DAG", "class ContentItem", "class Edge", "def generate_framework"):
+        assert name in code, f"生成物缺少 {name}"
+
+    # 拓扑：顶层那条需要两个输入 tag 的边必须由预设边拼出中间条目
+    synth = [i for i in dag.context if i.get("_preset_synthesized")]
+    assert len(synth) == 1, f"预设边应恰好合成 1 条，实际 {len(synth)}"
+    assert sorted(synth[0]["tags"]) == ["fixed_point", "framework_code"]
+
+
+def test_13_bootstrap_fixed_point_is_byte_identical() -> None:
+    """测试 13：固定点 —— 同一 SPEC 恒得同一份代码，且生成物能逐字节复现自身。"""
+    from vea_v6 import (
+        FRAMEWORK_SPEC,
+        render_framework_code,
+        verify_fixed_point,
+        verify_self_reproduction,
+    )
+
+    gen1 = render_framework_code(FRAMEWORK_SPEC)
+    gen2 = render_framework_code(FRAMEWORK_SPEC)
+    assert gen1 == gen2, "同一 SPEC 两次渲染不一致"
+
+    ok, reason = verify_fixed_point(FRAMEWORK_SPEC)
+    assert ok, reason
+
+    # 更强的一步：把生成物当模块执行，调它自己的 generate_framework()
+    ok2, reason2 = verify_self_reproduction(gen1)
+    assert ok2, reason2
+
+
+def test_14_bootstrap_generates_another_framework_from_same_prompt() -> None:
+    """测试 14：用同一段提示词换描述，能生成**另一个**同样自稳定的新框架。"""
+    from vea_v6 import bootstrap, verify_self_reproduction
+
+    desc = "一个面向多模态检索的 tag 驱动 DAG 框架，边可按 layer 并行，结果合并写回 contents"
+    r1 = bootstrap(desc)
+    r2 = bootstrap(desc)
+
+    assert r1.stable, r1.reason
+    assert r1.framework_code == r2.framework_code, "同一描述两次生成不一致"
+    compile(r1.framework_code, "<gen>", "exec")
+
+    ok, reason = verify_self_reproduction(r1.framework_code)
+    assert ok, reason
+
+    # 与默认 SPEC 的产物必须不同（说明 SPEC 真的参与了生成）
+    from vea_v6 import FRAMEWORK_SPEC, render_framework_code
+
+    assert r1.framework_code != render_framework_code(FRAMEWORK_SPEC)
+    assert r1.spec["summary"] == desc
+
+
+def test_15_generated_framework_is_runnable() -> None:
+    """测试 15：生成的框架能当普通库用 —— 建 DAG、按 tag 取内容、跑出 result。"""
+    import types
+
+    from vea_v6 import render_framework_code
+
+    code = render_framework_code()
+    mod = types.ModuleType("minivea_under_test")
+    mod.__file__ = "<minivea_under_test>"
+    exec(compile(code, "<minivea_under_test>", "exec"), mod.__dict__)
+
+    dag = mod.DAG("t", preset_edge=mod.DEFAULT_PRESET_EDGE)
+    dag.add_edge(["input"], lambda s: s[::-1], ["todo"], layer=1)
+    dag.add_edge(["todo"], lambda s: s.upper(), ["result"], layer=2)
+    dag.send({"tags": ["input"], "content": "abc", "gen": 0})
+    dag.run()
+
+    assert dag.has_result()
+    assert dag.get_result() == "CBA"
+    # 处理结果确实回到了 contents 中
+    assert any(i["content"] == "CBA" for i in dag.contents)
+
+
+def test_16_inline_openai_config_on_edge() -> None:
+    """测试 16：内联 OpenAI 配置边（api/key/model/params 直接写在 processor 里）。"""
+    from vea_v6 import OpenAICompatibleLLM
+
+    dag = DAG(preset_edge=DEFAULT_PRESET_EDGE, llm=OpenAICompatibleLLM(), models={})
+    processor = {
+        "api": "https://example.invalid/v1",
+        "key": "sk-inline-test",
+        "model": "demo-model",
+        "params": {"temperature": 0.0, "max_tokens": 32},
+        "处理prompt": "echo {content}",
+    }
+    edge = dag.add_edge(["input"], processor, ["out"], layer=1)
+
+    inline = edge.inline_llm_config
+    assert inline is not None
+    assert inline["base_url"] == "https://example.invalid/v1"
+    assert inline["api_key"] == "sk-inline-test"
+    assert inline["model"] == "demo-model"
+
+    cfg = dag._resolve_model_config(None, edge=edge)
+    assert cfg["model"] == "demo-model"
+    assert cfg["base_url"] == "https://example.invalid/v1"
+    assert cfg["api_key"] == "sk-inline-test"
+    assert cfg["params"]["max_tokens"] == 32
+
+    # 只写 {"模型": KEY} 不应被判成内联配置（否则会去查一个不存在的端点）
+    dag2 = DAG(models={"k": {"api": "https://x.invalid/v1", "key": "s", "model": "m"}})
+    edge2 = dag2.add_edge(["input"], {"模型": "k", "处理prompt": "{content}"}, ["out"], layer=1)
+    assert edge2.inline_llm_config is None
+
+
+def test_17_registry_key_not_treated_as_model_name() -> None:
+    """测试 17：注册表 KEY + 边内参数覆盖时，不得把 KEY 当成真实模型名。"""
+    models = {
+        "demo-key": {
+            "api": "https://demo.invalid/v1",
+            "key": "sk-demo",
+            "model": "real-model-name",
+            "params": {"temperature": 0.2},
+        }
+    }
+    dag = DAG(models=models)
+    edge = dag.add_edge(
+        ["input"], {"模型": "demo-key", "参数": {"temperature": 0.9}, "处理prompt": "{content}"},
+        ["out"], layer=1,
+    )
+    cfg = dag._resolve_model_config("demo-key", edge=edge)
+    assert cfg["model"] == "real-model-name", "KEY 被误当成模型名（实测会导致 provider 404）"
+    assert cfg["params"]["temperature"] == 0.9, "边内参数未覆盖注册表参数"
+    assert cfg["base_url"] == "https://demo.invalid/v1"
+
+
+def test_18_llm_text_extraction_falls_back_to_reasoning() -> None:
+    """测试 18：推理模型 content 为空时，回退 reasoning_content / reasoning 字段。"""
+    from vea_v6.llm import _extract_message_text
+
+    assert _extract_message_text({"choices": [{"message": {"content": "OK"}}]}) == "OK"
+    assert _extract_message_text(
+        {"choices": [{"message": {"content": "", "reasoning_content": "思考后作答"}}]}
+    ) == "思考后作答"
+    assert _extract_message_text(
+        {"choices": [{"message": {"reasoning": "only-reasoning"}}]}
+    ) == "only-reasoning"
+    try:
+        _extract_message_text({"choices": [{"message": {"content": "   "}}]})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("空正文应当抛出 ValueError")
+
+
 class TestVEAV6Suite(unittest.TestCase):
     """兼容 unittest 测试运行器的包装类。"""
 
@@ -402,6 +705,36 @@ class TestVEAV6Suite(unittest.TestCase):
     def test_8(self) -> None:
         test_8_models_registry_and_layer_ordering()
 
+    def test_9(self) -> None:
+        test_9_tag_based_fetch_and_reverse()
+
+    def test_10(self) -> None:
+        test_10_openai_compatible_api_edge()
+
+    def test_11(self) -> None:
+        test_11_multi_model_registry_switch()
+
+    def test_12(self) -> None:
+        test_12_bootstrap_dag_generates_framework_code()
+
+    def test_13(self) -> None:
+        test_13_bootstrap_fixed_point_is_byte_identical()
+
+    def test_14(self) -> None:
+        test_14_bootstrap_generates_another_framework_from_same_prompt()
+
+    def test_15(self) -> None:
+        test_15_generated_framework_is_runnable()
+
+    def test_16(self) -> None:
+        test_16_inline_openai_config_on_edge()
+
+    def test_17(self) -> None:
+        test_17_registry_key_not_treated_as_model_name()
+
+    def test_18(self) -> None:
+        test_18_llm_text_extraction_falls_back_to_reasoning()
+
 
 if __name__ == "__main__":
     test_1_dag_structure_and_edge_formats()
@@ -412,4 +745,14 @@ if __name__ == "__main__":
     test_6_meta_dag_builder_builds_runnable_v6_dag()
     test_7_parse_edge_sentences_variants()
     test_8_models_registry_and_layer_ordering()
-    print("ALL 8 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
+    test_9_tag_based_fetch_and_reverse()
+    test_10_openai_compatible_api_edge()
+    test_11_multi_model_registry_switch()
+    test_12_bootstrap_dag_generates_framework_code()
+    test_13_bootstrap_fixed_point_is_byte_identical()
+    test_14_bootstrap_generates_another_framework_from_same_prompt()
+    test_15_generated_framework_is_runnable()
+    test_16_inline_openai_config_on_edge()
+    test_17_registry_key_not_treated_as_model_name()
+    test_18_llm_text_extraction_falls_back_to_reasoning()
+    print("ALL 18 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")

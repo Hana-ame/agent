@@ -17,15 +17,35 @@
    - 通过在外部检测是否达成某个条件（一般而言是找一条 `tag="result"` 的 `content`）来作为终止信号和最后回应。
 5. **附赠用来构建 DAG 的 DAG (`create_dag_builder_dag` / `MetaDAGBuilder`)**：
    - 构建器自身即是一个标准 V6 `DAG`，接收任务/句子描述并通过自身处理边与预设边运行，在 `tag="result"` 中产出构建好的目标 V6 `DAG`。
+6. **自举 (`create_bootstrap_dag` / `bootstrap`)**：
+   - 输入一段框架描述，DAG 在 `tag="result"` 中产出**一份完整的 DAG 框架源码**（minivea）。
+   - 产出的框架内嵌自身 SPEC 与源码，调用其 `generate_framework()` 即可再生成一份**逐字节相同**的框架
+     （quine 固定点）——用同一段提示词换 SPEC 还能生成另一个新框架。
 """
 
+from vea_v6.bootstrap import (
+    FRAMEWORK_SPEC,
+    SPEC_SYNTHESIS_PROMPT,
+    BootstrapResult,
+    bootstrap,
+    check_tail_format_sync,
+    create_bootstrap_dag,
+    extract_spec_from_code,
+    fallback_spec_from_text,
+    normalize_spec,
+    render_framework_code,
+    spec_to_text,
+    synthesize_spec,
+    verify_fixed_point,
+    verify_self_reproduction,
+)
 from vea_v6.builder import (
     BuilderResult,
     MetaDAGBuilder,
     create_dag_builder_dag,
     parse_edges_from_description,
 )
-from vea_v6.dag import DEFAULT_PRESET_EDGE, DEFAULT_PRESET_EDGE_PROMPT, DAG, default_text_similarity
+from vea_v6.dag import DEFAULT_PRESET_EDGE, DEFAULT_PRESET_EDGE_PROMPT, DAG, default_text_similarity, load_models_file
 from vea_v6.llm import LLMProtocol, OpenAICompatibleLLM, SmartMockLLM
 from vea_v6.primitives import ContentItem, Edge, ProcessorType, content_to_str, normalize_tags
 
@@ -47,6 +67,7 @@ __all__ = [
     "DEFAULT_PRESET_EDGE",
     "DEFAULT_PRESET_EDGE_PROMPT",
     "default_text_similarity",
+    "load_models_file",
     "LLMProtocol",
     "OpenAICompatibleLLM",
     "SmartMockLLM",
@@ -55,4 +76,19 @@ __all__ = [
     "SentenceToDAGMerger",
     "BuilderResult",
     "parse_edges_from_description",
+    # --- 自举 ---
+    "FRAMEWORK_SPEC",
+    "SPEC_SYNTHESIS_PROMPT",
+    "BootstrapResult",
+    "bootstrap",
+    "create_bootstrap_dag",
+    "render_framework_code",
+    "verify_fixed_point",
+    "verify_self_reproduction",
+    "extract_spec_from_code",
+    "normalize_spec",
+    "spec_to_text",
+    "synthesize_spec",
+    "fallback_spec_from_text",
+    "check_tail_format_sync",
 ]

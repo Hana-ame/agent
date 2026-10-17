@@ -35,7 +35,7 @@ import re
 from collections import Counter
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Set, Tuple, Union
 
-from vea_v6.llm import LLMProtocol, SmartMockLLM
+from vea_v6.llm import LLMProtocol, OpenAICompatibleLLM, SmartMockLLM
 from vea_v6.primitives import ContentItem, Edge, ProcessorType, content_to_str, normalize_tags
 
 
@@ -59,6 +59,32 @@ DEFAULT_PRESET_EDGE = Edge(
     is_preset=True,
     edge_id="preset_edge",
 )
+
+
+def load_models_file(path: Optional[Union[str, "Path"]] = None) -> Dict[str, Dict[str, Any]]:
+    """从 `models.json` 读取模型注册表（provider endpoint + api key），供 DAG 直接使用。
+
+    注册表条目格式与 `DAG(models={...})` 一致：`{"api": base_url, "key": api_key, "model": 模型名, "params": {...}}`。
+    - 显式传入 `path`：读取指定文件，文件不存在则抛 `FileNotFoundError`。
+    - 不传 `path`：按顺序自动查找 `vea_v6/models.json`（包目录）与当前工作目录的 `models.json`；
+      都找不到时返回空字典（等价于 `DAG()` 不带注册表）。
+
+    用法：:
+
+        from vea_v6 import DAG, OpenAICompatibleLLM, load_models_file
+        dag = DAG(llm=OpenAICompatibleLLM())   # models 自动从 models.json 读取
+    """
+    from pathlib import Path as _Path
+
+    if path is not None:
+        p = _Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"模型注册表文件不存在: {p}")
+        return json.loads(p.read_text(encoding="utf-8"))
+    for candidate in (_Path(__file__).with_name("models.json"), _Path("models.json")):
+        if candidate.exists():
+            return json.loads(candidate.read_text(encoding="utf-8"))
+    return {}
 
 
 def default_text_similarity(text_a: str, text_b: str) -> float:
@@ -136,6 +162,10 @@ class DAG:
 
         # 模型注册表：以 model 名为 KEY，保存 {"api": base_url, "key": api_key, "model": 模型名, "params": {...}}
         # `add_edge` 中 `{"模型": <KEY>, "处理prompt": ...}` 会在调用 LLM 时按该 KEY 查询此表注入配置。
+        # 使用真实 LLM（OpenAICompatibleLLM）且未显式传 `models` 时，自动从 `models.json`
+        # （包目录或 CWD）读取 provider endpoint + api key；SmartMockLLM 等测试桩不受影响。
+        if models is None and isinstance(llm, OpenAICompatibleLLM):
+            models = load_models_file()
         self.models: Dict[str, Dict[str, Any]] = dict(models or {})
 
         # 预设边对象（默认引用模块级常量 DEFAULT_PRESET_EDGE）：当某条 edge 在 run 时找不到
@@ -465,43 +495,82 @@ class DAG:
     # 4. 单条处理边的执行逻辑
     # =========================================================================
 
-    def _resolve_model_config(self, model: Optional[str]) -> Optional[Dict[str, Any]]:
-        """按 model 名查询 `dag.models` 模型注册表，返回规范化的调用配置。
+    def _resolve_model_config(
+        self,
+        model: Optional[str],
+        edge: Optional[Edge] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """解析一次 LLM 调用的连接配置（注册表 + 边内联，后者覆盖前者）。
 
-        注册表条目格式：`{"api": base_url, "key": api_key, "model": 模型名, "params": {...}}`
-        （`api`/`base_url`、`key`/`api_key` 两组键名等价）。注册表之外的其余键也会透传为请求参数。
-        设置了注册表却查不到对应 KEY 时抛出 `KeyError`（`"default"` 除外）。
+        解析顺序：
+        1. `edge.inline_llm_config`（边内联的 api/key/model/params）—— 最高优先级；
+        2. `dag.models[model]`（模型注册表，`{"api", "key", "model", "params"}`）；
+        3. 两者都没有 → 返回 `None`，调用方用 `llm` 对象的默认连接。
+
+        `api`/`base_url`、`key`/`api_key` 两组键名等价；注册表其余键透传为请求参数。
+        仅当「注册表里查不到该 KEY，且该边没有内联配置」时才抛 `KeyError`
+        （`"default"` 与非注册表形态的真实模型名除外，后者直接当模型名用）。
         """
-        if not model or not self.models:
-            return None
-        cfg = self.models.get(model)
-        if cfg is None:
+        inline = edge.inline_llm_config if edge is not None else None
+        registry_cfg = self.models.get(model) if (model and self.models) else None
+
+        if registry_cfg is None and inline is None:
+            if not model or not self.models:
+                # 没有注册表、也没有内联配置：交给 llm 默认值，model 原样传递
+                return {"model": model} if model else None
             if model == "default":
                 return None
+            # 注册表存在但查不到：若 model 看起来是真实模型名（含分隔符或已注册 provider 前缀），
+            # 仍允许直连；否则视为配置错误，尽早失败。
+            if "/" in model or "." in model or ":" in model:
+                return {"model": model}
             raise KeyError(
-                f"模型 '{model}' 未在 dag.models 中注册（已注册的 KEY: {sorted(self.models)}）"
+                f"模型 '{model}' 未在 dag.models 中注册"
+                f"（已注册的 KEY: {sorted(self.models)}）；"
+                "若这是真实模型名，请在边里内联 api/key，或改用 'provider/model' 形式。"
             )
-        params = dict(cfg.get("params") or {})
-        for k, v in cfg.items():
-            if k not in ("api", "base_url", "key", "api_key", "model", "params"):
-                params[k] = v
-        return {
-            "api_key": cfg.get("key", cfg.get("api_key")),
-            "base_url": cfg.get("api", cfg.get("base_url")),
-            "model": cfg.get("model", model),
-            "params": params,
-        }
+
+        merged: Dict[str, Any] = {}
+        if registry_cfg:
+            params = dict(registry_cfg.get("params") or {})
+            for k, v in registry_cfg.items():
+                if k not in ("api", "base_url", "key", "api_key", "model", "params"):
+                    params[k] = v
+            merged["params"] = params
+            merged["api_key"] = registry_cfg.get("key", registry_cfg.get("api_key"))
+            merged["base_url"] = registry_cfg.get("api", registry_cfg.get("base_url"))
+            merged["model"] = registry_cfg.get("model", model)
+        else:
+            merged = {"params": {}, "model": model}
+
+        if inline:
+            # 边里的 model/模型 只有在「该名称不是注册表 KEY」时才算内联模型名覆盖。
+            # 否则 {"模型": "laptop-6.8", "参数": {...}} 这种「引用注册表 + 覆盖参数」写法
+            # 会把 KEY 当成真实模型名发给 provider（实测导致 404）。
+            inline_model = inline.get("model")
+            model_is_registry_key = bool(inline_model and self.models.get(inline_model))
+            if inline_model and not model_is_registry_key:
+                merged["model"] = inline_model
+            if inline.get("api_key"):
+                merged["api_key"] = inline["api_key"]
+            if inline.get("base_url"):
+                merged["base_url"] = inline["base_url"]
+            if inline.get("params"):
+                merged["params"] = {**merged.get("params", {}), **inline["params"]}
+
+        return merged
 
     async def _call_llm(
         self,
         prompt: str,
         model: Optional[str] = None,
         image: Optional[str] = None,
+        edge: Optional[Edge] = None,
     ) -> str:
         """调用大模型后端。
 
-        若 `dag.models` 中注册了该 model 的配置（api/key/model/params），
-        则自动把 api_key、base_url 与额外参数注入 `ask(...)`（按 `ask` 签名过滤不支持的参数）。
+        连接配置按 `edge.inline_llm_config` → `dag.models[model]` → `llm` 默认值 依次解析，
+        并把 api_key、base_url 与额外参数注入 `ask(...)`（按 `ask` 签名过滤不支持的参数）。
         """
         ask_fn = getattr(self.llm, "ask", None)
         if ask_fn is None and callable(self.llm):
@@ -509,7 +578,7 @@ class DAG:
         if ask_fn is None:
             raise ValueError("当前 DAG 配置的 llm 对象未实现 ask 方法且不可调用")
 
-        cfg = self._resolve_model_config(model)
+        cfg = self._resolve_model_config(model, edge=edge)
         target_model = (cfg or {}).get("model", model)
         extra_kwargs: Dict[str, Any] = {}
         if cfg:
@@ -580,7 +649,7 @@ class DAG:
             out_content = item.content
         else:
             rendered = edge.render_prompt(item)
-            out_content = await self._call_llm(rendered, model=edge.model, image=out_image)
+            out_content = await self._call_llm(rendered, model=edge.model, image=out_image, edge=edge)
 
         return ContentItem(
             tags=out_tags,
