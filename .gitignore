@@ -37,3 +37,6 @@ bootstrap_runs/
 
 # Model registry with real API keys (keep only the .example template in VCS)
 models.json
+
+# Local agent work records (not part of the project)
+.workbuddy/
