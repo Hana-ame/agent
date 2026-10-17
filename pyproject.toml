@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vertex-edge-agent"
 version = "6.0.0"
-description = "A data-driven, highly-scalable DAG execution engine for AI Agent pipelines."
+description = "VEA V6 — pure tag-driven information-flow DAG framework with preset-edge synthesis and meta-DAG builder."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -14,13 +14,6 @@ authors = [
 ]
 dependencies = [
     "httpx>=0.28",
-    "socksio>=1.0",
-    "tenacity>=8.2",
-    "pydantic>=2.0",
-    # Importing ``framework`` pulls in ``framework.server_v4``, so the HTTP stack
-    # is a hard requirement, not an optional extra.
-    "fastapi>=0.100",
-    "uvicorn>=0.23",
 ]
 
 [project.optional-dependencies]
@@ -28,27 +21,10 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
 ]
-# Only the bundled example graphs need these.
-examples = [
-    "aiohttp>=3.9",
-    "beautifulsoup4>=4.12",
-]
-
-[project.scripts]
-vea-server = "framework.server.app:main"
-vea-run-v4 = "framework.run_v4:main"
 
 [tool.setuptools.packages.find]
-include = ["framework*", "vea_v6*"]
-
-[tool.setuptools.package-data]
-# The dashboard is HTML/JS/CSS: without this the installed package serves an
-# empty page.
-"framework.templates" = ["*.html", "*.js", "*.css"]
+include = ["vea_v6*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-markers = [
-    "live: tests that make real HTTP calls to external APIs (excluded from CI)",
-]
