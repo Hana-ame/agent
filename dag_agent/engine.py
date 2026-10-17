@@ -24,6 +24,8 @@ from dag_agent.schema import (
     ContentStore,
     EdgeSpec,
     ModelRegistry,
+    ToolRegistry,
+    ToolSpec,
     normalize_tags,
     serialize_content,
 )
@@ -57,6 +59,7 @@ class DAG:
         models: Optional[Union[str, Path, Dict[str, Any], ModelRegistry]] = None,
         contents: Optional[Union[str, Path, Sequence[Any], ContentStore]] = None,
         edges: Optional[Union[str, Path, Sequence[Any]]] = None,
+        tools: Optional[Union[str, Path, Dict[str, Any], ToolRegistry]] = None,
         llm_client: Optional[LLMClientProtocol] = None,
         default_processor: Optional[DefaultProcessor] = None,
         similarity_threshold: float = 0.70,
@@ -90,7 +93,15 @@ class DAG:
             for idx, e in enumerate(edges):
                 self.add_edge(e, default_id=f"edge_{idx}")
 
-        # 4. Matcher & Default Processor
+        # 4. Load tools.json
+        if isinstance(tools, ToolRegistry):
+            self.tools = tools
+        elif isinstance(tools, (str, Path)):
+            self.tools = ToolRegistry(path=tools)
+        else:
+            self.tools = ToolRegistry(tools=tools)
+
+        # 5. Matcher & Default Processor
         self.matcher = TagMatcher(
             llm_client=self.llm_client,
             threshold=similarity_threshold,
@@ -98,14 +109,14 @@ class DAG:
         )
         self.default_processor = default_processor or DefaultProcessor()
 
-        # 5. Execution state tracking
+        # 6. Execution state tracking
         self.step_count: int = 0
         self.history: List[StepResult] = []
         self._executed_edge_sigs: Set[Tuple[int, Tuple[int, ...]]] = set()
         self._assembled_edge_sigs: Set[Tuple[int, Tuple[int, ...]]] = set()
         self._autonomous_sigs: Set[Tuple[int, ...]] = set()
 
-    # ---- File I/O (`models.json`, `contents.json`, `edges.json`) ------------
+    # ---- File I/O (`models.json`, `contents.json`, `edges.json`, `tools.json`) ------------
     @classmethod
     def from_directory(
         cls,
@@ -114,24 +125,31 @@ class DAG:
         llm_client: Optional[LLMClientProtocol] = None,
         similarity_threshold: float = 0.70,
     ) -> "DAG":
-        """Load a DAG from a directory containing `models.json`, `contents.json`, and `edges.json`."""
+        """Load a DAG from a directory containing `models.json`, `contents.json`, `edges.json`, and optionally `tools.json`."""
         d = Path(directory)
         return cls(
             name=d.name,
             models=d / "models.json" if (d / "models.json").exists() else None,
             contents=d / "contents.json" if (d / "contents.json").exists() else None,
             edges=d / "edges.json" if (d / "edges.json").exists() else None,
+            tools=d / "tools.json" if (d / "tools.json").exists() else None,
             llm_client=llm_client,
             similarity_threshold=similarity_threshold,
         )
 
     def save_directory(self, directory: Union[str, Path]) -> None:
-        """Save `models.json`, `contents.json`, and `edges.json` into `directory`."""
+        """Save `models.json`, `contents.json`, `edges.json`, and `tools.json` into `directory`."""
         d = Path(directory)
         d.mkdir(parents=True, exist_ok=True)
         self.models.save(d / "models.json")
         self.contents.save(d / "contents.json")
         self.save_edges(d / "edges.json")
+        if self.tools:
+            self.tools.save(d / "tools.json")
+
+    def call_tool(self, tool_name: str, **kwargs: Any) -> Any:
+        """Execute a registered tool on the DAG."""
+        return self.tools.execute(tool_name, **kwargs)
 
     def load_edges(self, path: Union[str, Path]) -> "DAG":
         p = Path(path)
@@ -380,6 +398,7 @@ class DAG:
         return {
             "name": self.name,
             "models": self.models.to_dict(),
+            "tools": self.tools.to_dict(),
             "contents": self.contents.to_list(),
             "edges": [e.to_dict() for e in self.edges],
         }
@@ -398,6 +417,7 @@ class DAG:
         return cls(
             name=str(data.get("name", "dag_agent")),
             models=data.get("models", {}),
+            tools=data.get("tools", {}),
             contents=data.get("contents", []),
             edges=data.get("edges", []),
             llm_client=llm_client,

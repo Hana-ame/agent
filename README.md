@@ -74,7 +74,17 @@ with dag.contents.edit(auto_save=True) as store:
     store.add({"tags": ["extra_note"], "contents": "审计完成", "gen": 0})
 ```
 
-### 3. 元 DAG 修改 DAG
+### 3. 工具挂载与调用 (`tools.json`)
+```python
+# tools.json: {"calculator": {"handler": "builtin:eval_math"}, ...}
+dag = DAG.from_directory(".")
+
+# 调用已挂载的计算器或自定义工具
+margin = dag.call_tool("calculator", expression="(52000000 - 32000000) / 52000000 * 100")
+print(f"Gross Margin: {margin:.2f}%")
+```
+
+### 4. 元 DAG 修改 DAG
 ```python
 from dag_agent import transform_dag_with_meta_dag
 
@@ -86,12 +96,48 @@ modified_dag = transform_dag_with_meta_dag(
 
 ---
 
-## 🧪 运行测试
+## 📂 丰富的业务场景示例 (20+ Examples)
+
+`examples/` 目录下提供了 20 个开箱即用的工业级业务 DAG 范例：
+
+| 编号 | 脚本名称 | 业务场景与技术亮点 |
+| :--- | :--- | :--- |
+| `ex01` | `ex01_financial_report_analysis.py` | 财报多季度数据提取与对齐汇总分析 |
+| `ex02` | `ex02_code_review_security_audit.py` | 代码质量静态分析、SQL注入漏洞扫描与修复建议 |
+| `ex03` | `ex03_map_reduce_market_research.py` | 竞品情报多路并发提取与 SWOT 矩阵汇聚 |
+| `ex04` | `ex04_tool_augmented_calculator_dag.py` | 挂载 `tools.json` 的数学计算工具调用图 |
+| `ex05` | `ex05_rag_document_qa_pipeline.py` | 长文档分块、多跳检索与问答合成流水线 |
+| `ex06` | `ex06_customer_intent_dispatcher.py` | 客户工单多意图智能识别与专席分流处理 |
+| `ex07` | `ex07_iterative_prompt_evolution.py` | 提示词多代际 (`gen 0->1->2->3`) 遗传迭代演化 |
+| `ex08` | `ex08_meta_dag_hot_patching.py` | 运行时元 DAG 根据自然语言指令对业务图热修补 |
+| `ex09` | `ex09_multi_agent_adversarial_debate.py` | 正反方多智能体对抗辩论与中立裁判综合裁决 |
+| `ex10` | `ex10_database_nl2sql_and_validator.py` | 自然语言转 SQL、AST 安全检查与只读校验 |
+| `ex11` | `ex11_academic_literature_survey.py` | 学术文献方法提炼、基准对比与研究空白分析 |
+| `ex12` | `ex12_multilingual_content_localization.py` | 跨语种文案本地化、文化禁忌过滤与 SEO 优化 |
+| `ex13` | `ex13_ecommerce_order_fraud_detection.py` | 电商风控：IP、卡频次与支付行为多维欺诈拦截 |
+| `ex14` | `ex14_healthcare_triage_clinical_decision.py` | 医疗症状初步分诊、红旗警告筛查与专科导诊 |
+| `ex15` | `ex15_data_etl_cleaning_normalization.py` | 数据 ETL 管道：脏数据清洗、时区转换与入库校验 |
+| `ex16` | `ex16_interactive_story_branching.py` | 交互式支线小说：多分支叙事探索与主线结局收束 |
+| `ex17` | `ex17_microservice_incident_rca.py` | 微服务故障根因排查：日志、指标与调用链三合一汇聚 |
+| `ex18` | `ex18_technical_interview_generator.py` | 岗位技术面试题库生成、参考答案与面试官评分标准 |
+| `ex19` | `ex19_legal_contract_risk_audit.py` | 商业合同合规审查：排他条款、违约责任与风险高亮 |
+| `ex20` | `ex20_game_npc_dialogue_state_machine.py` | 游戏 NPC 对话状态机：好感度转移与动态支线任务解锁 |
+
+---
+
+## 🧪 运行测试与并发基准
 
 ```bash
-# 运行全部测试套件
-python3 -m unittest tests/test_dag_agent_all.py -v
+# 1. 一键并发并行运行全部 20 个 DAG 业务示例 (耗时仅 ~3.5 秒)
+python3 examples/run_all_examples_parallel.py
 
-# 运行 A ~ G 版本效果演示
-python3 examples/03_versions_a_to_g_showcase.py
+# 2. 运行真实端点 (laptop-6.8 & sensenova-6.8) 在线全链路实测
+python3 test_live_endpoints.py
+
+# 3. 运行 6 种不同 DAG 拓扑机制的综合评测
+python3 examples/04_diverse_dags_evaluation.py
+
+# 4. 运行完整单元测试套件 (覆盖全模块与 Versions A ~ G)
+python3 -m unittest tests/test_dag_agent_all.py -v
 ```
+

@@ -28,6 +28,8 @@ from dag_agent.schema import (
     ModelConfig,
     ModelRegistry,
     Processor,
+    ToolRegistry,
+    ToolSpec,
     normalize_tags,
     serialize_content,
 )

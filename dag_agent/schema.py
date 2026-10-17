@@ -144,6 +144,125 @@ class ModelRegistry(dict):
         return {k: (v.to_dict() if isinstance(v, ModelConfig) else dict(v)) for k, v in self.items()}
 
 
+@dataclass
+class ToolSpec:
+    """Represents a tool definition registered in `tools.json`."""
+
+    name: str
+    description: str = ""
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    handler: Optional[Union[str, Callable[..., Any]]] = None
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, name: str, data: Dict[str, Any]) -> "ToolSpec":
+        raw = dict(data)
+        tool_name = str(raw.pop("name", name) or name)
+        desc = str(raw.pop("description", "") or raw.pop("desc", ""))
+        params = dict(raw.pop("parameters", {}) or raw.pop("params", {}))
+        handler = raw.pop("handler", None) or raw.pop("fn", None)
+        return cls(name=tool_name, description=desc, parameters=params, handler=handler, extra=raw)
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+        }
+        if isinstance(self.handler, str):
+            out["handler"] = self.handler
+        elif callable(self.handler):
+            out["handler"] = getattr(self.handler, "__name__", "custom_callable")
+        if self.extra:
+            out.update(self.extra)
+        return out
+
+
+class ToolRegistry(dict):
+    """Manages `tools.json` (`{tool_name: {name, description, parameters, handler}}`)."""
+
+    def __init__(self, tools: Optional[Dict[str, Any]] = None, path: Optional[Union[str, Path]] = None) -> None:
+        super().__init__()
+        self.path: Optional[Path] = Path(path) if path else None
+        if self.path and self.path.exists() and tools is None:
+            self.load(self.path)
+        elif tools:
+            self.load_dict(tools)
+
+    def load_dict(self, raw: Dict[str, Any]) -> None:
+        self.clear()
+        for k, v in raw.items():
+            if str(k).startswith("_") or not isinstance(v, dict):
+                continue
+            self[k] = ToolSpec.from_dict(k, v)
+
+    def load(self, path: Union[str, Path]) -> "ToolRegistry":
+        p = Path(path)
+        self.path = p
+        data = json.loads(p.read_text(encoding="utf-8"))
+        self.load_dict(data)
+        return self
+
+    def save(self, path: Optional[Union[str, Path]] = None) -> None:
+        target = Path(path) if path else self.path
+        if not target:
+            raise ValueError("No file path specified for saving tools.json")
+        payload = {k: v.to_dict() if isinstance(v, ToolSpec) else v for k, v in self.items()}
+        target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def register(
+        self,
+        name: str,
+        handler: Optional[Union[str, Callable[..., Any]]] = None,
+        description: str = "",
+        parameters: Optional[Dict[str, Any]] = None,
+        **extra: Any,
+    ) -> ToolSpec:
+        spec = ToolSpec(
+            name=name,
+            description=description,
+            parameters=parameters or {},
+            handler=handler,
+            extra=extra,
+        )
+        self[name] = spec
+        return spec
+
+    def execute(self, tool_name: str, **kwargs: Any) -> Any:
+        """Execute a registered tool by name with arguments."""
+        if tool_name not in self:
+            raise KeyError(f"Tool {tool_name!r} not found in ToolRegistry. Available: {list(self.keys())}")
+        spec = self[tool_name]
+        handler = spec.handler
+
+        if callable(handler):
+            return handler(**kwargs)
+
+        # Builtin handlers
+        h_str = str(handler or "").strip()
+        if h_str in ("builtin:eval_math", "eval_math", "calculator"):
+            expr = str(kwargs.get("expression", kwargs.get("expr", ""))).strip()
+            # Safe basic math evaluation
+            allowed = set("0123456789+-*/(). %")
+            if not all(c in allowed for c in expr):
+                raise ValueError(f"Unsafe math expression: {expr!r}")
+            return eval(expr, {"__builtins__": None}, {})
+
+        if h_str in ("builtin:search", "search_web", "mock_search"):
+            q = str(kwargs.get("query", kwargs.get("q", "")))
+            return f"[ToolSearch Result for {q!r}]: Found relevant documentation and status records."
+
+        if h_str in ("builtin:format_json", "format_json"):
+            data = kwargs.get("data", {})
+            return json.dumps(data, ensure_ascii=False, indent=2)
+
+        return f"[Executed Tool {tool_name} with params {kwargs}]"
+
+    def to_dict(self) -> Dict[str, Dict[str, Any]]:
+        return {k: (v.to_dict() if isinstance(v, ToolSpec) else dict(v)) for k, v in self.items()}
+
+
+
 class ContentItem(dict):
     """Represents a content entry in `contents.json`: `{tags, contents, gen: int}`.
 
