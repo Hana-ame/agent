@@ -779,6 +779,96 @@ class TestVEAV6Suite(unittest.TestCase):
     def test_18(self) -> None:
         test_18_llm_text_extraction_falls_back_to_reasoning()
 
+    def test_19(self) -> None:
+        test_19_every_generation_runs_a_self_chosen_dag()
+
+    def test_20(self) -> None:
+        test_20_meta_dag_dispatches_eight_steps_without_network()
+
+
+def test_19_every_generation_runs_a_self_chosen_dag() -> None:
+    """测试 19：**每一代**框架都要能用自己产出一个自选任务的可用 DAG。
+
+    任务与验收都由本测试自选（**不是"再写一个 vea 框架"**）：
+    访问日志分析 —— 单输入边切开五个字段，再判成败、去查询串、拼成一行 `k=v`。
+    验收用的 DAG **不依赖任何 LLM**，全是有确定性的可调用对象，所以"能不能跑通"
+    只取决于这一代的图执行语义，与它的模型调用实现无关。
+
+    判据分两层：
+    1. **磁盘这一份必须过** —— 它是后面所有代的参考实现；
+    2. **每一次元 DAG 运行的最终代必须过** —— 只要那一轮跑到了第 n 代，
+       第 n 代就必须能自己产出可用 DAG。中间那些被闸门回退过的废代
+       （`r01/r02/r03`，闸门上线前留下的）不计入，但它们**不能是可用的**这件事
+       也不影响结论：判的是"每一轮的最后一代"。
+    """
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from tools._meta_dag_spec import FRAME_FILES
+
+    root = Path(__file__).resolve().parent.parent
+    program = _demo_program()
+
+    def _try(dest: Path, tag: str) -> tuple:
+        demo = dest / "demo"
+        demo.mkdir(parents=True, exist_ok=True)
+        (demo / "vself.py").write_text(program + chr(10), encoding="utf-8", newline="")
+        p = subprocess.run(
+            [sys.executable, "vself.py"], cwd=str(demo), capture_output=True, text=True, timeout=300
+        )
+        (demo / "vself.log").write_text((p.stdout or "") + (p.stderr or ""), encoding="utf-8", newline="")
+        tail = ((p.stdout or "") + (p.stderr or "")).strip().splitlines()
+        return p.returncode, (tail[-1] if tail else "")
+
+    # 1) 磁盘这一份：参考实现，必须过
+    rc, last = _try(root, "disk")
+    assert rc == 0, f"磁盘框架无法产出可用 DAG：{last}"
+
+    # 2) 每一轮的**最后一代**必须过。只认闸门上线之后的轮次：
+    #    闸门上线前的 r01/r02/r03 由旧代码生成，连 import 都过不了，
+    #    它们已归入 `bootstrap_runs/meta/abandoned/`（保留不删），不作为基准。
+    checked = []
+    for run in sorted(d for d in (root / "bootstrap_runs" / "meta").iterdir()
+                      if d.is_dir() and d.name != "abandoned"):
+        gens = sorted(
+            (d for d in run.glob("gen*") if all((d / f).exists() for f in FRAME_FILES)),
+            key=lambda d: int(d.name[3:] or 0),
+        )
+        if not gens:
+            continue
+        last_gen = gens[-1]
+        rc, out = _try(last_gen, last_gen.relative_to(root).as_posix())
+        checked.append((last_gen.relative_to(root).as_posix(), out))
+        assert rc == 0, f"{last_gen} 无法用自己产出可用 DAG：{out}"
+    assert len(checked) >= 1, "至少要有一轮元 DAG 跑出来的代可以验收（用 tools/meta_dag.py）"
+
+    print("  通过的代：disk" + "".join(f" / {c[0]}({c[1]})" for c in checked))
+    _ = json
+
+
+def _demo_program() -> str:
+    """自选任务 + 自选验收：返回要写进 `vself.py` 的源码。"""
+    from tools.meta_dag import DEMO_TEST
+
+    return DEMO_TEST
+
+
+def test_20_meta_dag_dispatches_eight_steps_without_network() -> None:
+    """测试 20：元 DAG 的 8 条边 / 7 层，按层依次触发 8 个 step（不联网）。"""
+    from tools.meta_dag import build_meta_dag, run_round, DESCRIPTION, RecordingTool
+    from tools._meta_dag_spec import META_DAG
+
+    dag = build_meta_dag()
+    probe = RecordingTool()
+    dag.mount_tool("gen", probe)
+    out = run_round(dag, DESCRIPTION)
+    assert probe.calls == [e[1]["参数"]["step"] for e in META_DAG], probe.calls
+    assert len(dag.edges) == 8
+    assert len({e.layer for e in dag.edges}) == 7
+    assert out["framework"] and out["report"] and out["result"]
+
 
 if __name__ == "__main__":
     test_1_dag_structure_and_edge_formats()
@@ -799,4 +889,6 @@ if __name__ == "__main__":
     test_16_inline_openai_config_on_edge()
     test_17_registry_key_not_treated_as_model_name()
     test_18_llm_text_extraction_falls_back_to_reasoning()
-    print("ALL 18 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
+    test_19_every_generation_runs_a_self_chosen_dag()
+    test_20_meta_dag_dispatches_eight_steps_without_network()
+    print("ALL 20 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
