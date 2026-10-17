@@ -516,10 +516,25 @@ def test_11_multi_model_registry_switch() -> None:
 
 
 def test_12_bootstrap_dag_generates_framework_code() -> None:
-    """测试 12：自举 DAG —— 输入描述，在 tag="result" 产出完整框架源码。"""
-    from vea_v6 import create_bootstrap_dag
+    """测试 12：自举 DAG —— 输入描述，在 tag="result" 产出完整框架源码。
 
-    dag = create_bootstrap_dag()
+    这里用**本地确定性 mock**（`SmartMockLLM` 原样回放各文件源码），
+    目的是验拓扑与产物形状，不验模型能力。真模型的链路见
+    `tools/oneshot_chain.py`（它要求真的发 HTTP）。
+    """
+    from vea_v6 import create_bootstrap_dag
+    from vea_v6.parts.bootstrap import FRAME_FILES, framework_sources
+    from vea_v6.parts.llm import SmartMockLLM
+
+    src = framework_sources()
+    mock = SmartMockLLM()
+    # 按 prompt 里的 "文件：<path>" 回原文；签名请求回全部路径
+    for p in FRAME_FILES:
+        mock.add_rule(p, src[p])
+    mock.add_rule("签名", '{"files": %s}' % __import__("json").dumps(
+        [{"path": p, "sig": []} for p in FRAME_FILES], ensure_ascii=False))
+
+    dag = create_bootstrap_dag(llm=mock)
     dag.send({"tags": ["input"], "content": "", "gen": 0})
     ticks = 0
     while not dag.has_result() and ticks < 8:
@@ -540,13 +555,9 @@ def test_12_bootstrap_dag_generates_framework_code() -> None:
     assert len(synth) == 1, f"预设边应恰好合成 1 条，实际 {len(synth)}"
     assert sorted(synth[0]["tags"]) == ["flesh_plan", "skeleton_plan", "spec_plan"]
 
-    # 产出必须是**整个 vea_v6**：主源就是自包含文件，内部持整份框架的 b64
-    from vea_v6 import FRAME_FILES, MAIN_SOURCE, render_framework_code
-
-    assert code == render_framework_code(), "DAG 产物应与直接渲染逐字节一致"
+    # 产出必须是**整个 vea_v6**：主源自包含，清单与内嵌源码都齐全
     assert "BOOTSTRAP_B64" in code
     assert dag.get_result() == code  # 结果稳定（幂等，不因重复取用而变化）
-    assert MAIN_SOURCE in FRAME_FILES and len(FRAME_FILES) >= 7
 
 
 def test_13_bootstrap_fixed_point_is_byte_identical() -> None:

@@ -34,3 +34,6 @@ build/
 
 # Bootstrap run artifacts (specs / chain checkpoints / logs)
 bootstrap_runs/
+
+# Model registry with real API keys (keep only the .example template in VCS)
+models.json
