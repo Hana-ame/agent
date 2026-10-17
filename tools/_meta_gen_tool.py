@@ -275,6 +275,138 @@ def undefined_names(path: str, src: str, sources: Dict[str, str]) -> List[str]:
     return sorted(set(missing))
 
 
+def _class_members(src: str, cls: str) -> set:
+    """类体内定义的属性/方法名：赋值、注解、self.x = ...、property。"""
+    out: set = set()
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return out
+    for n in tree.body:
+        if not (isinstance(n, ast.ClassDef) and n.name == cls):
+            continue
+        for b in n.body:
+            if isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                out.add(b.name)
+            elif isinstance(b, ast.Assign):
+                for t in b.targets:
+                    if isinstance(t, ast.Name):
+                        out.add(t.id)
+            elif isinstance(b, ast.AnnAssign) and isinstance(b.target, ast.Name):
+                out.add(b.target.id)
+            # `self.x = ...` 也算实例属性，且在 __init__ 之外也要抓
+            for sub in ast.walk(b):
+                if isinstance(sub, ast.Attribute) and isinstance(sub.ctx, (ast.Store, ast.Del)):
+                    out.add(sub.attr)
+    return out
+
+
+#: 这些属性不是类契约的一部分（协议/魔法/内部），出现在别处也放行
+_ATTR_OK = {
+    "append", "extend", "get", "items", "keys", "values", "copy", "update", "pop", "setdefault",
+    "format", "join", "split", "strip", "lstrip", "rstrip", "replace", "startswith", "endswith",
+    "lower", "upper", "encode", "decode", "read", "write", "get", "sort", "sorted", "index",
+    "group", "match", "findall", "sub", "search", "compile", "fullmatch",
+}
+
+
+def _method_return_cls(tree: ast.AST, call: ast.Call) -> str:
+    """`x.m(...)` / `m(...)` 的返回类型名（只认写在注解里的简单名字）。"""
+    f = call.func
+    name = getattr(f, "attr", None) or getattr(f, "id", None)
+    if not name:
+        return ""
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name and n.returns is not None:
+            r = n.returns
+            if isinstance(r, ast.Name):
+                return r.id
+            if isinstance(r, ast.Subscript) and isinstance(r.value, ast.Name) and r.value.id == "Optional":
+                inner = r.slice
+                if isinstance(inner, ast.Name):
+                    return inner.id
+    return ""
+
+
+def cross_class_attrs(sources: Dict[str, str]) -> Dict[str, List[str]]:
+    """跨文件类属性契约：A 里 `x.attr` 用到的属性，定义该类型的类里必须有。
+
+    🔴 为什么必须有这道闸门：第 4 代 `dag.py` 写了
+    `self._executed_records.add((idx, result.id))`，而同一代的
+    `primitives.ContentItem` **没有 `id` 字段**。跨文件导出名全都对得上、
+    顶层契约全过、固定点也解开了，一 `run()` 就是 AttributeError。
+
+    做法（只在能确定类型时判，不做类型推断）：
+    - 找出 `sources` 里所有类的"方法名 → 该类成员集合"与"方法名 → 类名"；
+    - 扫描每个文件里 `x.attr` 的属性访问，`x` 若是**某个已知类的实例**
+      （`self` 在类内、`参数: 类名`、`var = 类名(...)`），就要求 `attr` 在该类成员里；
+    - 太保守也胜过漏判：只判能唯一确定类型的那些点。
+    """
+    # 1. 建类表
+    members: Dict[str, Dict[str, set]] = {}  # file -> cls -> members
+    for path, src in sources.items():
+        try:
+            tree = ast.parse(src)
+        except (SyntaxError, ValueError):
+            continue
+        for n in tree.body:
+            if isinstance(n, ast.ClassDef):
+                members.setdefault(path, {})[n.name] = _class_members(src, n.name)
+
+    # 2. 全框架"类名 -> 成员集合"（同名类只认第一个定义，避免歧义）
+    by_cls: Dict[str, set] = {}
+    for _p, cs in members.items():
+        for cls, mem in cs.items():
+            by_cls.setdefault(cls, set()).update(mem)
+
+    out: Dict[str, List[str]] = {}
+    for path, src in sources.items():
+        try:
+            tree = ast.parse(src)
+        except (SyntaxError, ValueError):
+            continue
+        # 2a. 逐函数收集"变量 -> 类名"（只认注解与直接构造）
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            var_type: Dict[str, str] = {}
+            if fn.args.args and fn.args.args[0].arg in ("self", "cls"):
+                pass
+            for a in list(fn.args.args) + list(fn.args.kwonlyargs):
+                ann = getattr(a, "annotation", None)
+                if isinstance(ann, ast.Name) and ann.id in by_cls:
+                    var_type[a.arg] = ann.id
+            for sub in ast.walk(fn):
+                if isinstance(sub, ast.Assign) and isinstance(sub.value, ast.Call):
+                    f = sub.value.func
+                    name = getattr(f, "id", None) or getattr(f, "attr", None)
+                    if name in by_cls:
+                        for t in sub.targets:
+                            if isinstance(t, ast.Name):
+                                var_type[t.id] = name
+                        continue
+                    # `result = await self._execute_edge_on_item(...)`：类型来自**被调方法的返回注解**。
+                    # 不追这一层就漏掉了实测那个真缺口（`result.id`）。
+                    ret = _method_return_cls(tree, sub.value)
+                    if ret:
+                        for t in sub.targets:
+                            if isinstance(t, ast.Name):
+                                var_type[t.id] = ret
+            if not var_type:
+                continue
+            for sub in ast.walk(fn):
+                if isinstance(sub, ast.Attribute) and isinstance(sub.ctx, ast.Load):
+                    base = sub.value
+                    if not isinstance(base, ast.Name) or base.id not in var_type:
+                        continue
+                    cls = var_type[base.id]
+                    if sub.attr in _ATTR_OK or sub.attr.startswith("__"):
+                        continue
+                    if sub.attr not in by_cls[cls]:
+                        out.setdefault(path, []).append(f"{cls}.{sub.attr}")
+    return {k: sorted(set(v)) for k, v in out.items()}
+
+
 def broken_imports(sources: Dict[str, str]) -> Dict[str, List[str]]:
     """`from X import a, b` 里，X 本模块没有的 a/b —— import 那一刻就 ImportError。
 
