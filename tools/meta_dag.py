@@ -358,6 +358,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--run-id", default="")
     ap.add_argument("--self-test", action="store_true", help="不联网，用假工具验 DAG 形态与 8 步分派")
     ap.add_argument("--replay", default="", help="重放某次运行目录里的模型产出（不再请求）")
+    ap.add_argument("--retries", type=int, default=2, help="装配闸门不过时整代重做的次数")
     a = ap.parse_args(argv)
 
     run_id = a.run_id or time.strftime("%Y%m%d-%H%M%S")
@@ -425,14 +426,28 @@ def main(argv: Optional[List[str]] = None) -> int:
             # （实测 s07 的 gen2 与 gen3 逐字节相同，ORIGIN.json 根本没生成）。
             if i == 1:
                 dag.mount_tool("gen", GenTool(llm, cfg, run_dir=gdir / "steps", fallback=prev_sources))
-            out = run_round(dag, DESCRIPTION)
-            if not out["framework"]:
-                print(f"[gen{i}] FAIL：图上没有产出 framework")
+            # 装配不过就整代作废再试一次：闸门回退出来的是**上一代**的代码，
+            # 落盘了也算不得新的一代（实测 s08 的 gen1 就是这样被记成失败
+            # 却又把互相 import 不上的那套写进了磁盘）。
+            report = {}
+            for attempt in range(1, a.retries + 1):
+                out = run_round(dag, DESCRIPTION)
+                if not out["framework"]:
+                    print(f"[gen{i}] FAIL：图上没有产出 framework")
+                    break
+                write_generation(out["framework"], gdir)
+                (gdir / "REPORT.json").write_text(out["report"], encoding="utf-8", newline="")
+                try:
+                    report = json.loads(out["report"])
+                except ValueError:
+                    report = {}
+                print(f"[gen{i}] 第 {attempt} 次（工具={type(dag.tools.get('gen')).__name__}）："
+                      f"{out['report']}")
+                if report.get("assemble_ok"):
+                    break
+            if not report.get("assemble_ok"):
+                print(f"[gen{i}] FAIL：{a.retries} 次都没过装配闸门，停止")
                 break
-            write_generation(out["framework"], gdir)
-            (gdir / "REPORT.json").write_text(out["report"], encoding="utf-8", newline="")
-            print(f"[gen{i}] 生成完成（工具={type(dag.tools.get('gen')).__name__}）："
-                  f"{(gdir / 'REPORT.json').read_text(encoding='utf-8')}")
 
         res = exercise(gdir)  # ← 用这一代框架真跑自选任务
         total = sum(len((gdir / f).read_text(encoding="utf-8").encode("utf-8")) for f in FRAME_FILES)

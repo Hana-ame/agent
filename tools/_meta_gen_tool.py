@@ -849,7 +849,13 @@ class GenTool:
                 raise RuntimeError(why)
             verdict["_assemble"] = {"ok": True, "why": why}
         except Exception as exc:  # noqa: BLE001 - 失败要回退，不能整链炸掉
-            built = {p: files.get(p) or self.fallback[p] for p in FRAME_FILES}
+            # 🔴 **整代回退**，不是"哪个文件空了补哪个"。
+            # `files.get(p) or self.fallback[p]` 只在源码为空串时才回退 —— 而实测
+            # 坏的那一代每个文件都写满了内容，只是彼此 import 不上
+            # （`from .llm import LLMRegistry` 而 llm.py 里没这个名）。
+            # 于是"装配失败"被记进了 verdict，落盘的却仍是那套互相 import 不上的
+            # 代码，下一步 demo 一 import 就炸。装配不过 = 这一代整体不可用。
+            built = {p: self.fallback.get(p, "") for p in FRAME_FILES}
             verdict["_assemble"] = {"ok": False, "why": str(exc)[:200]}
         return json.dumps(
             {
