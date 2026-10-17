@@ -826,6 +826,17 @@ def test_19_every_generation_runs_a_self_chosen_dag() -> None:
     rc, last = _try(root, "disk")
     assert rc == 0, f"磁盘框架无法产出可用 DAG：{last}"
 
+    # 1b) 磁盘这一份还要能**用自己把自己再生成一遍**（不然造不出下一代）。
+    #     用 `SmartMockLLM` 跑，不发网络请求 —— 几秒出结果，可进 CI。
+    sys.path.insert(0, str(root))
+    import vea_v6
+
+    from tools.meta_dag import DESCRIPTION
+
+    r = vea_v6.bootstrap(DESCRIPTION, llm=vea_v6.SmartMockLLM())
+    assert r.stable, f"磁盘框架自举不稳定：{r.reason}"
+    assert sorted(r.files) == sorted(FRAME_FILES), sorted(r.files)
+
     # 2) 每一轮的**最后一代**必须过。只认闸门上线之后的轮次：
     #    闸门上线前的 r01/r02/r03 由旧代码生成，连 import 都过不了，
     #    它们已归入 `bootstrap_runs/meta/abandoned/`（保留不删），不作为基准。
@@ -842,6 +853,13 @@ def test_19_every_generation_runs_a_self_chosen_dag() -> None:
         rc, out = _try(last_gen, last_gen.relative_to(root).as_posix())
         checked.append((last_gen.relative_to(root).as_posix(), out))
         assert rc == 0, f"{last_gen} 无法用自己产出可用 DAG：{out}"
+        # 这一代还得**能自己造下一代**。凭据写在它自己目录的 ORIGIN.json 里：
+        # `loaded` 必须指向它自己的 vea_v6，否则说明下一代其实是别的代造的。
+        for g in gens[1:]:
+            cred = json.loads((g / "ORIGIN.json").read_text(encoding="utf-8"))
+            want = (gens[gens.index(g) - 1] / "vea_v6").resolve()
+            assert Path(cred["loaded"]).resolve() == want, (
+                f"{g.name} 的来源不对：loaded={cred['loaded']} 应为 {want}")
     assert len(checked) >= 1, "至少要有一轮元 DAG 跑出来的代可以验收（用 tools/meta_dag.py）"
 
     print("  通过的代：disk" + "".join(f" / {c[0]}({c[1]})" for c in checked))
