@@ -35,7 +35,12 @@ def probe(base: str, timeout: float = 3.0) -> Tuple[str, Any]:
     url = base.rstrip("/")
     if not url.endswith("/models"):
         url += "/models"
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    # UA **必须**显式给。`urllib` 默认发 `Python-urllib/3.13`，Cloudflare 会对这个串
+    # 直接 403（同一个 URL 用 curl 或空 UA 都是 200）——那会被误判成"端点挂了"。
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": "vea-v6-probe/1.0"},
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8", "replace")

@@ -1,3 +1,4 @@
+"""⚠️ 已废弃：早期固定点求解库，与当前双层不动点方案不兼容。现行入口 `tools/fixpoint_v3.py`。"""
 import ast, base64, gzip, hashlib, json, re, sys
 sys.path.insert(0, '.')
 

@@ -118,7 +118,7 @@ def _fmt_fill(n: int) -> str:
     """SELF_FILL 的定义行：用 `"F" * n` 表达，长度由 n 决定（不写死长串）。"""
     return 'SELF_FILL = "F" * ' + str(int(n))
 #: 自指 payload 的 base64 文本长度（不动点；0 表示尚未固化）
-BOOTSTRAP_SLOT = 44809
+BOOTSTRAP_SLOT = 46171
 
 #: 无 `__file__` 时（内存 exec / `python -c`）`_main_source()` 回落到这里，由 `_probe` 填入。
 _PROBE_SOURCE: Dict[str, str] = {}
@@ -249,9 +249,9 @@ FRAME_MANIFEST = json.loads(r'''{
     },
     {
       "path": "vea_v6/parts/llm.py",
-      "bytes": 12694,
-      "b64_len": 5540,
-      "sha256": "494100e42456227d445df5fd29e53fc8a4d8c88fe4195a958e950032b5c4aa96",
+      "bytes": 12722,
+      "b64_len": 5572,
+      "sha256": "dc813c1efb06fe0fa5d4f9623026529dff37b144450887f082180f94a1e82c1b",
       "sig": [
         "class LLMProtocol(Protocol)",
         "def extract_message_text(data)",
@@ -287,9 +287,9 @@ FRAME_MANIFEST = json.loads(r'''{
     },
     {
       "path": "vea_v6/parts/bootstrap.py",
-      "bytes": 79584,
-      "b64_len": 44809,
-      "sha256": "f1fbc0faa4da677b1e573ef68e0017f5707887cfb189273b061714ba25140178",
+      "bytes": 82687,
+      "b64_len": 46171,
+      "sha256": "49429ddbd2c85b4d641a76cfb47db351e9b2e1e08cb8709cc8424cd5336994ef",
       "sig": [
         "def signature(path, source)",
         "def sha_of(source)",
@@ -359,7 +359,7 @@ FRAME_CODE = json.loads(r'''{
     {
       "path": "vea_v6/parts/llm.py",
       "key": "VEA_V6_PARTS_LLM_PY_B64",
-      "code": "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"
+      "code": "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"
     },
     {
       "path": "vea_v6/parts/dag.py",
@@ -625,6 +625,72 @@ def _outer_sources() -> Dict[str, str]:
         for item in FRAME_CODE.get("files", [])
         if item["path"] != MAIN_SOURCE
     }
+
+
+def _contract_violation(path: str, code: str) -> str:
+    """模型产出与原文件比对：顶层契约缺失即判不合格，返回原因（空串=通过）。
+
+    判据只看**顶层骨架**，不看函数体——
+    - 语法必须能过；
+    - 原文件顶层有的 `class` / `def` / 赋值名，新文件一个都不许少（允许新增）；
+    - 文件体积不得坍缩到原文件的 40% 以下（掏空型改写的主要外形特征）；
+    - SPEC 文件必须仍带 `__all__`。
+
+    为什么不能用"体积"单条判：模型确实可能写出更紧凑的等价实现，
+    所以主判据是**符号集合**，体积只作兜底（防"结构齐全但内容注水/清空"）。
+    """
+    orig = _outer_sources().get(path)
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return f"语法错误: {exc.msg} (line {exc.lineno})"
+    if path in SPEC_FILES:
+        has_all = any(
+            isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "__all__" for t in n.targets)
+            for n in tree.body
+        )
+        if not has_all:
+            return "SPEC 文件缺 __all__"
+    if not orig:
+        return ""
+    try:
+        old_tree = ast.parse(orig)
+    except SyntaxError:
+        return ""
+
+    def _tops(t: ast.AST) -> dict:
+        """顶层定义名 -> (节点, 源码行数)。只要名字，用 `_tops(...).keys()`。"""
+        out: dict = {}
+        src = t.body  # type: ignore[attr-defined]
+        for n in src:
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                span = (n.end_lineno or n.lineno) - n.lineno + 1
+                out[n.name] = span
+            elif isinstance(n, ast.Assign):
+                for tgt in n.targets:
+                    if isinstance(tgt, ast.Name):
+                        out[tgt.id] = (n.end_lineno or n.lineno) - n.lineno + 1
+            elif isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
+                out[n.target.id] = (n.end_lineno or n.lineno) - n.lineno + 1
+        return out
+
+    old, new = _tops(old_tree), _tops(tree)
+    lost = sorted(set(old) - set(new))
+    if lost:
+        return f"顶层定义缺失 {len(lost)} 个（{', '.join(lost[:5])}{'…' if len(lost) > 5 else ''}）"
+    # 名字齐全但函数体被大幅削掉，同样是掏空。实测 `primitives.py` 的 `Edge`
+    # 从 174 行掉到 130 行（-25%），而整文件只掉 15%——**总体体积判据抓不住**，
+    # 必须按定义逐个比。阈值取 50%：允许重写变紧凑，不允许砍掉大半逻辑。
+    shrunk = [
+        f"{k}({old[k]}→{new[k]}行)"
+        for k in old
+        if old[k] >= 20 and new[k] < old[k] // 2
+    ]
+    if shrunk:
+        return f"定义被削掉过半 {len(shrunk)} 个（{', '.join(shrunk[:4])}）"
+    if len(code) < len(orig) * 2 // 5:
+        return f"体积坍缩到 {len(code)}B（原 {len(orig)}B），疑似截断"
+    return ""
 
 
 def framework_sources() -> Dict[str, str]:
@@ -1061,22 +1127,18 @@ def create_generation_dag(
             if not code.strip():
                 rejected[path] = "空产出"
                 continue
-            # 模型产出的文件先过语法与契约检查；不合格就**保留原文件**并记下原因，
+            # 模型产出的文件先过结构契约检查；不合格就**保留原文件**并记下原因，
             # 不能让坏代码流到 assemble 里把整条链炸掉（也便于事后定位是哪一次生成坏了）。
-            try:
-                ast.parse(code)
-            except SyntaxError as exc:
-                rejected[path] = f"语法错误: {exc.msg} (line {exc.lineno})"
+            #
+            # 🔴 只做 `ast.parse` 是**不够**的：实测模型会把 `dag.py` 重写成两行孤立语句
+            # （`if models is None and isinstance(...)`，92 字节），把 `llm.py` 重写成
+            # 引用未定义 `LLMError`/`json` 的残缺片段（839 字节）。两者 `ast.parse` 都过，
+            # 于是被当成"合格"，框架表面自洽、内里被掏空——又是一次假通过。
+            # 所以改成**按原文件的结构契约比对**：顶层定义（类/函数/赋值）不许无故消失。
+            why = _contract_violation(path, code)
+            if why:
+                rejected[path] = why
                 continue
-            if path in SPEC_FILES:
-                tree = ast.parse(code)
-                has_all = any(
-                    isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "__all__" for t in n.targets)
-                    for n in tree.body
-                )
-                if not has_all:
-                    rejected[path] = "SPEC 文件缺 __all__"
-                    continue
             parts[path] = code
         _LAST_VERDICT["rejected"] = rejected
         return json.dumps({"files": parts, "spec": spec_obj, "rejected": rejected}, ensure_ascii=False)
