@@ -589,6 +589,13 @@ class GenTool:
         #: 源码来源。默认 = 调 LLM 写；第 2 代起换成**上一代框架的 bootstrap**，
         #: 于是同一个 8 步图在"框架造框架"时一步一步照样可观测。
         self.source_provider = source_provider
+        #: 代际闸门的状态位：非空 = 这一次的源码**不是**上一代真造出来的。
+        #: 🔴 为什么必须有：provider 调用失败（网络瞬断等）时旧代码只往 self.log
+        #: 记一笔就走回退，7 个文件全部变成上一代的副本；而副本本身合法，
+        #: assemble/自举/自选任务三道闸门全绿 —— 实测 s13 的 gen2 就是这样
+        #: 被当成"新的一代"验收（CHILD.log 里是 LLMError，ORIGIN.json 没写，
+        #: gen2 与 gen1 逐字节相同）。空串 = 没有 provider 或 provider 完整产出。
+        self.provider_status = ""
         self.log: List[Dict[str, Any]] = []
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self._n = 0
@@ -658,9 +665,19 @@ class GenTool:
             try:
                 got = dict(self.source_provider(description))
             except Exception as exc:  # noqa: BLE001 - 上一代造不出来不能报销整轮
+                # 但**必须留下痕迹**：旧版本只往 self.log 记一笔，report 里干干净净，
+                # 于是回退出来的上一代副本被当成新的一代验收（s13 gen2 实测）。
+                self.provider_status = f"provider 调用失败：{str(exc)[:200]}"
                 self.log.append({"step": "source_provider_failed", "why": str(exc)[:200]})
                 got = {}
-            self.log.append({"step": "source_provider", "files": sorted(got), "chars": sum(len(v) for v in got.values())})
+            else:
+                # 产出不完整同样算失败：缺的文件会被 supplement 用上一代补，
+                # 拼出来的是一套"chimera"，不是这一代造的。
+                holes = [p for p in FRAME_FILES if not (got.get(p) or "").strip()]
+                self.provider_status = (f"provider 产出不完整，缺/空：{holes}" if holes else "")
+            self.log.append({"step": "source_provider", "files": sorted(got),
+                             "chars": sum(len(v) for v in got.values()),
+                             "ok": not self.provider_status})
             for p in FRAME_FILES:
                 got.setdefault(p, "")
             return json.dumps({"files": [{"path": p, "source": got[p]} for p in FRAME_FILES]}, ensure_ascii=False)
@@ -886,6 +903,11 @@ class GenTool:
             # 不能写成 `_tops(...) or endswith(...)` 那种只对 __init__ 成立的怪条件。
             "syntax_ok": all(_parses(f["source"]) and len(f["source"].strip()) > 0 for f in files),
             "assemble_ok": bool((verdict.get("_assemble") or {}).get("ok")),
+            # 代际闸门：源码是不是上一代真造出来的。assemble_ok 为真**不代表**
+            # 这一代是新造的 —— 回退副本同样能装配能自举（s13 gen2 实测：
+            # assemble_ok=True、自举 stable、demo ALL OK，实际是 gen1 的复印件）。
+            "provider_ok": not self.provider_status,
+            "provider_why": self.provider_status,
             "rejected": {p: v.get("why") for p, v in verdict.items() if isinstance(v, dict) and not v.get("ok")},
         }
         self._save_file("REPORT.json", json.dumps(report, ensure_ascii=False, indent=2))

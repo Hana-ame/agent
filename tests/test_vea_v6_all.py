@@ -785,6 +785,9 @@ class TestVEAV6Suite(unittest.TestCase):
     def test_20(self) -> None:
         test_20_meta_dag_dispatches_eight_steps_without_network()
 
+    def test_21(self) -> None:
+        test_21_provider_failure_is_not_accepted_as_a_generation()
+
 
 def test_19_every_generation_runs_a_self_chosen_dag() -> None:
     """测试 19：**每一代**框架都要能用自己产出一个自选任务的可用 DAG。
@@ -923,6 +926,79 @@ def test_20_meta_dag_dispatches_eight_steps_without_network() -> None:
     assert out["framework"] and out["report"] and out["result"]
 
 
+def test_21_provider_failure_is_not_accepted_as_a_generation() -> None:
+    """测试 21：代际闸门 —— provider 挂了或产出不完整，这一代就不算新造的一代。
+
+    背景（s13 实测的闸门漏洞）：gen2 的 provider 子进程撞上网络瞬断
+    （`CHILD.log` 里是 `LLMError: peer closed connection`），7 个文件全部走
+    "回退上一代"，而回退出来的副本本身合法 —— `assemble_ok=True`、自举
+    stable、demo ALL OK，于是被当成新的一代验收；`ORIGIN.json` 没写、
+    gen2 与 gen1 逐字节相同，坐实它是复印件。
+    判据：report 必须带 `provider_ok=False` 与原因；provider 完整产出时为 True。
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(root))
+    from vea_v6.parts.bootstrap import framework_sources  # noqa: E402
+
+    from tools._meta_gen_tool import GenTool  # noqa: E402
+    from tools.meta_dag import DESCRIPTION  # noqa: E402
+
+    class _StubLLM:
+        """expand 步的最小桩：返回不可解析内容，`_step_expand` 会回落静态施工单
+        （provider 路径不看施工单，所以桩返回什么无关）。"""
+
+        def _post_sync(self, prompt: str, **kw: object) -> str:
+            return "{}"
+
+    cfg = {"model": "stub", "api": "stub"}
+    disk = framework_sources()
+    tmp = root / "bootstrap_runs" / "_test_provider_gate"
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    def _drive(tool: GenTool) -> dict:
+        payload = tool(DESCRIPTION, step="expand")
+        payload = tool(payload, step="plan_module")
+        payload = tool(payload, step="normalize")
+        payload = tool(payload, step="audit_contract")
+        payload = tool(payload, step="supplement")
+        payload = tool(payload, step="assemble")
+        return json.loads(tool(payload, step="measure"))
+
+    # 1) provider 一调用就抛（= s13 gen2 那个网络瞬断）→ provider_ok=False；
+    #    同时 assemble_ok 仍应为 True —— 这正是漏洞所在：只看 assemble_ok
+    #    就会把上一代的复印件当成新的一代放行。
+    def boom(_desc: str) -> dict:
+        raise RuntimeError("peer closed connection without sending complete message body")
+
+    bad = GenTool(_StubLLM(), cfg, run_dir=tmp / "bad", fallback=disk, source_provider=boom)
+    rep = _drive(bad)
+    assert rep["provider_ok"] is False, rep
+    assert "provider 调用失败" in rep["provider_why"], rep
+    assert rep["assemble_ok"] is True, "回退副本仍能装配，这道闸门才不是摆设"
+
+    # 2) provider 只返回一部分文件 → 缺的会被 supplement 补成上一代的，
+    #    拼出来是 chimera，同样不算这一代造的。
+    def partial(_desc: str) -> dict:
+        return dict(list(disk.items())[:3])
+
+    part = GenTool(_StubLLM(), cfg, run_dir=tmp / "partial", fallback=disk, source_provider=partial)
+    rep2 = _drive(part)
+    assert rep2["provider_ok"] is False, rep2
+    assert "产出不完整" in rep2["provider_why"], rep2
+
+    # 3) provider 完整产出 → provider_ok=True（不能把正常路径也拦了）
+    good = GenTool(_StubLLM(), cfg, run_dir=tmp / "good",
+                   fallback=disk, source_provider=lambda _d: dict(disk))
+    rep3 = _drive(good)
+    assert rep3["provider_ok"] is True, rep3
+    assert rep3["assemble_ok"] is True, rep3
+    print("  provider 闸门：失败→拦下 / 不完整→拦下 / 完整→放行")
+
+
 if __name__ == "__main__":
     test_1_dag_structure_and_edge_formats()
     test_2_message_structure_with_optional_image_and_gen()
@@ -944,4 +1020,5 @@ if __name__ == "__main__":
     test_18_llm_text_extraction_falls_back_to_reasoning()
     test_19_every_generation_runs_a_self_chosen_dag()
     test_20_meta_dag_dispatches_eight_steps_without_network()
-    print("ALL 20 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
+    test_21_provider_failure_is_not_accepted_as_a_generation()
+    print("ALL 21 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
