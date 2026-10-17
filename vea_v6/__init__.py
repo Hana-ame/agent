@@ -19,18 +19,31 @@ __all__ = [
     "create_generation_dag",
     "bootstrap",
     "generate_framework",
+    "render_framework_code",
     "manifest",
+    "verify_fixed_point",
     "verify_self_reproduction",
+    "parse_edges_from_description",
+    "create_bootstrap_dag",
+    "FRAMEWORK_SPEC",
+    "FRAME_FILES",
+    "MAIN_SOURCE",
 ]
 
 from vea_v6.parts.bootstrap import (
+    FRAME_FILES,
+    FRAMEWORK_SPEC,
+    MAIN_SOURCE,
     bootstrap,
+    create_bootstrap_dag,
     create_generation_dag,
     generate_framework,
     manifest,
+    render_framework_code,
+    verify_fixed_point,
     verify_self_reproduction,
 )
-from vea_v6.parts.builder import MetaDAGBuilder, create_dag_builder_dag
+from vea_v6.parts.builder import MetaDAGBuilder, create_dag_builder_dag, parse_edges_from_description
 from vea_v6.parts.dag import DEFAULT_PRESET_EDGE, DAG, load_models_file
 from vea_v6.parts.llm import OpenAICompatibleLLM, SmartMockLLM
 from vea_v6.parts.primitives import ContentItem, Edge

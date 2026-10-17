@@ -142,7 +142,9 @@ def solve(main_src: str, manifest_of: Callable[[int, str], str], code_text: str)
             hi = mid
     else:
         span = hi - lo + 1
-    for radius in (span, 64, 512, 4096, 65536):
+    # 严格不动点只在唯一量级附近；span+512 已足够（抖幅实测 ±3）。
+    # 曾经这里带 4096/65536 两圈，每圈几百次 trial 各 parse 一遍全部源码，单圈就要几分钟。
+    for radius in (span, 512):
         for cand in range(max(1, lo - radius), hi + radius + 1):
             size, text, sha = trial_at(cand)
             if size == cand and hashlib.sha256(text.encode("utf-8")).hexdigest() == sha:

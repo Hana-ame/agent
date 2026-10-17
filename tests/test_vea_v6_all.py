@@ -534,10 +534,19 @@ def test_12_bootstrap_dag_generates_framework_code() -> None:
     for name in ("class DAG", "class ContentItem", "class Edge", "def generate_framework"):
         assert name in code, f"生成物缺少 {name}"
 
-    # 拓扑：顶层那条需要两个输入 tag 的边必须由预设边拼出中间条目
+    # 拓扑：三段式（spec / skeleton / flesh）汇聚到 skeleton_code 的那条边缺三路输入，
+    # 必须由预设边把三条 layer-1 产物合成一个中间条目，否则整链断在这里。
     synth = [i for i in dag.context if i.get("_preset_synthesized")]
     assert len(synth) == 1, f"预设边应恰好合成 1 条，实际 {len(synth)}"
-    assert sorted(synth[0]["tags"]) == ["fixed_point", "framework_code"]
+    assert sorted(synth[0]["tags"]) == ["flesh_plan", "skeleton_plan", "spec_plan"]
+
+    # 产出必须是**整个 vea_v6**：主源就是自包含文件，内部持整份框架的 b64
+    from vea_v6 import FRAME_FILES, MAIN_SOURCE, render_framework_code
+
+    assert code == render_framework_code(), "DAG 产物应与直接渲染逐字节一致"
+    assert "BOOTSTRAP_B64" in code
+    assert dag.get_result() == code  # 结果稳定（幂等，不因重复取用而变化）
+    assert MAIN_SOURCE in FRAME_FILES and len(FRAME_FILES) >= 7
 
 
 def test_13_bootstrap_fixed_point_is_byte_identical() -> None:
