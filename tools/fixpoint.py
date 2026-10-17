@@ -112,6 +112,7 @@ def solve(main_src: str, manifest_of: Callable[[int, str], str], code_text: str)
     改成二分定位变号点，再在邻域逐点判定严格不动点。取证见 tools/probe_window.py。
     """
     z_guess = 4 * ((len(gz(main_src.encode("utf-8"))) + 2) // 3)
+    seen: Dict[int, int] = {}  # pad -> z(pad)：z 与 pad 无关的部分不该重算
 
     def trial_at(cand: int) -> Tuple[int, str, str]:
         """返回 (实际 gzip 体积, 最终源码, 清单里的 sha)。"""
@@ -119,11 +120,13 @@ def solve(main_src: str, manifest_of: Callable[[int, str], str], code_text: str)
         text = render(main_src, manifest_of(cand, sha), code_text, pad=cand)
         return len(gz(text.encode("utf-8"))), text, sha
 
+    def d(x: int) -> int:
+        if x not in seen:
+            seen[x] = trial_at(x)[0] - x
+        return seen[x]
+
     # 先用二分把区间压到 `z(pad) - pad` 变号处，再在该点邻域取第一个严格不动点。
     # 单调性并不严格（压缩率抖动会让 z 上下 1~2），所以二分只是"快速定位"，判据仍是逐点验证。
-    def d(x: int) -> int:
-        return trial_at(x)[0] - x
-
     lo, hi = 1, max(4096, z_guess)
     while d(hi) > 0:  # 上界要落在 d<0 一侧
         lo, hi = hi, hi * 2
