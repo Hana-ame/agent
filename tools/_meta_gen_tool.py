@@ -580,11 +580,15 @@ class GenTool:
         *,
         run_dir: Path,
         fallback: Optional[Dict[str, str]] = None,
+        source_provider: Any = None,
     ) -> None:
         self.llm = llm
         self.cfg = cfg
         self.run_dir = Path(run_dir)
         self.fallback = dict(fallback or {})
+        #: 源码来源。默认 = 调 LLM 写；第 2 代起换成**上一代框架的 bootstrap**，
+        #: 于是同一个 8 步图在"框架造框架"时一步一步照样可观测。
+        self.source_provider = source_provider
         self.log: List[Dict[str, Any]] = []
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self._n = 0
@@ -642,10 +646,24 @@ class GenTool:
 
     # ---- 2. plan_module --------------------------------------------------
     def _step_plan_module(self, briefs_json: str) -> str:
-        """每个文件一次（或每批一次）请求，写完整源码。并发跑。"""
+        """每个文件一次（或每批一次）请求，写完整源码。并发跑。
+
+        第 2 代起 `self.source_provider` 不是 None，源码由**上一代框架**产出，
+        这里就只做归一化与落盘，不再请求模型。
+        """
         payload = json.loads(briefs_json)
         description = payload.get("description", "")
         briefs = {item["path"]: item for item in payload.get("files", [])}
+        if self.source_provider is not None:
+            try:
+                got = dict(self.source_provider(description))
+            except Exception as exc:  # noqa: BLE001 - 上一代造不出来不能报销整轮
+                self.log.append({"step": "source_provider_failed", "why": str(exc)[:200]})
+                got = {}
+            self.log.append({"step": "source_provider", "files": sorted(got), "chars": sum(len(v) for v in got.values())})
+            for p in FRAME_FILES:
+                got.setdefault(p, "")
+            return json.dumps({"files": [{"path": p, "source": got[p]} for p in FRAME_FILES]}, ensure_ascii=False)
         batches: List[List[str]] = []
         buf: List[str] = []
         size = 0
