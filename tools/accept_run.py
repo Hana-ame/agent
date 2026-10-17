@@ -26,7 +26,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -67,6 +67,32 @@ class Report:
         print(f"\n  合计 {len(self.rows)} 项："
               f"{sum(1 for r in self.rows if r['结果'] == 'PASS')} PASS / "
               f"{sum(1 for r in self.rows if r['结果'] == 'FAIL')} FAIL")
+
+
+def _new_files_from_snapshot(gdir: Path) -> Optional[int]:
+    """从 05_supplement 逐步快照数"有几个文件是新造的"（旧代码轮次的回落路径）。
+
+    supplement 给每个文件记 `why`；非空（"回退上一代…"）= 不是这一代造的。
+    返回 None 表示快照不在，无从判断（不因此判负）。
+    """
+    # 🔴 重试会让步骤编号继续往后排（第 2 次尝试是 09~16），所以**不能**写死
+    # 读 `05_supplement`：那是第 1 次尝试的快照。s15 gen2 实测——第 1 次因网络
+    # 瞬断全补（新造 0）被闸门否掉，第 2 次才是真造的那代；读 05 会把它误报成
+    # "7 个文件全由上一代补"。取编号最大的 *_supplement = 最后一次尝试。
+    cands = sorted(
+        (p for p in (gdir / "steps").glob("*_supplement") if p.name[:2].isdigit()),
+        key=lambda p: int(p.name[:2]),
+    )
+    if not cands:
+        return None
+    try:
+        data = json.loads(cands[-1].read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+    files = data.get("files") if isinstance(data, dict) else None
+    if not isinstance(files, list) or not files:
+        return None
+    return sum(1 for it in files if not str(it.get("why") or "").strip())
 
 
 def gen_bytes(gdir: Path) -> int:
@@ -205,8 +231,16 @@ def accept(run: Path) -> bool:
             prov_bad.append(f"{g.name} provider：{str(data.get('provider_why'))[:50]}")
         if not data.get("source_ok", True):
             prov_bad.append(f"{g.name} source：{str(data.get('source_why'))[:50]}")
-        if "new_files" in data:
-            new_counts.append(f"{g.name} 新造 {data['new_files']}/{len(FRAME_FILES)}")
+        # 新造文件数：优先读 REPORT（新代码写 new_files）；旧代码跑出的轮次
+        # 没有这个字段，回落到 05_supplement 逐步快照去数（why 非空 = 上一代补的）。
+        # 这样对历史轮次同样能看出"是 5 新造 + 2 补"还是"0 新造"。
+        n_new = data.get("new_files")
+        if n_new is None:
+            n_new = _new_files_from_snapshot(g)
+        if n_new is not None:
+            if n_new <= 0:
+                prov_bad.append(f"{g.name}：7 个文件全由上一代补（新造 0）")
+            new_counts.append(f"{g.name} 新造 {n_new}/{len(FRAME_FILES)}")
     detail = ("两道代际闸门全过；" + "，".join(new_counts)) if not prov_bad else "；".join(prov_bad)
     rep.check("代际闸门（provider_ok + source_ok）", not prov_bad, detail)
 
