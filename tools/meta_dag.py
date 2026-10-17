@@ -569,11 +569,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 smoke = smoke_bootstrap(gdir, base)
                 print(f"[gen{i}] 第 {attempt} 次（工具={type(dag.tools.get('gen')).__name__}）："
                       f"{out['report']} | 自举={'OK' if smoke['ok'] else 'FAIL'} {smoke['out']}")
-                if report.get("assemble_ok") and smoke["ok"]:
+                # 代际闸门：provider 失败/产出不完整 ⇒ 这一代是回退副本，不算新的一代。
+                # 没有这道闸门时，网络瞬断会让整代变成上一代的复印件而三道闸门全绿
+                # （s13 gen2 实测：assemble_ok=True、自举 stable、demo ALL OK）。
+                if report.get("assemble_ok") and smoke["ok"] and report.get("provider_ok", True):
                     break
-            if not (report.get("assemble_ok") and smoke["ok"]):
-                print(f"[gen{i}] FAIL：{a.retries} 次都没同时过装配闸门与自举闸门，停止")
-                smoke = {"ok": False, "out": "未过自举闸门"}
+            if not (report.get("assemble_ok") and smoke["ok"] and report.get("provider_ok", True)):
+                why = report.get("provider_why") or "未过自举闸门"
+                print(f"[gen{i}] FAIL：{a.retries} 次都没同时过装配闸门、自举闸门与代际闸门，停止（{why[:120]}）")
+                smoke = {"ok": False, "out": f"未过代际闸门：{why[:120]}"}
                 history.append({"gen": i, "bytes": 0, "demo": False, "demo_out": "",
                                 "bootstrap": False, "bootstrap_out": smoke["out"]})
                 break
