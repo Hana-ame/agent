@@ -1,6 +1,6 @@
 # VEA V6 Architecture Guide (纯标签信息流与预设边拼凑架构指南)
 
-> **“图即 `{contents: [], edges: []}`；只加处理边，无输入则由预设边从现有信息找两条拼凑；外部检测 `tag=result` 终止。”**
+> **“图即 `{contents: [], edges: []}`；只加处理边（必有输入/输出 tag，按 layer 从小到大跑）；找不到对应 tag 时由预设边从相近信息合成「输出 tag = 所需输入 tag」的条目；外部检测 `tag=result` 终止。”**
 
 This document describes **VEA V6** (`vea_v6/`), the pure tag-driven information-flow
 evolution of the Vertex-Edge Agent framework. It coexists cleanly alongside
@@ -17,10 +17,12 @@ VEA V6 removes named vertex objects altogether and represents a task DAG purely 
 | Concept | V6 |
 | :--- | :--- | :--- |
 | Graph state | `{"contents": [], "edges": []}` (`dag.contents`, `dag.edges`) |
-| Adding computation | `dag.add_edge(input_tags, processor, output_tags)` |
+| Adding computation | `dag.add_edge(input_tags, processor, output_tags, layer=0)` |
 | Processor format | `prompt: str` \| `{"模型": str, "处理prompt": str}` (or `Callable`) |
-| Data unit | `Vertex(name, content, status)` | `{"tags": list[str], "content": str, "image"?: path\|url, "gen": 0}` |
-| Missing-input / multi-branch merge | Built-in `dag.preset_edge` picks 2 items from `contents` and pieces them into 1 item |
+| Edge ordering | Every edge carries an int `layer`; `dag.run()` always runs edges from the smallest `layer` up (definition order breaks ties) |
+| Model registry | `DAG(models={...})`: model name → `{"api", "key", "model", "params"}`; an edge's `{"模型": KEY}` is resolved against this registry at LLM call time (unknown KEY → `KeyError`) |
+| Data unit | `{"tags": list[str], "content": str, "image"?: path\|url, "gen": 0}` |
+| Missing-tag synthesis | `dag.preset_edge` (default constant `DEFAULT_PRESET_EDGE`) picks 1-or-more similar items from `contents` and synthesizes a new item whose **output tag = the edge's required input tags** |
 | Execution & termination | `dag.run()` runs once, `dag.context` lists all items, external loop checks `tag="result"` |
 
 ---
@@ -46,36 +48,42 @@ interchangeably.
 
 ### 2.2 Processing edge (`Edge`)
 
-An edge is a 3-tuple `(input_tags, processor, output_tags)`:
+An edge is a 4-tuple `(input_tags, processor, output_tags, layer)`:
 
-- `input_tags`: `list[str]` — required input tags (may be empty `[]`).
+- `input_tags`: `list[str]` — required input tags (**must not be empty**).
 - `processor`:
   - `str` — prompt string (e.g. `"提取核心数字: {content}"`), or
   - `dict` — `{"模型": "sensenova-v6", "处理prompt": "按汇率折算: {content}"}` (also
-    accepts English keys `{"model": ..., "prompt": ...}`), or
+    accepts English keys `{"model": ..., "prompt": ...}`); the `"模型"` value is a KEY
+    resolved against `dag.models` (api / key / model / params) at LLM call time, or
   - `Callable` — a Python function for deterministic transforms and unit tests.
-- `output_tags`: `list[str]` — tags attached to the newly generated message.
+- `output_tags`: `list[str]` — tags attached to the newly generated message (**must not be empty**).
+- `layer`: `int` (default `0`) — execution level; `dag.run()` always runs edges from the
+  smallest `layer` up, breaking ties by definition order.
 
 ---
 
-## 3. Preset edge & two-item synthesis (`dag.preset_edge`)
+## 3. Preset edge & missing-tag synthesis (`dag.preset_edge`)
 
-Every `DAG` instance initializes a preset edge object (`dag.preset_edge`) at
-construction time.
+The default preset edge is the module-level constant `DEFAULT_PRESET_EDGE`
+(`vea_v6.dag.DEFAULT_PRESET_EDGE`). Pass it explicitly when constructing a DAG:
+`DAG(preset_edge=DEFAULT_PRESET_EDGE, ...)`; it is then accessible as
+`dag.preset_edge` (alias `dag.default_edge`).
 
-When an edge in `dag.edges` has **no direct single input** during `dag.run()` —
-either because its `input_tags` is empty (`[]`), or because no single item in
-`dag.contents` carries all of its required `input_tags` (for example, when two
-upstream branches produced `["price"]` and `["discount"]` separately and the
-downstream edge requires `["price", "discount"]`):
+Processing edges always run from the smallest `layer` up. When `dag.run()`
+processes an edge and **finds no item carrying its required input tags** (for
+example, when two upstream branches produced `["price"]` and `["discount"]`
+separately and the downstream edge requires `["price", "discount"]`):
 
-1. The DAG searches `dag.contents` and selects the best two existing items
-   (prioritizing tag coverage, semantic similarity, unconsumed leaf items, and
-   higher `gen`).
-2. Those two items are passed through `dag.preset_edge` to piece together a
-   single synthesized item (`gen = max(gen1, gen2) + 1`), which is appended to
-   `dag.contents`.
-3. The edge then runs its `processor` on that synthesized item and appends its
+1. If some not-yet-run upstream edge can still produce those tags directly, the
+   current edge is deferred to a later pass.
+2. Otherwise the DAG looks at what tags the edge needs, searches `dag.contents`
+   for the **most similar one or more items** (prioritizing tag coverage,
+   semantic similarity, unconsumed leaf items, and higher `gen`), and passes
+   them through `dag.preset_edge`.
+3. The preset edge synthesizes a new item whose **output tag = the edge's
+   required input tags** (`gen = max(gens) + 1`), appended to `dag.contents`.
+4. The edge then runs its `processor` on that synthesized item and appends its
    output (`gen = synthesized.gen + 1`) to `dag.contents`.
 
 ---
@@ -85,11 +93,11 @@ downstream edge requires `["price", "discount"]`):
 A `DAG` represents a single task:
 
 ```python
-from vea_v6 import DAG
+from vea_v6 import DEFAULT_PRESET_EDGE, DAG
 
-dag = DAG()
-dag.add_edge(["query"], "拆解问题: {content}", ["sub_plan"])
-dag.add_edge(["sub_plan"], {"模型": "gpt-4o", "处理prompt": "生成最终解答: {content}"}, ["result"])
+dag = DAG(preset_edge=DEFAULT_PRESET_EDGE)
+dag.add_edge(["query"], "拆解问题: {content}", ["sub_plan"], layer=1)
+dag.add_edge(["sub_plan"], {"模型": "gpt-4o", "处理prompt": "生成最终解答: {content}"}, ["result"], layer=2)
 
 dag.send({"tags": ["query"], "content": "如何设计极简智能体框架？", "gen": 0})
 
@@ -108,13 +116,14 @@ Just as V6 ships with a `SentenceToDAGMerger`-style tool, it also ships with
 `create_dag_builder_dag()` and `MetaDAGBuilder`:
 
 - `builder_dag = create_dag_builder_dag()` is itself a genuine 3-edge V6 `DAG`:
-  1. `(["input"], _edge1_parse_edges, ["parsed_edges"])` — extracts V6 edges from
+  1. `(["input"], _edge1_parse_edges, ["parsed_edges"], layer=1)` — extracts V6 edges from
      natural language sentences or edge specs.
-  2. `(["input"], _edge2_analyze_alignment, ["tag_alignment"])` — aligns similar
+  2. `(["input"], _edge2_analyze_alignment, ["tag_alignment"], layer=1)` — aligns similar
      upstream/downstream tags and decomposes composite multi-branch tags.
-  3. `([], _edge3_compile_target_dag, ["result"])` — has no single input, so it
-     uses `builder_dag.preset_edge` to piece together `parsed_edges` and
-     `tag_alignment`, then compiles the target V6 `DAG` (`{"contents": [], "edges": [...]}`)
+  3. `(["parsed_edges", "tag_alignment"], _edge3_compile_target_dag, ["result"], layer=2)` —
+     no single item carries both tags, so `builder_dag.preset_edge` synthesizes a
+     `["parsed_edges", "tag_alignment"]` item from the two upstream outputs, then the edge
+     compiles the target V6 `DAG` (`{"contents": [], "edges": [...]}`)
      into a message with `tags=["result"]`.
 
 ---
@@ -129,5 +138,5 @@ python3 examples/06_vea_v6_meta_builder.py
 # 【步骤 3】构建出的业务 DAG 运行完毕，最终回应 (tag=result): {"final_pay": 220}
 
 python3 tests/test_vea_v6_all.py
-# ALL 7 VEA V6 TEST SUITES PASSED SUCCESSFULLY!
+# ALL 8 VEA V6 TEST SUITES PASSED SUCCESSFULLY!
 ```

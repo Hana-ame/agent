@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vea_v6 import (
+    DEFAULT_PRESET_EDGE,
     ContentItem,
     DAG,
     Edge,
@@ -129,8 +130,9 @@ def test_2_message_structure_with_optional_image_and_gen() -> None:
 
 
 def test_3_preset_edge_fallback_when_edge_has_no_input() -> None:
-    """测试 3：对一条 edge，如果没有输入，则从现有的所有条目中找到两条，通过初始化预设边拼凑一个信息。"""
-    # 场景 A：边定义时直接无输入 (input_tags=[])，从已有的两条信息中通过 preset_edge 拼凑并计算结果
+    """测试 3：某条 edge 在 run 时找不到对应输入 tag 的信息时，用预设边从相近信息合成 输出tag=输入tag 的条目。"""
+    # 场景 A：边需要汇聚 ["rev_info", "cost_info"] 两个标签，没有单条信息同时匹配，
+    # 自动通过预设边从相近的两条信息合成一条 输出tag=所需输入tag 的条目再执行
     mock_llm = SmartMockLLM(
         rules={
             "综合核算净利润": lambda prompt: str(
@@ -140,7 +142,7 @@ def test_3_preset_edge_fallback_when_edge_has_no_input() -> None:
         }
     )
     dag_empty_in = DAG(llm=mock_llm)
-    dag_empty_in.add_edge([], "综合核算净利润", ["result"])
+    dag_empty_in.add_edge(["rev_info", "cost_info"], "综合核算净利润", ["result"])
 
     dag_empty_in.send({"tags": ["rev_info"], "content": '{"revenue": 5000}', "gen": 0})
     dag_empty_in.send({"tags": ["cost_info"], "content": '{"cost": 1800}', "gen": 0})
@@ -149,13 +151,14 @@ def test_3_preset_edge_fallback_when_edge_has_no_input() -> None:
         dag_empty_in.run()
 
     assert dag_empty_in.get_result() == "3200"
-    merged_items = [c for c in dag_empty_in.context if "merged" in c["tags"]]
+    merged_items = [c for c in dag_empty_in.context if c.get("_preset_synthesized")]
     assert len(merged_items) == 1
+    assert set(merged_items[0]["tags"]) == {"rev_info", "cost_info"}
     assert merged_items[0]["gen"] == 1
     assert dag_empty_in.get_result_item()["gen"] == 2
 
     # 场景 B：两条上游边各自产出单标签信息，下游边需要两个标签 ["price", "discount"]，
-    # 现有单条信息均不满足，自动触发 preset_edge 找两条拼凑！
+    # 现有单条信息均不满足，自动触发预设边找相近的两条信息合成！
     dag_fan_in = DAG()
     dag_fan_in.add_edge(["order"], lambda s: '{"price": 200}', ["price"])
     dag_fan_in.add_edge(["order"], lambda s: '{"discount": 50}', ["discount"])
@@ -179,11 +182,20 @@ def test_3_preset_edge_fallback_when_edge_has_no_input() -> None:
         is_preset=True,
     )
     dag_custom_preset = DAG(preset_edge=custom_preset)
-    dag_custom_preset.add_edge([], lambda s: f"FINAL: {s}", ["result"])
+    dag_custom_preset.add_edge(["part1", "part2"], lambda s: f"FINAL: {s}", ["result"])
     dag_custom_preset.send({"tags": ["part1"], "content": "Alpha", "gen": 0})
     dag_custom_preset.send({"tags": ["part2"], "content": "Beta", "gen": 0})
     dag_custom_preset.run()
     assert dag_custom_preset.get_result() == "FINAL: COMBINED(Alpha + Beta)"
+
+    # 场景 D：处理边不允许没有输入 tag / 输出 tag
+    for bad_args in (([], "x", ["y"]), (["x"], "x", [])):
+        try:
+            DAG().add_edge(*bad_args)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("空输入/输出 tag 的处理边应被拒绝")
 
 
 def test_4_external_loop_termination_on_result_tag() -> None:
@@ -263,7 +275,11 @@ def test_6_meta_dag_builder_builds_runnable_v6_dag() -> None:
     build_res = builder.build(sentences)
 
     assert any("result" in item["tags"] for item in build_res.builder_context)
-    assert any("merged" in item["tags"] for item in build_res.builder_context)
+    assert any(
+        item.get("_preset_synthesized")
+        and {"parsed_edges", "tag_alignment"} <= set(item["tags"])
+        for item in build_res.builder_context
+    )
 
     business_dag = build_res.compiled_dag
     assert business_dag.contents == []
@@ -305,6 +321,60 @@ def test_7_parse_edge_sentences_variants() -> None:
     assert edges[2]["output_tags"] == ["result"]
 
 
+def test_8_models_registry_and_layer_ordering() -> None:
+    """测试 8：模型注册表（api/key/model/params 按 KEY 查询注入）与 layer 执行顺序。"""
+    # 1. 模型注册表：边里 {"模型": "fast"} 按 KEY 查询 dag.models，调用时替换为注册的真实模型名
+    mock_llm = SmartMockLLM(rules={"总结": "摘要完成"})
+    dag = DAG(
+        llm=mock_llm,
+        preset_edge=DEFAULT_PRESET_EDGE,
+        models={
+            "fast": {
+                "api": "https://api.demo.cn/v1",
+                "key": "sk-x",
+                "model": "sensenova-v6-flash",
+                "params": {"temperature": 0.1},
+            },
+        },
+    )
+    dag.add_edge(["doc"], {"模型": "fast", "处理prompt": "总结: {content}"}, ["result"])
+    dag.send({"tags": ["doc"], "content": "长文", "gen": 0})
+    dag.run()
+    assert dag.get_result() == "摘要完成"
+    assert mock_llm.call_history[-1]["model"] == "sensenova-v6-flash"
+
+    # 2. 已设置注册表但查不到对应模型 KEY → KeyError
+    dag_bad = DAG(llm=SmartMockLLM(), models={"fast": {"model": "m"}})
+    dag_bad.add_edge(["doc"], {"模型": "ghost", "处理prompt": "x"}, ["result"])
+    dag_bad.send({"tags": ["doc"], "content": "y", "gen": 0})
+    try:
+        dag_bad.run()
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("未注册的模型 KEY 应抛出 KeyError")
+
+    # 3. layer 执行顺序：总是从 layer 小的边开始跑（与添加顺序无关）
+    order_llm = SmartMockLLM(fallback_fn=lambda p, m, i: p.split("\n")[0])
+    dag_layer = DAG(llm=order_llm)
+    dag_layer.add_edge(["q"], "第二步", ["s2"], layer=2)
+    dag_layer.add_edge(["q"], "第一步", ["s1"], layer=1)
+    dag_layer.send({"tags": ["q"], "content": "go", "gen": 0})
+    dag_layer.run()
+    assert order_llm.call_history[0]["prompt"].startswith("第一步")
+    assert order_llm.call_history[1]["prompt"].startswith("第二步")
+    assert dag_layer.edges[0].layer == 2 and dag_layer.edges[1].layer == 1
+
+    # 4. 找不到对应 tag 时，预设边可从相近的单条信息合成 输出tag=所需输入tag 的条目
+    dag_sim = DAG()
+    dag_sim.add_edge(["报价单"], lambda s: f"收到[{s}]", ["result"])
+    dag_sim.send({"tags": ["报价"], "content": "100元", "gen": 0})
+    dag_sim.run()
+    fab = [c for c in dag_sim.context if c.get("_preset_synthesized")]
+    assert len(fab) == 1 and fab[0]["tags"] == ["报价单"]
+    assert dag_sim.get_result() == "收到[100元]"
+
+
 class TestVEAV6Suite(unittest.TestCase):
     """兼容 unittest 测试运行器的包装类。"""
 
@@ -329,6 +399,9 @@ class TestVEAV6Suite(unittest.TestCase):
     def test_7(self) -> None:
         test_7_parse_edge_sentences_variants()
 
+    def test_8(self) -> None:
+        test_8_models_registry_and_layer_ordering()
+
 
 if __name__ == "__main__":
     test_1_dag_structure_and_edge_formats()
@@ -338,4 +411,5 @@ if __name__ == "__main__":
     test_5_dict_literal_initialization_and_direct_list_mutation()
     test_6_meta_dag_builder_builds_runnable_v6_dag()
     test_7_parse_edge_sentences_variants()
-    print("ALL 7 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
+    test_8_models_registry_and_layer_ordering()
+    print("ALL 8 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
