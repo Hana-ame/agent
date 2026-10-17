@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from vea_v6.parts.builder import parse_json_stream
-from vea_v6.parts.dag import DEFAULT_PRESET_EDGE, DAG
+from vea_v6.parts.dag import DEFAULT_PRESET_EDGE, DAG, load_models_file
 from vea_v6.parts.llm import OpenAICompatibleLLM
 from vea_v6.parts.primitives import ContentItem, Edge
 
@@ -118,7 +118,7 @@ def _fmt_fill(n: int) -> str:
     """SELF_FILL 的定义行：用 `"F" * n` 表达，长度由 n 决定（不写死长串）。"""
     return 'SELF_FILL = "F" * ' + str(int(n))
 #: 自指 payload 的 base64 文本长度（不动点；0 表示尚未固化）
-BOOTSTRAP_SLOT = 43711
+BOOTSTRAP_SLOT = 44809
 
 #: 无 `__file__` 时（内存 exec / `python -c`）`_main_source()` 回落到这里，由 `_probe` 填入。
 _PROBE_SOURCE: Dict[str, str] = {}
@@ -287,9 +287,9 @@ FRAME_MANIFEST = json.loads(r'''{
     },
     {
       "path": "vea_v6/parts/bootstrap.py",
-      "bytes": 76273,
-      "b64_len": 43711,
-      "sha256": "d0cb96d1a257d73bd4c073eb57e6e91d65cb78387a6a560bf64a89ee3a6db8f1",
+      "bytes": 79584,
+      "b64_len": 44809,
+      "sha256": "f1fbc0faa4da677b1e573ef68e0017f5707887cfb189273b061714ba25140178",
       "sig": [
         "def signature(path, source)",
         "def sha_of(source)",
@@ -976,10 +976,23 @@ def create_generation_dag(
     model_key: str = "laptop-6.8",
     rewrite_files: Sequence[str] = (),
 ) -> DAG:
-    """创建框架生成 DAG（标准 V6 DAG；三条 layer-1 边汇聚成 skeleton_code）。"""
+    """创建框架生成 DAG（标准 V6 DAG；三条 layer-1 边汇聚成 skeleton_code）。
+
+    没显式传 `llm` 时**必须**造一个真的 `OpenAICompatibleLLM`。
+    不能交给 `DAG()` 的默认值——那里会静默退化成 `SmartMockLLM`，
+    整条链能在 1 秒内"跑通"却一次 HTTP 请求都没发过（假通过）。
+    """
+    if llm is None:
+        llm = OpenAICompatibleLLM()
+    if models is None:
+        models = load_models_file()
     dag = DAG("V6_Framework_Generation_DAG", preset_edge=DEFAULT_PRESET_EDGE, llm=llm, models=models)
     base = dict(framework_sources())
-    targets = [p for p in (rewrite_files or []) if p != MAIN_SOURCE]
+    # 默认让模型重写**全部非主源文件**（主源自带自指槽，只能由固定点求解器生成）。
+    # 若默认留空，模型一次文件都不写，整条链只是把磁盘源码原样回放，
+    # 那种"1 秒跑通"是假通过——没验证模型任何能力。
+    targets = [p for p in (rewrite_files or [p for p in FRAME_FILES if p != MAIN_SOURCE]) if p != MAIN_SOURCE]
+
 
     def _ask(prompt: str) -> str:
         return dag.ask_sync(prompt, model_key)
@@ -1002,33 +1015,87 @@ def create_generation_dag(
         return json.dumps({"spec": spec, "jobs": jobs}, ensure_ascii=False)
 
     def _edge_skeleton_code(merged: str) -> str:
-        # 预设边把三路拼成一条正文（可能是多段 JSON 顺序拼接），按 key 合并后再取
-        data: Dict[str, Any] = {}
+        """把预设边拼起来的三段 JSON 还原成 (spec, plan-with-flesh)。
+
+        三段来源不同、key 会撞车，不能简单 `data.update()`：
+          - spec 边     -> 裸 SPEC 对象（name/summary/...）
+          - skeleton 边 -> {"spec", "plan"}
+          - flesh 边    -> {"spec", "jobs"}
+        `jobs` 必须并入 `plan["flesh"]`，否则 `_edge_frame_code` 拿不到重写任务，
+        模型一次文件都不会写（曾经的"假通过"就是这么来的）。
+        """
+        spec_obj: Optional[Dict[str, Any]] = None
+        plan: Dict[str, Any] = {}
+        jobs: List[Any] = []
         for obj in _parse_json_stream(merged):
-            if isinstance(obj, dict):
-                data.update(obj)
-        return json.dumps({"spec": data.get("spec"), "plan": data.get("plan")}, ensure_ascii=False)
+            if not isinstance(obj, dict):
+                continue
+            if "plan" in obj:
+                plan = dict(obj.get("plan") or {})
+            if "jobs" in obj:
+                jobs = list(obj.get("jobs") or [])
+            if isinstance(obj.get("spec"), dict):
+                spec_obj = obj["spec"]
+            elif spec_obj is None and "name" in obj:
+                spec_obj = obj  # spec 边的裸 SPEC 对象
+        if jobs:
+            plan["flesh"] = jobs
+        return json.dumps({"spec": spec_obj, "plan": plan}, ensure_ascii=False)
 
     def _edge_frame_code(plan_text: str) -> str:
-        plan = json.loads(plan_text)
+        """逐文件让模型重写，再把结果交给 `assemble` 解固定点。
+
+        输入结构是 `{"spec": ..., "plan": {...}}`，重写任务在 **`plan["plan"]["flesh"]`**。
+        曾经这里写成 `plan.get("flesh")` 直接读外层，永远拿到空列表 ⇒ 模型一次都没被调用，
+        产物是磁盘源码原样回放（"假通过"）。读错一层比读错一个键更难发现。
+        """
+        payload = json.loads(plan_text)
+        spec_obj = payload.get("spec")
+        plan = payload.get("plan") or {}
         parts = dict(base)
-        for job in plan.get("flesh") or []:
+        jobs = plan.get("flesh") or []
+        rejected: Dict[str, str] = {}
+        for job in jobs:
+            path = job["path"]
             code = _extract_code(_ask(job["prompt"]), "python")
-            if code.strip():
-                parts[job["path"]] = code
-        return json.dumps({"files": parts, "spec": plan["spec"]}, ensure_ascii=False)
+            if not code.strip():
+                rejected[path] = "空产出"
+                continue
+            # 模型产出的文件先过语法与契约检查；不合格就**保留原文件**并记下原因，
+            # 不能让坏代码流到 assemble 里把整条链炸掉（也便于事后定位是哪一次生成坏了）。
+            try:
+                ast.parse(code)
+            except SyntaxError as exc:
+                rejected[path] = f"语法错误: {exc.msg} (line {exc.lineno})"
+                continue
+            if path in SPEC_FILES:
+                tree = ast.parse(code)
+                has_all = any(
+                    isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "__all__" for t in n.targets)
+                    for n in tree.body
+                )
+                if not has_all:
+                    rejected[path] = "SPEC 文件缺 __all__"
+                    continue
+            parts[path] = code
+        _LAST_VERDICT["rejected"] = rejected
+        return json.dumps({"files": parts, "spec": spec_obj, "rejected": rejected}, ensure_ascii=False)
 
     def _edge_manifest(payload: str) -> str:
         data = _parse_json_stream(payload)[-1]
         files = assemble(data["files"], spec=normalize_spec(data["spec"]))
         ns = _probe(files[MAIN_SOURCE])
         ok, why = ns["verify_self_reproduction"]()
-        _LAST_VERDICT.update({"okay": ok, "reason": why, "manifest": files[FRAME_FILES[0]]})
+        rejected = data.get("rejected") or _LAST_VERDICT.get("rejected") or {}
+        _LAST_VERDICT.update(
+            {"okay": ok, "reason": why, "manifest": files[FRAME_FILES[0]], "rejected": rejected}
+        )
         # result 边要交付的是**整份可运行框架**，不是清单：把全部文件带上，逐字节保留。
         return json.dumps(
             {
                 "okay": ok,
                 "reason": why,
+                "rejected": rejected,
                 "files": [{"path": p, "source": files[p]} for p in FRAME_FILES],
             },
             ensure_ascii=False,
