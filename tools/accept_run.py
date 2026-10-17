@@ -22,7 +22,6 @@
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -31,6 +30,7 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools._meta_dag_spec import FRAME_FILES  # noqa: E402
+from tools.oneshot_chain import combined_sha  # noqa: E402
 
 STEP_NAMES = (
     "expand", "plan_module", "normalize", "audit_contract",
@@ -38,14 +38,8 @@ STEP_NAMES = (
 )
 
 
-def combined_sha(files: Dict[str, str]) -> str:
-    """与 oneshot_chain.py / meta_dag.py::write_head 同一算法。"""
-    h = hashlib.sha256()
-    for p in sorted(files):
-        h.update(p.encode("utf-8"))
-        h.update(b"\0")
-        h.update(hashlib.sha256(files[p].encode("utf-8")).digest())
-    return h.hexdigest()
+# 合并指纹只此一处实现（tools/oneshot_chain.py::combined_sha）：曾三处各写一份
+# 同算法，改一处即静默分叉。这里直接复用，不再自带副本。
 
 
 class Report:

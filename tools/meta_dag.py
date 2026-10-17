@@ -49,6 +49,7 @@ sys.path.insert(0, str(ROOT))
 from tools._llm_connect import connect_llm, connect_model_config  # noqa: E402
 from tools._meta_dag_spec import FRAME_FILES, META_DAG  # noqa: E402
 from tools._meta_gen_tool import GenTool  # noqa: E402
+from tools.oneshot_chain import combined_sha  # noqa: E402
 
 RUNS = ROOT / "bootstrap_runs" / "meta"
 
@@ -310,14 +311,14 @@ def write_head(gdir: Path, meta: Dict[str, Any]) -> Dict[str, Any]:
             "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             "bytes": len(text.encode("utf-8")),
         }
-    h = hashlib.sha256()
-    for p in sorted(files):
-        h.update(p.encode("utf-8"))
-        h.update(b"\0")
-        h.update(bytes.fromhex(files[p]["sha256"]))
+    # 🔴 合并指纹只此一处实现：曾与 oneshot_chain.py / accept_run.py 各写一份
+    # （三份同算法），改一处就会静默分叉 —— 回档链的指纹对不上最难查。
+    # 现在统一调 oneshot_chain.combined_sha（它只引标准库，无循环导入）。
     head = dict(meta)
     head["files"] = files
-    head["combined_sha256"] = h.hexdigest()
+    head["combined_sha256"] = combined_sha(
+        {p: (gdir / p).read_text(encoding="utf-8") for p in files}
+    )
     head["total_bytes"] = sum(v["bytes"] for v in files.values())
     # parent 非空时自动判定"与上一代是否逐字节相同"（老 run 里同名字段的语义）
     if head.get("parent") is not None and "byte_identical" not in head:
