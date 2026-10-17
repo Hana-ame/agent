@@ -215,9 +215,37 @@ def cmd_checkout(args: argparse.Namespace) -> int:
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dst)
         print(f"  恢复 {p}")
+    # 🔴 回档必须当场核对：HEAD.json 里存着每个文件的 sha256，不核对就等于
+    # 只信"copy 没报错"。旧版只打印一句"复核：fixpoint_v3 --check"当建议，
+    # 而那是验不动点，根本不是验"这一代有没有被正确写回工作区"。
+    bad = verify_against_head(ROOT, h)
+    if bad:
+        print("\n回档校验失败（工作区与这一代的记录不符）：")
+        for p, got, want in bad:
+            print(f"  {p}: 落盘 {got[:16]} 应为 {want[:16]}")
+        print(f"备份在 {backup.relative_to(ROOT)}")
+        return 1
     print(f"\n已回档到 {run.name}/{g.name}  ({h['combined_sha256'][:16]})")
+    print(f"  落盘 {len(h['files'])} 个文件逐个核对 sha256 通过")
     print("复核：python tools/fixpoint_v3.py --check")
     return 0
+
+
+def verify_against_head(root: Path, h: Dict[str, Any]) -> List[tuple]:
+    """核对 root 下这些文件是否与 HEAD 记录的 sha256 相符。
+
+    返回 `[(相对路径, 落盘值, 记录值)]`；空列表 = 全部相符。
+    """
+    bad: List[tuple] = []
+    for p, info in h["files"].items():
+        f = root / p
+        if not f.exists():
+            bad.append((p, "<缺失>", info["sha256"]))
+            continue
+        got = sha_file(f)
+        if got != info["sha256"]:
+            bad.append((p, got, info["sha256"]))
+    return bad
 
 
 def main(argv: Optional[List[str]] = None) -> int:

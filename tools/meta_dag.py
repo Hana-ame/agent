@@ -275,6 +275,23 @@ def write_generation(payload: str, dest: Path) -> Dict[str, str]:
     return files
 
 
+def last_attempt_steps(steps_dir: Path, n_steps: Optional[int] = None) -> List[str]:
+    """这一代**最后一次尝试**的逐步快照名（重试会让编号续排：第 2 次是 09~16）。
+
+    只认 `NN_名字` 这种编号项（`REPORT.json` 之类不算步骤）。步数默认取
+    `len(META_DAG)`（8 条边 = 8 个 step），不写死 8。
+    """
+    if not steps_dir.exists():
+        return []
+    n = n_steps if n_steps is not None else len(META_DAG)
+    numbered = sorted(
+        (p.name for p in steps_dir.iterdir()
+         if len(p.name) > 3 and p.name[:2].isdigit() and p.name[2:3] == "_"),
+        key=lambda s: int(s[:2]),
+    )
+    return numbered[-n:] if n > 0 else numbered
+
+
 def write_head(gdir: Path, meta: Dict[str, Any]) -> Dict[str, Any]:
     """给这一代写 `HEAD.json` —— 父指针 + 逐文件 sha256，让
     `tools/boot_rollback.py` 能像 git 一样 list / verify / diff / checkout。
@@ -624,7 +641,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not res["ok"] or not smoke["ok"]:
             break
         # 过闸门了才写 HEAD.json：回档链上每一环都是可用的一代（父指针指向上一个
-        # 通过验收的代，不是上一次尝试）。steps/ 里留着这代 8 步的逐步快照。
+        # 通过验收的代，不是上一次尝试）。steps/ 里留着这代的逐步快照。
+        # 🔴 只记**最后一次尝试**的那几步：重试会让步骤编号续排（第 2 次是 09~16），
+        # 把全部列进去就会把"被闸门否掉的那次"当成这一代的产出过程 —— s15 gen2
+        # 实测列表里混着 01~08（失败尝试）与 09~16（被接受）。
         head = write_head(gdir, {
             "gen": i,
             "parent": prev_head["combined_sha256"],
@@ -632,7 +652,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "model_key": a.model_key,
             "self_verify": smoke["ok"], "self_verify_reason": smoke["out"],
             "demo": res["ok"], "demo_out": res["out"],
-            "steps": sorted(p.name for p in (gdir / "steps").iterdir()) if (gdir / "steps").exists() else [],
+            "steps": last_attempt_steps(gdir / "steps"),
         })
         prev_head = head
         prev_sources = {f: (gdir / f).read_text(encoding="utf-8") for f in FRAME_FILES}
