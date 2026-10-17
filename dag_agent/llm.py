@@ -133,6 +133,9 @@ class OpenAICompatibleClient:
             "messages": messages,
             **cfg.params,
         }
+        if "max_tokens" not in body:
+            body["max_tokens"] = 1024
+
         headers = {
             "Content-Type": "application/json",
             "User-Agent": "dag-agent/1.0",
@@ -140,18 +143,27 @@ class OpenAICompatibleClient:
         if cfg.apikey and cfg.apikey != "not-needed":
             headers["Authorization"] = f"Bearer {cfg.apikey}"
 
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        try:
+            import requests
+
+            resp = requests.post(url, headers=headers, json=body, timeout=self.timeout)
+            resp.raise_for_status()
+            data = resp.json()
+        except ImportError:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(body).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                data = json.loads(r.read().decode("utf-8"))
+
         choices = data.get("choices") or []
         if not choices:
             raise RuntimeError(f"Empty choices from {url}: {data}")
         msg = choices[0].get("message") or {}
+        # Priority: content first, then reasoning_content, reasoning, text
         for field_name in ("content", "reasoning_content", "reasoning", "text"):
             val = msg.get(field_name)
             if isinstance(val, str) and val.strip():

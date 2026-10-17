@@ -127,12 +127,18 @@ class ModelRegistry(dict):
         return cfg
 
     def resolve(self, key: Optional[str]) -> Optional[ModelConfig]:
-        if not key:
-            return next(iter(self.values()), None) if self else None
+        if not key or key == "default":
+            if "default" in self:
+                val = self["default"]
+                return val if isinstance(val, ModelConfig) else ModelConfig.from_dict("default", val)
+            if self:
+                first_cfg = next(iter(self.values()))
+                return first_cfg if isinstance(first_cfg, ModelConfig) else ModelConfig.from_dict(next(iter(self.keys())), first_cfg)
+            return None
         if key in self:
             val = self[key]
             return val if isinstance(val, ModelConfig) else ModelConfig.from_dict(key, val)
-        return None
+        return next(iter(self.values()), None) if self else None
 
     def to_dict(self) -> Dict[str, Dict[str, Any]]:
         return {k: (v.to_dict() if isinstance(v, ModelConfig) else dict(v)) for k, v in self.items()}

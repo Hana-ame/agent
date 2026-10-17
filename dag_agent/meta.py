@@ -207,6 +207,22 @@ def create_meta_dag(
     """
     meta = DAG("meta_dag", models=models, llm_client=llm_client)
 
+    def _bundle_meta_inputs(items: Sequence[ContentItem], out_tags: Sequence[str]) -> str:
+        target_dag_text = ""
+        prompt_text = ""
+        for it in items:
+            if "target_dag" in it.tags:
+                target_dag_text = it.contents
+            elif "prompt" in it.tags:
+                prompt_text = it.contents
+            elif not target_dag_text and it.contents.strip().startswith("{"):
+                target_dag_text = it.contents
+            else:
+                prompt_text = it.contents
+        return f"{target_dag_text}\n\n{prompt_text}"
+
+    meta.default_processor.custom_synthesizer = _bundle_meta_inputs
+
     def _plan_modification(payload: Any, item: Any) -> str:
         raw_text = item.contents if isinstance(item, ContentItem) else str(payload)
         dag_obj, start, end = _extract_json_object_with_span(raw_text)
@@ -258,7 +274,8 @@ def transform_dag_with_meta_dag(
 ) -> DAG:
     """Run `meta_dag` on `(target_dag, prompt)` and return the modified `DAG` instance."""
     client = llm_client or (target_dag.llm_client if isinstance(target_dag, DAG) else None)
-    meta = meta_dag or create_meta_dag(llm_client=client)
+    target_models = target_dag.models if isinstance(target_dag, DAG) else None
+    meta = meta_dag or create_meta_dag(llm_client=client, models=target_models)
 
     if isinstance(target_dag, DAG):
         dag_json = target_dag.to_json(indent=2)

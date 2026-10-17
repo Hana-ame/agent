@@ -117,6 +117,9 @@ class DefaultProcessor:
         for e_idx, edge in ranked_edges:
             if not edge.input_tags:
                 continue
+            max_limit = getattr(edge, "max_count", None) or getattr(self, "max_edge_count", None)
+            if max_limit is not None and edge.count >= max_limit:
+                continue
             selected: List[int] = []
             covered_tags = 0
 

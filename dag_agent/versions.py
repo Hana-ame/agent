@@ -277,7 +277,7 @@ class VersionF_TransactionalReactiveDAG(VersionE_AsyncParallelDAG):
 
     def step(self) -> StepResult:
         if self.max_edge_count is not None:
-            #Temporarily mark saturated edges as already executed for all current items
+            self.default_processor.max_edge_count = self.max_edge_count
             for e_idx, edge in enumerate(self.edges):
                 if edge.count >= self.max_edge_count:
                     for c_idx in range(len(self.contents)):
