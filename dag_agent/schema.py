@@ -469,9 +469,17 @@ class Processor:
         if callable(spec):
             return cls(model="callable", prompt="", fn=spec)
         if isinstance(spec, str):
+            spec_clean = spec.strip()
+            if spec_clean.startswith("builtin:meta_plan") or spec_clean.startswith("meta_plan") or spec_clean in ("_plan_modification", "plan_meta_modification"):
+                from dag_agent.meta import plan_meta_modification
+                return cls(model="callable", prompt=spec, fn=plan_meta_modification)
+            if spec_clean.startswith("builtin:meta_exec") or spec_clean.startswith("meta_exec") or spec_clean in ("_execute_and_validate", "execute_and_validate_meta_dag"):
+                from dag_agent.meta import execute_and_validate_meta_dag
+                return cls(model="callable", prompt=spec, fn=execute_and_validate_meta_dag)
             return cls(model="default", prompt=spec)
         if isinstance(spec, dict):
             raw = dict(spec)
+            c_name = raw.get("callable_name", "")
             model = str(raw.pop("model", None) or raw.pop("模型", None) or "default")
             prompt = str(
                 raw.pop("prompt", None)
@@ -480,6 +488,24 @@ class Processor:
                 or "{contents}"
             )
             fn = raw.pop("fn", None)
+            if not fn and (
+                c_name in ("_plan_modification", "plan_meta_modification", "meta_plan")
+                or model.startswith("builtin:meta_plan")
+                or model.startswith("meta_plan")
+                or prompt.startswith("builtin:meta_plan")
+                or prompt.startswith("meta_plan")
+            ):
+                from dag_agent.meta import plan_meta_modification
+                fn = plan_meta_modification
+            elif not fn and (
+                c_name in ("_execute_and_validate", "execute_and_validate_meta_dag", "meta_exec")
+                or model.startswith("builtin:meta_exec")
+                or model.startswith("meta_exec")
+                or prompt.startswith("builtin:meta_exec")
+                or prompt.startswith("meta_exec")
+            ):
+                from dag_agent.meta import execute_and_validate_meta_dag
+                fn = execute_and_validate_meta_dag
             return cls(model=model, prompt=prompt, fn=fn if callable(fn) else None, extra=raw)
         raise TypeError(f"Unsupported processor specification: {spec!r}")
 

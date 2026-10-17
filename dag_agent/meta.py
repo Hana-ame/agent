@@ -101,7 +101,9 @@ def apply_prompt_to_dag_dict(
             if raw_proc.startswith("(") and raw_proc.endswith(")"):
                 raw_proc = raw_proc[1:-1].strip()
             layer_val = int(m.group("layer")) if m.group("layer") is not None else len(mutated["edges"])
-            if ":" in raw_proc and not raw_proc.startswith("{"):
+            if raw_proc.startswith("builtin:"):
+                proc_spec: Any = raw_proc
+            elif ":" in raw_proc and not raw_proc.startswith("{"):
                 mod_name, pr_text = raw_proc.split(":", 1)
                 proc_spec: Any = {"model": mod_name.strip(), "prompt": pr_text.strip()}
             else:
@@ -189,6 +191,40 @@ def apply_prompt_to_dag_dict(
     return mutated
 
 
+def plan_meta_modification(payload: Any, item: Any = None) -> str:
+    """Extract target DAG JSON and modification prompt from text and bundle them into JSON."""
+    raw_text = item.contents if isinstance(item, ContentItem) else str(payload)
+    dag_obj, start, end = _extract_json_object_with_span(raw_text)
+    if dag_obj is None:
+        dag_obj = {"models": {}, "contents": [], "edges": []}
+        prompt_part = raw_text.strip()
+    else:
+        prompt_part = (raw_text[:start] + "\n" + raw_text[end:]).strip()
+    return json.dumps(
+        {"target_dag": dag_obj, "prompt": prompt_part},
+        ensure_ascii=False,
+    )
+
+
+def execute_and_validate_meta_dag(payload: Any, item: Any = None) -> str:
+    """Execute modifications on target DAG from bundle and return validated JSON."""
+    raw_text = item.contents if isinstance(item, ContentItem) else str(payload)
+    bundle, _, _ = _extract_json_object_with_span(raw_text)
+    if not bundle or "target_dag" not in bundle:
+        try:
+            bundle = json.loads(raw_text)
+        except Exception:
+            bundle = {"target_dag": {"models": {}, "contents": [], "edges": []}, "prompt": raw_text}
+    target_dag_dict = bundle.get("target_dag", {})
+    prompt_str = bundle.get("prompt", "")
+    modified_dict = apply_prompt_to_dag_dict(
+        target_dag_dict,
+        prompt_str,
+    )
+    validated_dag = DAG.from_dict(modified_dict)
+    return validated_dag.to_json(indent=2)
+
+
 def create_meta_dag(
     *,
     llm_client: Optional[LLMClientProtocol] = None,
@@ -201,8 +237,6 @@ def create_meta_dag(
       1. `{"tags": ["target_dag"], "contents": "<DAG JSON>", "gen": 0}`
       2. `{"tags": ["prompt"], "contents": "<Modification Instruction>", "gen": 0}`
     - Edge 0 (`layer=0`): `["target_dag", "prompt"]` -> parse & plan -> `["dag_edit_bundle"]`
-      (Since `"target_dag"` and `"prompt"` start as two separate items, `meta_dag.step()`
-      automatically uses `default_processor` N-in-1-out targeted assembly to combine them!)
     - Edge 1 (`layer=1`): `["dag_edit_bundle"]` -> apply modifications & validate schema -> `["modified_dag", "result"]`
     """
     meta = DAG("meta_dag", models=models, llm_client=llm_client)
@@ -223,42 +257,15 @@ def create_meta_dag(
 
     meta.default_processor.custom_synthesizer = _bundle_meta_inputs
 
-    def _plan_modification(payload: Any, item: Any) -> str:
-        raw_text = item.contents if isinstance(item, ContentItem) else str(payload)
-        dag_obj, start, end = _extract_json_object_with_span(raw_text)
-        if dag_obj is None:
-            dag_obj = {"models": {}, "contents": [], "edges": []}
-            prompt_part = raw_text.strip()
-        else:
-            prompt_part = (raw_text[:start] + "\n" + raw_text[end:]).strip()
-        return json.dumps(
-            {"target_dag": dag_obj, "prompt": prompt_part},
-            ensure_ascii=False,
-        )
-
-    def _execute_and_validate(payload: Any, item: Any) -> str:
-        raw_text = item.contents if isinstance(item, ContentItem) else str(payload)
-        bundle = json.loads(raw_text)
-        target_dag_dict = bundle["target_dag"]
-        prompt_str = bundle["prompt"]
-        modified_dict = apply_prompt_to_dag_dict(
-            target_dag_dict,
-            prompt_str,
-            llm_client=meta.llm_client,
-            models=meta.models,
-        )
-        validated_dag = DAG.from_dict(modified_dict, llm_client=meta.llm_client)
-        return validated_dag.to_json(indent=2)
-
     meta.add_edge(
         input_tags=["target_dag", "prompt"],
-        processor=_plan_modification,
+        processor=plan_meta_modification,
         output_tags=["dag_edit_bundle"],
         layer=0,
     )
     meta.add_edge(
         input_tags=["dag_edit_bundle"],
-        processor=_execute_and_validate,
+        processor=execute_and_validate_meta_dag,
         output_tags=["modified_dag", "result"],
         layer=1,
     )
@@ -283,6 +290,11 @@ def transform_dag_with_meta_dag(
         dag_json = json.dumps(target_dag, ensure_ascii=False, indent=2)
     else:
         dag_json = str(target_dag)
+
+    meta.contents.clear()
+    meta._executed_edge_sigs.clear()
+    meta._assembled_edge_sigs.clear()
+    meta._autonomous_sigs.clear()
 
     meta.add_content(dag_json, tags=["target_dag"], gen=0)
     meta.add_content(prompt, tags=["prompt"], gen=0)

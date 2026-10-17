@@ -258,6 +258,15 @@ class DefaultProcessor:
             self.count += 1
             return ContentItem(tags=out_tags, contents=text, gen=next_gen)
 
+        # Builtin preservation when assembling meta inputs (target_dag + prompt)
+        has_target_dag = any("target_dag" in it.tags for it in selected_items)
+        has_prompt = any("prompt" in it.tags for it in selected_items)
+        if has_target_dag and has_prompt:
+            t_text = next((it.contents for it in selected_items if "target_dag" in it.tags), "")
+            p_text = next((it.contents for it in selected_items if "prompt" in it.tags), "")
+            self.count += 1
+            return ContentItem(tags=out_tags, contents=f"{t_text}\n\n{p_text}", gen=next_gen)
+
         clean_inputs_block = "\n\n".join(
             f"--- 输入 {i + 1} ---\n{it.contents}" for i, it in enumerate(selected_items)
         )
