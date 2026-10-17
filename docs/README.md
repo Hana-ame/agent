@@ -5,8 +5,7 @@
 | Document | What it is |
 | :--- | :--- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Full architecture guide — the vertex-as-state / edge-as-computation model, the four layers, DAG scheduling, fan-in settlement, the state/colour model, security defaults |
-| [ARCHITECTURE_V5.md](ARCHITECTURE_V5.md) | VEA V5 architecture guide — the one-sentence `V-E-V` model, virtual edges, the merger DAG, the incremental executor, closed-loop self-evolution |
-| [API_AND_TOOLS_GUIDE.md](API_AND_TOOLS_GUIDE.md) | VEA V5 API reference and the 6 tool-call primitives (`DAGToolKit` / `VEA_V5_TOOLS_SCHEMA`) |
+| [ARCHITECTURE_V6.md](ARCHITECTURE_V6.md) | VEA V6 architecture guide — pure tag-driven `{contents: [], edges: []}` model, preset-edge 2-item synthesis, `dag.run()` / `dag.context`, and the V6 DAG builder |
 | [REDESIGN_RFC.md](REDESIGN_RFC.md) | This revision: what changed and why, migration notes, and the deliberately-unchanged list (V1 is frozen, not retired) |
 | [CODE_REVIEW_2026-09-08.md](CODE_REVIEW_2026-09-08.md) | The review this revision answers; findings kept as the original record, banner carries the current test count |
 | [DOC_STANDARDS.md](DOC_STANDARDS.md) | Pinned formatting and authoring rules, enforced where possible by `scripts/check_docs.py` |

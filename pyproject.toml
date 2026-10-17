@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vertex-edge-agent"
-version = "5.0.0"
+version = "6.0.0"
 description = "A data-driven, highly-scalable DAG execution engine for AI Agent pipelines."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,7 +39,7 @@ vea-server = "framework.server.app:main"
 vea-run-v4 = "framework.run_v4:main"
 
 [tool.setuptools.packages.find]
-include = ["framework*", "vea_v5*"]
+include = ["framework*", "vea_v6*"]
 
 [tool.setuptools.package-data]
 # The dashboard is HTML/JS/CSS: without this the installed package serves an
