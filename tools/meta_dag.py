@@ -526,6 +526,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src_dir / f, dst)
             print(f"[gen{i}] 重放自 {src_dir}")
+            # 重放没有"生成流程"，装配闸门（那四道静态契约）不适用；但**自举闸门
+            # 照过** —— 重放来的代码同样必须能把自己再生成一遍，否则它就是死的。
+            # 🔴 曾经这里什么闸门都不跑，直接往下走，`smoke` 根本没赋值，
+            # 一到 record 就 UnboundLocalError（`--replay` 这条路从来是坏的）。
+            report = {"assemble_ok": True, "note": "replay：未走生成流程，装配闸门不适用"}
+            smoke = smoke_bootstrap(gdir, base)
+            print(f"[gen{i}] 重放代自举={'OK' if smoke['ok'] else 'FAIL'}  {smoke['out']}")
+            if not smoke["ok"]:
+                print(f"[gen{i}] FAIL：重放代过不了自举闸门，停止")
+                history.append({"gen": i, "bytes": 0, "demo": False, "demo_out": "",
+                                "bootstrap": False, "bootstrap_out": smoke["out"]})
+                break
         else:
             # 🔴 只有**第 1 代**挂引导工具 `GenTool`。第 2 代起 `gen` 槽位上挂的是
             # 上一代框架自己的 `bootstrap`（在上一轮末尾 mount 的）—— 这里如果

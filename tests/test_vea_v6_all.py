@@ -855,10 +855,11 @@ def test_19_every_generation_runs_a_self_chosen_dag() -> None:
         rc, out = _try(last_gen, last_gen.relative_to(root).as_posix())
         checked.append((last_gen.relative_to(root).as_posix(), out))
         assert rc == 0, f"{last_gen} 无法用自己产出可用 DAG：{out}"
-        # 除最后一代外，每一代都得留下"我确实被拿去生成了下一代"的凭据：
-        # `ORIGIN.json` 写在**生成者自己**的目录里，`loaded` 必须等于它自己的
-        # vea_v6 —— 否则说明那一代其实没参与，下一代是别人（或磁盘上那份）造的。
-        for g in gens[:-1]:
+        # 除 gen0（磁盘快照，链根，不生成任何代）与最后一代外，每一代都得留下
+        # "我确实被拿去生成了下一代"的凭据：`ORIGIN.json` 写在**生成者自己**的
+        # 目录里，`loaded` 必须等于它自己的 vea_v6 —— 否则说明那一代其实没参与，
+        # 下一代是别人（或磁盘上那份）造的。
+        for g in gens[1:-1]:
             cred_file = g / "ORIGIN.json"
             assert cred_file.exists(), f"{g.name} 没有留下生成凭据，说明下一代不是它造的"
             cred = json.loads(cred_file.read_text(encoding="utf-8"))
