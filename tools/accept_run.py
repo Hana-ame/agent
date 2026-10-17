@@ -189,8 +189,12 @@ def accept(run: Path) -> bool:
     rep.check("HEAD.json 回档链（gen0 链根 + parent 不断 + sha 重算一致）",
               chain_ok, chain_detail or "gen0→gen1→gen2→gen3 四环全部吻合")
 
-    # ---- 6. 代际闸门：每一代 provider_ok ---------------------------------
+    # ---- 6. 代际闸门：provider_ok + source_ok 每代为真 ---------------------
+    #   两道互补：provider_ok 管第 2 代起"上一代框架的产出"；source_ok 管
+    #   第 1 代（无 provider）"7 个文件是不是全由上一代补"。补件是常态
+    #   （实测 5 新造 + 2 补），所以只认"全补"为复印件，并把 new_files 如实报出。
     prov_bad: List[str] = []
+    new_counts: List[str] = []
     for g in gens:
         rj = g / "REPORT.json"
         if not rj.exists():
@@ -198,9 +202,13 @@ def accept(run: Path) -> bool:
             continue
         data = json.loads(rj.read_text(encoding="utf-8"))
         if not data.get("provider_ok", True):
-            prov_bad.append(f"{g.name}：{str(data.get('provider_why'))[:60]}")
-    rep.check("代际闸门（provider_ok 每代为真）", not prov_bad,
-              "三代都是真造出来的" if not prov_bad else "；".join(prov_bad))
+            prov_bad.append(f"{g.name} provider：{str(data.get('provider_why'))[:50]}")
+        if not data.get("source_ok", True):
+            prov_bad.append(f"{g.name} source：{str(data.get('source_why'))[:50]}")
+        if "new_files" in data:
+            new_counts.append(f"{g.name} 新造 {data['new_files']}/{len(FRAME_FILES)}")
+    detail = ("两道代际闸门全过；" + "，".join(new_counts)) if not prov_bad else "；".join(prov_bad)
+    rep.check("代际闸门（provider_ok + source_ok）", not prov_bad, detail)
 
     # ---- 7. 每代 8 步快照齐全 --------------------------------------------
     step_bad: List[str] = []

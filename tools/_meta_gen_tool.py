@@ -596,9 +596,32 @@ class GenTool:
         #: 被当成"新的一代"验收（CHILD.log 里是 LLMError，ORIGIN.json 没写，
         #: gen2 与 gen1 逐字节相同）。空串 = 没有 provider 或 provider 完整产出。
         self.provider_status = ""
+        #: 源码来源闸门（与 provider 闸门互补）：这一轮里**由上一代补进来**的文件
+        #: 路径。空 = 全是新造的。🔴 补件是常态（实测 s12/s15 的 gen1 都是
+        #: 5 个新造 + dag.py/bootstrap.py 契约没过回退补），所以判据**不能**是
+        #: "一个都不许补"（那会否掉每一次真实运行），只能是
+        #: "7 个全补 = 这一代没有一点新造的源码 = 复印件" —— 这在真实中可达：
+        #: LLM 端点挂掉时 `_write_batch` 的异常被吞掉返回空，7 个文件全由上一代补，
+        #: 拼出来的就是上一代的逐字节副本，而 assemble/自举/自选任务全绿。
+        self.fallback_files: List[str] = []
         self.log: List[Dict[str, Any]] = []
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self._n = 0
+
+    @property
+    def source_ok(self) -> bool:
+        """源码来源闸门：这一代是不是**至少有新造的源码**。
+
+        只有"7 个文件全由上一代补"才算复印件 —— 补件本身是常态
+        （实测 s12/s15 的 gen1 都是 5 新造 + 2 补）。
+        """
+        return len(self.fallback_files) < len(FRAME_FILES)
+
+    @property
+    def source_why(self) -> str:
+        if self.source_ok:
+            return ""
+        return f"全部 {len(FRAME_FILES)} 个文件都由上一代补，这一代没有新造的源码"
 
     # ---- 落盘（每步可回看）-----------------------------------------------
     def _save(self, name: str, text: str) -> None:
@@ -830,12 +853,15 @@ class GenTool:
                 continue
             for item in json.loads(payload).get("files", []):
                 merged[item["path"]] = item
+        # supplment 每轮跑一次，这里清空即等于"按轮重置"（重试时不累积上次的补件）。
+        self.fallback_files = []
         files = []
         for p in FRAME_FILES:
             item = merged.get(p) or {"path": p, "source": "", "ok": False, "why": "缺失"}
             src, ok, why = item["source"], item["ok"], item["why"]
             if not ok and p in self.fallback:
                 src, ok, why = self.fallback[p], True, f"回退上一代（{why}）"
+                self.fallback_files.append(p)
             files.append({"path": p, "source": src, "ok": ok, "why": why})
         return json.dumps({"files": files}, ensure_ascii=False)
 
@@ -908,6 +934,12 @@ class GenTool:
             # assemble_ok=True、自举 stable、demo ALL OK，实际是 gen1 的复印件）。
             "provider_ok": not self.provider_status,
             "provider_why": self.provider_status,
+            # 源码来源闸门：7 个文件全由上一代补 = 这一代没有新造的源码。
+            # 补件清单照实写进报告，验收时能看出是"5 新造 + 2 补"还是"0 新造"。
+            "source_ok": self.source_ok,
+            "source_why": self.source_why,
+            "fallback_files": sorted(self.fallback_files),
+            "new_files": len(FRAME_FILES) - len(self.fallback_files),
             "rejected": {p: v.get("why") for p, v in verdict.items() if isinstance(v, dict) and not v.get("ok")},
         }
         self._save_file("REPORT.json", json.dumps(report, ensure_ascii=False, indent=2))
