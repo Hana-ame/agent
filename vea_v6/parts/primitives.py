@@ -207,6 +207,30 @@ class Edge:
         return self.processor if callable(self.processor) else None
 
     @property
+    def tool(self) -> Optional[str]:
+        """边引用的**工具名**（`{"工具": 名字}` / `{"tool": 名字}`）；没有则 `None`。
+
+        工具由 `DAG.tools` 提供，是图自身的机制：同一个 DAG 只要换掉 `tools`
+        里挂的框架，就能拿上一代的产出再跑一次下一代。
+        """
+        if isinstance(self.processor, dict):
+            for key in ("工具", "tool"):
+                val = self.processor.get(key)
+                if isinstance(val, str) and val:
+                    return val
+        return None
+
+    @property
+    def tool_args(self) -> Dict[str, Any]:
+        """传给工具的参数（`{"工具": 名字, "参数": {...}}` 里的那部分）。"""
+        if isinstance(self.processor, dict):
+            for key in ("参数", "args", "kwargs"):
+                val = self.processor.get(key)
+                if isinstance(val, dict):
+                    return dict(val)
+        return {}
+
+    @property
     def inline_llm_config(self) -> Optional[Dict[str, Any]]:
         """提取边内联的连接配置；没有任何内联键时返回 `None`（表示走注册表）。
 

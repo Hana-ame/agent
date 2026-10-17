@@ -129,14 +129,22 @@ class DAG:
         llm: Optional[Any] = None,
         preset_edge: Optional[Any] = None,
         models: Optional[Dict[str, Dict[str, Any]]] = None,
+        tools: Optional[Dict[str, Any]] = None,
     ) -> None:
         if isinstance(name_or_data, dict):
             self.name = str(name_or_data.get("name", "vea_v6_dag"))
             init_contents = name_or_data.get("contents", contents)
             init_edges = name_or_data.get("edges", edges)
+            if tools is None:
+                tools = name_or_data.get("tools")
         else:
             self.name = str(name_or_data or "vea_v6_dag")
             init_contents, init_edges = contents, edges
+
+        #: 工具槽位：`{名字: 可调用对象}`。边可以用 `processor={"工具": 名字, "参数": {...}}`
+        #: 或 `processor={"tool": 名字}` 直接点到它。这个字典是**图自己的**机制，
+        #: 不依赖外部框架——把上一代生成出来的框架挂进来，同一个 DAG 就能再跑下一代。
+        self.tools: Dict[str, Any] = dict(tools or {})
 
         self.llm = llm or SmartMockLLM()
         if models is None and isinstance(llm, OpenAICompatibleLLM):
@@ -472,12 +480,60 @@ class DAG:
                     gen=int(res.get("gen", out_gen)),
                 )
             out_content = content_to_str(res)
+
+        elif edge.tool is not None:
+            # 工具边：`processor={"工具": 名字, "参数": {...}}`。
+            # 工具在 `self.tools` 里查；查不到就**报错而不是静默跳过**——
+            # 静默跳过会让整条链"跑完了但什么都没做"，那是最难发现的假通过。
+            if edge.tool not in self.tools:
+                raise KeyError(
+                    f"边引用的工具 '{edge.tool}' 不在 DAG.tools 里（已挂载: {sorted(self.tools)}）"
+                )
+            tool = self.tools[edge.tool]
+            args = edge.tool_args
+            # 工具可以是可调用对象，也可以是**模块对象**（上一代生成的框架就是这么挂的）。
+            if not callable(tool):
+                for name in ("run", "generate", "ask", "call", "__call__"):
+                    cand = getattr(tool, name, None)
+                    if callable(cand):
+                        tool = cand
+                        break
+                else:
+                    raise TypeError(f"工具 '{edge.tool}' 既不可调用也没有 run/generate 入口")
+            try:
+                res = tool(item.content, **args)
+            except TypeError:
+                res = tool(item.content)
+            if asyncio.iscoroutine(res):
+                res = await res
+            if isinstance(res, dict) and "content" in res and "tags" in res:
+                return ContentItem(
+                    tags=res["tags"],
+                    content=res["content"],
+                    image=res.get("image", out_image),
+                    gen=int(res.get("gen", out_gen)),
+                )
+            out_content = content_to_str(res)
         elif not edge.prompt and not edge.model:
             out_content = item.content
         else:
             out_content = await self._call_llm(edge.render_prompt(item), model=edge.model, image=out_image, edge=edge)
 
         return ContentItem(tags=out_tags, content=out_content, image=out_image, gen=out_gen)
+
+    # ---- 工具挂载 --------------------------------------------------------
+    def mount_tool(self, name: str, tool: Any) -> "DAG":
+        """挂载/替换一个工具，返回自身以便链式调用。
+
+        这是"同一个 DAG 连跑多代"的关键动作：第 N 代产出框架后，
+        把它 `mount_tool("gen", 那个框架)` 挂回来，**不新建 DAG**，直接再跑一次。
+        """
+        self.tools[str(name)] = tool
+        return self
+
+    def unmount_tool(self, name: str) -> "DAG":
+        self.tools.pop(str(name), None)
+        return self
 
     # ---- 运行引擎 --------------------------------------------------------
     def _has_upstream_producer(self, required: Sequence[str], exclude_edge_idx: int) -> bool:
@@ -580,7 +636,11 @@ class DAG:
             for c_idx, item in enumerate(list(self.contents)):
                 if not (set(edge.input_tags) & set(item.tags)):
                     continue
-                sig = f"{c_idx}:{item.gen}"
+                # 签名用**条目自身在 contents 里的索引**，不用 `item.gen`：
+                # gen 会随层数递增，同一个条目在不同轮次拿到不同 gen，
+                # 于是同一条边会反复吃自己刚产出的那条（实测得到
+                # `<gen1 generated from <gen1 generated from>>`）。
+                sig = f"{c_idx}"
                 if (idx, sig) in self._executed_records:
                     continue
                 self._executed_records.add((idx, sig))

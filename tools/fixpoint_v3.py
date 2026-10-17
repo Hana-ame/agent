@@ -239,7 +239,14 @@ def build(files: Dict[str, str], spec: Dict) -> str:
                              "sha256": hashlib.sha256(raw[p]).hexdigest(), "sig": signature(p, files[p])})
         return json.dumps({"spec": spec, "files": docs}, ensure_ascii=False, indent=2)
 
-    self_bytes = [100000]
+    # 起点用 0 而不是 100000：`manifest_of` 里 `self_bytes or len(str(pad))` 把 0 当
+    # "还没有真实长度"，于是首轮按 pad 的**位数**起步、与磁盘模板态（若已固化过，
+    # 清单里那个数就是真实字节数）一致。用 100000 起步会多走一轮，而 `solve` 的
+    # 起点 `z + 4096` 会让第二轮解出不同的 pad（实测 48407 vs 48409）——
+    # 盘上是 48437，两边都不改它，但**模块与工具必须从同一状态出发**才可能收敛到同一值。
+    # 已固化磁盘上的主源时，用盘上的 `bytes` 字段当起点，直接对齐。
+    m = re.search(r'"path":\s*"' + re.escape(MAIN) + r'",\s*"bytes":\s*(\d+)', files[MAIN])
+    self_bytes = [int(m.group(1)) if m else 0]
     for _ in range(8):
         pad, final = solve(files[MAIN], manifest_of, code_text, self_bytes[0])
         real = len(final.encode("utf-8"))
