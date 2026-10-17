@@ -73,6 +73,18 @@ DESCRIPTION = """
 先把描述变成逐文件的施工单，再逐文件写代码，再逐文件做结构检查，
 检查不过的用上一代补，然后把整套代码交给固定点求解器让它自洽，最后统计并交付。
 
+下面几条是**必须成立的约定**，缺一条整套就用不起来：
+1. 边上的处理函数收到的就是那条信息的**文本内容本身**（一个字符串），
+   不是包了一层的条目对象；它返回一段文本，这段文本就作为新信息的文本，
+   打上这条边的输出标签。
+2. 外部取结果时拿到的也是**文本内容**（字符串），不是条目对象。
+3. "跑一轮"这件事对外是一个普通的同步调用：调一次就推进一轮、返回这一轮
+   有没有推进，不需要调用方自己懂协程。
+4. "生成整个框架"那个流程跑完时，整套代码必须作为文本出现在"结果"这个标签上，
+   外部从"结果"标签上取到的就是可以直接落盘的整套源码。
+5. 生成流程内部每一步都要能自己往下走：某一步没产出时要用上一轮的结果顶上，
+   不能因为一处没产出就让整个流程停在半路。
+
 只允许用标准库，import 的时候不许联网也不许读写磁盘。
 """.strip()
 
@@ -262,6 +274,37 @@ def write_generation(payload: str, dest: Path) -> Dict[str, str]:
     return files
 
 
+#: 每一代都必须**能用自己把自己再生成一遍**（这是"框架造框架"的最低要求）。
+#: 用 `SmartMockLLM` 跑，不发网络请求，几秒出结果。
+#: 🔴 为什么必须有这道闸门：第 9 代的 gen1 自选任务是过了的，但它自己的
+#: `bootstrap()` 一跑就崩 —— 它的图把 `ContentItem` 直接喂给处理函数，
+#: 而处理函数按"收到文本"写的。于是 gen2 只能由引导工具回退生成 = 不是它造的。
+BOOTSTRAP_SMOKE = (
+    "import json, sys\n"
+    "sys.path.insert(0, r'{root}')\n"
+    "import vea_v6\n"
+    "sys.stderr.write('VEAV6_FILE=' + vea_v6.__file__ + chr(10))\n"
+    "from pathlib import Path\n"
+    "desc = Path(r'{desc}').read_text(encoding='utf-8')\n"
+    "r = vea_v6.bootstrap(desc, llm=vea_v6.SmartMockLLM())\n"
+    "print(json.dumps({{'stable': bool(r.stable), 'files': len(r.files), "
+    "'bytes': sum(len(v.encode('utf-8')) for v in r.values()) if 0 else "
+    "sum(len(r.files[p].encode('utf-8')) for p in vea_v6.FRAME_FILES)}}, ensure_ascii=False))\n"
+)
+
+
+def smoke_bootstrap(dest: Path, run_dir: Path) -> Dict[str, Any]:
+    """这一代用 `SmartMockLLM` 能不能把自己再生成一遍（不联网）。"""
+    code = BOOTSTRAP_SMOKE.format(root=dest.as_posix(),
+                                  desc=(run_dir / "DESCRIPTION.txt").as_posix())
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=600)
+    log = (p.stdout or "") + (p.stderr or "")
+    (dest / "SMOKE.log").write_text(log, encoding="utf-8", newline="")
+    # 取 stdout 里最后一行 JSON（stderr 里还有 VEAV6_FILE 那行，不能按整个 log 取末尾）
+    lines = [l for l in (p.stdout or "").strip().splitlines() if l.startswith("{")]
+    return {"ok": p.returncode == 0, "out": (lines[-1] if lines else (log.strip().splitlines() or [""])[-1])[:160]}
+
+
 def exercise(dest: Path) -> Dict[str, Any]:
     """**用这一代框架跑自选任务**（不是 `--check`）：写 demo + 跑它自己的验收。"""
     demo = dest / "demo"
@@ -430,6 +473,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             # 落盘了也算不得新的一代（实测 s08 的 gen1 就是这样被记成失败
             # 却又把互相 import 不上的那套写进了磁盘）。
             report = {}
+            smoke = {"ok": False, "out": ""}
             for attempt in range(1, a.retries + 1):
                 out = run_round(dag, DESCRIPTION)
                 if not out["framework"]:
@@ -441,21 +485,31 @@ def main(argv: Optional[List[str]] = None) -> int:
                     report = json.loads(out["report"])
                 except ValueError:
                     report = {}
+                # 自举闸门直接进生成循环（带重试）：静态推断追不上模型写法的变化
+                # —— 实测 `item.id`、`ContentItem.strip` 这类"类在、字段没了"的错，
+                # 静态闸门要么漏判要么误报，而"用 SmartMockLLM 把自己再生成一遍"
+                # 是唯一确定的判据，几秒就出结果。
+                smoke = smoke_bootstrap(gdir, base)
                 print(f"[gen{i}] 第 {attempt} 次（工具={type(dag.tools.get('gen')).__name__}）："
-                      f"{out['report']}")
-                if report.get("assemble_ok"):
+                      f"{out['report']} | 自举={'OK' if smoke['ok'] else 'FAIL'} {smoke['out']}")
+                if report.get("assemble_ok") and smoke["ok"]:
                     break
-            if not report.get("assemble_ok"):
-                print(f"[gen{i}] FAIL：{a.retries} 次都没过装配闸门，停止")
+            if not (report.get("assemble_ok") and smoke["ok"]):
+                print(f"[gen{i}] FAIL：{a.retries} 次都没同时过装配闸门与自举闸门，停止")
+                smoke = {"ok": False, "out": "未过自举闸门"}
+                history.append({"gen": i, "bytes": 0, "demo": False, "demo_out": "",
+                                "bootstrap": False, "bootstrap_out": smoke["out"]})
                 break
 
         res = exercise(gdir)  # ← 用这一代框架真跑自选任务
         total = sum(len((gdir / f).read_text(encoding="utf-8").encode("utf-8")) for f in FRAME_FILES)
-        record = {"gen": i, "bytes": total, "demo": res["ok"], "demo_out": res["out"]}
+        record = {"gen": i, "bytes": total, "demo": res["ok"], "demo_out": res["out"],
+                  "bootstrap": smoke["ok"], "bootstrap_out": smoke["out"]}
         history.append(record)
         print(f"[gen{i}] {total} 字节  自选任务={'OK' if res['ok'] else 'FAIL'}  {res['out'][:80]}")
         (base / "RESULT.json").write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8", newline="")
-        if not res["ok"]:
+        # 自举不过 = 这一代造不出下一代，继续往下跑只会得到"回退出来的上一代"
+        if not res["ok"] or not smoke["ok"]:
             break
         prev_sources = {f: (gdir / f).read_text(encoding="utf-8") for f in FRAME_FILES}
         # 下一代让**这一代自己**去生成（同一个 dag，只换挂载的工具）
@@ -464,8 +518,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             # run_dir = 本次运行的目录（DESCRIPTION.txt 在那儿）。
             dag.mount_tool("gen", load_generation_as_tool(gdir, base, llm, cfg, fallback=prev_sources))
 
-    passed = sum(1 for h in history if h["demo"])
-    print(f"\n通过自选任务的代数：{passed}/{a.rounds}")
+    passed = sum(1 for h in history if h["demo"] and h.get("bootstrap"))
+    print(f"\n自选任务 + 自举均通过的代数：{passed}/{a.rounds}")
     return 0 if passed >= a.rounds else 1
 
 
