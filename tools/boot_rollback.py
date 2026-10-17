@@ -1,18 +1,18 @@
 #!/usr/bin/env python
 """`bootstrap_runs/` 的回档工具 —— 把每一代产物当成一次提交来浏览与取回。
 
-结构（`tools/oneshot_chain.py` 写入）：
+结构（`tools/oneshot_chain.py` 与 `tools/meta_dag.py` 都会写 HEAD.json）：
 
 ```
 bootstrap_runs/
-  <run-id>/
-    gen0/{HEAD.json, vea_v6/...}    ← 父提交
-    gen1/{HEAD.json, vea_v6/...}    ← parent = gen0 的 combined_sha256
-    gen2/...
+  20261018-003215/gen0/{HEAD.json, vea_v6/...}   ← 老 run（顶层）
+  meta/s13/gen1/{HEAD.json, vea_v6/, steps/}      ← 元 DAG 的 run（嵌在 meta/ 下）
 ```
 
 HEAD.json 里有 `parent` / `combined_sha256` / 各文件 sha256 与字节数，
-所以这是一条可校验的链，不是散落的目录快照。
+所以这是一条可校验的链，不是散落的目录快照。元 DAG 的 HEAD.json 里还带
+`self_verify`（自举冒烟）/ `demo`（自选任务）/ `steps`（8 步快照文件名）——
+链上每一环都是通过两道闸门的一代。
 
 ## 用法
 
@@ -23,6 +23,8 @@ python tools/boot_rollback.py diff <run> <a> <b>   # 比较两代（谁改了哪
 python tools/boot_rollback.py checkout <run> <gen> # 把那一代覆盖回工作区（自动备份当前）
 python tools/boot_rollback.py verify <run>         # 校验整条链的父指针与文件 hash
 ```
+
+run 名可以带子目录，例如 `meta/s13`。
 
 `checkout` **不删除任何东西**：它先把当前 `vea_v6/` 整体复制到
 `bootstrap_runs/_before_checkout_<时间戳>/`，再写入目标代。
@@ -48,6 +50,31 @@ def sha_file(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
+def is_run_dir(d: Path) -> bool:
+    """这个目录是一个 run：它的子目录里至少有 gen*/HEAD.json。
+
+    `bootstrap_runs/` 下有两种布局：老 run（`oneshot_chain.py` 写的）直接躺在
+    顶层；元 DAG 的 run 嵌在 `meta/` 下面（`meta/s13/gen1/...`）。两种都要能
+    被 list / verify / diff / checkout 找到。
+    """
+    return any(c.is_dir() and (c / "HEAD.json").exists() for c in d.iterdir())
+
+
+def find_runs() -> List[Path]:
+    """所有 run 目录（含 `meta/` 下面那一层），按目录名排序。"""
+    out: List[Path] = []
+    for d in sorted(RUNS.iterdir()):
+        if not d.is_dir() or d.name.startswith("_"):
+            continue
+        if is_run_dir(d):
+            out.append(d)
+            continue
+        for c in sorted(d.iterdir()):
+            if c.is_dir() and not c.name.startswith("_") and is_run_dir(c):
+                out.append(c)
+    return out
+
+
 def read_head(gen_dir: Path) -> Dict[str, Any]:
     return json.loads((gen_dir / "HEAD.json").read_text(encoding="utf-8"))
 
@@ -59,17 +86,22 @@ def gens_of(run: Path) -> List[Path]:
 
 def pick_run(name: Optional[str]) -> Path:
     if not RUNS.exists():
-        raise SystemExit("还没有任何 run（先跑 tools/oneshot_chain.py）")
+        raise SystemExit("还没有任何 run（先跑 tools/oneshot_chain.py 或 tools/meta_dag.py）")
     if name:
+        # 支持 "meta/s13" 这种带子目录的写法（Path 会按 / 拼）
         p = RUNS / name
         if not p.exists():
             raise SystemExit(f"没有这个 run: {name}")
         return p
-    cands = sorted([d for d in RUNS.iterdir() if d.is_dir() and not d.name.startswith("_")],
-                   key=lambda d: d.stat().st_mtime)
+    cands = find_runs()
     if not cands:
         raise SystemExit("run 目录为空")
     return cands[-1]
+
+
+def rel(run: Path) -> str:
+    """run 的显示名：相对 bootstrap_runs/ 的路径（meta 下面的 run 带上前缀）。"""
+    return run.relative_to(RUNS).as_posix()
 
 
 def pick_gen(run: Path, which: Optional[str]) -> Path:
@@ -88,12 +120,12 @@ def cmd_list(_args: argparse.Namespace) -> int:
     if not RUNS.exists():
         print("还没有任何 run")
         return 0
-    runs = sorted([d for d in RUNS.iterdir() if d.is_dir() and not d.name.startswith("_")])
+    runs = find_runs()
     if not runs:
         print("还没有任何 run")
         return 0
     for run in runs:
-        print(f"\n{run.name}")
+        print(f"\n{rel(run)}")
         for g in gens_of(run):
             h = read_head(g)
             flags = []
@@ -101,6 +133,8 @@ def cmd_list(_args: argparse.Namespace) -> int:
                 flags.append("字节一致" if h["byte_identical"] else "字节不同")
             if h.get("self_verify") is not None:
                 flags.append("自校验OK" if h["self_verify"] else "自校验FAIL")
+            if h.get("demo") is not None:
+                flags.append("自选任务OK" if h["demo"] else "自选任务FAIL")
             print(f"  {g.name:<6} {h.get('combined_sha256','')[:16]}  "
                   f"{h.get('total_bytes',0):>7}B  parent={str(h.get('parent'))[:16]:<16} "
                   f"{' '.join(flags)}")
@@ -137,6 +171,9 @@ def cmd_diff(args: argparse.Namespace) -> int:
 def cmd_verify(args: argparse.Namespace) -> int:
     run = pick_run(args.run)
     gens = gens_of(run)
+    if not gens:
+        raise SystemExit(f"{rel(run)} 里没有代")
+    print(f"校验 {rel(run)}")
     bad = 0
     prev = None
     for g in gens:

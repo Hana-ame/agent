@@ -34,6 +34,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -274,6 +275,42 @@ def write_generation(payload: str, dest: Path) -> Dict[str, str]:
     return files
 
 
+def write_head(gdir: Path, meta: Dict[str, Any]) -> Dict[str, Any]:
+    """给这一代写 `HEAD.json` —— 父指针 + 逐文件 sha256，让
+    `tools/boot_rollback.py` 能像 git 一样 list / verify / diff / checkout。
+
+    格式与 `tools/oneshot_chain.py::snapshot` 完全一致（combined_sha256 的算法
+    也一致：按路径排序，逐文件 hash 后整体 hash），所以两种 run 可以用同一个
+    回档工具。只在**这一代真的通过闸门之后**调用：链上每一环都是可用的一代。
+    """
+    files: Dict[str, Dict[str, Any]] = {}
+    for f in FRAME_FILES:
+        p = gdir / f
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8")
+        files[f] = {
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "bytes": len(text.encode("utf-8")),
+        }
+    h = hashlib.sha256()
+    for p in sorted(files):
+        h.update(p.encode("utf-8"))
+        h.update(b"\0")
+        h.update(bytes.fromhex(files[p]["sha256"]))
+    head = dict(meta)
+    head["files"] = files
+    head["combined_sha256"] = h.hexdigest()
+    head["total_bytes"] = sum(v["bytes"] for v in files.values())
+    # parent 非空时自动判定"与上一代是否逐字节相同"（老 run 里同名字段的语义）
+    if head.get("parent") is not None and "byte_identical" not in head:
+        head["byte_identical"] = head["combined_sha256"] == head["parent"]
+    (gdir / "HEAD.json").write_text(
+        json.dumps(head, ensure_ascii=False, indent=2), encoding="utf-8", newline=""
+    )
+    return head
+
+
 #: 每一代都必须**能用自己把自己再生成一遍**（这是"框架造框架"的最低要求）。
 #: 用 `SmartMockLLM` 跑，不发网络请求，几秒出结果。
 #: 🔴 为什么必须有这道闸门：第 9 代的 gen1 自选任务是过了的，但它自己的
@@ -323,13 +360,20 @@ def exercise(dest: Path) -> Dict[str, Any]:
 
 
 def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, Any],
-                            fallback: Optional[Dict[str, str]] = None) -> Any:
+                            fallback: Optional[Dict[str, str]] = None,
+                            steps_dir: Optional[Path] = None) -> Any:
     """把某一代框架挂成工具：**由它产出下一代的源码**。
 
     返回的是一个 `GenTool`，只是 `source_provider` 换成了"调上一代自己的
     `bootstrap(description, llm)` 拿整套源码"。这样元 DAG 那 8 个 step 一个不少
     （expand / plan_module / normalize / audit_contract / supplement / assemble /
     measure / passthrough），每一步照样可观测，唯一变的是"源码从哪来"。
+
+    `steps_dir` = 这 8 步快照落在哪。默认 `dest/steps`，但主循环会传
+    **下一代自己的目录**（`genN/steps`）：语义是"这些步骤产出了第 N 代"，
+    与 HEAD.json 里读的 `steps` 字段一致。🔴 早期版本用的是 `run_dir/steps`
+    （本次运行目录），gen2/gen3 的快照写进同一处互相覆盖 —— 实测 s12 的 run 根
+    `steps/` 里只剩最后一代的 01~08，中间代的逐步快照整个消失。
 
     🔴 早期版本直接把"调上一代 bootstrap"当作整个 `gen` 工具挂上去：但 `gen`
     会被 8 条边各调一次，于是同一代被生成 8 遍，而且后续 step（normalize/audit/
@@ -357,9 +401,11 @@ def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, 
         t0 = time.time()
         p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=3600)
         log = (p.stdout or "") + (p.stderr or "")
-        (run_dir / "CHILD.log").write_text(log, encoding="utf-8", newline="")
+        # CHILD.log 也按代分开：写进**生成者自己**的目录。早期版本写 run_dir，
+        # 每代覆盖上一代的，最后只剩一份，看不出中间代是谁造的。
+        (dest / "CHILD.log").write_text(log, encoding="utf-8", newline="")
         if p.returncode != 0:
-            raise RuntimeError(f"子代生成失败（见 {run_dir / 'CHILD.log'}）: {(p.stderr or '')[-300:]}")
+            raise RuntimeError(f"子代生成失败（见 {dest / 'CHILD.log'}）: {(p.stderr or '')[-300:]}")
         # 凭据：子进程里真正 import 到的 `vea_v6` 必须落在**上一代**目录里。
         # 这条不是装饰：实测把 dest 误写成 run_dir 时，gen2/gen3 其实是
         # 磁盘上这份框架生成的，图照样跑通、demo 照样全绿，日志里看不出来。
@@ -374,7 +420,7 @@ def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, 
             got = None
         if got != want:
             raise RuntimeError(
-                f"代际串了：下一代由 {got} 生成，应当由 {want}（见 {run_dir / 'CHILD.log'}）"
+                f"代际串了：下一代由 {got} 生成，应当由 {want}（见 {dest / 'CHILD.log'}）"
             )
         payload = (p.stdout or "").strip().splitlines()[-1]
         data = json.loads(payload)
@@ -395,7 +441,8 @@ def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, 
         _ = _content, _kw
         return files
 
-    return GenTool(llm, cfg, run_dir=run_dir / "steps", fallback=fallback or {}, source_provider=gen)
+    return GenTool(llm, cfg, run_dir=steps_dir or (dest / "steps"),
+                   fallback=fallback or {}, source_provider=gen)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -454,6 +501,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     from vea_v6.parts.bootstrap import framework_sources
 
     prev_sources = dict(framework_sources())  # 第 1 代的参考实现 = 磁盘上这一份
+
+    # gen0 = 磁盘现状（引导工具的参考实现），作为 git 式回档链的根。
+    # 没有它，gen1 的 parent 只能是 null，"这一代相对于什么变了"就无从比对。
+    g0 = base / "gen0"
+    g0.mkdir(parents=True, exist_ok=True)
+    for f, src in prev_sources.items():
+        t = g0 / f
+        t.parent.mkdir(parents=True, exist_ok=True)
+        t.write_text(src, encoding="utf-8", newline="")
+    prev_head = write_head(g0, {
+        "gen": 0, "parent": None, "mode": "disk",
+        "note": "gen0 = 磁盘现状（引导工具的参考实现），未调用模型",
+    })
+    print(f"gen0  {prev_head['combined_sha256'][:16]}  {prev_head['total_bytes']}B  (磁盘现状)")
 
     for i in range(1, a.rounds + 1):
         gdir = base / f"gen{i}"
@@ -515,12 +576,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         # 自举不过 = 这一代造不出下一代，继续往下跑只会得到"回退出来的上一代"
         if not res["ok"] or not smoke["ok"]:
             break
+        # 过闸门了才写 HEAD.json：回档链上每一环都是可用的一代（父指针指向上一个
+        # 通过验收的代，不是上一次尝试）。steps/ 里留着这代 8 步的逐步快照。
+        head = write_head(gdir, {
+            "gen": i,
+            "parent": prev_head["combined_sha256"],
+            "mode": f"meta-dag:{a.model_key}" + ("" if i == 1 else "+selfgen"),
+            "model_key": a.model_key,
+            "self_verify": smoke["ok"], "self_verify_reason": smoke["out"],
+            "demo": res["ok"], "demo_out": res["out"],
+            "steps": sorted(p.name for p in (gdir / "steps").iterdir()) if (gdir / "steps").exists() else [],
+        })
+        prev_head = head
         prev_sources = {f: (gdir / f).read_text(encoding="utf-8") for f in FRAME_FILES}
         # 下一代让**这一代自己**去生成（同一个 dag，只换挂载的工具）
         if i < a.rounds:
             # dest = **这一代自己的目录**（下一代必须由它生成），
             # run_dir = 本次运行的目录（DESCRIPTION.txt 在那儿）。
-            dag.mount_tool("gen", load_generation_as_tool(gdir, base, llm, cfg, fallback=prev_sources))
+            # steps_dir = **下一代的目录**：产出它的 8 步快照归它自己，
+            # 与 HEAD.json 的 `steps` 字段、boot_rollback 的按代回档对得上。
+            nxt = base / f"gen{i + 1}"
+            dag.mount_tool("gen", load_generation_as_tool(
+                gdir, base, llm, cfg, fallback=prev_sources, steps_dir=nxt / "steps"))
 
     passed = sum(1 for h in history if h["demo"] and h.get("bootstrap"))
     print(f"\n自选任务 + 自举均通过的代数：{passed}/{a.rounds}")
