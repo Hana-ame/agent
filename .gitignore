@@ -43,3 +43,6 @@ models.json
 
 # 自举产物（由 examples/08 等在根目录生成的历史遗留），不进版本控制
 generated_builder.py
+
+# 仓库根 demo/ 是本地跑验收脚本时生成的临时产物，不入版本库
+demo/
