@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vea_v6 import DAG, SmartMockLLM, create_dag_builder_dag
+from vea_v6 import DEFAULT_PRESET_EDGE, DAG, SmartMockLLM, create_dag_builder_dag
 
 
 def main() -> None:
@@ -24,7 +24,7 @@ def main() -> None:
     builder_dag = create_dag_builder_dag(similarity_threshold=0.45)
     print("【步骤 1】用来构建 DAG 的元图 (builder_dag) 边列表:")
     for i, e in enumerate(builder_dag.edges, 1):
-        print(f"  Edge {i}: input_tags={e.input_tags}, output_tags={e.output_tags}")
+        print(f"  Edge {i}: layer={e.layer}, input_tags={e.input_tags}, output_tags={e.output_tags}")
 
     # 2. 向 builder_dag 送入任务描述信息
     task_description = """
@@ -65,7 +65,19 @@ def main() -> None:
         }
     )
 
-    business_dag = DAG.from_dict(built_dag_spec, llm=mock_llm)
+    business_dag = DAG.from_dict(
+        built_dag_spec,
+        llm=mock_llm,
+        preset_edge=DEFAULT_PRESET_EDGE,
+        models={
+            "billing-v6": {
+                "api": "https://api.sensenova.cn/v1",
+                "key": "sk-demo",
+                "model": "billing-v6",
+                "params": {"temperature": 0.0},
+            },
+        },
+    )
     business_dag.send(
         {
             "tags": ["x1"],

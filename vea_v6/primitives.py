@@ -149,10 +149,11 @@ ProcessorType = Union[str, Dict[str, Any], Callable[..., Any]]
 class Edge:
     """VEA V6 处理边.
 
-    每条边仅由三个核心要素构成：
-    1. `input_tags`: 输入的 tag `list[str]`
+    每条边仅由四个核心要素构成：
+    1. `input_tags`: 输入的 tag `list[str]`（处理边不允许为空）
     2. `processor`: 处理方式（`prompt: str` | `{"模型": ..., "处理prompt": ...}` | `Callable`）
-    3. `output_tags`: 输出的 tag `list[str]`
+    3. `output_tags`: 输出的 tag `list[str]`（处理边不允许为空）
+    4. `layer`: 执行层级 `int`，`dag.run()` 总是从 layer 小的边开始跑起
     """
 
     def __init__(
@@ -161,26 +162,33 @@ class Edge:
         processor: Optional[ProcessorType] = None,
         output_tags: Optional[Union[str, Sequence[str]]] = None,
         *,
+        layer: int = 0,
         is_preset: bool = False,
         edge_id: Optional[str] = None,
     ) -> None:
         self.input_tags: List[str] = normalize_tags(input_tags)
         self.processor: ProcessorType = processor if processor is not None else ""
         self.output_tags: List[str] = normalize_tags(output_tags)
+        self.layer: int = int(layer)
         self.is_preset: bool = is_preset
         self.id: str = edge_id or ("preset_edge" if is_preset else "")
 
     @classmethod
     def from_any(cls, spec: Union["Edge", Tuple[Any, ...], List[Any], Dict[str, Any]]) -> "Edge":
-        """从 Edge 实例、三元组 `(input_tags, processor, output_tags)` 或字典构造 `Edge`。"""
+        """从 Edge 实例、三元组/四元组 `(input_tags, processor, output_tags[, layer])` 或字典构造 `Edge`。"""
         if isinstance(spec, Edge):
             return spec
         if isinstance(spec, (tuple, list)):
-            if len(spec) != 3:
+            if len(spec) not in (3, 4):
                 raise ValueError(
-                    f"边定义三元组必须包含 3 个元素 (input_tags, processor, output_tags)，实际长度: {len(spec)}"
+                    f"边定义元组必须包含 3~4 个元素 (input_tags, processor, output_tags[, layer])，实际长度: {len(spec)}"
                 )
-            return cls(input_tags=spec[0], processor=spec[1], output_tags=spec[2])
+            return cls(
+                input_tags=spec[0],
+                processor=spec[1],
+                output_tags=spec[2],
+                layer=int(spec[3]) if len(spec) == 4 else 0,
+            )
         if isinstance(spec, dict):
             in_tags = spec.get("input_tags", spec.get("inputs", spec.get("in_tags", [])))
             proc = spec.get("processor", spec.get("prompt", spec.get("action", "")))
@@ -189,6 +197,7 @@ class Edge:
                 input_tags=in_tags,
                 processor=proc,
                 output_tags=out_tags,
+                layer=int(spec.get("layer", 0)),
                 is_preset=bool(spec.get("is_preset", False)),
                 edge_id=spec.get("id"),
             )
@@ -309,6 +318,8 @@ class Edge:
             return self.prompt
         if key == "is_preset":
             return self.is_preset
+        if key == "layer":
+            return self.layer
         raise KeyError(key)
 
     def to_tuple(self) -> Tuple[List[str], ProcessorType, List[str]]:
@@ -330,7 +341,8 @@ class Edge:
             "input_tags": list(self.input_tags),
             "processor": proc_serialized,
             "output_tags": list(self.output_tags),
+            "layer": self.layer,
         }
 
     def __repr__(self) -> str:
-        return f"Edge({self.input_tags!r}, {self.processor!r}, {self.output_tags!r})"
+        return f"Edge({self.input_tags!r}, {self.processor!r}, {self.output_tags!r}, layer={self.layer})"

@@ -6,13 +6,17 @@
    - `dag.edges`: 存储所有处理边的列表
    - `dag.context`: 列出当前所有的 context 条目（即 `dag.contents`）
 2. **只用加处理边**：
-   每条边为 `(输入的 tag list[str], 处理方式 (prompt: str | {"模型": ..., "处理prompt": ...}), 输出的 tag list[str])`
+   每条边为 `(输入的 tag list[str], 处理方式 (prompt: str | {"模型": ..., "处理prompt": ...}), 输出的 tag list[str], layer: int)`；
+   处理边不允许没有输入 tag / 输出 tag；`dag.run()` 总是从 `layer` 小的边开始跑起。
 3. **信息条目结构**：
    `{"tags": list[str], "content": str, "image"?: path|url, "gen": 0}`
-4. **无输入边的双条目拼凑与预设边 (`preset_edge`)**：
-   对一条 edge，如果没有输入（`input_tags` 为空，或现有条目中没有单条信息能直接匹配其输入 tag），
-   则从现有的所有条目的信息中找到两条，通过一条预设边（`dag.preset_edge`，在 `DAG` 初始化时即自带的对象）
-   拼凑出一条信息，再交由该边完成处理。
+4. **模型注册表与预设边 (`dag.models` / `dag.preset_edge`)**：
+   - `DAG(models={...})` 以 model 名为 KEY 保存 `{"api", "key", "model", "params"}`；
+     边里的 `{"模型": <KEY>, ...}` 在调用 LLM 时按 KEY 查询注册表并注入配置。
+   - 当某条 edge 在 run 时找不到对应输入 tag 的信息，
+     则从现有条目中找相近的一条或多条信息，通过预设边（`dag.preset_edge`，默认为模块级常量
+     `DEFAULT_PRESET_EDGE`，构造 DAG 时建议显式传入 `preset_edge=DEFAULT_PRESET_EDGE`）
+     合成一条 **输出 tag = 该 edge 所需输入 tag** 的新信息，再交由该边完成处理。
 5. **运行与外部条件终止**：
    - 一个 `dag` 代表一次任务
    - `dag.run()` = 跑一次
@@ -39,6 +43,21 @@ DEFAULT_PRESET_EDGE_PROMPT = (
     "请将以下两条信息拼凑整合为一条语义连贯的完整信息：\n"
     "信息1 [{tags_1}]: {content_1}\n"
     "信息2 [{tags_2}]: {content_2}"
+)
+
+# 模块级默认预设边常量：保存 V6 的默认预设边对象。
+# 当某条 edge 在 run 时找不到对应输入 tag 的信息时，用它从现有 contents 中找相近的
+# 一条或多条信息，合成一条 输出 tag = 该 edge 所需输入 tag 的新信息。
+# 构造 DAG 时应显式传入：`DAG(preset_edge=DEFAULT_PRESET_EDGE, ...)`。
+DEFAULT_PRESET_EDGE = Edge(
+    input_tags=[],
+    processor={
+        "模型": "default",
+        "处理prompt": DEFAULT_PRESET_EDGE_PROMPT,
+    },
+    output_tags=["merged"],
+    is_preset=True,
+    edge_id="preset_edge",
 )
 
 
@@ -102,6 +121,7 @@ class DAG:
         edges: Optional[Sequence[Union[Edge, Tuple[Any, ...], List[Any], Dict[str, Any]]]] = None,
         llm: Optional[LLMProtocol] = None,
         preset_edge: Optional[Union[Edge, Tuple[Any, ...], Dict[str, Any]]] = None,
+        models: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
         if isinstance(name_or_data, dict):
             self.name = str(name_or_data.get("name", "vea_v6_dag"))
@@ -114,22 +134,19 @@ class DAG:
 
         self.llm: LLMProtocol = llm or SmartMockLLM()
 
-        # 初始化时自带的预设边对象（用于当某条 edge 没有直接输入时，从现有信息中找两条拼凑一条信息）
+        # 模型注册表：以 model 名为 KEY，保存 {"api": base_url, "key": api_key, "model": 模型名, "params": {...}}
+        # `add_edge` 中 `{"模型": <KEY>, "处理prompt": ...}` 会在调用 LLM 时按该 KEY 查询此表注入配置。
+        self.models: Dict[str, Dict[str, Any]] = dict(models or {})
+
+        # 预设边对象（默认引用模块级常量 DEFAULT_PRESET_EDGE）：当某条 edge 在 run 时找不到
+        # 对应输入 tag 的信息时，用它从现有信息中找相近的一条或多条，合成一条
+        # 输出 tag = 该 edge 所需输入 tag 的新信息。推荐构造时显式传入 `preset_edge=DEFAULT_PRESET_EDGE`。
         if preset_edge is not None:
             pe = Edge.from_any(preset_edge)
             pe.is_preset = True
             self.preset_edge: Edge = pe
         else:
-            self.preset_edge = Edge(
-                input_tags=[],
-                processor={
-                    "模型": "default",
-                    "处理prompt": DEFAULT_PRESET_EDGE_PROMPT,
-                },
-                output_tags=["merged"],
-                is_preset=True,
-                edge_id="preset_edge",
-            )
+            self.preset_edge = DEFAULT_PRESET_EDGE
         # 别名，方便不同命名习惯访问预设边
         self.default_edge: Edge = self.preset_edge
 
@@ -140,8 +157,8 @@ class DAG:
         self._executed_records: Set[Tuple[int, str]] = set()
         # 记录哪些信息条目（按其在 contents 中的索引）已经被下游边作为直接输入消费过
         self._consumed_indices: Set[int] = set()
-        # 记录已经通过 preset_edge 拼凑过的条目索引对 (i, j)，避免重复拼凑同一对
-        self._merged_pairs_by_edge: Dict[int, Set[Tuple[int, int]]] = {}
+        # 记录已经为哪条 edge 的哪组输入 tag 用预设边合成过条目，避免重复合成
+        self._preset_fabricated: Set[Tuple[int, Tuple[str, ...]]] = set()
 
         if init_contents:
             for item in init_contents:
@@ -201,23 +218,38 @@ class DAG:
         input_tags: Union[Edge, Tuple[Any, ...], List[Any], Dict[str, Any], str],
         processor: Optional[ProcessorType] = None,
         output_tags: Optional[Union[str, Sequence[str]]] = None,
+        layer: int = 0,
     ) -> Edge:
-        """向 DAG 实例添加一条处理边：`([input_tags], processor, [output_tags])`。
+        """向 DAG 实例添加一条处理边：`([input_tags], processor, [output_tags], layer=0)`。
 
-        既支持三参数调用：
+        既支持三/四参数调用：
             `dag.add_edge(["query"], "提取关键词: {content}", ["keywords"])`
-            `dag.add_edge(["keywords"], {"模型": "gpt-4o", "处理prompt": "总结: {content}"}, ["result"])`
-        也支持直接传入三元组或 `Edge` 对象：
-            `dag.add_edge((["query"], "提取关键词", ["keywords"]))`
+            `dag.add_edge(["keywords"], {"模型": "gpt-4o", "处理prompt": "总结: {content}"}, ["result"], layer=2)`
+        也支持直接传入三元组/四元组或 `Edge` 对象：
+            `dag.add_edge((["query"], "提取关键词", ["keywords"], 1))`
+
+        处理边不允许没有输入 tag 或输出 tag（预设边模板除外）；
+        若需要汇聚多条信息，请显式写出所需输入 tag，运行时由预设边自动从相近信息合成。
         """
         if processor is None and output_tags is None:
             edge = Edge.from_any(input_tags)  # type: ignore[arg-type]
+            if layer:
+                edge.layer = int(layer)
         else:
             edge = Edge(
                 input_tags=input_tags if not isinstance(input_tags, (Edge, dict)) else [],  # type: ignore[arg-type]
                 processor=processor,
                 output_tags=output_tags,
+                layer=layer,
             )
+        if not edge.is_preset:
+            if not edge.input_tags:
+                raise ValueError(
+                    "处理边不允许没有输入 tag（input_tags 不能为空）。"
+                    "若需汇聚多条信息，请显式写出所需输入 tag，运行时由预设边自动从相近信息拼凑合成。"
+                )
+            if not edge.output_tags:
+                raise ValueError("处理边不允许没有输出 tag（output_tags 不能为空）。")
         if not edge.id:
             edge.id = f"e_{len(self.edges) + 1}"
         self.edges.append(edge)
@@ -270,122 +302,146 @@ class DAG:
     push = send
 
     # =========================================================================
-    # 3. 预设边双信息拼凑机制 (Preset Edge Two-Item Synthesis)
+    # 3. 预设边信息合成机制 (Preset Edge Synthesis：输出 tag = 所需输入 tag)
     # =========================================================================
 
-    def _select_two_items_for_edge(
+    def _select_similar_items_for_edge(
         self,
-        edge_idx: int,
         edge: Edge,
-    ) -> Optional[Tuple[int, int, ContentItem, ContentItem]]:
-        """当某条 `edge` 没有单条匹配输入时，从现有的所有 `contents` 条目中找到最合适的两条。
+        max_items: int = 2,
+    ) -> List[int]:
+        """当某条 `edge` 在 run 时找不到对应输入 tag 的信息时，
+        从现有的所有 `contents` 条目中找出与其所需输入 tag 最相近的一个或多个条目索引。
 
-        挑选优先级：
-        1. 优先排除已被当前 `edge` 拼凑过的条目对 `(i, j)`；
-        2. 优先排除由预设边刚刚生成的纯中间过渡条目（避免无限套娃），除非没有其它条目可用；
-        3. 若 `edge.input_tags` 非空，按两条条目合并后对 `edge.input_tags` 的精确覆盖率 + 语义相似度打分；
-        4. 优先选择尚未被其它边作为单输入消费过的“叶子”条目，以及 `gen` 更高（更新）的条目。
+        挑选规则：
+        1. 按条目 tags 对 `edge.input_tags` 的精确覆盖率 + 语义相似度打分；
+        2. 若单条最佳条目已能（精确或语义相近地）覆盖全部所需 tag，只取这一条；
+        3. 否则取打分最高且标签互补的前两条（“相近的一个或者多个”）；
+        4. 优先选择尚未被消费的叶子条目与 gen 更高的条目；避开预设边合成的中间条目与 result 条目。
         """
         self._normalize_state()
         n = len(self.contents)
-        if n < 2:
-            return None
+        if n == 0:
+            return []
+        req_tags = list(edge.input_tags)
 
-        used_pairs = self._merged_pairs_by_edge.setdefault(edge_idx, set())
-        req_tags = set(edge.input_tags)
+        def _single_score(i: int) -> Tuple[float, float, int]:
+            item = self.contents[i]
+            if req_tags:
+                exact = len(set(req_tags) & set(item.tags)) / len(req_tags)
+                sim = sum(
+                    max((default_text_similarity(rt, ct) for ct in item.tags), default=0.0)
+                    for rt in req_tags
+                ) / len(req_tags)
+            else:
+                exact = sim = 0.0
+            penalty = 0.0
+            if "result" in item.tags:
+                penalty -= 10.0
+            if "_preset_synthesized" in item:
+                penalty -= 5.0
+            unconsumed = 1.0 if i not in self._consumed_indices else 0.0
+            return (round(penalty + exact * 4.0 + sim * 2.0 + unconsumed, 4), float(item.gen), i)
 
+        ranked = sorted(range(n), key=_single_score, reverse=True)
+        best_i = ranked[0]
+
+        # 情况 1：边只需要单个输入 tag，且最佳条目已（精确或语义相近地）覆盖它 → 只取这一条
+        if len(req_tags) == 1:
+            best_tags = set(self.contents[best_i].tags)
+            rt = req_tags[0]
+            if rt in best_tags or any(default_text_similarity(rt, ct) >= 0.5 for ct in best_tags):
+                return [best_i]
+
+        if max_items < 2 or n < 2:
+            return [best_i]
+
+        # 情况 2：选一对标签互补、与所需 tag 最相近的条目
         best_score: Optional[Tuple[float, float, int, int, int]] = None
         best_pair: Optional[Tuple[int, int]] = None
-
-        for i in range(n):
-            for j in range(i + 1, n):
-                if (i, j) in used_pairs:
-                    continue
-                item_i = self.contents[i]
-                item_j = self.contents[j]
-
-                # 避免拿已经带有 result 终止标签的条目去拼凑（除非别无选择）
-                has_result_penalty = -10.0 if ("result" in item_i.tags or "result" in item_j.tags) else 0.0
-                # 避免拿 preset_edge 合成出的中间条目再去和它的父条目重复拼凑
-                is_preset_synthetic = ("_preset_synthesized" in item_i or "_preset_synthesized" in item_j)
-                synthetic_penalty = -5.0 if is_preset_synthetic else 0.0
-
-                combined_tags = set(item_i.tags) | set(item_j.tags)
-
-                # 1. 精确标签覆盖率（并且要求两条信息各自至少提供了一部分贡献，或互补覆盖）
-                exact_cov = 0.0
-                sim_score = 0.0
+        for a in range(n):
+            for b in range(a + 1, n):
+                item_a, item_b = self.contents[a], self.contents[b]
+                combined = set(item_a.tags) | set(item_b.tags)
                 if req_tags:
-                    covered = len(req_tags & combined_tags)
-                    exact_cov = covered / len(req_tags)
-                    # 语义相似度加分（处理标签名略有差异的情况）
-                    sim_vals = [
-                        max(
-                            (default_text_similarity(rt, ct) for ct in combined_tags),
-                            default=0.0,
-                        )
+                    exact = len(set(req_tags) & combined) / len(req_tags)
+                    sim = sum(
+                        max((default_text_similarity(rt, ct) for ct in combined), default=0.0)
                         for rt in req_tags
-                    ]
-                    sim_score = sum(sim_vals) / len(sim_vals)
-
-                # 2. 尚未被作为单输入消费过的叶子条目优先
-                unconsumed_bonus = (1.0 if i not in self._consumed_indices else 0.0) + (
-                    1.0 if j not in self._consumed_indices else 0.0
+                    ) / len(req_tags)
+                else:
+                    exact = sim = 0.0
+                penalty = 0.0
+                if "result" in combined:
+                    penalty -= 10.0
+                if "_preset_synthesized" in item_a or "_preset_synthesized" in item_b:
+                    penalty -= 5.0
+                unconsumed = (1.0 if a not in self._consumed_indices else 0.0) + (
+                    1.0 if b not in self._consumed_indices else 0.0
                 )
-
-                # 3. 代数 (gen) 与位置新鲜度
-                gen_sum = item_i.gen + item_j.gen
-
-                score_tuple = (
-                    round(has_result_penalty + synthetic_penalty + exact_cov * 4.0 + sim_score * 2.0 + unconsumed_bonus, 4),
-                    float(gen_sum),
-                    i + j,
-                    i,
-                    j,
+                st = (
+                    round(penalty + exact * 4.0 + sim * 2.0 + unconsumed, 4),
+                    float(item_a.gen + item_b.gen),
+                    a + b,
+                    a,
+                    b,
                 )
-                if best_score is None or score_tuple > best_score:
-                    best_score = score_tuple
-                    best_pair = (i, j)
+                if best_score is None or st > best_score:
+                    best_score = st
+                    best_pair = (a, b)
 
         if best_pair is None:
-            return None
+            return [best_i]
+        return [best_pair[0], best_pair[1]]
 
-        idx1, idx2 = best_pair
-        return idx1, idx2, self.contents[idx1], self.contents[idx2]
+    def _render_preset_prompt(self, pe: Edge, items: List[ContentItem]) -> str:
+        """为预设边构造合成提示词（支持 1 条或多条参考信息）。"""
+        if len(items) >= 2:
+            return pe.render_pair_prompt(items[0], items[1])
+        item = items[0]
+        c = content_to_str(item.get("content", ""))
+        t = ", ".join(item.get("tags", []))
+        template = pe.prompt or "请基于以下参考信息生成所需内容："
+        return f"{template}\n\n参考信息 [{t}]：\n{c}"
 
-    async def _run_preset_edge_on_pair(
+    async def _run_preset_edge_on_items(
         self,
-        item1: ContentItem,
-        item2: ContentItem,
-        target_input_tags: Sequence[str],
+        items: List[ContentItem],
+        target_tags: Sequence[str],
     ) -> ContentItem:
-        """通过 `self.preset_edge` 将两条信息拼凑为一条新信息。"""
+        """通过 `self.preset_edge` 把一条或多条相近信息合成一条新信息。
+
+        合成条目的输出 tag = 目标边所需的输入 tag（`target_tags`），
+        使该边随后可以把这条合成信息当作自己的直接输入来执行。
+        """
         pe = self.preset_edge
-        merged_tags = normalize_tags(list(item1.tags) + list(item2.tags) + list(pe.output_tags) + list(target_input_tags))
-        merged_image = item1.image or item2.image
-        merged_gen = max(item1.gen, item2.gen) + 1
+        out_tags = normalize_tags(target_tags)
+        merged_image = next((it.image for it in items if it.image), None)
+        merged_gen = max(it.gen for it in items) + 1
 
         if pe.fn is not None:
             sig = inspect.signature(pe.fn)
             params = [
                 p for p in sig.parameters.values() if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
             ]
-            if len(params) >= 2:
-                res = pe.fn(item1, item2)
+            if len(params) >= 2 and len(items) >= 2:
+                res = pe.fn(items[0], items[1])
             else:
-                res = pe.fn([item1, item2])
+                res = pe.fn(items if len(items) > 1 else items[0])
             if asyncio.iscoroutine(res):
                 res = await res
             merged_content = content_to_str(res)
-        elif isinstance(self.llm, SmartMockLLM) and not self._mock_llm_matches_preset(pe, item1, item2):
-            # 在默认模拟环境下，使用无损的 JSON/文本智能拼凑，使下游边能直接读取两条信息的全部内容
-            merged_content = _default_preset_combine_contents(item1.content, item2.content)
+        elif isinstance(self.llm, SmartMockLLM) and not self._mock_llm_matches_preset(pe, items):
+            # 在默认模拟环境下，使用无损的 JSON/文本智能拼凑，使下游边能直接读取全部参考内容
+            merged_content = items[0].content
+            for it in items[1:]:
+                merged_content = _default_preset_combine_contents(merged_content, it.content)
         else:
-            prompt_str = pe.render_pair_prompt(item1, item2)
+            prompt_str = self._render_preset_prompt(pe, items)
             merged_content = await self._call_llm(prompt_str, model=pe.model, image=merged_image)
 
         synthesized = ContentItem(
-            tags=merged_tags,
+            tags=out_tags,
             content=merged_content,
             image=merged_image,
             gen=merged_gen,
@@ -393,11 +449,11 @@ class DAG:
         synthesized["_preset_synthesized"] = True
         return synthesized
 
-    def _mock_llm_matches_preset(self, pe: Edge, item1: ContentItem, item2: ContentItem) -> bool:
+    def _mock_llm_matches_preset(self, pe: Edge, items: List[ContentItem]) -> bool:
         """检查 SmartMockLLM 是否专门配置了针对 preset_edge 的规则。"""
         if not isinstance(self.llm, SmartMockLLM):
             return True
-        prompt_str = pe.render_pair_prompt(item1, item2)
+        prompt_str = self._render_preset_prompt(pe, items)
         for kw in self.llm.rules:
             if kw in prompt_str:
                 return True
@@ -409,18 +465,59 @@ class DAG:
     # 4. 单条处理边的执行逻辑
     # =========================================================================
 
+    def _resolve_model_config(self, model: Optional[str]) -> Optional[Dict[str, Any]]:
+        """按 model 名查询 `dag.models` 模型注册表，返回规范化的调用配置。
+
+        注册表条目格式：`{"api": base_url, "key": api_key, "model": 模型名, "params": {...}}`
+        （`api`/`base_url`、`key`/`api_key` 两组键名等价）。注册表之外的其余键也会透传为请求参数。
+        设置了注册表却查不到对应 KEY 时抛出 `KeyError`（`"default"` 除外）。
+        """
+        if not model or not self.models:
+            return None
+        cfg = self.models.get(model)
+        if cfg is None:
+            if model == "default":
+                return None
+            raise KeyError(
+                f"模型 '{model}' 未在 dag.models 中注册（已注册的 KEY: {sorted(self.models)}）"
+            )
+        params = dict(cfg.get("params") or {})
+        for k, v in cfg.items():
+            if k not in ("api", "base_url", "key", "api_key", "model", "params"):
+                params[k] = v
+        return {
+            "api_key": cfg.get("key", cfg.get("api_key")),
+            "base_url": cfg.get("api", cfg.get("base_url")),
+            "model": cfg.get("model", model),
+            "params": params,
+        }
+
     async def _call_llm(
         self,
         prompt: str,
         model: Optional[str] = None,
         image: Optional[str] = None,
     ) -> str:
-        """调用大模型后端（自动适配 `ask(prompt, model, image)` 或单参数 `ask(prompt)`）。"""
+        """调用大模型后端。
+
+        若 `dag.models` 中注册了该 model 的配置（api/key/model/params），
+        则自动把 api_key、base_url 与额外参数注入 `ask(...)`（按 `ask` 签名过滤不支持的参数）。
+        """
         ask_fn = getattr(self.llm, "ask", None)
         if ask_fn is None and callable(self.llm):
             ask_fn = self.llm
         if ask_fn is None:
             raise ValueError("当前 DAG 配置的 llm 对象未实现 ask 方法且不可调用")
+
+        cfg = self._resolve_model_config(model)
+        target_model = (cfg or {}).get("model", model)
+        extra_kwargs: Dict[str, Any] = {}
+        if cfg:
+            if cfg.get("api_key"):
+                extra_kwargs["api_key"] = cfg["api_key"]
+            if cfg.get("base_url"):
+                extra_kwargs["base_url"] = cfg["base_url"]
+            extra_kwargs.update(cfg.get("params") or {})
 
         sig = inspect.signature(ask_fn)
         params = [
@@ -428,13 +525,14 @@ class DAG:
         ]
         has_var_kw = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
 
-        if len(params) >= 3 or has_var_kw:
-            res = ask_fn(prompt, model=model, image=image)
-        elif len(params) == 2:
-            res = ask_fn(prompt, model)
+        base_kwargs: Dict[str, Any] = {"model": target_model, "image": image}
+        if has_var_kw:
+            call_kwargs = {**base_kwargs, **extra_kwargs}
         else:
-            res = ask_fn(prompt)
+            accepted = {p.name for p in params} - {"prompt"}
+            call_kwargs = {k: v for k, v in {**base_kwargs, **extra_kwargs}.items() if k in accepted}
 
+        res = ask_fn(prompt, **call_kwargs)
         if asyncio.iscoroutine(res):
             res = await res
         return content_to_str(res)
@@ -510,95 +608,71 @@ class DAG:
     async def run_async(self) -> List[ContentItem]:
         """异步执行一次 DAG (`dag.run()` 的协程实现)。
 
-        执行逻辑：
-        - 遍历当前 `dag.edges`：
-          1. 若某条边 `edge` 具有 `input_tags` 且在 `dag.contents` 中能找到尚未被该边处理过的匹配信息条目，
-             则直接执行该边并把产出的新信息追加到 `dag.contents`。
-          2. 若某条边 `edge` 没有输入（`edge.input_tags` 为空，或在 `dag.contents` 中找不到任何单条匹配信息，
-             例如需要汇聚两条分支标签或标签未对齐），且当前 `len(dag.contents) >= 2`，
-             则从现有 `dag.contents` 中找到两条信息，通过 `self.preset_edge`（预设边）拼凑成一条信息，
-             再交由 `edge` 处理产出新信息。
+        执行逻辑（**edge 总是从 `layer` 参数小的开始跑起**，同 layer 按定义顺序）：
+        1. 若某条边 `edge` 的 `input_tags` 能在 `dag.contents` 中找到尚未被该边处理过的匹配条目，
+           则直接执行该边并把产出的新信息追加到 `dag.contents`。
+        2. 若本次 run 没有找到 `edge` 所需输入 tag 的条目：
+           - 若还有未跑过的上游边能直接产出这些 tag，则先等待（本轮跳过，下一轮再试）；
+           - 否则用 `self.preset_edge`（预设边）从现有 `contents` 中找到相近的一条或多条信息，
+             合成一条 **输出 tag = 该 edge 所需输入 tag** 的新信息，再交由该 edge 执行。
         - 返回本次 `run()` 新产出的所有 `ContentItem` 列表。
         """
         self._normalize_state()
         newly_created: List[ContentItem] = []
 
-        # 第一阶段：按拓扑/定义顺序推进所有能直接匹配单条输入的边，以及需要双条目拼凑的无输入边
-        for edge_idx, edge in enumerate(self.edges):
-            # 情况 A：edge.input_tags 非空，尝试在现有 contents 中寻找单条直接匹配的输入
+        ordered_indices = sorted(range(len(self.edges)), key=lambda i: (self.edges[i].layer, i))
+        for edge_idx in ordered_indices:
+            edge = self.edges[edge_idx]
+            if edge.is_preset:
+                continue
+
+            # 情况 1：存在单条直接匹配输入的条目 → 直接执行
             matched_single = False
-            if edge.input_tags:
-                for c_idx, item in enumerate(list(self.contents)):
-                    record_key = (edge_idx, f"single:{c_idx}")
-                    if record_key in self._executed_records:
-                        continue
-                    if item.matches_tags(edge.input_tags):
-                        self._executed_records.add(record_key)
-                        self._consumed_indices.add(c_idx)
-                        out_item = await self._execute_edge_on_item(edge, item)
-                        self.contents.append(out_item)
-                        newly_created.append(out_item)
-                        matched_single = True
+            for c_idx, item in enumerate(list(self.contents)):
+                record_key = (edge_idx, f"single:{c_idx}")
+                if record_key in self._executed_records:
+                    continue
+                if item.matches_tags(edge.input_tags):
+                    self._executed_records.add(record_key)
+                    self._consumed_indices.add(c_idx)
+                    out_item = await self._execute_edge_on_item(edge, item)
+                    self.contents.append(out_item)
+                    newly_created.append(out_item)
+                    matched_single = True
 
             if matched_single:
                 continue
 
-            # 情况 B：该边没有单条匹配输入（input_tags 为空，或现有条目中无单条匹配）
-            # 检查是否应当触发“从现有的所有条目的信息中找到两条，通过预设边拼凑一个信息”
-            should_fallback_merge = False
-            if not edge.input_tags:
-                should_fallback_merge = True
-            elif not self._has_upstream_producer(edge.input_tags, exclude_edge_idx=edge_idx):
-                # 没有任何单条上游边能独立产出该 edge 所需的全部 input_tags（例如多路分支标签汇聚，或标签名未对齐）
-                should_fallback_merge = True
+            # 情况 2：没有找到对应 tag 的信息
+            # 若还有未跑过的上游边能直接产出该 edge 所需的全部 tag，本轮先跳过等它产出
+            if self._has_upstream_producer(edge.input_tags, exclude_edge_idx=edge_idx):
+                continue
+            if not self.contents:
+                continue
+            # 每组输入 tag 只为该 edge 合成一次，避免多轮 run() 重复合成
+            fab_key = (edge_idx, tuple(sorted(edge.input_tags)))
+            if fab_key in self._preset_fabricated:
+                continue
 
-            if should_fallback_merge and len(self.contents) >= 2:
-                pair_sel = self._select_two_items_for_edge(edge_idx, edge)
-                if pair_sel is not None:
-                    idx1, idx2, item1, item2 = pair_sel
-                    self._merged_pairs_by_edge.setdefault(edge_idx, set()).add((idx1, idx2))
-                    self._consumed_indices.add(idx1)
-                    self._consumed_indices.add(idx2)
+            # 用预设边从现有 contents 中找相近的一条或多条信息，
+            # 合成一条 输出 tag = 该 edge 所需输入 tag 的新信息
+            sel_indices = self._select_similar_items_for_edge(edge)
+            if not sel_indices:
+                continue
+            items = [self.contents[i] for i in sel_indices]
+            synthesized_item = await self._run_preset_edge_on_items(items, edge.input_tags)
+            self.contents.append(synthesized_item)
+            self._preset_fabricated.add(fab_key)
+            self._consumed_indices.update(sel_indices)
+            synth_idx = len(self.contents) - 1
+            self._consumed_indices.add(synth_idx)
+            newly_created.append(synthesized_item)
 
-                    # 通过初始化时自带的 preset_edge 拼凑两条信息为一条信息
-                    synthesized_item = await self._run_preset_edge_on_pair(
-                        item1, item2, target_input_tags=edge.input_tags
-                    )
-                    self.contents.append(synthesized_item)
-                    synth_idx = len(self.contents) - 1
-                    self._consumed_indices.add(synth_idx)
-                    newly_created.append(synthesized_item)
-
-                    # 标记该合成条目已被当前 edge 消费，随后执行当前 edge
-                    self._executed_records.add((edge_idx, f"single:{synth_idx}"))
-                    out_item = await self._execute_edge_on_item(edge, synthesized_item)
-                    self.contents.append(out_item)
-                    newly_created.append(out_item)
-
-        # 兜底：如果本轮没有任何边通过情况 A 或情况 B 触发，但存在尚未跑过的有输入边且已有 >=2 条信息，
-        # 允许该无输入就绪的边通过预设边从现有信息中找两条拼凑执行
-        if not newly_created and len(self.contents) >= 2:
-            for edge_idx, edge in enumerate(self.edges):
-                pair_sel = self._select_two_items_for_edge(edge_idx, edge)
-                if pair_sel is not None:
-                    idx1, idx2, item1, item2 = pair_sel
-                    self._merged_pairs_by_edge.setdefault(edge_idx, set()).add((idx1, idx2))
-                    self._consumed_indices.add(idx1)
-                    self._consumed_indices.add(idx2)
-
-                    synthesized_item = await self._run_preset_edge_on_pair(
-                        item1, item2, target_input_tags=edge.input_tags
-                    )
-                    self.contents.append(synthesized_item)
-                    synth_idx = len(self.contents) - 1
-                    self._consumed_indices.add(synth_idx)
-                    newly_created.append(synthesized_item)
-
-                    self._executed_records.add((edge_idx, f"single:{synth_idx}"))
-                    out_item = await self._execute_edge_on_item(edge, synthesized_item)
-                    self.contents.append(out_item)
-                    newly_created.append(out_item)
-                    break
+            # 随后把合成条目作为该 edge 的直接输入执行
+            self._executed_records.add((edge_idx, f"single:{synth_idx}"))
+            out_item = await self._execute_edge_on_item(edge, synthesized_item)
+            self.contents.append(out_item)
+            newly_created.append(out_item)
 
         return newly_created
 
@@ -663,10 +737,17 @@ class DAG:
         data: Dict[str, Any],
         *,
         llm: Optional[LLMProtocol] = None,
+        preset_edge: Optional[Union[Edge, Tuple[Any, ...], Dict[str, Any]]] = None,
+        models: Optional[Dict[str, Dict[str, Any]]] = None,
         edge_bindings: Optional[Dict[str, ProcessorType]] = None,
     ) -> "DAG":
         """从 `{"contents": [...], "edges": [...]}` 字典反序列化构造可运行的 `DAG` 实例。"""
-        dag = cls(name_or_data=data.get("name", "vea_v6_dag"), llm=llm)
+        dag = cls(
+            name_or_data=data.get("name", "vea_v6_dag"),
+            llm=llm,
+            preset_edge=preset_edge,
+            models=models if models is not None else data.get("models"),
+        )
         for c in data.get("contents", []):
             dag.send(c)
         bindings = dict(edge_bindings or {})

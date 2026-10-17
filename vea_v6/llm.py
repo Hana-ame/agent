@@ -57,13 +57,25 @@ class OpenAICompatibleLLM:
         prompt: str,
         model: Optional[str] = None,
         image: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        **extra_params: Any,
     ) -> str:
-        """发送提示词（及可选图片）到指定模型并返回生成的文本。"""
+        """发送提示词（及可选图片）到指定模型并返回生成的文本。
+
+        `api_key` / `base_url` / `**extra_params` 支持按调用覆写，
+        供 `dag.models` 模型注册表在运行时注入对应模型的 api、key 与额外参数。
+        """
         import httpx
 
+        use_api_key = api_key if api_key is not None else self.api_key
+        use_base_url = base_url if base_url is not None else self.base_url
+        if not use_base_url.endswith("/chat/completions"):
+            use_base_url = use_base_url.rstrip("/") + "/chat/completions"
+
         headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        if use_api_key:
+            headers["Authorization"] = f"Bearer {use_api_key}"
 
         target_model = model or self.model
         if image:
@@ -79,8 +91,9 @@ class OpenAICompatibleLLM:
             "messages": [{"role": "user", "content": user_content}],
             "temperature": self.temperature,
         }
+        payload.update(extra_params)
         async with httpx.AsyncClient(headers=headers, timeout=self.timeout) as client:
-            resp = await client.post(self.base_url, json=payload)
+            resp = await client.post(use_base_url, json=payload)
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"].strip()

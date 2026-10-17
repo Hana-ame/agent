@@ -1,11 +1,15 @@
-"""示例 5：VEA V6 极简快速上手 —— 纯标签信息流、预设边拼凑与外部条件终止.
+"""示例 5：VEA V6 极简快速上手 —— 纯标签信息流、预设边合成与外部条件终止.
 
 展示 VEA V6 的核心设计：
 1. `dag` 用 `{"contents": [], "edges": []}` 表示；
-2. 只用加处理边：`(输入的 tag list[str], 处理方式 (str | {模型, 处理prompt}), 输出的 tag list[str])`；
+2. 只用加处理边：`(输入的 tag list[str], 处理方式 (str | {模型, 处理prompt}), 输出的 tag list[str], layer)`，
+   处理边不允许没有输入 tag / 输出 tag，`dag.run()` 总是从 layer 小的边开始跑起；
 3. 送入信息结构：`{"tags": list[str], "content": str, "image"?: path|url, "gen": 0}`；
-4. 对一条没有直接输入的 `edge`，自动从现有 `contents` 中找两条信息，通过 `dag.preset_edge` 拼凑出一条信息；
-5. `dag.run()` = 跑一次，`dag.context` = 列出所有 context，在外部检测 `tag="result"` 终止。
+4. 模型注册表：`DAG(models={...})` 以 model 名为 KEY 保存 api/key/model/params，
+   边里的 `{"模型": <KEY>, ...}` 在调用 LLM 时按 KEY 查询并注入配置；
+5. 某条边在 run 时找不到对应输入 tag 的信息时，自动通过 `dag.preset_edge`
+   从现有 contents 中找相近的一条或多条信息，合成一条 输出 tag = 所需输入 tag 的新信息；
+6. `dag.run()` = 跑一次，`dag.context` = 列出所有 context，在外部检测 `tag="result"` 终止。
 
 运行方式：
     python3 examples/05_vea_v6_quickstart.py
@@ -17,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vea_v6 import DAG, SmartMockLLM
+from vea_v6 import DEFAULT_PRESET_EDGE, DAG, SmartMockLLM
 
 
 def main() -> None:
@@ -36,22 +40,43 @@ def main() -> None:
         }
     )
 
-    # 1. 初始化 V6 DAG（自带 preset_edge 预设边对象）
-    dag = DAG(llm=mock_llm)
+    # 1. 初始化 V6 DAG（显式传入默认预设边常量 DEFAULT_PRESET_EDGE + 模型注册表）
+    #    models 以 model 名为 KEY，保存 api / key / model / params，供边里的 {"模型": KEY} 查询注入
+    dag = DAG(
+        preset_edge=DEFAULT_PRESET_EDGE,
+        llm=mock_llm,
+        models={
+            "sensenova-v6": {
+                "api": "https://api.sensenova.cn/v1",
+                "key": "sk-demo",
+                "model": "sensenova-v6",
+                "params": {"temperature": 0.2},
+            },
+            "sensenova-v6-reasoner": {
+                "api": "https://api.sensenova.cn/v1",
+                "key": "sk-demo",
+                "model": "sensenova-v6-reasoner",
+                "params": {"temperature": 0.0},
+            },
+        },
+    )
     print("初始化预设边对象:", dag.preset_edge)
 
-    # 2. 只用加处理边：(input_tags, processor, output_tags)
-    dag.add_edge(["raw_report"], "提取营收明细: {content}", ["revenue_part"])
+    # 2. 只用加处理边：(input_tags, processor, output_tags, layer)；run 时从 layer 小的开始跑
+    dag.add_edge(["raw_report"], "提取营收明细: {content}", ["revenue_part"], layer=1)
     dag.add_edge(
         ["raw_report"],
         {"模型": "sensenova-v6", "处理prompt": "提取成本明细: {content}"},
         ["cost_part"],
+        layer=1,
     )
-    # 第 3 条边不设单条直接输入（input_tags=[]），运行时自动触发 dag.preset_edge 从现有条目找两条拼凑！
+    # 第 3 条边需要同时汇聚 ["revenue_part", "cost_part"]（不允许没有输入 tag），
+    # 现有单条信息均不满足时，运行时自动触发 dag.preset_edge 从相近信息合成一条 输出tag=所需输入tag 的信息！
     dag.add_edge(
-        [],
+        ["revenue_part", "cost_part"],
         {"模型": "sensenova-v6-reasoner", "处理prompt": "计算净利润并生成结论"},
         ["result"],
+        layer=2,
     )
 
     # 3. 送入一条初始信息 (gen=0)

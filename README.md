@@ -1,6 +1,6 @@
 # Vertex-Edge Agent V6
 
-> **图即 `{contents: [], edges: []}`；只加处理边，无输入则由预设边从现有信息找两条拼凑；外部检测 `tag=result` 终止。**
+> **图即 `{contents: [], edges: []}`；只加处理边（必有输入/输出 tag，按 layer 从小到大跑）；找不到对应 tag 时由预设边从相近信息合成「输出 tag = 所需输入 tag」的条目；外部检测 `tag=result` 终止。**
 
 V6 是 VEA 框架的纯标签信息流重写——彻底抛弃了命名顶点、状态机与 SQLite 同步样板，用一个极简的 `{contents, edges}` 结构表达一切。
 
@@ -20,13 +20,23 @@ pip install -e .
 ## 快速上手
 
 ```python
-from vea_v6 import DAG
+from vea_v6 import DEFAULT_PRESET_EDGE, DAG
 
-dag = DAG()
-dag.add_edge(["raw_report"], "提取营收明细: {content}", ["revenue_part"])
-dag.add_edge(["raw_report"], {"模型": "sensenova-v6", "处理prompt": "提取成本明细: {content}"}, ["cost_part"])
-# 无单条直接输入，运行时自动通过 dag.preset_edge 从现有条目找两条拼凑
-dag.add_edge([], {"模型": "sensenova-v6-reasoner", "处理prompt": "计算净利润并生成结论"}, ["result"])
+# 构造时显式传入默认预设边常量 DEFAULT_PRESET_EDGE；
+# models 以 model 名为 KEY 注册 api/key/model/params，边里 {"模型": KEY} 按 KEY 查询注入
+dag = DAG(
+    preset_edge=DEFAULT_PRESET_EDGE,
+    models={
+        "sensenova-v6": {"api": "https://api.sensenova.cn/v1", "key": "sk-xxx",
+                         "model": "sensenova-v6", "params": {"temperature": 0.2}},
+        "sensenova-v6-reasoner": {"api": "https://api.sensenova.cn/v1", "key": "sk-xxx",
+                                  "model": "sensenova-v6-reasoner", "params": {"temperature": 0.0}},
+    },
+)
+dag.add_edge(["raw_report"], "提取营收明细: {content}", ["revenue_part"], layer=1)
+dag.add_edge(["raw_report"], {"模型": "sensenova-v6", "处理prompt": "提取成本明细: {content}"}, ["cost_part"], layer=1)
+# 需汇聚两个上游 tag（不允许没有输入 tag）；找不到时自动通过 dag.preset_edge 从相近信息合成 输出tag=所需输入tag 的条目
+dag.add_edge(["revenue_part", "cost_part"], {"模型": "sensenova-v6-reasoner", "处理prompt": "计算净利润并生成结论"}, ["result"], layer=2)
 
 dag.send({"tags": ["raw_report"], "content": "Q4总营收5000万，总成本3000万", "gen": 0})
 
@@ -43,11 +53,12 @@ print(dag.get_result())
 | 概念 | 说明 |
 |---|---|
 | **DAG** | `{"contents": [], "edges": []}`，`dag.contents` / `dag.edges` 属性访问 + `dag["contents"]` 字典访问 + `dag.to_dict()` / `DAG.from_dict()` 序列化 |
-| **处理边** | `(input_tags: list[str], processor, output_tags: list[str])`；processor 支持纯字符串 `prompt: str`、指定模型字典 `{"模型": str, "处理prompt": str}`（兼容 `{"model": ..., "prompt": ...}`）、或 Python 可调用函数 |
+| **处理边** | `(input_tags: list[str], processor, output_tags: list[str], layer: int)`；**不允许没有输入 tag / 输出 tag**；processor 支持纯字符串 `prompt: str`、指定模型字典 `{"模型": str, "处理prompt": str}`（兼容 `{"model": ..., "prompt": ...}`）、或 Python 可调用函数；`dag.run()` 总是从 `layer` 小的边开始跑起 |
+| **模型注册表** | `DAG(models={...})`：以 model 名为 KEY 保存 `{"api", "key", "model", "params"}`；边里 `{"模型": KEY}` 调用 LLM 时按 KEY 查询并注入 api/key/参数；设置了注册表却查不到 KEY 会抛 `KeyError` |
 | **信息条目** | `{"tags": list[str], "content": str, "image"?: path\|url, "gen": 0}`；初始送入 `gen=0`，每经过一次边处理代数自动递增，无图片时自动省略 `image` 键 |
-| **预设边拼凑** | `dag.preset_edge`：DAG 初始化时自带。当某条边没有单条直接匹配输入时，自动从 `contents` 中挑选最匹配的两条信息拼凑后再处理 |
+| **预设边合成** | `dag.preset_edge`：默认为模块级常量 `DEFAULT_PRESET_EDGE`（构造 DAG 时显式传入）。当某条边在 run 时找不到对应输入 tag 的条目时，自动从 `contents` 中找**相近的一条或多条**信息，合成一条**输出 tag = 该边所需输入 tag** 的新条目后再执行该边 |
 | **外部终止** | `dag.run()` 执行一次推进，`dag.context` 列出全部上下文，由外部循环检测 `tag="result"` 终止 |
-| **元图构建器** | `create_dag_builder_dag()`：3 边 V6 DAG 构建另一个 V6 DAG，边 3 通过 `preset_edge` 拼凑产出目标业务 DAG |
+| **元图构建器** | `create_dag_builder_dag()`：3 边 V6 DAG 构建另一个 V6 DAG，边 3（layer=2）通过 `preset_edge` 合成产出目标业务 DAG |
 
 ---
 
@@ -55,7 +66,7 @@ print(dag.get_result())
 
 | 示例 | 说明 |
 |---|---|
-| `examples/05_vea_v6_quickstart.py` | 直接创建并运行 V6 DAG，预设边自动拼凑 |
+| `examples/05_vea_v6_quickstart.py` | 直接创建并运行 V6 DAG，模型注册表 + 预设边自动合成 |
 | `examples/06_vea_v6_meta_builder.py` | 元图构建器：V6 DAG 构建 V6 DAG |
 
 ```bash
@@ -69,20 +80,21 @@ python3 examples/06_vea_v6_meta_builder.py
 
 ```bash
 python3 tests/test_vea_v6_all.py
-# ALL 7 VEA V6 TEST SUITES PASSED SUCCESSFULLY!
+# ALL 8 VEA V6 TEST SUITES PASSED SUCCESSFULLY!
 
 python3 -m pytest tests/test_vea_v6_all.py -v
 ```
 
-7 组测试覆盖：
+8 组测试覆盖：
 
 1. `{contents, edges}` 结构、`prompt: str` 与 `{"模型": ..., "处理prompt": ...}` 边格式
 2. `{tags, content, image?, gen}` 信息结构、多模态 `image` 透传与 `gen` 代数演进
-3. 空输入边、多分支汇聚边、自定义 `preset_edge` 拼凑链路
+3. 多分支汇聚边、自定义 `preset_edge` 合成链路、空输入/输出 tag 校验
 4. 多轮循环外部检测 `tag="result"` 终止
 5. 字典字面量初始化 DAG
 6. 元图通过 `preset_edge` 合成产出业务 DAG，跑出 `{"final_pay": 220}`
 7. 自然语言句式、箭头句式及无输入边句式解析
+8. 模型注册表按 KEY 查询注入、未注册 KEY 抛错、`layer` 升序执行、单条相近信息合成
 
 ---
 

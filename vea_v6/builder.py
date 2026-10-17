@@ -12,9 +12,9 @@
    解析输入文本/句子，提取出每条处理边的 `(input_tags, processor, output_tags)`。
 2. **边 2 (`["input"]` -> `["tag_alignment"]`)**：
    分析全局标签流向、相似标签对齐关系（例如上下游名字相近的 tag 自动对齐）以及终止标签 `"result"` 保障策略。
-3. **边 3 (`[]` / `["parsed_edges", "tag_alignment"]` -> `["result"]`)**：
-   该边没有单条直接输入，因此自动通过 `builder_dag.preset_edge`（预设边）将前两条边产出的
-   `parsed_edges` 与 `tag_alignment` 两条信息拼凑为一条完整规格信息，并编译生成目标 V6 `DAG` 的
+3. **边 3 (`["parsed_edges", "tag_alignment"]` -> `["result"]`, layer=2)**：
+   该边需要同时汇聚前两条边的产出，现有单条信息均不满足时，自动通过 `builder_dag.preset_edge`（预设边）
+   从相近信息合成一条 输出 tag = 所需输入 tag 的完整规格信息，并编译生成目标 V6 `DAG` 的
    `{"contents": [], "edges": [...]}` JSON 结构，打上 `tags=["result"]` 作为终止信号和最终回应！
 """
 
@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-from vea_v6.dag import DAG, default_text_similarity
+from vea_v6.dag import DEFAULT_PRESET_EDGE, DAG, default_text_similarity
 from vea_v6.llm import LLMProtocol
 from vea_v6.primitives import ContentItem, Edge, ProcessorType, normalize_tags
 
@@ -183,7 +183,7 @@ def create_dag_builder_dag(
         target_dag = DAG.from_dict(built_dag_dict)
         ```
     """
-    builder_dag = DAG("V6_Meta_DAG_Builder")
+    builder_dag = DAG("V6_Meta_DAG_Builder", preset_edge=DEFAULT_PRESET_EDGE)
 
     # 边 1：从 ["input"] 解析出分立的 V6 处理边列表 ["parsed_edges"]
     def _edge1_parse_edges(content: str) -> str:
@@ -242,8 +242,8 @@ def create_dag_builder_dag(
             ensure_ascii=False,
         )
 
-    # 边 3：无单条匹配输入（需要组合 ["parsed_edges"] 与 ["tag_alignment"] 两条信息），
-    # 自动通过 builder_dag.preset_edge 拼凑后，编译产出目标 DAG 结构（输出 tag=["result"]）
+    # 边 3：需要汇聚 ["parsed_edges", "tag_alignment"] 两条上游信息，没有单条信息同时匹配，
+    # 自动通过 builder_dag.preset_edge 合成一条 输出tag=所需输入tag 的信息后，编译产出目标 DAG 结构（输出 tag=["result"]）
     def _edge3_compile_target_dag(merged_content: str) -> str:
         data = json.loads(merged_content)
         raw_edges: List[Dict[str, Any]] = data.get("parsed_edges", [])
@@ -282,6 +282,7 @@ def create_dag_builder_dag(
                     "input_tags": new_in_tags,
                     "processor": proc,
                     "output_tags": out_tags,
+                    "layer": len(compiled_edges) + 1,
                 }
             )
 
@@ -307,10 +308,11 @@ def create_dag_builder_dag(
         }
         return json.dumps(target_dag_dict, ensure_ascii=False)
 
-    builder_dag.add_edge(["input"], _edge1_parse_edges, ["parsed_edges"])
-    builder_dag.add_edge(["input"], _edge2_analyze_alignment, ["tag_alignment"])
-    # 第 3 条边不设单条直接输入（input_tags=[]），运行时自动触发 builder_dag.preset_edge 拼凑前两条边的输出！
-    builder_dag.add_edge([], _edge3_compile_target_dag, ["result"])
+    builder_dag.add_edge(["input"], _edge1_parse_edges, ["parsed_edges"], layer=1)
+    builder_dag.add_edge(["input"], _edge2_analyze_alignment, ["tag_alignment"], layer=1)
+    # 第 3 条边需要汇聚 ["parsed_edges", "tag_alignment"] 两条上游信息，
+    # 现有单条信息均不满足时，运行时自动触发 builder_dag.preset_edge 合成一条 输出tag=所需输入tag 的信息！
+    builder_dag.add_edge(["parsed_edges", "tag_alignment"], _edge3_compile_target_dag, ["result"], layer=2)
 
     return builder_dag
 
