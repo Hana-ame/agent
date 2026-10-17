@@ -22,7 +22,14 @@ from collections import Counter
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Set, Tuple, Union
 
 from vea_v6.parts.llm import OpenAICompatibleLLM, SmartMockLLM
-from vea_v6.parts.primitives import ContentItem, Edge, ProcessorType, content_to_str, normalize_tags
+from vea_v6.parts.primitives import (
+    ContentItem,
+    Edge,
+    ProcessorType,
+    content_to_str,
+    merge_payload,
+    normalize_tags,
+)
 
 __all__ = [
     "DAG",
@@ -299,13 +306,17 @@ class DAG:
         return list(best_pair) if best_pair else [best]
 
     def _render_preset_prompt(self, pe: Edge, items: List[ContentItem]) -> str:
+        """预设边提示词：两条走 `Edge.render_pair_prompt`（保留 `输入数据：` 段），多条逐条追加。"""
+        if len(items) == 2:
+            return pe.render_pair_prompt(items[0], items[1])
         pairs = "\n".join(
             f"信息{i + 1} [{', '.join(it.tags)}]:\n{it.content}" for i, it in enumerate(items)
         )
         template = pe.prompt or DEFAULT_PRESET_EDGE_PROMPT
+        tail = f"\n\n输入数据：\n" + "\n".join(it.content for it in items)
         if "{pairs}" in template:
-            return template.replace("{pairs}", pairs)
-        return f"{template}\n\n{pairs}"
+            return template.replace("{pairs}", pairs) + tail
+        return f"{template}\n\n{pairs}{tail}"
 
     async def _run_preset_edge_on_items(self, items: List[ContentItem], target_tags: Sequence[str]) -> ContentItem:
         """用预设边把 1~n 条相近信息合成一条「输出 tag = 目标边所需输入 tag」的条目。"""
@@ -315,7 +326,16 @@ class DAG:
         gen = max(it.gen for it in items) + 1
 
         if pe.fn is not None:
-            res = pe.fn(items if len(items) > 1 else items[0])
+            # 自定义合并函数可能写成 `fn(item)` 也可能写成 `fn(item1, item2)`，按签名派发
+            params = [
+                p
+                for p in inspect.signature(pe.fn).parameters.values()
+                if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+            ]
+            if len(params) >= 2 and len(items) >= 2:
+                res = pe.fn(items[0], items[1])
+            else:
+                res = pe.fn(items if len(items) > 1 else items[0])
             if asyncio.iscoroutine(res):
                 res = await res
             merged = content_to_str(res)
@@ -379,10 +399,10 @@ class DAG:
             is_registry_key = bool(inline_model and self.models.get(inline_model))
             if inline_model and not is_registry_key:
                 merged["model"] = inline_model
-            if inline.get("key"):
-                merged["api_key"] = inline["key"]
-            if inline.get("api"):
-                merged["base_url"] = inline["api"]
+            if inline.get("api_key") or inline.get("key"):
+                merged["api_key"] = inline.get("api_key") or inline.get("key")
+            if inline.get("base_url") or inline.get("api"):
+                merged["base_url"] = inline.get("base_url") or inline.get("api")
             if inline.get("params"):
                 merged["params"] = {**merged.get("params", {}), **inline["params"]}
         return merged
@@ -469,6 +489,34 @@ class DAG:
                 return True
         return False
 
+    def _partial_input_items(self, edge: Edge) -> Optional[List[ContentItem]]:
+        """多输入边缺料时，挑一组"最接近完整覆盖"的现存条目。
+
+        单输入边不走这里（交给预设边合成）。多输入边（如需要 `rev_info + cost_info`
+        各一条）必须能各自取到对应条目，否则永远只能拿一条去合成、结果只含半个输入。
+        返回 None 表示缺口无法由现存条目补齐（仍需预设边）。
+        """
+        req = list(edge.input_tags)
+        if len(req) < 2:
+            return None
+        chosen: List[ContentItem] = []
+        used: set = set()
+        for tag in req:
+            cands = [
+                (i, it)
+                for i, it in enumerate(self.contents)
+                if tag in it.tags
+                and i not in used
+                and "_preset_synthesized" not in it
+                and (len(it.tags) == 1 or set(it.tags) <= set(req))
+            ]
+            if not cands:
+                return None
+            cands.sort(key=lambda p: (p[1].gen, p[0]))
+            used.add(cands[0][0])
+            chosen.append(cands[0][1])
+        return chosen or None
+
     async def run_async(self) -> List[ContentItem]:
         """跑一次。返回本轮新产出的条目。"""
         self._normalize_state()
@@ -480,20 +528,68 @@ class DAG:
             if edge.is_preset:
                 continue
 
-            matched = False
-            for c_idx, item in enumerate(list(self.contents)):
-                if set(edge.input_tags) & set(item.tags):
-                    sig = f"{c_idx}:{item.gen}"
-                    if (idx, sig) in self._executed_records:
-                        continue
-                    self._executed_records.add((idx, sig))
-                    self._consumed_indices.add(c_idx)
-                    out = await self._execute_edge_on_item(edge, item)
+            # 多输入边先试"完整覆盖"：必须能同时凑齐全部输入 tag 才执行。
+            # 只命中部分 tag 就执行，会让下游收到半份输入（历史回归点：rev+cost 边只拿到 rev）。
+            if len(edge.input_tags) > 1:
+                picked = self._partial_input_items(edge)
+                if picked:
+                    # 自定义预设边（`preset_edge.fn`）优先：它定义了"怎么合"
+                    if self.preset_edge.fn is not None:
+                        synth = await self._run_preset_edge_on_items(picked, edge.input_tags)
+                    else:
+                        synth = ContentItem(
+                            tags=list(edge.input_tags),
+                            content=merge_payload(picked[0].content, "\n".join(it.content for it in picked[1:])),
+                            gen=max(it.gen for it in picked) + 1,
+                        )
+                        synth["_preset_synthesized"] = True
+                    # 多输入合并时把「非主内容」的附加字段（image 等）一并带下去，
+                    # 否则下游条目会丢掉图片（历史回归点：Hello World! 丢了 demo.png）。
+                    for extra in picked:
+                        for k, v in extra.items():
+                            if k in ("tags", "content", "gen") or k in synth:
+                                continue
+                            synth[k] = v
+                    self.contents.append(synth)
+                    created.append(synth)
+                    self._executed_records.add((idx, f"multi:{len(self.contents) - 1}"))
+                    out = await self._execute_edge_on_item(edge, synth)
                     self.contents.append(out)
                     created.append(out)
-                    matched = True
-                    break
-            if matched:
+                    continue
+                # 一个输入 tag 都凑不齐（全新起点）：交给预设边按"相近条目合成"兜底
+                if not any(set(edge.input_tags) & set(it.tags) for it in self.contents):
+                    key = (idx, tuple(edge.input_tags))
+                    if key in self._preset_fabricated:
+                        continue
+                    self._preset_fabricated.add(key)
+                    picks = self._select_similar_items_for_edge(edge)
+                    items = [self.contents[i] for i in picks]
+                    synth = await self._run_preset_edge_on_items(items, edge.input_tags)
+                    self.contents.append(synth)
+                    created.append(synth)
+                    self._executed_records.add((idx, f"single:{len(self.contents) - 1}"))
+                    out = await self._execute_edge_on_item(edge, synth)
+                    self.contents.append(out)
+                    created.append(out)
+                    continue
+
+            # 单输入边：本轮把**所有**未执行过的匹配条目都跑一遍（不是只跑第一条）。
+            # 只跑第一条会导致"多条目同 tag"永远只产出一份结果（历史回归点）。
+            ran: List[ContentItem] = []
+            for c_idx, item in enumerate(list(self.contents)):
+                if not (set(edge.input_tags) & set(item.tags)):
+                    continue
+                sig = f"{c_idx}:{item.gen}"
+                if (idx, sig) in self._executed_records:
+                    continue
+                self._executed_records.add((idx, sig))
+                self._consumed_indices.add(c_idx)
+                out = await self._execute_edge_on_item(edge, item)
+                self.contents.append(out)
+                created.append(out)
+                ran.append(out)
+            if ran:
                 continue
 
             # 没有直接匹配：若上游还能产出所需 tag，则本轮先等

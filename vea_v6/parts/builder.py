@@ -16,10 +16,35 @@ from vea_v6.parts.primitives import ContentItem, Edge, ProcessorType
 
 __all__ = [
     "parse_edges_from_description",
+    "parse_json_stream",
     "create_dag_builder_dag",
     "BuilderResult",
     "MetaDAGBuilder",
 ]
+
+
+def parse_json_stream(text: str) -> List[Any]:
+    """从可能含多段 JSON / 前后夹杂自然语言的文本里，顺序解出所有 JSON 值。
+
+    预设边合并两条信息后，正文常是"JSON\\nJSON"或"提示词\\n\\n输入数据：\\nJSON\\nJSON"。
+    直接 `json.loads` 会因为 Extra data 失败；这里用 `raw_decode` 扫一遍，逐段取。
+    """
+    out: List[Any] = []
+    i, n = 0, len(text or "")
+    dec = json.JSONDecoder()
+    while i < n:
+        while i < n and text[i] not in "{[":
+            i += 1
+        if i >= n:
+            break
+        try:
+            obj, end = dec.raw_decode(text, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        out.append(obj)
+        i = end
+    return out
 
 _V6_EDGE_SENTENCE_PATTERNS = [
     re.compile(
@@ -162,7 +187,13 @@ def create_dag_builder_dag(similarity_threshold: float = 0.45, ensure_result_tag
         )
 
     def _edge3_compile(merged: str) -> str:
-        data = json.loads(merged)
+        # 合并后的正文可能是"若干段 JSON 顺序拼接"（预设边把两条都塞进 `输入数据：`），
+        # 只 `json.loads` 整段会报 Extra data。逐个 JSON 对象解出来再按 key 合并。
+        parsed = parse_json_stream(merged)
+        data: Dict[str, Any] = {}
+        for obj in parsed:
+            if isinstance(obj, dict):
+                data.update(obj)
         raw_edges: List[Dict[str, Any]] = data.get("parsed_edges", [])
         aliases: Dict[str, str] = data.get("tag_aliases", {})
         logs: List[str] = data.get("alignment_logs", [])

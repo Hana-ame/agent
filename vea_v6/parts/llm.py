@@ -314,3 +314,7 @@ class SmartMockLLM:
         if self.fallback_fn is not None:
             return await self._invoke(self.fallback_fn, prompt, model, image)
         return f"[Processed]: {prompt}"
+
+
+#: 兼容别名（旧代码按私有名引用过，保留以免破坏外部脚本）
+_extract_message_text = extract_message_text

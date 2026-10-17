@@ -23,6 +23,7 @@ __all__ = [
     "ContentItem",
     "Edge",
     "ProcessorType",
+    "merge_payload",
 ]
 
 
@@ -51,6 +52,23 @@ def content_to_str(val: Any) -> str:
         return json.dumps(val, ensure_ascii=False)
     except Exception:
         return str(val)
+
+
+def merge_payload(c1: str, c2: str) -> str:
+    """把两段内容合成一段"下游可直接当数据用"的正文。
+
+    - 都是 JSON 且都是对象 → 合并成一个对象（`{"a":1}` + `{"b":2}` ⇒ `{"a":1,"b":2}`）；
+    - 否则按行拼接（保留各自的原始文本，不下判断、不做语义压缩）。
+    """
+    try:
+        d1, d2 = json.loads(c1), json.loads(c2)
+    except (json.JSONDecodeError, TypeError):
+        return c1 + "\n" + c2
+    if isinstance(d1, dict) and isinstance(d2, dict) and not (set(d1) & set(d2)):
+        merged = dict(d1)
+        merged.update(d2)
+        return json.dumps(merged, ensure_ascii=False)
+    return c1 + "\n" + c2
 
 
 class ContentItem(dict):
@@ -129,7 +147,7 @@ ProcessorType = Union[str, Dict[str, Any], Callable[..., Any]]
 
 #: processor 字典里被视为「内联连接配置」的键
 _INLINE_KEYS = ("api", "base_url", "key", "api_key", "model", "params", "参数")
-_INLINE_ALIASES = {"参数": "params", "base_url": "api", "api_key": "key"}
+_INLINE_ALIASES = {"参数": "params"}
 
 
 class Edge:
@@ -201,22 +219,68 @@ class Edge:
         for key in _INLINE_KEYS:
             if key in self.processor and self.processor[key] not in (None, ""):
                 found[_INLINE_ALIASES.get(key, key)] = self.processor[key]
+        # 统一同义键：内联配置的规范形态是 `{base_url, api_key, model, params}`
+        if "api" in found and "base_url" not in found:
+            found["base_url"] = found.pop("api")
+        if "key" in found and "api_key" not in found:
+            found["api_key"] = found.pop("key")
         return found or None
 
     def render_prompt(self, item: "ContentItem") -> str:
-        """把信息条目渲染进提示词模板（`{content}`/`{tags}` 占位，未知占位原样保留）。"""
-        template = self.prompt
+        """把信息条目渲染进提示词模板（`{content}`/`{tags}` 占位，未知占位原样保留）。
+
+        模板里没有内容占位时，把条目内容以 **`输入数据：`** 段追加在末尾 ——
+        这是"提示词模板 + 实际数据"的 V6 约定，很多下游（含测试与真实模型）都靠它取原始数据。
+        """
+        template = self.prompt or "请处理以下信息：\n{content}"
         mapping = {
             "content": item.content,
+            "input": item.content,
             "tags": ", ".join(item.tags),
             "gen": str(item.gen),
             "image": item.image or "",
         }
         out = template
+        used_placeholder = False
         for k, v in mapping.items():
-            out = out.replace("{" + k + "}", v)
+            key = "{" + k + "}"
+            if key in out:
+                out = out.replace(key, v)
+                if k in ("content", "input"):
+                    used_placeholder = True
+        if item.image and item.image not in out:
+            out = f"{out}\n[附带图片: {item.image}]"
+        if not used_placeholder:
+            out = f"{out}\n\n输入数据：\n{item.content}"
         self.last_prompt = out
         return out
+
+    def render_pair_prompt(self, item1: "ContentItem", item2: "ContentItem") -> str:
+        """预设边专用：把两条信息拼成一条合并提示词。
+
+        模板里没写 `{content_1}` 这类占位时，两条内容以 **`信息1 [tags]：\\n内容`** 直接追加，
+        并在末尾保留 **`输入数据：`** 段 —— 下游 lambda / 模型都依赖这个分隔符取原始 JSON，
+        删掉它会让"合并后的数据"变成一句自然语言（历史回归点，勿再简化）。
+        """
+        c1, c2 = item1.content, item2.content
+        t1, t2 = ", ".join(item1.tags), ", ".join(item2.tags)
+        template = self.prompt
+        if any(k in template for k in ("{content_1}", "{content_2}", "{input_1}", "{input_2}")):
+            return (
+                template.replace("{content_1}", c1)
+                .replace("{content_2}", c2)
+                .replace("{input_1}", c1)
+                .replace("{input_2}", c2)
+                .replace("{tags_1}", t1)
+                .replace("{tags_2}", t2)
+            )
+        joined = merge_payload(c1, c2)
+        return (
+            template
+            + f"\n\n信息1 [{t1}]：\n{c1}"
+            + f"\n\n信息2 [{t2}]：\n{c2}"
+            + f"\n\n输入数据：\n{joined}"
+        )
 
     # ---- 序列化 ----------------------------------------------------------
     def to_dict(self) -> Dict[str, Any]:
