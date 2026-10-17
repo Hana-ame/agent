@@ -128,7 +128,52 @@ Just as V6 ships with a `SentenceToDAGMerger`-style tool, it also ships with
 
 ---
 
-## 6. Verified commands (实测命令)
+## 6. Bootstrap: the DAG that generates a DAG framework (`vea_v6/bootstrap.py`)
+
+`create_bootstrap_dag()` is again a plain V6 `DAG`. Feed it a description, and it delivers a
+**complete, runnable, single-file framework** (`minivea`, ~70 KB, zero dependencies) under
+`tag="result"`.
+
+| layer | input_tags | output | processor |
+|---|---|---|---|
+| 1 | `["input"]` | `["framework_spec"]` | description → normalized SPEC (deterministic, or LLM when requested) |
+| 2 | `["framework_spec"]` | `["framework_code"]` | SPEC → rendered framework source |
+| 3 | `["framework_code"]` | `["fixed_point"]` | regenerate from the code and compare |
+| 4 | `["framework_code", "fixed_point"]` | `["result"]` | merge both branches and deliver |
+
+Layer 4 needs **two** input tags, which no single item satisfies — so the preset edge
+synthesizes the merged item. That is the real-world use of preset-edge composition, not a toy.
+
+### Why the result is stable (quine fixed point)
+
+The generated file carries two pieces of meta-information in its tail:
+
+- `BODY_B64` — the base64 of the file **without** the tail;
+- `SPEC_SPAN` — where the SPEC's base64 sits inside that decoded body.
+
+`generate_framework(spec)` decodes the body, swaps the SPEC span, and re-emits a tail in the
+same format. The tail length depends only on the body length, and the body length only on the
+SPEC length — **the tail never depends on itself**, so there is no self-referential equation
+and no iteration to converge. Consequences:
+
+1. Same SPEC ⇒ byte-identical source, always (`verify_fixed_point`);
+2. Load the generated file as a module and call *its own* `generate_framework()` ⇒ it rebuilds
+   itself byte-for-byte (`verify_self_reproduction`) — that is the bootstrap;
+3. Change the SPEC (same prompt, different description) ⇒ **a different framework**, which is
+   itself stable and self-reproducing.
+
+`check_tail_format_sync()` guards the one fragile spot: the tail format string exists twice
+(once in the module, once inside the produced code). If the two drift apart, the fixed point
+would break silently, so the renderer compares them and raises instead.
+
+> Note: a naive design that stores the whole file inside itself does not work — the length
+> equation `L = C + 2 + 4*ceil(L/3)` has no fixed point (the coefficient is 4/3, not 1), so
+> iteration diverges monotonically. Excluding the tail from what gets embedded is what makes
+> the system closed and solvable.
+
+---
+
+## 7. Verified commands (实测命令)
 
 ```bash
 python3 examples/05_vea_v6_quickstart.py
@@ -137,6 +182,13 @@ python3 examples/05_vea_v6_quickstart.py
 python3 examples/06_vea_v6_meta_builder.py
 # 【步骤 3】构建出的业务 DAG 运行完毕，最终回应 (tag=result): {"final_pay": 220}
 
+python3 examples/07_vea_v6_tag_reverse_openai.py
+python3 examples/08_vea_v6_openai_edge_configs.py
+# 注册表 / 内联 / 混合 三种 OpenAI 兼容边配置解析全部 ✓
+
+python3 examples/09_vea_v6_bootstrap.py
+# 自举产出 72385 字节；固定点 ✓；生成物自身复现 ✓；换描述生成新框架 ✓
+
 python3 tests/test_vea_v6_all.py
-# ALL 8 VEA V6 TEST SUITES PASSED SUCCESSFULLY!
+# ALL 18 VEA V6 TEST SUITES PASSED SUCCESSFULLY!
 ```

@@ -14,6 +14,9 @@ examples/s1profile_collect/data/
 .env.local
 *.env
 
+# Secrets — provider endpoints + api keys (laptop-6.8 / sensenova-6.8)
+vea_v6/models.json
+
 # Submodule directories — only defined on hf-submodule branch,
 # would show as untracked on other branches after checkout.
 additive-rand-transformer/
@@ -22,3 +25,12 @@ maze-transformer/
 # Backup directory
 config_backup/
 snapshots/
+
+# Bootstrap artifacts (generated framework code from examples/09)
+build/
+
+# Local venv for real-endpoint verification
+.venv/
+
+# Bootstrap run artifacts (specs / chain checkpoints / logs)
+bootstrap_runs/

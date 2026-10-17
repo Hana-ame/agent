@@ -215,6 +215,55 @@ class Edge:
         return None
 
     @property
+    def inline_llm_config(self) -> Optional[Dict[str, Any]]:
+        """提取处理方式中**内联**的 OpenAI 兼容调用配置（不经 `dag.models` 注册表）。
+
+        边内联写法（键名中英文等价）：
+
+            ```python
+            dag.add_edge(
+                ["doc"],
+                {
+                    "model": "gpt-4o-mini",                 # 也接受 "模型"
+                    "api": "https://api.openai.com/v1",     # 也接受 "base_url"
+                    "key": "sk-...",                        # 也接受 "api_key"
+                    "params": {"temperature": 0.2},         # 也接受 "参数"
+                    "处理prompt": "总结: {content}",
+                },
+                ["result"],
+            )
+            ```
+
+        内联配置优先级**高于** `dag.models` 注册表：同一 KEY 同时在两处出现时以边内联为准。
+        返回 `None` 表示该边没有内联 api/key/model/params 配置（走注册表或 `llm` 默认值）。
+        """
+        if not isinstance(self.processor, dict):
+            return None
+        p = self.processor
+
+        base_url = p.get("api") or p.get("base_url") or p.get("baseURL")
+        api_key = p.get("key") or p.get("api_key") or p.get("apiKey")
+        model_name = p.get("model") or p.get("模型") or p.get("model_name")
+        params = p.get("params") or p.get("参数") or {}
+
+        # 只有出现下列任一「连接级」键时才算内联配置；
+        # 仅写 {"模型": "fast", "处理prompt": ...} 属于「注册表 KEY 引用」，不是内联。
+        if not (base_url or api_key or params):
+            return None
+
+        if not isinstance(params, dict):
+            raise TypeError(f"边内联 params/参数 必须是字典，实际: {type(params).__name__}")
+
+        out: Dict[str, Any] = {"params": dict(params)}
+        if base_url:
+            out["base_url"] = str(base_url)
+        if api_key:
+            out["api_key"] = str(api_key)
+        if model_name:
+            out["model"] = str(model_name)
+        return out
+
+    @property
     def prompt(self) -> str:
         """提取处理方式中的处理 prompt 文本。"""
         if isinstance(self.processor, str):

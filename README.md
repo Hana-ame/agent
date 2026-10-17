@@ -59,6 +59,8 @@ print(dag.get_result())
 | **预设边合成** | `dag.preset_edge`：默认为模块级常量 `DEFAULT_PRESET_EDGE`（构造 DAG 时显式传入）。当某条边在 run 时找不到对应输入 tag 的条目时，自动从 `contents` 中找**相近的一条或多条**信息，合成一条**输出 tag = 该边所需输入 tag** 的新条目后再执行该边 |
 | **外部终止** | `dag.run()` 执行一次推进，`dag.context` 列出全部上下文，由外部循环检测 `tag="result"` 终止 |
 | **元图构建器** | `create_dag_builder_dag()`：3 边 V6 DAG 构建另一个 V6 DAG，边 3（layer=2）通过 `preset_edge` 合成产出目标业务 DAG |
+| **边内联 API 配置** | processor 可直接写 `{"model": ..., "api": ..., "key": ..., "params": {...}, "处理prompt": ...}`，**优先级高于注册表**；也可只覆盖部分字段（如 `{"模型": KEY, "参数": {...}}`） |
+| **自举** | `create_bootstrap_dag()` / `bootstrap()`：输入描述 → `tag="result"` 产出**完整框架源码**；生成物内嵌自身 SPEC 与源码，调其 `generate_framework()` 能逐字节重建自身（quine 固定点） |
 
 ---
 
@@ -68,10 +70,16 @@ print(dag.get_result())
 |---|---|
 | `examples/05_vea_v6_quickstart.py` | 直接创建并运行 V6 DAG，模型注册表 + 预设边自动合成 |
 | `examples/06_vea_v6_meta_builder.py` | 元图构建器：V6 DAG 构建 V6 DAG |
+| `examples/07_vea_v6_tag_reverse_openai.py` | 按 tag 取内容（`todo`）→ 反转 → 写回 `contents`；OpenAI 兼容边 |
+| `examples/08_vea_v6_openai_edge_configs.py` | OpenAI 兼容边的三种配置：注册表 / 内联 / 混合（内联优先） |
+| `examples/09_vea_v6_bootstrap.py` | 自举：DAG 生成 DAG 框架，并证明生成物能生成自己 |
 
 ```bash
 python3 examples/05_vea_v6_quickstart.py
 python3 examples/06_vea_v6_meta_builder.py
+python3 examples/07_vea_v6_tag_reverse_openai.py
+python3 examples/08_vea_v6_openai_edge_configs.py
+python3 examples/09_vea_v6_bootstrap.py
 ```
 
 ---
@@ -80,12 +88,13 @@ python3 examples/06_vea_v6_meta_builder.py
 
 ```bash
 python3 tests/test_vea_v6_all.py
-# ALL 8 VEA V6 TEST SUITES PASSED SUCCESSFULLY!
+# ALL 18 VEA V6 TEST SUITES PASSED SUCCESSFULLY!
 
+python3 -m unittest discover -s tests -v
 python3 -m pytest tests/test_vea_v6_all.py -v
 ```
 
-8 组测试覆盖：
+18 组测试覆盖：
 
 1. `{contents, edges}` 结构、`prompt: str` 与 `{"模型": ..., "处理prompt": ...}` 边格式
 2. `{tags, content, image?, gen}` 信息结构、多模态 `image` 透传与 `gen` 代数演进
@@ -95,6 +104,16 @@ python3 -m pytest tests/test_vea_v6_all.py -v
 6. 元图通过 `preset_edge` 合成产出业务 DAG，跑出 `{"final_pay": 220}`
 7. 自然语言句式、箭头句式及无输入边句式解析
 8. 模型注册表按 KEY 查询注入、未注册 KEY 抛错、`layer` 升序执行、单条相近信息合成
+9. 按 tag 取内容 → 反转 → 写回 `dag.contents`
+10. OpenAI 兼容 API 边（model + key + params）
+11. 多模型注册表切换
+12. 自举 DAG：输入描述 → `tag="result"` 的完整框架源码（含预设边合成的汇聚条目）
+13. 固定点：同一 SPEC 恒得同一份代码；生成物当模块执行后能逐字节复现自身
+14. 同一段提示词换描述 → 生成另一个自稳定的新框架
+15. 生成的框架可当普通库用（建 DAG、按 tag 取内容、跑出 `result`）
+16. 内联 OpenAI 配置边；只写 `{"模型": KEY}` 不误判为内联
+17. 注册表 KEY + 边内参数覆盖时不得把 KEY 当模型名
+18. 推理模型 `content` 为空时回退 `reasoning_content` / `reasoning`
 
 ---
 

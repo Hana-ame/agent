@@ -92,11 +92,36 @@ class OpenAICompatibleLLM:
             "temperature": self.temperature,
         }
         payload.update(extra_params)
-        async with httpx.AsyncClient(headers=headers, timeout=self.timeout) as client:
+        # trust_env=False：本机 NO_PROXY 含 "[::1]" 等非法端口项会让 httpx 解析环境代理
+        # 直接抛 InvalidURL，这里忽略环境代理、直连 provider。
+        async with httpx.AsyncClient(headers=headers, timeout=self.timeout, trust_env=False) as client:
             resp = await client.post(use_base_url, json=payload)
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+            return _extract_message_text(data)
+
+
+def _extract_message_text(data: Dict[str, Any]) -> str:
+    """从 OpenAI 兼容响应中取出正文，兼容不同 provider 的推理字段命名。
+
+    - 标准字段 `choices[0].message.content`；
+    - 推理模型把思考过程放在 `reasoning` / `reasoning_content`，正文 `content` 可能为空
+      （laptop-8000 的 sensenova-6.8-flash-lite 实测如此），此时回退到推理字段；
+    - 正文与推理都在时只取正文，避免把思考过程注入 DAG 内容。
+    """
+    choices = data.get("choices") or []
+    if not choices:
+        raise ValueError(f"OpenAI 兼容响应中没有 choices: {json.dumps(data, ensure_ascii=False)[:400]}")
+    msg = choices[0].get("message") or {}
+    for key in ("content", "reasoning_content", "reasoning", "text"):
+        val = msg.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    # 响应被 max_tokens 截断在思考阶段时，content 为空且 reasoning 也可能为空
+    raise ValueError(
+        "模型返回空正文（可能是推理模型在 max_tokens 内未产出正文）；"
+        "请增大 max_tokens 或换用非推理模型。"
+    )
 
 
 class SmartMockLLM:
