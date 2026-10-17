@@ -76,7 +76,11 @@ API_CONTRACT = {
         "mount_tool",
         "unmount_tool",
         "to_dict",
-    ],    "vea_v6/parts/builder.py": [
+        # `bootstrap.py` 的生成 DAG 会调 `dag.ask_sync(prompt, key)`；第 3、4 代都漏了它。
+        # 顶层名字契约抓不到（DAG 类在、方法丢了），只有列进这里才会被要求写。
+        "ask_sync",
+    ],
+    "vea_v6/parts/builder.py": [
         "MetaDAGBuilder",
         "create_dag_builder_dag",
         "parse_edges_from_description",
@@ -159,6 +163,29 @@ def _need_for(path: str) -> List[str]:
     return need
 
 
+#: 这些公共方法**必须是同步的**（`def` 不是 `async def`）。
+#: 🔴 实测第 5 代的 `DAG.run` 被写成 `async def run`，而磁盘上那一份是
+#: `def run(self) -> bool`（内部 `asyncio.run`）。顶层名字、方法名契约全过，
+#: 验收脚本一调 `d.run()` 就拿到一个**没被 await 的协程**，返回 None。
+#: 这是"同一份自然语言描述下各代行为不一致"的典型，必须写进契约。
+SYNC_METHODS = {
+    "vea_v6/parts/dag.py::DAG": ["run", "send", "add_edge", "mount_tool", "unmount_tool", "to_dict",
+                                 "find_by_tag", "has_tag", "has_result", "get_result", "get_result_item"],
+}
+
+
+def _async_methods(src: str, cls: str) -> List[str]:
+    """类里被定义成 `async def` 的方法名。"""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []
+    for n in tree.body:
+        if isinstance(n, ast.ClassDef) and n.name == cls:
+            return [b.name for b in n.body if isinstance(b, ast.AsyncFunctionDef)]
+    return []
+
+
 def _check_class_methods(path: str, src: str) -> List[str]:
     """类方法契约：返回缺失列表（空 = 通过）。"""
     miss: List[str] = []
@@ -171,6 +198,10 @@ def _check_class_methods(path: str, src: str) -> List[str]:
             miss.append(f"<类 {cls} 不存在>")
             continue
         miss.extend(f"{cls}.{n}" for n in names if n not in have)
+        aio = _async_methods(src, cls)
+        for n in SYNC_METHODS.get(key, []):
+            if n in aio:
+                miss.append(f"{cls}.{n} 是 async（要求同步）")
     return miss
 
 
@@ -377,21 +408,28 @@ def cross_class_attrs(sources: Dict[str, str]) -> Dict[str, List[str]]:
                 if isinstance(ann, ast.Name) and ann.id in by_cls:
                     var_type[a.arg] = ann.id
             for sub in ast.walk(fn):
-                if isinstance(sub, ast.Assign) and isinstance(sub.value, ast.Call):
-                    f = sub.value.func
-                    name = getattr(f, "id", None) or getattr(f, "attr", None)
-                    if name in by_cls:
-                        for t in sub.targets:
-                            if isinstance(t, ast.Name):
-                                var_type[t.id] = name
-                        continue
-                    # `result = await self._execute_edge_on_item(...)`：类型来自**被调方法的返回注解**。
-                    # 不追这一层就漏掉了实测那个真缺口（`result.id`）。
-                    ret = _method_return_cls(tree, sub.value)
-                    if ret:
-                        for t in sub.targets:
-                            if isinstance(t, ast.Name):
-                                var_type[t.id] = ret
+                if not isinstance(sub, ast.Assign):
+                    continue
+                # 🔴 `result = await self._m(...)` 的右值是 `Await(Call(...))`，不剥掉
+                # `Await` 就一个都认不出来（实测 s04 的 `result.id` 就是这样漏掉的）。
+                value = sub.value
+                while isinstance(value, (ast.Await,)):
+                    value = value.value
+                if not isinstance(value, ast.Call):
+                    continue
+                f = value.func
+                name = getattr(f, "id", None) or getattr(f, "attr", None)
+                if name in by_cls:
+                    for t in sub.targets:
+                        if isinstance(t, ast.Name):
+                            var_type[t.id] = name
+                    continue
+                # 类型来自**被调方法的返回注解**（`-> ContentItem`）。
+                ret = _method_return_cls(tree, value)
+                if ret:
+                    for t in sub.targets:
+                        if isinstance(t, ast.Name):
+                            var_type[t.id] = ret
             if not var_type:
                 continue
             for sub in ast.walk(fn):
@@ -740,6 +778,11 @@ class GenTool:
                             bad = broken_imports(sources).get(p)
                             if bad:
                                 why = f"导入不到 {bad[:6]}"
+                            else:
+                                # 第四道闸门：跨文件类属性（`result.id`，类里没有这个字段）
+                                cattr = cross_class_attrs(sources).get(p)
+                                if cattr:
+                                    why = f"类属性不存在 {cattr[:6]}"
             out.append({"path": p, "source": src, "ok": not why, "why": why})
         return json.dumps({"files": out}, ensure_ascii=False)
 

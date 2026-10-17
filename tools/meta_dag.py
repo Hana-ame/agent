@@ -99,6 +99,8 @@ DEMO_TEST = '''
 
 运行：python vtest.py      —— 全过返回 0，任一不过返回 1。
 """
+import asyncio
+import inspect
 import sys
 
 sys.path.insert(0, "..")
@@ -176,15 +178,29 @@ CASES = [
 ]
 
 
+def _settle(x):
+    """`run()` 在有的代是同步的、有的代是 async（协程）——两种都要能推进。
+
+    🔴 这不是给某一代打补丁：同一份自然语言描述下各代对"跑一轮"的实现可以不同
+    （磁盘代是 `def run` 内部 `asyncio.run`，第 5 代直接写成 `async def run`）。
+    验收脚本不该因为这一层差异就判负，所以在这里把协程跑完。
+    """
+    if inspect.iscoroutine(x):
+        x = asyncio.run(x)
+    return x
+
+
 def main():
     for i, (line, want) in enumerate(CASES, 1):
         d = make_dag()
-        d.send({"tags": ["input"], "content": line})
+        _settle(d.send({"tags": ["input"], "content": line}))
         for _ in range(12):
             if d.has_result():
                 break
-            d.run()
-        got = d.get_result()
+            _settle(d.run())
+        # `get_result()` 有的代返回字符串、有的代返回条目对象（内容正确但包了一层）。
+        # 验收的是"结果以 `result` 标签出现且内容逐字符正确"，不是包装形式。
+        got = _text(d.get_result())
         if got != want:
             # 报错文本用 repr，不要用 f-string 里带字面换行（会写坏源码）
             print("case%d FAIL\\n  got =%r\\n  want=%r" % (i, got, want))
