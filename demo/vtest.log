@@ -1,0 +1,27 @@
+Traceback (most recent call last):
+  File "C:\Users\lumin\Downloads\agent\demo\vtest.py", line 155, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "C:\Users\lumin\Downloads\agent\demo\vtest.py", line 143, in main
+    d.run()
+    ~~~~~^^
+  File "C:\Users\lumin\Downloads\agent\demo\..\vea_v6\parts\dag.py", line 691, in run
+    return asyncio.run(self.run_async())
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\lumin\.workbuddy\binaries\python\versions\3.13.12\Lib\asyncio\runners.py", line 196, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Users\lumin\.workbuddy\binaries\python\versions\3.13.12\Lib\asyncio\runners.py", line 119, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\lumin\.workbuddy\binaries\python\versions\3.13.12\Lib\asyncio\base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\lumin\Downloads\agent\demo\..\vea_v6\parts\dag.py", line 648, in run_async
+    out = await self._execute_edge_on_item(edge, item)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\lumin\Downloads\agent\demo\..\vea_v6\parts\dag.py", line 468, in _execute_edge_on_item
+    res = edge.fn(item.content)
+  File "C:\Users\lumin\Downloads\agent\demo\vtest.py", line 113, in _summarize
+    raise ValueError("字段没凑齐: " + text)
+ValueError: 字段没凑齐: 
