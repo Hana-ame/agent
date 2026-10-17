@@ -794,12 +794,14 @@ def test_19_every_generation_runs_a_self_chosen_dag() -> None:
     验收用的 DAG **不依赖任何 LLM**，全是有确定性的可调用对象，所以"能不能跑通"
     只取决于这一代的图执行语义，与它的模型调用实现无关。
 
-    判据分两层：
+    判据分三层：
     1. **磁盘这一份必须过** —— 它是后面所有代的参考实现；
     2. **每一次元 DAG 运行的最终代必须过** —— 只要那一轮跑到了第 n 代，
        第 n 代就必须能自己产出可用 DAG。中间那些被闸门回退过的废代
        （`r01/r02/r03`，闸门上线前留下的）不计入，但它们**不能是可用的**这件事
        也不影响结论：判的是"每一轮的最后一代"。
+    3. **git 式回档链必须完整** —— 每代的 HEAD.json 父指针不断、合并指纹与
+       磁盘文件相符（详见下方注释）。
     """
     import json
     import subprocess
@@ -862,6 +864,32 @@ def test_19_every_generation_runs_a_self_chosen_dag() -> None:
             cred = json.loads(cred_file.read_text(encoding="utf-8"))
             assert Path(cred["loaded"]).resolve() == (g / "vea_v6").resolve(), (
                 f"{g.name} 的凭据对不上：loaded={cred['loaded']} 应为 {(g / 'vea_v6')}")
+        # git 式回档链（/goal"每步保存 + git 式回档"的硬验收）：
+        # 每一代过闸门后都要留下 HEAD.json（父指针 + 逐文件 sha256），且
+        #   - parent 必须等于上一代的 combined_sha256（断链 = 回档会回错代）；
+        #   - combined_sha256 必须与磁盘上这一代的文件重算值相同（指纹对不上
+        #     说明文件被改过，checkout 出来的不是当时那一代）。
+        # 怎么判断"这一轮该有 HEAD.json"：新代码在跑第一代之前就写 gen0 快照，
+        # 所以 `gen0/HEAD.json` 存在 ⟺ 这一轮由接入回档链的代码所跑。老轮次
+        # （含已被 backfill_head.py 补过链的）有就验、没有不判负。
+        from tools.oneshot_chain import combined_sha
+
+        chained = (run / "gen0" / "HEAD.json").exists()
+        prev_sha = ""
+        for g in gens:
+            head_file = g / "HEAD.json"
+            if not head_file.exists():
+                if chained:
+                    assert False, f"{g.name} 没有 HEAD.json，不在 git 式回档链上"
+                continue
+            head = json.loads(head_file.read_text(encoding="utf-8"))
+            if prev_sha:
+                assert head.get("parent") == prev_sha, (
+                    f"{g.name} 的 parent={head.get('parent')} 应等于上一代的 {prev_sha}")
+            srcs = {f: (g / f).read_text(encoding="utf-8") for f in FRAME_FILES}
+            assert head["combined_sha256"] == combined_sha(srcs), (
+                f"{g.name} 的合并指纹与磁盘文件不符（文件被改过？）")
+            prev_sha = head["combined_sha256"]
     # `bootstrap_runs/` 是 gitignore 的本地产物：clone 里可能一次都没跑过。
     # 那种情况下"没有可验收的代"不是框架的错，不判负；但只要跑过，就必须每轮都过。
     if not checked:
