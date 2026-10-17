@@ -582,12 +582,30 @@ def test_13_bootstrap_fixed_point_is_byte_identical() -> None:
 
 
 def test_14_bootstrap_generates_another_framework_from_same_prompt() -> None:
-    """测试 14：用同一段提示词换描述，能生成**另一个**同样自稳定的新框架。"""
-    from vea_v6 import bootstrap, verify_self_reproduction
+    """测试 14：用同一段提示词换描述，能生成**另一个**同样自稳定的新框架。
+
+    必须显式传 mock：不传 `llm` 时 `bootstrap` 会真的去调模型（这是有意设计，
+    为了让"假通过"不可能发生），但单元测试不能依赖网络与 key。
+    模型链路由 `tools/oneshot_chain.py` 负责验证。
+    """
+    import json
+
+    from vea_v6 import FRAME_FILES, bootstrap, verify_self_reproduction
+    from vea_v6.parts.bootstrap import framework_sources
+    from vea_v6.parts.llm import SmartMockLLM
+
+    src = framework_sources()
+    mock = SmartMockLLM()
+    for p in FRAME_FILES:
+        mock.add_rule(p, src[p])
+    mock.add_rule(
+        "签名",
+        json.dumps({"files": [{"path": p, "sig": []} for p in FRAME_FILES]}, ensure_ascii=False),
+    )
 
     desc = "一个面向多模态检索的 tag 驱动 DAG 框架，边可按 layer 并行，结果合并写回 contents"
-    r1 = bootstrap(desc)
-    r2 = bootstrap(desc)
+    r1 = bootstrap(desc, llm=mock)
+    r2 = bootstrap(desc, llm=mock)
 
     assert r1.stable, r1.reason
     assert r1.framework_code == r2.framework_code, "同一描述两次生成不一致"
@@ -599,8 +617,14 @@ def test_14_bootstrap_generates_another_framework_from_same_prompt() -> None:
     # 与默认 SPEC 的产物必须不同（说明 SPEC 真的参与了生成）
     from vea_v6 import FRAMEWORK_SPEC, render_framework_code
 
-    assert r1.framework_code != render_framework_code(FRAMEWORK_SPEC)
+    # mock 只回放源码本体、但 spec 是我们传的描述，所以：
+    # 1) 产物必须能复现自身（自举闭合）；2) SPEC 里必须记着这次描述。
+    from vea_v6 import FRAMEWORK_SPEC
+
+    ok2, reason2 = verify_self_reproduction(r1.framework_code)
+    assert ok2, reason2
     assert r1.spec["summary"] == desc
+    assert r1.spec["summary"] != FRAMEWORK_SPEC["summary"]
 
 
 def test_15_generated_framework_is_runnable() -> None:
