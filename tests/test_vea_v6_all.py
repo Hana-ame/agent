@@ -791,6 +791,9 @@ class TestVEAV6Suite(unittest.TestCase):
     def test_22(self) -> None:
         test_22_source_gate_rejects_a_generation_with_nothing_new()
 
+    def test_23(self) -> None:
+        test_23_head_steps_and_checkout_verification()
+
 
 def test_19_every_generation_runs_a_self_chosen_dag() -> None:
     """测试 19：**每一代**框架都要能用自己产出一个自选任务的可用 DAG。
@@ -1102,6 +1105,70 @@ def test_22_source_gate_rejects_a_generation_with_nothing_new() -> None:
     print("  source 闸门：全补→拦下 / 5新+2补→放行 / 全新建→放行")
 
 
+def test_23_head_steps_and_checkout_verification() -> None:
+    """测试 23：链上记录只认最后一次尝试；回档必须当场核对 sha256。
+
+    两处都是"有数据却不用"型的问题：
+    1. HEAD.json 的 `steps` 曾把**被闸门否掉那次尝试**的快照（01~08）和被接受的
+       （09~16）一起记进去 —— 重试让步骤编号续排（s15 gen2 实测 17 项）。
+       回档链上那一代的记录因此把失败尝试当成了自己的产出过程。
+    2. `checkout` 曾只 copy 不核对，而 HEAD.json 里明明存着每个文件的 sha256；
+       它打印的"复核：fixpoint_v3 --check"验的是不动点，不是"回档落对没有"。
+    """
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(root))
+    from tools.boot_rollback import verify_against_head  # noqa: E402
+    from tools.meta_dag import last_attempt_steps  # noqa: E402
+
+    names = ["expand", "plan_module", "normalize", "audit_contract",
+             "supplement", "assemble", "measure", "passthrough"]
+    tmp = Path(tempfile.mkdtemp())
+
+    # 1) 有重试（01~08 失败 + 09~16 被接受）→ 只认 09~16，且不混入 REPORT.json
+    steps = tmp / "steps"
+    steps.mkdir()
+    for i in range(1, 3):
+        for j, n in enumerate(names):
+            (steps / f"{(i - 1) * 8 + j + 1:02d}_{n}").write_text("x", encoding="utf-8")
+    (steps / "REPORT.json").write_text("{}", encoding="utf-8")
+    got = last_attempt_steps(steps)
+    assert len(got) == 8, got
+    assert got[0] == "09_expand" and got[-1] == "16_passthrough", got
+    assert "01_expand" not in got and "REPORT.json" not in got, got
+
+    # 2) 无重试 → 原样返回 01~08（不能把正常路径也改坏）
+    steps2 = tmp / "steps2"
+    steps2.mkdir()
+    for j, n in enumerate(names):
+        (steps2 / f"{j + 1:02d}_{n}").write_text("x", encoding="utf-8")
+    got2 = last_attempt_steps(steps2)
+    assert len(got2) == 8 and got2[0] == "01_expand", got2
+
+    # 3) 回档核对：逐字相符 → 空；改坏一个字节 → 准确报出（不连坐其它文件）
+    gen = root / "bootstrap_runs" / "meta" / "s15" / "gen3"
+    if (gen / "HEAD.json").exists():
+        import json
+        import shutil
+
+        h = json.loads((gen / "HEAD.json").read_text(encoding="utf-8"))
+        tgt = Path(tempfile.mkdtemp())
+        for p in h["files"]:
+            dst = tgt / p
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(gen / p, dst)
+        assert verify_against_head(tgt, h) == []
+        victim = tgt / sorted(h["files"])[0]
+        victim.write_text(victim.read_text(encoding="utf-8") + "\n# 变异\n", encoding="utf-8")
+        bad = verify_against_head(tgt, h)
+        assert len(bad) == 1 and bad[0][0] == sorted(h["files"])[0], bad
+        assert bad[0][1] != bad[0][2], bad
+    print("  链记录取最后一次尝试；回档核对 sha256：相符→通过 / 改坏→报出")
+
+
 if __name__ == "__main__":
     test_1_dag_structure_and_edge_formats()
     test_2_message_structure_with_optional_image_and_gen()
@@ -1125,4 +1192,5 @@ if __name__ == "__main__":
     test_20_meta_dag_dispatches_eight_steps_without_network()
     test_21_provider_failure_is_not_accepted_as_a_generation()
     test_22_source_gate_rejects_a_generation_with_nothing_new()
-    print("ALL 22 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
+    test_23_head_steps_and_checkout_verification()
+    print("ALL 23 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
