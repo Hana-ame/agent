@@ -379,8 +379,10 @@ def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, 
         payload = (p.stdout or "").strip().splitlines()[-1]
         data = json.loads(payload)
         files = {item["path"]: item["source"] for item in data.get("files", [])}
-        # 写到**下一代的目录**里：`run_dir` 是本次运行目录，每轮都会被覆盖，
-        # 只留最后一份就看不出 gen2 到底是谁造的（实测 s11 只剩 gen3 那份）。
+        # 写到**生成者自己**的目录里（`dest` = 上一代）。语义是
+        # "这一代确实被拿去生成了下一代"，`loaded` 必须等于它自己的 vea_v6。
+        # 早先写进 `run_dir`（本次运行目录）会被下一轮覆盖，只剩最后一份，
+        # 于是看不出 gen2 到底是谁造的（实测 s11 就只剩 gen3 那份）。
         (dest / "ORIGIN.json").write_text(
             json.dumps(
                 {"generated_by": str(want), "loaded": str(got), "seconds": round(time.time() - t0, 1),
