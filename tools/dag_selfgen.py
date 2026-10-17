@@ -1,4 +1,14 @@
-"""同一个 DAG 连跑三代：输入是同一段自然语言描述，工具槽位每轮换挂"上一代框架"。
+"""⚠️ 已废弃，不要再跑。现行入口是 `tools/meta_dag.py`。
+
+这个文件是用户明确否掉的两个设计的来源，留着只为追溯：
+1. **DAG 只有两条边**（`input → framework → result`），用户要求把"生成框架"拆成
+   多个可观测的步骤 —— 现在 `meta_dag.py` 是 8 条边 / 7 层 / 8 个 step。
+2. **`--check gen1`**（"只检查某一代能不能跑"）是臆想的命令，用户要求的是
+   **用新生成的框架真的去干活** —— 现在每代都跑自选任务 + 自举冒烟。
+
+--- 以下为原始文档（历史记录） ---
+
+同一个 DAG 连跑三代：输入是同一段自然语言描述，工具槽位每轮换挂"上一代框架"。
 
 对应形态（用户口径）：
     1. 做一个 DAG；
@@ -231,6 +241,16 @@ def load_gen_as_tool(gen_dir: Path):
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    print("tools/dag_selfgen.py 已废弃，不再执行。")
+    print("废弃原因（均为用户明确否掉的设计）：")
+    print("  1. DAG 只有两条边（input → framework → result），没有把")
+    print("     '生成框架'拆成多个可观测步骤；")
+    print("  2. 臆想的 `--check genN` 命令（'只检查某一代能不能跑'），")
+    print("     而不是用新生成的框架真的去干活。")
+    print("现行入口：python tools/meta_dag.py --rounds 3")
+    print("  （8 步分步骤 DAG + 每代跑一个自选任务 + 自举冒烟）")
+    return 2
+
     ap = argparse.ArgumentParser(description="同一个 DAG 连跑 N 代")
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--model-key", default="laptop-6.8")
