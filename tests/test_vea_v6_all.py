@@ -846,8 +846,13 @@ def test_19_every_generation_runs_a_self_chosen_dag() -> None:
     #    闸门上线前的 r01/r02/r03 由旧代码生成，连 import 都过不了，
     #    它们已归入 `bootstrap_runs/meta/abandoned/`（保留不删），不作为基准。
     checked = []
+    # 🔴 `_` 前缀 = 证据/暂存，不是基准（boot_rollback 的 find_runs 早就认这个
+    # 约定）。曾漏了这条：已知污染的作废轮次 `_s13`（gen2 是 gen1 的逐字节
+    # 复印件，provider 回退黑洞的产物）被当良民扫描，套件输出里赫然写着
+    # `_s13/gen2(ALL OK)`——废代不当基准，更不该以"通过的代"身份出现。
     for run in sorted(d for d in (root / "bootstrap_runs" / "meta").iterdir()
-                      if d.is_dir() and d.name != "abandoned"):
+                      if d.is_dir() and d.name != "abandoned"
+                      and not d.name.startswith("_")):
         gens = sorted(
             (d for d in run.glob("gen*") if all((d / f).exists() for f in FRAME_FILES)),
             key=lambda d: int(d.name[3:] or 0),

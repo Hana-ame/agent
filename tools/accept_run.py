@@ -8,7 +8,8 @@
  2. 双过：RESULT.json 里每一代 demo=True 且 bootstrap=True；
  3. 凭据：gens[1:-1]（生成者）各有 ORIGIN.json，loaded 指向自己的 vea_v6
     且 stable=True（gen3 是末代，不生成任何东西，不要求有）；
- 4. 互不相同：相邻两代总字节数不同（逐字节相同 = 回退复印件，s13 实测）；
+ 4. 互不相同：相邻两代总字节数不同（逐字节相同且无 provider 证据 = 回退
+    复印件，s13 实测；逐字节相同但 provider_ok=True 的是真不动点，放行）；
  5. 回档链：gen0 为链根（parent=null），此后每一代 parent 等于上一代
     combined_sha256，且 combined_sha256 与磁盘重算一致；
  6. 代际闸门：每一代 REPORT.json 的 provider_ok=True；
@@ -119,12 +120,31 @@ def accept(run: Path) -> bool:
               "gen1/gen2 各自 loaded 指向自己且 stable" if not origin_bad
               else "；".join(origin_bad))
 
-    # ---- 4. 相邻两代字节数互不相同 ---------------------------------------
+    # ---- 4. 相邻两代字节数互不相同（不动点除外）--------------------------
+    # 🔴 可靠性判据：字节数相同**不等于**污染。真正的**不动点**（模型收敛到
+    # 逐字节复现自己）正是 /goal 的理想结果，曾设计的"字节相同即失败"会把它
+    # 误杀。正确判据是：字节相同 **且** 没有 provider 证据（REPORT.json 的
+    # provider_ok 不为真）才算回退复印件；字节相同而 provider_ok=True 的是
+    # 真不动点，放行并注明。provider_ok 缺失按既有约定默认放行
+    # （与 meta_dag 主循环的 report.get("provider_ok", True) 一致，
+    #  老轮次没有这个字段）。
     sizes = [gen_bytes(g) for g in gens]
-    dup = [f"{gens[i - 1].name}/{gens[i].name}" for i in range(1, len(sizes))
-           if sizes[i] == sizes[i - 1] and sizes[i] > 0]
-    rep.check("相邻两代字节数互不相同", not dup,
-              f"字节数 {sizes}" if not dup else f"逐字节相同的相邻代：{dup}")
+    dup: List[str] = []
+    fixed_point = ""
+    for i in range(1, len(sizes)):
+        if sizes[i] != sizes[i - 1] or sizes[i] == 0:
+            continue
+        rj = gens[i] / "REPORT.json"
+        prov = True
+        if rj.exists():
+            prov = bool(json.loads(rj.read_text(encoding="utf-8")).get("provider_ok", True))
+        pair = f"{gens[i - 1].name}/{gens[i].name}"
+        if prov:
+            fixed_point = f"{pair} 逐字节相同但 provider_ok=True：真不动点，放行"
+        else:
+            dup.append(pair)
+    detail = "；".join(dup) if dup else (fixed_point or f"字节数 {sizes}")
+    rep.check("相邻两代字节数互不相同（真不动点除外）", not dup, detail)
 
     # ---- 5. HEAD.json 回档链 ---------------------------------------------
     chain_ok = True
