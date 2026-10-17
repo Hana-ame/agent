@@ -275,6 +275,7 @@ def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, 
         "sys.path.insert(0, r'{root}/tools')\n"
         "from pathlib import Path\n"
         "import vea_v6\n"
+        "sys.stderr.write('VEAV6_FILE=' + vea_v6.__file__ + chr(10))\n"
         "from tools._llm_connect import connect_llm\n"
         "desc = Path(r'{desc}').read_text(encoding='utf-8')\n"
         "llm = connect_llm('{key}', cls=vea_v6.OpenAICompatibleLLM)\n"
@@ -284,11 +285,38 @@ def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, 
     ).format(root=dest.as_posix(), desc=(run_dir / "DESCRIPTION.txt").as_posix(), key=cfg.get("_key", "laptop-6.8"))
 
     def gen(_content: str, **_kw: Any) -> str:
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=1800)
-        (run_dir / "CHILD.log").write_text((p.stdout or "") + (p.stderr or ""), encoding="utf-8", newline="")
+        t0 = time.time()
+        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=3600)
+        log = (p.stdout or "") + (p.stderr or "")
+        (run_dir / "CHILD.log").write_text(log, encoding="utf-8", newline="")
         if p.returncode != 0:
             raise RuntimeError(f"子代生成失败（见 {run_dir / 'CHILD.log'}）: {(p.stderr or '')[-300:]}")
-        return p.stdout.strip().splitlines()[-1]
+        # 凭据：子进程里真正 import 到的 `vea_v6` 必须落在**上一代**目录里。
+        # 这条不是装饰：实测把 dest 误写成 run_dir 时，gen2/gen3 其实是
+        # 磁盘上这份框架生成的，图照样跑通、demo 照样全绿，日志里看不出来。
+        seen = ""
+        for line in log.splitlines():
+            if line.startswith("VEAV6_FILE="):
+                seen = line.split("=", 1)[1].strip()
+        want = (dest / "vea_v6").resolve()
+        try:
+            got = Path(seen).resolve().parent if seen else None
+        except OSError:
+            got = None
+        if got != want:
+            raise RuntimeError(
+                f"代际串了：下一代由 {got} 生成，应当由 {want}（见 {run_dir / 'CHILD.log'}）"
+            )
+        payload = (p.stdout or "").strip().splitlines()[-1]
+        (run_dir / "ORIGIN.json").write_text(
+            json.dumps(
+                {"generated_by": str(want), "loaded": str(got), "seconds": round(time.time() - t0, 1)},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return payload
 
     return gen
 
@@ -381,7 +409,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         prev_sources = {f: (gdir / f).read_text(encoding="utf-8") for f in FRAME_FILES}
         # 下一代让**这一代自己**去生成（同一个 dag，只换挂载的工具）
         if i < a.rounds:
-            dag.mount_tool("gen", load_generation_as_tool(gdir, gdir, llm, cfg))
+            # dest = **这一代自己的目录**（下一代必须由它生成），
+            # run_dir = 本次运行的目录（DESCRIPTION.txt 在那儿）。
+            dag.mount_tool("gen", load_generation_as_tool(gdir, base, llm, cfg))
 
     passed = sum(1 for h in history if h["demo"])
     print(f"\n通过自选任务的代数：{passed}/{a.rounds}")
