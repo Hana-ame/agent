@@ -279,11 +279,21 @@ def exercise(dest: Path) -> Dict[str, Any]:
     return {"ok": p.returncode == 0, "out": ((p.stdout or "").strip().splitlines() or [""])[-1]}
 
 
-def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, Any]) -> Any:
-    """把某一代框架挂成工具：调它 = 用它自己的生成 DAG 造下一代。
+def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, Any],
+                            fallback: Optional[Dict[str, str]] = None) -> Any:
+    """把某一代框架挂成工具：**由它产出下一代的源码**。
 
-    用的是它自己的 `bootstrap(description, llm)`——参数名 `description/llm` 是
-    SPEC 里固定的公共签名（`signature()` 会逐个核对），所以跨代调用是安全的。
+    返回的是一个 `GenTool`，只是 `source_provider` 换成了"调上一代自己的
+    `bootstrap(description, llm)` 拿整套源码"。这样元 DAG 那 8 个 step 一个不少
+    （expand / plan_module / normalize / audit_contract / supplement / assemble /
+    measure / passthrough），每一步照样可观测，唯一变的是"源码从哪来"。
+
+    🔴 早期版本直接把"调上一代 bootstrap"当作整个 `gen` 工具挂上去：但 `gen`
+    会被 8 条边各调一次，于是同一代被生成 8 遍，而且后续 step（normalize/audit/
+    assemble）全部退化成透传 —— 图上的分步骤名存实亡。
+
+    用的是上一代自己的 `bootstrap(description, llm)`——参数名 `description/llm`
+    是 SPEC 里固定的公共签名（`signature()` 会逐个核对），所以跨代调用是安全的。
     """
     code = (
         "import json, sys\n"
@@ -324,17 +334,21 @@ def load_generation_as_tool(dest: Path, run_dir: Path, llm: Any, cfg: Dict[str, 
                 f"代际串了：下一代由 {got} 生成，应当由 {want}（见 {run_dir / 'CHILD.log'}）"
             )
         payload = (p.stdout or "").strip().splitlines()[-1]
+        data = json.loads(payload)
+        files = {item["path"]: item["source"] for item in data.get("files", [])}
         (run_dir / "ORIGIN.json").write_text(
             json.dumps(
-                {"generated_by": str(want), "loaded": str(got), "seconds": round(time.time() - t0, 1)},
+                {"generated_by": str(want), "loaded": str(got), "seconds": round(time.time() - t0, 1),
+                 "stable": data.get("stable"), "reason": data.get("reason"), "files": sorted(files)},
                 ensure_ascii=False,
                 indent=2,
             ),
             encoding="utf-8",
         )
-        return payload
+        _ = _content, _kw
+        return files
 
-    return gen
+    return GenTool(llm, cfg, run_dir=run_dir / "steps", fallback=fallback or {}, source_provider=gen)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -404,15 +418,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 shutil.copyfile(src_dir / f, dst)
             print(f"[gen{i}] 重放自 {src_dir}")
         else:
-            tool = GenTool(llm, cfg, run_dir=gdir / "steps", fallback=prev_sources)
-            dag.mount_tool("gen", tool)
+            # 🔴 只有**第 1 代**挂引导工具 `GenTool`。第 2 代起 `gen` 槽位上挂的是
+            # 上一代框架自己的 `bootstrap`（在上一轮末尾 mount 的）—— 这里如果
+            # 无条件重新 mount `GenTool`，就会把上一代覆盖掉，于是"框架造框架"
+            # 名存实亡：gen2/gen3 全都还是引导工具造的，而且日志里完全看不出来
+            # （实测 s07 的 gen2 与 gen3 逐字节相同，ORIGIN.json 根本没生成）。
+            if i == 1:
+                dag.mount_tool("gen", GenTool(llm, cfg, run_dir=gdir / "steps", fallback=prev_sources))
             out = run_round(dag, DESCRIPTION)
             if not out["framework"]:
                 print(f"[gen{i}] FAIL：图上没有产出 framework")
                 break
             write_generation(out["framework"], gdir)
             (gdir / "REPORT.json").write_text(out["report"], encoding="utf-8", newline="")
-            print(f"[gen{i}] 生成完成：{(gdir / 'REPORT.json').read_text(encoding='utf-8')}")
+            print(f"[gen{i}] 生成完成（工具={type(dag.tools.get('gen')).__name__}）："
+                  f"{(gdir / 'REPORT.json').read_text(encoding='utf-8')}")
 
         res = exercise(gdir)  # ← 用这一代框架真跑自选任务
         total = sum(len((gdir / f).read_text(encoding="utf-8").encode("utf-8")) for f in FRAME_FILES)
@@ -427,7 +447,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if i < a.rounds:
             # dest = **这一代自己的目录**（下一代必须由它生成），
             # run_dir = 本次运行的目录（DESCRIPTION.txt 在那儿）。
-            dag.mount_tool("gen", load_generation_as_tool(gdir, base, llm, cfg))
+            dag.mount_tool("gen", load_generation_as_tool(gdir, base, llm, cfg, fallback=prev_sources))
 
     passed = sum(1 for h in history if h["demo"])
     print(f"\n通过自选任务的代数：{passed}/{a.rounds}")
