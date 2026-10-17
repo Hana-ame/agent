@@ -788,6 +788,9 @@ class TestVEAV6Suite(unittest.TestCase):
     def test_21(self) -> None:
         test_21_provider_failure_is_not_accepted_as_a_generation()
 
+    def test_22(self) -> None:
+        test_22_source_gate_rejects_a_generation_with_nothing_new()
+
 
 def test_19_every_generation_runs_a_self_chosen_dag() -> None:
     """测试 19：**每一代**框架都要能用自己产出一个自选任务的可用 DAG。
@@ -1011,6 +1014,94 @@ def test_21_provider_failure_is_not_accepted_as_a_generation() -> None:
     print("  provider 闸门：失败→拦下 / 不完整→拦下 / 完整→放行")
 
 
+def test_22_source_gate_rejects_a_generation_with_nothing_new() -> None:
+    """测试 22：源码来源闸门 —— 7 个文件全由上一代补，就不算新造的一代。
+
+    这是 provider 闸门的**对称漏洞**：第 1 代没有 provider，源码由引导工具
+    直接调 LLM 写；`_write_batch` 的异常被吞掉后返回空，7 个文件全由
+    fallback（上一代/磁盘框架）补 —— 拼出来是逐字节副本，而 assemble/自举/
+    自选任务全绿（副本当然能用），旧代码照样当新一代收。
+
+    阈值为什么是"全补"而不是"不许补"：**补件是常态**，实测 s12 与 s15 的
+    gen1 都是 5 个新造 + `dag.py`/`bootstrap.py` 契约没过回退补；"不许补"
+    会否掉每一次真实运行（判据必须能在真实输入上为真，也不能否掉真实输入）。
+
+    判据：`source_ok` = 补件数 < 7；`fallback_files` 照实列出。
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(root))
+    from vea_v6.parts.bootstrap import framework_sources  # noqa: E402
+
+    from tools._meta_dag_spec import FRAME_FILES  # noqa: E402
+    from tools._meta_gen_tool import GenTool  # noqa: E402
+    from tools.meta_dag import DESCRIPTION  # noqa: E402
+
+    class _StubLLM:
+        """返回不可解析内容：expand 回落静态施工单；写码批全部产出为空，
+        于是 7 个文件只能由上一代补 —— 正是要拦的"零新造"场景。"""
+
+        def _post_sync(self, prompt: str, **kw: object) -> str:
+            return "{}"
+
+    cfg = {"model": "stub", "api": "stub"}
+    disk = framework_sources()
+    tmp = root / "bootstrap_runs" / "_test_source_gate"
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    def _payload(ok_flags: list) -> str:
+        return json.dumps({"files": [
+            {"path": p, "source": (f"# new {p}\n" if ok else ""),
+             "ok": ok, "why": ("" if ok else "空产出")}
+            for p, ok in zip(FRAME_FILES, ok_flags)
+        ]})
+
+    tool = GenTool(_StubLLM(), cfg, run_dir=tmp / "unit", fallback=disk)
+
+    # 1) 全补 → 这一代没有一点新造的源码
+    tool._step_supplement(_payload([False] * 7))
+    assert tool.source_ok is False, tool.fallback_files
+    assert len(tool.fallback_files) == 7, tool.fallback_files
+    assert "没有新造的源码" in tool.source_why
+
+    # 2) 5 新造 + 2 补（s12/s15 gen1 的实测形状）→ 必须放行，不能误杀
+    tool._step_supplement(_payload([True, True, True, False, True, False, True]))
+    assert tool.source_ok is True, tool.fallback_files
+    assert len(tool.fallback_files) == 2, tool.fallback_files
+    assert tool.source_why == ""
+
+    # 3) 全新造 → 放行
+    tool._step_supplement(_payload([True] * 7))
+    assert tool.source_ok is True and tool.fallback_files == []
+
+    # 4) 端到端：走完 8 步（无 provider = 第 1 代路径），码批全空 → 全补 → 拦下。
+    #    这正是 gen1 的"静默回退"漏洞被闸门抓住的实证。
+    def _drive(t: GenTool) -> dict:
+        payload = t(DESCRIPTION, step="expand")
+        payload = t(payload, step="plan_module")
+        payload = t(payload, step="normalize")
+        payload = t(payload, step="audit_contract")
+        payload = t(payload, step="supplement")
+        payload = t(payload, step="assemble")
+        return json.loads(t(payload, step="measure"))
+
+    bad = GenTool(_StubLLM(), cfg, run_dir=tmp / "e2e_bad", fallback=disk)
+    rep = _drive(bad)
+    assert rep["source_ok"] is False, rep
+    assert rep["new_files"] == 0, rep
+
+    # 5) 正向对照：provider 完整产出 → 这一代有新造源码（补件可能少量存在）
+    good = GenTool(_StubLLM(), cfg, run_dir=tmp / "e2e_good",
+                   fallback=disk, source_provider=lambda _d: dict(disk))
+    rep2 = _drive(good)
+    assert rep2["source_ok"] is True, rep2
+    assert rep2["new_files"] > 0, rep2
+    print("  source 闸门：全补→拦下 / 5新+2补→放行 / 全新建→放行")
+
+
 if __name__ == "__main__":
     test_1_dag_structure_and_edge_formats()
     test_2_message_structure_with_optional_image_and_gen()
@@ -1033,4 +1124,5 @@ if __name__ == "__main__":
     test_19_every_generation_runs_a_self_chosen_dag()
     test_20_meta_dag_dispatches_eight_steps_without_network()
     test_21_provider_failure_is_not_accepted_as_a_generation()
-    print("ALL 21 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
+    test_22_source_gate_rejects_a_generation_with_nothing_new()
+    print("ALL 22 VEA V6 TEST SUITES PASSED SUCCESSFULLY!")
