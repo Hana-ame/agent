@@ -118,7 +118,7 @@ def _fmt_fill(n: int) -> str:
     """SELF_FILL 的定义行：用 `"F" * n` 表达，长度由 n 决定（不写死长串）。"""
     return 'SELF_FILL = "F" * ' + str(int(n))
 #: 自指 payload 的 base64 文本长度（不动点；0 表示尚未固化）
-BOOTSTRAP_SLOT = 48889
+BOOTSTRAP_SLOT = 48947
 
 #: 无 `__file__` 时（内存 exec / `python -c`）`_main_source()` 回落到这里，由 `_probe` 填入。
 _PROBE_SOURCE: Dict[str, str] = {}
@@ -287,9 +287,9 @@ FRAME_MANIFEST = json.loads(r'''{
     },
     {
       "path": "vea_v6/parts/bootstrap.py",
-      "bytes": 88509,
-      "b64_len": 48889,
-      "sha256": "175c4b9d9db5543b2f3a0d39ecde8b59e72828dbfe0508a9fc7f06f2cdf6afc6",
+      "bytes": 88742,
+      "b64_len": 48947,
+      "sha256": "5cd95dc7f4a1717060b6b1bf0ad19a025c216081b9f6e97743a9d59966685ed6",
       "sig": [
         "def signature(path, source)",
         "def sha_of(source)",
@@ -929,11 +929,7 @@ def assemble(parts: Dict[str, str], *, spec: Optional[Dict[str, Any]] = None) ->
         for p in FRAME_FILES:
             if p == MAIN_SOURCE:
                 # bytes 是真实字节数（与 pad 无关）；b64_len 就是槽宽（与 pad 同义）。
-                # 🔴 主源那一行的 `sha256` **必须保持磁盘上已有的值**，不能每轮用
-                # `_skeleton_sha(候选)` 覆写：覆写出来的候选每轮都不同，`bytes` 随之
-                # 抖动（86492 / 86496 反复），于是 `real == self_bytes` 永不成立，
-                # 而且和 `tools/fixpoint_v3.py`（它只是把盘上的 sha 原样抄回）解出的
-                # pad 必然不同。主源这一格是**自描述元数据**，不是求解变量。
+                # `sha256` 由外层 `assemble` 迭代到收敛后固定传入（见下方注释）。
                 docs.append(
                     {
                         "path": p,
@@ -956,22 +952,34 @@ def assemble(parts: Dict[str, str], *, spec: Optional[Dict[str, Any]] = None) ->
         return json.dumps({"spec": spec_obj, "files": docs}, ensure_ascii=False, indent=2)
 
     # 迭代起点必须是**主源当前状态**（磁盘已固化过就取清单里那个 bytes），
-    # 并用磁盘上已有的 `b64_len`（=槽宽）起步——两者都是磁盘主源里已经写死的
-    # 自描述元数据。若从常数 100000 起步，`_solve` 的起点 `z + 4096` 里 z 随输入变，
-    # 差一轮就解出不同的 pad（48397 / 48407 / 48661 都出现过），于是
-    # "求解结果 == 磁盘主源"的相等断言恒 FAIL，而自复现却一直 OK。
+    # 并用磁盘上已有的 `b64_len`（=槽宽）起步。若从常数 100000 起步，`_solve` 的
+    # 起点 `z + 4096` 里 z 随输入变，差一轮就解出不同的 pad（48397 / 48407 / 48661
+    # 都出现过），于是"求解结果 == 磁盘主源"的相等断言恒 FAIL，而自复现却一直 OK。
+    #
+    # 主源清单那一行的 `sha256` 是**骨架哈希**（会把这一格自己涂成 0 再整文哈希），
+    # 所以它是"由候选文本唯一决定"的量：必须**先收敛再固定**，不能直接抄磁盘上的旧值
+    # （换了 SPEC 之后旧值必然对不上，实测报"清单 sha 与真实源码不符"）。
     self_bytes = _self_bytes_on_disk()
-    self_sha_fixed = _self_sha_on_disk()
     disk_pad = _slot_on_disk()
     src = files[MAIN_SOURCE]
     for _ in range(8):
-        pad, src = _solve(
-            files[MAIN_SOURCE],
-            lambda pad, sha, nbytes: manifest_text(pad, nbytes, self_sha_fixed),
-            code_text,
-            self_bytes,
-            start_pad=disk_pad,
-        )
+        pad, sha = "", ""
+        for _ in range(12):
+            pad2, cand = _solve(
+                files[MAIN_SOURCE],
+                lambda pad_, sh, nbytes: manifest_text(pad_, nbytes, sh),
+                code_text,
+                self_bytes,
+                start_pad=disk_pad,
+            )
+            sha2 = _skeleton_sha(cand)
+            if sha2 == sha and pad2 == pad:
+                pad, src = pad2, cand
+                break
+            pad, sha = pad2, sha2
+            disk_pad = 0  # 只有第一轮用磁盘槽宽起步，之后按求解值走
+        else:
+            raise RuntimeError("assemble: 骨架 sha 未收敛")
         real = len(src.encode("utf-8"))
         if real == self_bytes:
             break
