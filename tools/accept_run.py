@@ -87,6 +87,20 @@ def accept(run: Path) -> bool:
     rep.check("三代齐全（3×7 文件）", not missing,
               "全部在位" if not missing else f"缺 {len(missing)} 个：{missing[:3]}…")
 
+    # 1b) 没有失败的代：闸门不过的尝试同样把 7 个文件写满盘（回退出来的上一代），
+    #     meta_dag 会给它落 FAIL.json。有 FAIL.json 就说明这一轮没跑完三代。
+    failed = []
+    for g in gens:
+        fj = g / "FAIL.json"
+        if fj.exists():
+            try:
+                why = json.loads(fj.read_text(encoding="utf-8")).get("why", "")
+            except ValueError:
+                why = ""
+            failed.append(f"{g.name}（{str(why)[:60]}）")
+    rep.check("没有失败的代（FAIL.json）", not failed,
+              "三代都没被闸门否掉" if not failed else "；".join(failed))
+
     # ---- 2. RESULT.json 双过 --------------------------------------------
     result_file = run / "RESULT.json"
     if not result_file.exists():

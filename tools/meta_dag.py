@@ -537,6 +537,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(f"[gen{i}] FAIL：重放代过不了自举闸门，停止")
                 history.append({"gen": i, "bytes": 0, "demo": False, "demo_out": "",
                                 "bootstrap": False, "bootstrap_out": smoke["out"]})
+                # 同上：失败的代留在盘上要留标记，否则扫描方会把"有 7 个文件的
+                # 失败尝试"当成一代去验（且因缺 HEAD.json 而报错）。
+                (gdir / "FAIL.json").write_text(json.dumps({
+                    "gen": i, "mode": "replay", "why": smoke["out"],
+                }, ensure_ascii=False, indent=2), encoding="utf-8", newline="")
                 break
         else:
             # 🔴 只有**第 1 代**挂引导工具 `GenTool`。第 2 代起 `gen` 槽位上挂的是
@@ -580,6 +585,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                 smoke = {"ok": False, "out": f"未过代际闸门：{why[:120]}"}
                 history.append({"gen": i, "bytes": 0, "demo": False, "demo_out": "",
                                 "bootstrap": False, "bootstrap_out": smoke["out"]})
+                # 🔴 失败的代完整留在盘上（7 个文件齐全、只是没有 HEAD.json），
+                # 而扫描方（test_19）是"有 7 个文件就是一代"，再叠加
+                # "chained（有 gen0）就必须有 HEAD.json"的判据 —— 一次网络瞬断
+                # 就能让全量套件对这一轮**永久报错**。落一个 FAIL.json 做标记，
+                # 让"失败的尝试"与"成功的一代"可被区分（s15 gen2 实测触发）。
+                (gdir / "FAIL.json").write_text(json.dumps({
+                    "gen": i, "attempts": a.retries, "why": why,
+                    "assemble_ok": report.get("assemble_ok"),
+                    "provider_ok": report.get("provider_ok", True),
+                    "provider_why": report.get("provider_why", ""),
+                    "bootstrap_ok": smoke.get("ok"),
+                }, ensure_ascii=False, indent=2), encoding="utf-8", newline="")
                 break
 
         res = exercise(gdir)  # ← 用这一代框架真跑自选任务

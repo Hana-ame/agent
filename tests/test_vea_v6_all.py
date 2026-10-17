@@ -853,8 +853,15 @@ def test_19_every_generation_runs_a_self_chosen_dag() -> None:
     for run in sorted(d for d in (root / "bootstrap_runs" / "meta").iterdir()
                       if d.is_dir() and d.name != "abandoned"
                       and not d.name.startswith("_")):
+        # 🔴 "有 7 个文件"不等于"是一代"：闸门不过的失败尝试同样把 7 个文件
+        # 写满了盘（就是回退出来的上一代），只是没有 HEAD.json。加上
+        # "chained（有 gen0）就必须有 HEAD.json"的判据后，一次网络瞬断导致的
+        # 失败代会让套件对那一轮永久报错。meta_dag 现在给失败代落 FAIL.json，
+        # 这里据此把失败尝试排除在"代"之外。
         gens = sorted(
-            (d for d in run.glob("gen*") if all((d / f).exists() for f in FRAME_FILES)),
+            (d for d in run.glob("gen*")
+             if all((d / f).exists() for f in FRAME_FILES)
+             and not (d / "FAIL.json").exists()),
             key=lambda d: int(d.name[3:] or 0),
         )
         if not gens:
