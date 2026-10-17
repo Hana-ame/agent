@@ -1,4 +1,10 @@
-"""固定点求解器（独立实现）：给一份 bootstrap.py 主源 + 其余文件，解出自指段的精确长度。
+"""固定点求解器（**已废弃**，请用 `tools/fixpoint_v3.py`）：给一份 bootstrap.py 主源 + 其余文件，解出自指段的精确长度。
+
+> ⚠️ **不要跑这个文件。** 它对应的是早期单层求解方案，与当前主源的双层不动点
+> （内层解 `pad` + 骨架 sha，外层迭代 `bytes`）不兼容。实测 `python tools/fixpoint.py`
+> 空转 **76 分 49 秒**后报 `RuntimeError: 固定点未收敛（区间 [32172, 32173]）`。
+> 现行正确入口：`python tools/fixpoint_v3.py --check` / `--freeze`。
+> 保留此文件只为追溯历史，它不被任何代码 import。
 
 主源里 `BOOTSTRAP_B64 = "FFF…F"` 是一行**定长填充**，长度 pad 必须等于整份主源
 gzip 压缩后的字节数——因为 `generate_framework()` 就是"用这条 payload 重建源码"。
@@ -7,8 +13,8 @@ gzip 压缩后的字节数——因为 `generate_framework()` 就是"用这条 p
 所以分两段：先逼近，再在邻域 ±32 内线性扫，取第一个严格不动点。
 
 用法：
-    python tools/fixpoint.py            # 读仓库文件 → 固化主源
-    python tools/fixpoint.py --check    # 只检查当前主源是否是固定点
+    python tools/fixpoint_v3.py --check  # 【现行】只检查当前主源是否是固定点
+    python tools/fixpoint_v3.py --freeze # 【现行】重新固化
 """
 
 from __future__ import annotations

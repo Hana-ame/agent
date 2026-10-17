@@ -190,7 +190,11 @@ def main() -> None:
     print("\n【步骤 6】代码生成：将新构建器序列化为 Python 代码")
     generated_code = generate_builder_code(new_builder)
 
-    code_path = Path("generated_builder.py")
+    # 自举产物**不进仓库根目录**：它是一次运行的输出，会污染工作区，
+    # 也容易和已固化的 vea_v6/ 源码混为一谈。统一落到 bootstrap_runs/（已 gitignore）。
+    out_dir = Path(__file__).resolve().parent.parent / "bootstrap_runs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    code_path = out_dir / "generated_builder.py"
     code_path.write_text(generated_code, encoding="utf-8")
     print(f"  已生成代码: {code_path.resolve()}")
     print(f"  代码行数: {len(generated_code.splitlines())}")

@@ -1,21 +1,40 @@
 {
-  "_readme": "模型注册表。KEY 就是边里 {\"模型\": KEY} 的 KEY。只允许使用 laptop-8000 与 sensenova 两类；卡顿可换 model，但 api 不可换。把真实 key 填进 key 字段（或改用真值文件覆盖，仓库内只留占位）。",
+  "_readme": "模型注册表。KEY 就是边里 {\"模型\": KEY} 的 KEY。只允许使用 laptop-8000 与 sensenova 两类；卡顿可换 model，但 api 不可换。",
+  "_probe": "GET https://laptop-8000.moonchan.xyz/v1/models 实测 7 个模型：deepseek-v4-flash / glm-5.2 / sensenova-6.8-flash-lite / sensenova-u1.5-lite / kimi-k3 / deepseek-flash / deepseek-v4.1-flash。",
   "laptop-6.8": {
-    "api": "http://127.0.0.1:8000/v1",
+    "api": "https://laptop-8000.moonchan.xyz/v1",
     "key": "not-needed",
-    "model": "laptop-6.8",
-    "params": {
-      "temperature": 0.2,
-      "max_tokens": 8192
-    }
-  },
-  "sensenova-6.8": {
-    "api": "https://api.sensenova.cn/v1",
-    "key": "REPLACE_WITH_SENSENOVA_KEY",
     "model": "sensenova-6.8-flash-lite",
     "params": {
       "temperature": 0.2,
-      "max_tokens": 8192
+      "max_tokens": 16384
+    }
+  },
+  "laptop-deepseek": {
+    "api": "https://laptop-8000.moonchan.xyz/v1",
+    "key": "not-needed",
+    "model": "deepseek-v4.1-flash",
+    "params": {
+      "temperature": 0.2,
+      "max_tokens": 16384
+    }
+  },
+  "laptop-glm": {
+    "api": "https://laptop-8000.moonchan.xyz/v1",
+    "key": "not-needed",
+    "model": "glm-5.2",
+    "params": {
+      "temperature": 0.2,
+      "max_tokens": 16384
+    }
+  },
+  "sensenova-6.8": {
+    "api": "https://laptop-8000.moonchan.xyz/v1",
+    "key": "not-needed",
+    "model": "sensenova-u1.5-lite",
+    "params": {
+      "temperature": 0.2,
+      "max_tokens": 16384
     }
   }
 }

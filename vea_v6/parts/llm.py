@@ -143,7 +143,7 @@ class OpenAICompatibleLLM:
                 continue
             body[k] = v
 
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "User-Agent": "vea-v6/1.0"}
         if use_key:
             headers["Authorization"] = f"Bearer {use_key}"
         if stream:

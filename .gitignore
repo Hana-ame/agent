@@ -40,3 +40,6 @@ models.json
 
 # Local agent work records (not part of the project)
 .workbuddy/
+
+# 自举产物（由 examples/08 等在根目录生成的历史遗留），不进版本控制
+generated_builder.py
