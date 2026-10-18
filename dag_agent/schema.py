@@ -476,6 +476,15 @@ class Processor:
             if spec_clean.startswith("builtin:meta_exec") or spec_clean.startswith("meta_exec") or spec_clean in ("_execute_and_validate", "execute_and_validate_meta_dag"):
                 from dag_agent.meta import execute_and_validate_meta_dag
                 return cls(model="callable", prompt=spec, fn=execute_and_validate_meta_dag)
+            if spec_clean.startswith("builtin:watcher_profile") or spec_clean == "watcher_profile_performance":
+                from dag_agent.watcher import watcher_profile_performance
+                return cls(model="callable", prompt=spec, fn=watcher_profile_performance)
+            if spec_clean.startswith("builtin:watcher_evaluate") or spec_clean == "watcher_evaluate_quality":
+                from dag_agent.watcher import watcher_evaluate_quality
+                return cls(model="callable", prompt=spec, fn=watcher_evaluate_quality)
+            if spec_clean.startswith("builtin:watcher_report") or spec_clean == "watcher_generate_report":
+                from dag_agent.watcher import watcher_generate_report
+                return cls(model="callable", prompt=spec, fn=watcher_generate_report)
             return cls(model="default", prompt=spec)
         if isinstance(spec, dict):
             raw = dict(spec)
@@ -506,6 +515,15 @@ class Processor:
             ):
                 from dag_agent.meta import execute_and_validate_meta_dag
                 fn = execute_and_validate_meta_dag
+            elif not fn and (c_name == "watcher_profile_performance" or model.startswith("builtin:watcher_profile")):
+                from dag_agent.watcher import watcher_profile_performance
+                fn = watcher_profile_performance
+            elif not fn and (c_name == "watcher_evaluate_quality" or model.startswith("builtin:watcher_evaluate")):
+                from dag_agent.watcher import watcher_evaluate_quality
+                fn = watcher_evaluate_quality
+            elif not fn and (c_name == "watcher_generate_report" or model.startswith("builtin:watcher_report")):
+                from dag_agent.watcher import watcher_generate_report
+                fn = watcher_generate_report
             return cls(model=model, prompt=prompt, fn=fn if callable(fn) else None, extra=raw)
         raise TypeError(f"Unsupported processor specification: {spec!r}")
 

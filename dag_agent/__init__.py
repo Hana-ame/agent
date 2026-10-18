@@ -33,6 +33,14 @@ from dag_agent.schema import (
     normalize_tags,
     serialize_content,
 )
+from dag_agent.watcher import (
+    BenchmarkTestCase,
+    EvaluationReport,
+    PerformanceProfile,
+    QualityProfile,
+    WatcherOptimizerLoop,
+    create_watcher_dag,
+)
 from dag_agent.versions import (
     VersionA_MinimalDAG,
     VersionB_SemanticEmbeddingDAG,
@@ -71,6 +79,12 @@ __all__ = [
     "normalize_tags",
     "serialize_content",
     "merge_clean_contents",
+    "create_watcher_dag",
+    "WatcherOptimizerLoop",
+    "BenchmarkTestCase",
+    "EvaluationReport",
+    "PerformanceProfile",
+    "QualityProfile",
     "VersionA_MinimalDAG",
     "VersionB_SemanticEmbeddingDAG",
     "VersionC_CleanContextDefaultDAG",
