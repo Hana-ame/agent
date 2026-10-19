@@ -1,3 +1,9 @@
+# 2026-10-20 合并：本仓库并入两条无共同祖先的历史
+#   - DAG Agent v7 线（dag_agent/ + examples/ex*.py）
+#   - VEA v6 自举线（vea_v6/ + tools/meta_dag.py）
+# 下面是两边的并集，规则一个都没丢（重复项只保留一次，并注明来源）。
+
+# ---- Python 通用（v7 线）----------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -28,3 +34,37 @@ htmlcov/
 env/
 venv/
 ENV/
+
+# ---- VEA v6 线 --------------------------------------------------------
+scratch/
+*.pyc
+*.db
+.pytest_cache/.coverage
+examples/s1profile_collect/data/
+
+# Secrets — never commit .env（两边都有 .env，此处补 v6 的其余写法）
+.env.local
+*.env
+
+# Secrets — provider endpoints + api keys (laptop-6.8 / sensenova-6.8)
+vea_v6/models.json
+# Model registry with real API keys (keep only the .example template in VCS)
+models.json
+
+# Submodule directories — only defined on hf-submodule branch,
+# would show as untracked on other branches after checkout.
+additive-rand-transformer/
+maze-transformer/
+
+# Backup directory
+config_backup/
+snapshots/
+
+# 自举产物：框架造框架跑出来的东西（v6 线的 bootstrap_runs/ 与验收临时目录）
+bootstrap_runs/
+generated_builder.py
+demo/
+SMOKE.log
+
+# 本地 agent 工作记录（不属于项目本身）
+.workbuddy/
