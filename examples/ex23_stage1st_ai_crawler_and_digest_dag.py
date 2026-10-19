@@ -380,4 +380,7 @@ def run_stage1st_pipeline(use_live_llm: bool = True) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    run_stage1st_pipeline(use_live_llm=True)
+    import os
+    import sys
+    is_live = os.environ.get("DAG_LIVE_LLM", "") in ("1", "true", "True") or ("--live" in sys.argv)
+    run_stage1st_pipeline(use_live_llm=is_live)

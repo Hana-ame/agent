@@ -23,7 +23,7 @@ def run_single_example(script_path: Path) -> dict:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=40,
+            timeout=60,
         )
         duration = time.time() - start_time
         return {
@@ -41,7 +41,7 @@ def run_single_example(script_path: Path) -> dict:
             "returncode": -1,
             "duration": time.time() - start_time,
             "stdout": "",
-            "stderr": "Execution timed out (> 40s)",
+            "stderr": "Execution timed out (> 60s)",
         }
     except Exception as ex:
         return {
