@@ -574,8 +574,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             # 却又把互相 import 不上的那套写进了磁盘）。
             report = {}
             smoke = {"ok": False, "out": ""}
+            crash = ""
             for attempt in range(1, a.retries + 1):
-                out = run_round(dag, DESCRIPTION)
+                # 🔴 执行期异常同样要重试：网关瞬断（WinError 10054 /
+                # incomplete chunked read）会让 `run_round` 直接抛异常冲出循环，
+                # **整轮崩掉、一次重试都没有** —— 实测 s16 就死在第 1 步
+                # `_step_expand` 的第一次调用上（`--retries` 形同虚设）。
+                # 闸门管的是"结果不合格"，管不到"根本没跑完"，两者都要覆盖。
+                try:
+                    out = run_round(dag, DESCRIPTION)
+                except Exception as exc:  # noqa: BLE001 - 瞬断该重试，不是整轮放弃
+                    crash = f"执行期异常：{str(exc)[:200]}"
+                    print(f"[gen{i}] 第 {attempt} 次：{crash[:130]}")
+                    report, smoke = {}, {"ok": False, "out": crash}
+                    continue
+                crash = ""
                 if not out["framework"]:
                     print(f"[gen{i}] FAIL：图上没有产出 framework")
                     break
@@ -612,7 +625,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             if not (report.get("assemble_ok") and smoke["ok"]
                     and report.get("provider_ok", True) and report.get("source_ok", True)):
                 why = (report.get("provider_why") or report.get("source_why")
-                       or "未过自举闸门")
+                       or crash or "未过自举闸门")
                 print(f"[gen{i}] FAIL：{a.retries} 次都没同时过装配闸门、自举闸门与代际闸门，停止（{why[:120]}）")
                 smoke = {"ok": False, "out": f"未过代际闸门：{why[:120]}"}
                 history.append({"gen": i, "bytes": 0, "demo": False, "demo_out": "",
