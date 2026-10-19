@@ -8,8 +8,21 @@
 
 | 线 | 代码 | 测试入口 |
 |---|---|---|
-| DAG Agent v7 | `dag_agent/`, `examples/ex*.py` | `python -m unittest tests/test_dag_agent_all.py -v`、`python examples/run_all_examples_parallel.py` |
+| DAG Agent v7 | `dag_agent/`, `examples/ex*.py` | `python -m pytest tests/ -q`（**推荐**）、`python examples/run_all_examples_parallel.py`、`python test_live_endpoints.py`（真实端点） |
 | VEA v6 自举线 | `vea_v6/`, `tools/` | `python tests/test_vea_v6_all.py`、`python tools/accept_run.py <run>` |
+
+> **测试入口的坑（实测）**：下面 Part I 文档里写的
+> `python -m unittest tests/test_dag_agent_all.py -v` **只跑得到 9 个测试** ——
+> v7 线另有 12 个测试（`test_dynamic_and_discontinuous.py` 6 个、
+> `test_stage1st_dag.py` 3 个、`test_watcher_loop.py` 3 个）是 **pytest 风格**
+> （普通类 + `test_*` 方法，不继承 `unittest.TestCase`），`unittest` 收集不到，
+> 会静默显示 `Ran 0 tests` 而不报错。要跑全请用 `python -m pytest tests/ -q`
+> （当前 67 passed = v7 21 个 + v6 46 个）。
+
+> ⚠️ **`models.json` 不入库**（内含端点凭据）：先
+> `cp models.json.example models.json` 再跑真实端点脚本。
+> 该文件在 2026-10-17 被 v7 线提交过一次，其中的 sensenova 凭据**已随公开仓库
+> 暴露**，必须轮换（详见 `.workbuddy/memory/2026-10-20.md`）。
 
 ---
 
