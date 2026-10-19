@@ -1176,38 +1176,71 @@ def create_generation_dag(
             plan["flesh"] = jobs
         return json.dumps({"spec": spec_obj, "plan": plan}, ensure_ascii=False)
 
-    def _edge_frame_code(plan_text: str) -> str:
-        """逐文件让模型重写，再把结果交给 `assemble` 解固定点。
+    # 🔴 逐文件节点：把原先 frame_code 里"一次循环重写 7 个文件"的单节点，拆成
+    # **每文件一个独立 DAG 节点**（layer 3），再加一个汇聚节点（layer 4）。
+    # 单文件失败只影响自己（DAG 引擎按节点隔离），不连坐整条链；每文件产出可被
+    # 单独观测 / 重试，稳定性显著更好（用户要求"框架本身的 DAG 步骤要更多"）。
+    # DAG 引擎按 layer 顺序**串行**执行节点（无并发），不会一次性打满网关触发 429。
+    gen_file_retries = 2
 
-        输入结构是 `{"spec": ..., "plan": {...}}`，重写任务在 **`plan["plan"]["flesh"]`**。
-        曾经这里写成 `plan.get("flesh")` 直接读外层，永远拿到空列表 ⇒ 模型一次都没被调用，
-        产物是磁盘源码原样回放（"假通过"）。读错一层比读错一个键更难发现。
+    def _make_edge_file(p: str):
+        """单文件生成节点工厂。内部带契约闸门 + 有界重试；始终返回合法产物（失败回退原文件）。"""
+        def _edge(content: str) -> str:
+            try:
+                try:
+                    payload = json.loads(content)
+                except Exception:
+                    payload = {}
+                plan = payload.get("plan") or {}
+                jobs = plan.get("flesh") or []
+                job = next((j for j in jobs if j.get("path") == p), None)
+                prompt = (job.get("prompt") if job and job.get("prompt")
+                          else PROMPTS["flesh"].format(path=p, source=_clip(base.get(p, ""))))
+                src, why = "", ""
+                for _ in range(gen_file_retries + 1):
+                    try:
+                        ask_prompt = prompt if not why else (
+                            f"{prompt}\n\n【上一轮没过契约闸门，原因：{why}】请修正后重出同一文件。"
+                        )
+                        code = _extract_code(_ask(ask_prompt), "python")
+                    except Exception as exc:  # noqa: BLE001 - 单文件失败不报销整条链
+                        code, why = "", f"异常：{str(exc)[:120]}"
+                    else:
+                        if not code.strip():
+                            why = "空产出"
+                        else:
+                            why = _contract_violation(p, code)
+                    if not why:
+                        src = code
+                        break
+                if not src:
+                    src = base.get(p, "")  # 回退原文件，保证 assemble 不缺件
+                return json.dumps({"path": p, "source": src, "rejected": why}, ensure_ascii=False)
+            except Exception as exc:  # noqa: BLE001 - 绝不让单文件节点抛异常卡住整图
+                return json.dumps({"path": p, "source": base.get(p, ""),
+                                   "rejected": f"节点异常：{str(exc)[:120]}"}, ensure_ascii=False)
+        return _edge
+
+    def _edge_collect(merged: str) -> str:
+        """汇聚 7 个单文件节点的产物 + skeleton_code 里的 spec，还原成 frame_code 载荷。
+
+        单文件节点输出 `{"path","source","rejected"}`；skeleton_code 输出 `{"spec","plan"}`。
+        合并流里两类对象按 key 区分。
         """
-        payload = json.loads(plan_text)
-        spec_obj = payload.get("spec")
-        plan = payload.get("plan") or {}
         parts = dict(base)
-        jobs = plan.get("flesh") or []
         rejected: Dict[str, str] = {}
-        for job in jobs:
-            path = job["path"]
-            code = _extract_code(_ask(job["prompt"]), "python")
-            if not code.strip():
-                rejected[path] = "空产出"
+        spec_obj = None
+        for obj in _parse_json_stream(merged):
+            if not isinstance(obj, dict):
                 continue
-            # 模型产出的文件先过结构契约检查；不合格就**保留原文件**并记下原因，
-            # 不能让坏代码流到 assemble 里把整条链炸掉（也便于事后定位是哪一次生成坏了）。
-            #
-            # 🔴 只做 `ast.parse` 是**不够**的：实测模型会把 `dag.py` 重写成两行孤立语句
-            # （`if models is None and isinstance(...)`，92 字节），把 `llm.py` 重写成
-            # 引用未定义 `LLMError`/`json` 的残缺片段（839 字节）。两者 `ast.parse` 都过，
-            # 于是被当成"合格"，框架表面自洽、内里被掏空——又是一次假通过。
-            # 所以改成**按原文件的结构契约比对**：顶层定义（类/函数/赋值）不许无故消失。
-            why = _contract_violation(path, code)
-            if why:
-                rejected[path] = why
-                continue
-            parts[path] = code
+            if isinstance(obj.get("spec"), dict) and spec_obj is None:
+                spec_obj = obj["spec"]
+            if "path" in obj and "source" in obj:
+                p = obj["path"]
+                parts[p] = obj.get("source") or base.get(p, "")
+                why = obj.get("rejected") or ""
+                if why:
+                    rejected[p] = why
         _LAST_VERDICT["rejected"] = rejected
         return json.dumps({"files": parts, "spec": spec_obj, "rejected": rejected}, ensure_ascii=False)
 
@@ -1248,9 +1281,16 @@ def create_generation_dag(
     dag.add_edge(["input"], _edge_skeleton, ["skeleton_plan"], layer=1)
     dag.add_edge(["input"], _edge_flesh, ["flesh_plan"], layer=1)
     dag.add_edge(["spec_plan", "skeleton_plan", "flesh_plan"], _edge_skeleton_code, ["skeleton_code"], layer=2)
-    dag.add_edge(["skeleton_code"], _edge_frame_code, ["frame_code"], layer=3)
-    dag.add_edge(["frame_code"], _edge_manifest, ["manifest"], layer=4)
-    dag.add_edge(["manifest"], _edge_result, ["result"], layer=5)
+    # layer 3：每文件一个独立节点（取代原先 frame_code 里的一次循环）
+    file_tags = []
+    for p in targets:
+        tag = "code_" + p.replace("/", "__").replace(".", "_")
+        dag.add_edge(["skeleton_code"], _make_edge_file(p), [tag], layer=3)
+        file_tags.append(tag)
+    # layer 4：汇聚 7 个单文件产物 + skeleton_code 的 spec → frame_code
+    dag.add_edge(["skeleton_code"] + file_tags, _edge_collect, ["frame_code"], layer=4)
+    dag.add_edge(["frame_code"], _edge_manifest, ["manifest"], layer=5)
+    dag.add_edge(["manifest"], _edge_result, ["result"], layer=6)
     return dag
 
 
