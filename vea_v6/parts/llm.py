@@ -124,7 +124,7 @@ class OpenAICompatibleLLM:
         max_tokens: Optional[int] = None,
         stream: bool = True,
         continue_from: Optional[str] = None,
-        max_retries: int = 4,
+        max_retries: int = 8,
         sse_snapshot: Optional[str] = None,
         **extra: Any,
     ) -> str:
@@ -174,13 +174,21 @@ class OpenAICompatibleLLM:
                 last_err = exc
                 msg = str(exc)
                 # 限流 / 超时 / 连接错误 → 退避重试；其它（鉴权、参数）直接抛
+                # 注意：本机网关（laptop-8000 / sensenova）的 chat 接口会在 200 与
+                # 403(WAF code 1010) 之间**间歇抖动**，403 是瞬时封锁而非真鉴权失败，
+                # 必须纳入重试——否则一次自举几十次连续调用必撞 403 直接崩。
+                # 同时覆盖历史出现的 [WinError 10054] 连接重置。
                 retryable = any(
                     tag in msg
-                    for tag in ("429", "rate_limit", "Timeout", "timed out", "ConnectError", "ReadError", "502", "503", "504")
+                    for tag in (
+                        "429", "rate_limit", "Timeout", "timed out",
+                        "ConnectError", "ReadError", "10054", "reset",
+                        "502", "503", "504", "403", "1010",
+                    )
                 )
                 if not retryable or attempt == max_retries - 1:
                     break
-                time.sleep(min(30.0, 2.0 * (attempt + 1)))
+                time.sleep(min(30.0, 3.0 * (attempt + 1)))
         raise LLMError(f"LLM 调用失败: {last_err}")
 
     @staticmethod
