@@ -856,7 +856,12 @@ def test_19_every_generation_runs_a_self_chosen_dag() -> None:
     # 约定）。曾漏了这条：已知污染的作废轮次 `_s13`（gen2 是 gen1 的逐字节
     # 复印件，provider 回退黑洞的产物）被当良民扫描，套件输出里赫然写着
     # `_s13/gen2(ALL OK)`——废代不当基准，更不该以"通过的代"身份出现。
-    for run in sorted(d for d in (root / "bootstrap_runs" / "meta").iterdir()
+    # 🔴 目录还可能**根本不存在**：`bootstrap_runs/` 是 gitignore 的本地产物，
+    #    干净 clone 里一次都没跑过，此时 `.iterdir()` 直接 FileNotFoundError，
+    #    下面"没有可验收的代就不判负"那句根本轮不到执行 —— 实测 CI 从 #123
+    #    （2026-10-17）起就一直红在这一行，而本地因为有 bootstrap_runs 一直绿。
+    meta_dir = root / "bootstrap_runs" / "meta"
+    for run in sorted(d for d in (meta_dir.iterdir() if meta_dir.is_dir() else [])
                       if d.is_dir() and d.name != "abandoned"
                       and not d.name.startswith("_")):
         # 🔴 "有 7 个文件"不等于"是一代"：闸门不过的失败尝试同样把 7 个文件
