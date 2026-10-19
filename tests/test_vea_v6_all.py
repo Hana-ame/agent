@@ -560,20 +560,124 @@ def test_12_bootstrap_dag_generates_framework_code() -> None:
     assert dag.get_result() == code  # 结果稳定（幂等，不因重复取用而变化）
 
 
+def _payload_files(main_src: str) -> dict:
+    """从任意一份主源文本里，解出它内嵌的其它文件源码（`{路径: 文本}`）。"""
+    import json
+
+    from vea_v6.parts.bootstrap import _CODE_RE, _decode, MAIN_SOURCE
+
+    m = _CODE_RE.search(main_src)
+    if not m:
+        return {}
+    mark = "FRAME_CODE = json.loads(r" + chr(39) * 3
+    inner = m.group(0)[len(mark):]
+    data = json.loads(inner[:inner.rfind(chr(39) * 3)])
+    return {i["path"]: _decode(i["code"]).decode("utf-8")
+            for i in data.get("files", []) if i["path"] != MAIN_SOURCE}
+
+
+def _masked_main(main_src: str) -> tuple:
+    """主源的**结构层**：把「随压缩器变」的部分掩掉后剩下的全部内容。
+
+    随 zlib 变的只有两处（实测 3.12 vs 3.13 逐字段比对得出）：
+      1. `FRAME_CODE` 里各文件的 `code` —— gzip+base64 载荷，deflate 输出随 zlib 构建变；
+      2. `FRAME_MANIFEST` 里**主源自己那条**的 `sha256` —— 它是对主源自身字节取
+         sha，而主源字节含上面那些载荷，所以自指 sha 也跟着变（6 个非主源条目的
+         sha 是解压后源码的 sha，不随 zlib 变，实测全同）。
+
+    除此之外的**任何**差异都是真漂移：BOOTSTRAP_SLOT、清单 bytes/b64_len/sig、
+    模块代码、以及载荷解压后的内容。
+    """
+    import json
+
+    from vea_v6.parts.bootstrap import MAIN_SOURCE
+
+    q3 = chr(39) * 3
+
+    def cut(mark: str):
+        idx = main_src.find(mark)
+        if idx < 0:
+            return None
+        inner = main_src[idx + len(mark):]
+        end = inner.find(q3 + ")")
+        return idx, idx + len(mark) + end + len(q3) + 1, inner[:end]
+
+    man = cut("FRAME_MANIFEST = json.loads(r" + q3)
+    cod = cut("FRAME_CODE = json.loads(r" + q3)
+    if man is None or cod is None:
+        return (main_src, None, None)
+
+    # 两个块之外的正文（模块代码、BOOTSTRAP_SLOT、SELF_FILL）
+    spans = sorted([(0, man[0]), (man[1], cod[0]), (cod[1], len(main_src))])
+    body = "".join(main_src[a:b] for a, b in spans)
+
+    man_list = json.loads(man[2])
+    man_list = man_list.get("files", man_list) if isinstance(man_list, dict) else man_list
+    masked_man = []
+    for it in man_list:
+        d = {k: v for k, v in it.items() if k != "code"}
+        if d.get("path") == MAIN_SOURCE:
+            d["sha256"] = ""      # 自指 sha：随压缩器变
+        masked_man.append(d)
+
+    cod_list = json.loads(cod[2])
+    cod_list = cod_list.get("files", cod_list) if isinstance(cod_list, dict) else cod_list
+    masked_cod = [{k: v for k, v in it.items() if k != "code"} for it in cod_list]
+
+    return (body, masked_man, masked_cod)
+
+
 def test_13_bootstrap_fixed_point_is_byte_identical() -> None:
-    """测试 13：固定点 —— 同一 SPEC 恒得同一份代码，且生成物能逐字节复现自身。"""
+    """测试 13：固定点 —— 同一 SPEC 恒得同一份代码，且生成物能复现自身。
+
+    🔴 字节不等**不等于**漂移（CI 实测得出，见下）：主源内嵌的 payload 走
+    `gzip.compress(..., 9, mtime=0)`，而 deflate 的输出**随 zlib 构建变** ——
+    同一份输入在 3.12（zlib 1.3.2）与 3.13（zlib 1.3.1）下压缩后长度相同
+    （9657）但字节不同。磁盘这份是按某一个 zlib 固化的，换到另一个构建上重解，
+    容器字节必然不同（实测 3.12：等长 77618、73 个字节不同）。
+
+    于是旧判据"主源字节不同 ⇒ 需重新固化"是**误导**：在新构建上重固化只会把
+    不兼容挪到旧构建上。正确做法是多看一层 —— **内容层**（解出来的其它 6 个
+    文件）若逐字节一致，就是"容器不同、内容相同"，不是漂移；内容层不同才是真
+    漂移，照样红。
+
+    遗留（未改，属设计层面，需用户定夺）：要让固定点真正**跨解释器可复现**，
+    得把内嵌编码换成与 zlib 无关的确定性编码（如 gzip level 0 直接存储、
+    或干脆不压缩只 base64），代价是主源体积变大，且需重新固化。
+    """
+    import zlib
+
     from vea_v6 import (
         FRAMEWORK_SPEC,
         render_framework_code,
         verify_fixed_point,
         verify_self_reproduction,
     )
+    from vea_v6.parts.bootstrap import MAIN_SOURCE, framework_sources
 
     gen1 = render_framework_code(FRAMEWORK_SPEC)
     gen2 = render_framework_code(FRAMEWORK_SPEC)
     assert gen1 == gen2, "同一 SPEC 两次渲染不一致"
 
     ok, reason = verify_fixed_point(FRAMEWORK_SPEC)
+    if not ok and "与磁盘主源不一致" in reason:
+        # 要看**两层**都一致，才能判为"仅压缩载荷字节不同"：
+        #   结构层 = FRAME_CODE 块外的全部文本（含 BOOTSTRAP_SLOT、清单 bytes/sha）
+        #            + 块内除 `code` 外的字段；
+        #   内容层 = 各载荷解压后的源码。
+        # 🔴 只看内容层是不够的（变异测试实测）：把 BOOTSTRAP_SLOT 从 48947 改成
+        #    999999 后，内容层照样一致，求解器会正确重解出 48947 —— 这是**真漂移**，
+        #    只比内容层会把它误放行。
+        disk_main = framework_sources().get(MAIN_SOURCE, "")
+        content_same = _payload_files(disk_main) == _payload_files(gen1)
+        structure_same = _masked_main(disk_main) == _masked_main(gen1)
+        if content_same and structure_same:
+            print(f"  ⚠️ 固定点：内嵌 payload 的压缩字节因 zlib "
+                  f"{zlib.ZLIB_RUNTIME_VERSION} 与固化时不同而不同；"
+                  f"结构层 + 内容层（{len(_payload_files(disk_main))} 个文件）均一致 ⇒ 非漂移")
+            ok, reason = True, reason + "（结构层与内容层均一致，仅压缩载荷字节不同）"
+        else:
+            reason += "（" + ("内容层也不同" if not content_same else "结构层不同") + " ⇒ 真漂移）"
     assert ok, reason
 
     # 更强的一步：把生成物当模块执行，调它自己的 generate_framework()
