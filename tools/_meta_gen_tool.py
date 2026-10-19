@@ -6,7 +6,7 @@
 | step | 动作 | 调 LLM |
 |---|---|---|
 | expand          | 描述 → 逐文件施工单 | 1 次 |
-| plan_module     | 施工单 → 单文件源码（按文件切批，可并发） | N 次 |
+| plan_module     | 施工单 → **逐文件原子生成**（每文件一次请求，产完即单文件过闸，不过带原因重做） | N 次 |
 | normalize       | 剥围栏 / 去过短产出 | 否 |
 | audit_contract  | 语法 + 顶层符号 + 体积 + SPEC 的 `__all__` | 否 |
 | supplement      | 多份审计结果汇聚；缺的用 `fallback` 补 | 否 |
@@ -14,9 +14,12 @@
 | measure         | 统计字节数 / 文件数 / 闸门结论 | 否 |
 | passthrough     | 原样透传（给图外读 `result`） | 否 |
 
-**并发与时长**：单次请求只要超过约 60 秒就会被网关在 100 秒处掐成 524，
-而每个文件动辄 1~3 万字节、耗时 60~90 秒。所以 `plan_module` 把文件**再按批切**，
-并用线程池并发（实测 4 路并发、每路 3.5 万字符输出，总耗时 26 秒）。
+**逐文件原子生成（更细的步骤）**：原先 `plan_module` 按字节凑批，一批一次请求产出
+多个文件的完整源码 —— 单文件动辄 8 万字符，输出被 `MAX_TOKENS` 砍断还静默绕闸，且
+一批里一个文件坏、整批重做。现在每个文件**单独一次请求**，产完立即单文件闸门
+（`contract_violation`：语法 / 顶层符号不许少 / 体积不坍缩），不过带原因重做
+（`FILE_RETRIES` 次），失败的文件用上一代补。参考实现只给这一个文件（全量 `REF_CHARS`，
+不再截断），跨文件一致性靠 step 4 的 `audit_contract` + step 5 的 `supplement` 兜底。
 """
 
 from __future__ import annotations
@@ -25,7 +28,6 @@ import ast
 import json
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -33,13 +35,20 @@ from tools._meta_dag_spec import FRAME_FILES, SOURCE_TASKS
 
 #: 单次请求的输出上限。`deepseek-v4-flash` 上 `reasoning_effort=none` 才能让它
 #: 把预算花在正文上（不开时 3000 token 全被思考吃掉，正文 0 字符，实测）。
-MAX_TOKENS = 32000
+#: 单次输出预算。🔴 原先 32000 不够：`bootstrap.py` 有 88742 字符，JSON 里再
+#: 转义一遍就远超，响应被 max_tokens 砍断（实测 s17：dag.py 只生成 68%、
+#: bootstrap.py 46%）。网关实测硬上限是 65536（65537 即 HTTP 400），取到上限。
+MAX_TOKENS = 65536
 
-#: 每个文件一次请求写不完就分批；每批最多这么多字符的"目标产出"
-BATCH_TARGET = 16000
+#: 给模型的"参考实现"给多少字符。🔴 原先 20000 是**截断的元凶之一**：
+#: 超过 2 万字符的大文件（bootstrap.py 88742、dag.py 32514）模型只看得到开头
+#: 一截，剩下全靠自由发挥 —— 于是它按记忆里另一套 API 去写（`LLMClient`、
+#: `LLMRegistry`、`make_graph`、`run_round` 这些名字在框架里**一个都不存在**，
+#: 实测 s17 两次生成都因此"跨文件缺导出"被装配闸门整代否掉）。给全量即可。
+REF_CHARS = 120000
 
-#: 并发度。实测 4 路稳定；再高对端会排队，收益递减。
-WORKERS = 3
+#: 单文件生成的有界重试次数：产完单文件闸门不过，就带原因重做这么多次。
+FILE_RETRIES = 2
 
 #: 接口契约：由 SPEC 固定下来的名字。任何一代都必须提供，否则整套代码互相 import 不上。
 #: 这不是"发明新词"，而是把磁盘上那一份框架**已经公开**的符号写死成共识。
@@ -455,7 +464,13 @@ def broken_imports(sources: Dict[str, str]) -> Dict[str, List[str]]:
     by_mod = {p.split("/")[-1][:-3]: p for p in FRAME_FILES if p.endswith(".py") and not p.endswith("__init__.py")}
     out: Dict[str, List[str]] = {}
     for path, src in sources.items():
-        for m in re.finditer(r"^from\s+vea_v6\.parts\.(\w+)\s+import\s+(?:\(([^)]*)\)|([^\n]*))", src or "", re.M):
+        # 🔴 必须同时匹配**相对导入**和绝对导入：模型写 `vea_v6/parts/__init__.py`
+        # 时常用 `from .primitives import (...)`，而原先的正则只认
+        # `from vea_v6.parts.X import` —— 于是它臆造的一串名字（Graph/Info/
+        # make_edge/run_round_sync…）在 audit 这一步**完全没被看见**，一路放到
+        # assemble，而框架侧的 `missing_exports` 是"按谁被 import 倒查"的，会把账
+        # 记到应当定义它们的 primitives.py 上 ⇒ 整代被否。实测 s17 两次尝试皆此。
+        for m in re.finditer(r"^from\s+(?:vea_v6\.parts\.|\.)(\w+)\s+import\s+(?:\(([^)]*)\)|([^\n]*))", src or "", re.M):
             mod = m.group(1)
             body = m.group(2) if m.group(2) is not None else m.group(3)
             names = [n.strip().split(" as ")[0].strip() for n in body.replace("\\", "").split(",")]
@@ -520,7 +535,10 @@ def contract_violation(path: str, code: str, base: str = "") -> str:
         ast.parse(code)
     except SyntaxError as exc:
         return f"语法错误: {exc.msg} (line {exc.lineno})"
-    if path.endswith("__init__.py") and "__all__" not in code:
+    # 🔴 只对真正的包入口 `vea_v6/__init__.py` 强要 `__all__`；`parts/__init__.py`
+    # 在真实框架里只是 `from . import ...` 的再导出、**没有** `__all__`，原先一刀切对
+    # 所有 `__init__.py` 都要求 `__all__` 会把它永远判失败（实测每次都白重试 3 次再回退）。
+    if path == "vea_v6/__init__.py" and "__all__" not in code:
         return "SPEC 文件缺 __all__"
     if not base.strip():
         return ""
@@ -601,7 +619,7 @@ class GenTool:
         #: 5 个新造 + dag.py/bootstrap.py 契约没过回退补），所以判据**不能**是
         #: "一个都不许补"（那会否掉每一次真实运行），只能是
         #: "7 个全补 = 这一代没有一点新造的源码 = 复印件" —— 这在真实中可达：
-        #: LLM 端点挂掉时 `_write_batch` 的异常被吞掉返回空，7 个文件全由上一代补，
+        #: LLM 端点挂掉时 `_gen_one` 的异常被吞掉返回空，7 个文件全由上一代补，
         #: 拼出来的就是上一代的逐字节副本，而 assemble/自举/自选任务全绿。
         self.fallback_files: List[str] = []
         self.log: List[Dict[str, Any]] = []
@@ -704,90 +722,76 @@ class GenTool:
             for p in FRAME_FILES:
                 got.setdefault(p, "")
             return json.dumps({"files": [{"path": p, "source": got[p]} for p in FRAME_FILES]}, ensure_ascii=False)
-        batches: List[List[str]] = []
-        buf: List[str] = []
-        size = 0
-        for p in FRAME_FILES:
-            cost = len(self.fallback.get(p, "").encode("utf-8")) + 1200
-            if buf and size + cost > BATCH_TARGET:
-                batches.append(buf)
-                buf, size = [], 0
-            buf.append(p)
-            size += cost
-        if buf:
-            batches.append(buf)
-
-        def run(batch: List[str]) -> Dict[str, str]:
-            # 单批失败不能报销整轮：记进 log，由 `supplement` 用上一代补。
-            # （实测一次 429 rpm exhausted 就把整代生成打到异常退出，前面几批白跑。）
-            try:
-                return self._write_batch(description, briefs, batch)
-            except Exception as exc:  # noqa: BLE001
-                self.log.append({"step": "llm_batch_failed", "files": list(batch), "why": str(exc)[:200]})
-                return {}
-
+        # 🔴 逐文件原子生成（取代原先的"按字节凑批、一批多文件"）：
+        # 原先一批产出多个文件的完整源码，单文件动辄 8 万字符，输出被 `MAX_TOKENS`
+        # 砍断还静默绕闸；且一批里一个文件坏、整批得重做。现在每个文件一次请求，
+        # 产完立即单文件闸门（`contract_violation`：语法 / 顶层符号不许少 / 体积不坍缩），
+        # 不过带原因重做（`FILE_RETRIES` 次）。参考实现只给这一个文件（全量 `REF_CHARS`
+        # 不再截断），跨文件一致性交给 step 4 `audit_contract` + step 5 `supplement` 兜底。
         got: Dict[str, str] = {}
-        if len(batches) == 1:
-            got.update(run(batches[0]))
-        else:
-            with ThreadPoolExecutor(max_workers=min(WORKERS, len(batches))) as pool:
-                for part in pool.map(run, batches):
-                    got.update(part)
         for p in FRAME_FILES:
-            if p not in got:
-                # 缺的给空串：`normalize` 会照实往下传，`audit_contract` 判"空产出"，
-                # `supplement` 再用上一代补 —— 每一步在产物里都看得见。
-                got[p] = ""
+            src, why = "", ""
+            for attempt in range(1, FILE_RETRIES + 2):   # 第 1 次 + FILE_RETRIES 次重试
+                try:
+                    cand = self._gen_one(description, briefs, p, prev_why=why)
+                except Exception as exc:  # noqa: BLE001 - 单文件失败不报销整轮
+                    self.log.append({"step": "gen_file_failed", "file": p, "why": str(exc)[:200]})
+                    cand = ""
+                v = contract_violation(p, cand, self.fallback.get(p, ""))
+                if not v:
+                    src, why = cand, ""
+                    break
+                why = v
+                self.log.append({"step": "gen_file_retry", "file": p,
+                                 "attempt": attempt, "why": why[:160]})
+            # 全失败留空串：`normalize` 照实往下传，`audit_contract` 判"空产出"，
+            # `supplement` 再用上一代补 —— 每一步在产物里都看得见。
+            got[p] = src
         return json.dumps({"files": [{"path": p, "source": got[p]} for p in FRAME_FILES]}, ensure_ascii=False)
 
-    def _write_batch(self, description: str, briefs: Dict[str, Dict[str, Any]], batch: List[str]) -> Dict[str, str]:
-        """一批文件 → 一次请求 → `{path: source}`。只输出一个 JSON 对象。"""
-        items = []
-        for p in batch:
-            b = briefs.get(p) or {}
-            prev = self.fallback.get(p, "")
-            items.append(
-                {
-                    "path": p,
-                    "duty": b.get("duty", SOURCE_TASKS.get(p, "")),
-                    "must": list(dict.fromkeys([*b.get("must", []), *_need_for(p)])),
-                    "notes": b.get("notes", ""),
-                    # 给上一代同名源码当"参考实现"：不要求照抄，但要求功能不低于它
-                    "reference": prev[:20000],
-                }
-            )
+    def _gen_one(self, description: str, briefs: Dict[str, Dict[str, Any]],
+                 p: str, prev_why: str = "") -> str:
+        """为**单个文件**写完整源码：一次请求、一个 JSON 对象、只一个文件。
+
+        返回该文件源码字符串（空串表示解析失败）。单文件过闸在 `_step_plan_module`
+        里做，这里只负责"按职责 + 参考实现写出这一份"。
+        """
+        b = briefs.get(p) or {}
+        prev = self.fallback.get(p, "")
+        item = {
+            "path": p,
+            "duty": b.get("duty", SOURCE_TASKS.get(p, "")),
+            "must": list(dict.fromkeys([*b.get("must", []), *_need_for(p)])),
+            "notes": b.get("notes", ""),
+            # 参考实现只给这一个文件（全量，不再截断）：不要求照抄，但功能不低于它
+            "reference": prev[:REF_CHARS],
+        }
+        feedback = (
+            f"\n\n【上一轮没过单文件闸门，原因：{prev_why}】请据此修正后重出同一文件。"
+            if prev_why else ""
+        )
         prompt = (
-            "你要按给定职责，为下面每个文件写出**完整可用**的 Python 源码。\n"
+            "你要按给定职责，为**下面这一个文件**写出**完整可用**的 Python 源码。\n"
             "硬性要求：\n"
-            "1. 只输出一个 JSON 对象：{\"files\": [{\"path\": ..., \"source\": 完整源码}]}；\n"
+            "1. 只输出一个 JSON 对象：{\"files\": [{\"path\": ..., \"source\": 完整源码}]}，"
+            "里面**只能有这一个文件**；\n"
             "2. 不要 markdown 围栏，不要解释；\n"
             "3. 只用标准库；import 期不做网络/磁盘 IO；\n"
             "4. `must` 列出的名字必须**全部原样定义**在这份源码的顶层"
             "（别的文件会 `from ... import` 它们，名字差一个整套就跑不起来）；\n"
             "5. reference 是上一代同名实现，**功能不得少于它**（可以重写得更短）。\n\n"
             f"【整体描述】\n{description}\n\n"
-            f"【本次要写的文件】\n{json.dumps(items, ensure_ascii=False)}\n"
+            f"【本次要写的文件】\n{json.dumps([item], ensure_ascii=False)}\n"
+            + feedback
         )
         t0 = time.time()
         raw = _strip_fence(_ask(self.llm, prompt, self.cfg))
-        self.log.append({"step": "llm_batch", "files": list(batch), "seconds": round(time.time() - t0, 1)})
+        self.log.append({"step": "llm_file", "file": p, "seconds": round(time.time() - t0, 1)})
         try:
             data = json.loads(raw)
-            out = {str(i.get("path")): str(i.get("source")) for i in data.get("files", []) if i.get("source")}
+            return str((data.get("files") or [{}])[0].get("source") or "")
         except Exception:
-            out = {}
-        if not out:  # 整批失败 → 逐文件单独再试一次（缩小粒度）
-            for p in batch:
-                one = _strip_fence(
-                    _ask(self.llm, prompt.replace(json.dumps(items, ensure_ascii=False),
-                                                json.dumps([i for i in items if i["path"] == p], ensure_ascii=False)),
-                         self.cfg)
-                )
-                try:
-                    out[p] = json.loads(one)["files"][0]["source"]
-                except Exception:
-                    pass
-        return out
+            return ""
 
     # ---- 3. normalize ----------------------------------------------------
     def _step_normalize(self, payload: str) -> str:
