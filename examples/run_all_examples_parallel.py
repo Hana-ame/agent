@@ -8,15 +8,30 @@ a unified benchmark execution report.
 from __future__ import annotations
 
 import concurrent.futures
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+#: 仓库根目录（`dag_agent` 所在处）
+ROOT = Path(__file__).resolve().parent.parent
+
 
 def run_single_example(script_path: Path) -> dict:
-    """Run a single example script in an isolated subprocess."""
+    """Run a single example script in an isolated subprocess.
+
+    🔴 必须给子进程带 `PYTHONPATH=<仓库根>`：脚本被直接执行时 `sys.path[0]`
+    是 `examples/`，仓库根目录不在路径上，而 `dag_agent` **没有**安装到
+    site-packages（从根目录跑 `python -c "import dag_agent"` 能成功，只是因为
+    cwd 恰好在 sys.path 上）。原先只能靠每个示例自己写
+    `sys.path.insert(0, ...)`；ex22/ex23 忘了写，并行运行器实测 21/23，
+    报 `ModuleNotFoundError: No module named 'dag_agent'`。
+    这样加固后，新增示例漏写引导也不会炸。
+    """
     start_time = time.time()
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     try:
         proc = subprocess.run(
             [sys.executable, str(script_path)],
@@ -24,6 +39,8 @@ def run_single_example(script_path: Path) -> dict:
             stderr=subprocess.PIPE,
             text=True,
             timeout=60,
+            cwd=str(ROOT),
+            env=env,
         )
         duration = time.time() - start_time
         return {

@@ -24,11 +24,16 @@ from __future__ import annotations
 import datetime
 import json
 import re
+import sys
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from dag_agent import DAG, MockLLMClient, OpenAICompatibleClient, serialize_content
+# 与其余 21 个示例保持一致：脚本被直接执行时 `sys.path[0]` 是 examples/，
+# 仓库根目录不在路径上（dag_agent 未安装到 site-packages）。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from dag_agent import DAG, MockLLMClient, OpenAICompatibleClient, serialize_content  # noqa: E402
 
 
 # -----------------------------------------------------------------------------

@@ -16,9 +16,17 @@ Demonstrates:
 from __future__ import annotations
 
 import json
+import sys
 import time
+from pathlib import Path
 
-from dag_agent import (
+# 与其余 21 个示例保持一致：脚本被直接执行时 `sys.path[0]` 是 examples/，
+# 仓库根目录不在路径上，`from dag_agent import ...` 会 ModuleNotFoundError
+# （dag_agent 并未安装到 site-packages，能 import 只是因为从根目录运行时
+#  cwd 恰好在 sys.path 上）。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from dag_agent import (  # noqa: E402
     DAG,
     BenchmarkTestCase,
     EvaluationReport,
