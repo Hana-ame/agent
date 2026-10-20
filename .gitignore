@@ -50,6 +50,12 @@ examples/s1profile_collect/data/
 vea_v6/models.json
 # Model registry with real API keys (keep only the .example template in VCS)
 models.json
+# 例外：cf_dag/models.json 的 key 全部为 "not-needed"（laptop-8000 网关免 key），
+# 属于可入库的配置模板。若日后往里填真实 key，请删掉这两行例外。
+!cf_dag/models.json
+
+# 含真实 API key 的历史备份——绝不入库（文件保留在本地，不做删除）
+models.json*.bak
 
 # Submodule directories — only defined on hf-submodule branch,
 # would show as untracked on other branches after checkout.
