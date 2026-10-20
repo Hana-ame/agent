@@ -12,6 +12,28 @@ Modular, high-cohesion, low-coupling DAG execution framework with:
 
 from dag_agent.default_processor import DefaultProcessor, DefaultProcessorOutcome, merge_clean_contents
 from dag_agent.engine import DAG, StepResult
+
+
+def load(path, **kwargs) -> "DAG":
+    """一行加载 DAG：传入目录（含 models/contents/edges/tools.json）或单个 JSON 文件。
+
+    用法::
+
+        import dag_agent as dag
+
+        d = dag.load("path/to/dir_or_json")
+        d.step()
+        # ... 其他逻辑 ...
+        d.step()
+    """
+    from pathlib import Path
+
+    p = Path(path)
+    if p.is_dir():
+        return DAG.from_directory(p, **kwargs)
+    if p.is_file():
+        return DAG.from_json(p.read_text(encoding="utf-8"), **kwargs)
+    raise FileNotFoundError(f"dag.load: 路径不存在 {path!r}")
 from dag_agent.llm import (
     LLMCallRecord,
     LLMClientProtocol,
@@ -56,6 +78,7 @@ __version__ = "7.0.0"
 __all__ = [
     "DAG",
     "StepResult",
+    "load",
     "ModelConfig",
     "ModelRegistry",
     "ContentItem",
