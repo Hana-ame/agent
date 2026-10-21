@@ -68,62 +68,17 @@ THRESHOLDS = {
     "correctness_warn": 1.0,
 }
 
-_ERROR_MARKERS = ("Traceback (most recent call last)", "Error:", "Exception:", "\x00")
-
 
 # ---------------------------------------------------------------------------
-# 工具
+# 工具（指标实现见 dag_defs/_metrics.py，评测与浸泡共用）
 # ---------------------------------------------------------------------------
-def _as_text(payload: Any) -> str:
-    if isinstance(payload, str):
-        return payload
-    if isinstance(payload, (list, tuple)):
-        return "\n\n".join(_as_text(x) for x in payload)
-    contents = getattr(payload, "contents", None)
-    if contents is not None:
-        return contents if isinstance(contents, str) else json.dumps(contents, ensure_ascii=False)
-    return str(payload)
-
-
-def _structure(text: str) -> Dict[str, Any]:
-    lines = text.splitlines()
-    nonempty = [ln for ln in lines if ln.strip()]
-    return {
-        "chars": len(text),
-        "lines": len(lines),
-        "nonempty_lines": len(nonempty),
-        "sections": len(re.findall(r"^#{1,4} ", text, re.M)),
-        "ends_clean": bool(re.search(r"[。！？.!)\]》”\"]\s*$", text.rstrip())),
-        "has_error": any(m in text for m in _ERROR_MARKERS),
-    }
-
-
-def _ngrams(text: str, n: int = 3) -> set:
-    t = re.sub(r"\s+", "", text)
-    return {t[i : i + n] for i in range(max(0, len(t) - n + 1))}
-
-
-def _jaccard(a: str, b: str) -> float:
-    sa, sb = _ngrams(a), _ngrams(b)
-    if not sa and not sb:
-        return 1.0
-    return len(sa & sb) / len(sa | sb) if (sa | sb) else 1.0
-
-
-def _agreement(values: List[Any]) -> float:
-    """众数占比：1.0 = 所有取值相同。"""
-    if not values:
-        return 0.0
-    best = max(values.count(v) for v in set(values))
-    return best / len(values)
-
-
-def _p95(values: List[float]) -> float:
-    if not values:
-        return 0.0
-    s = sorted(values)
-    idx = min(len(s) - 1, max(0, math.ceil(0.95 * len(s)) - 1))
-    return s[idx]
+from dag_defs._metrics import (  # noqa: E402
+    agreement as _agreement,
+    as_text as _as_text,
+    jaccard as _jaccard,
+    p95 as _p95,
+    structure as _structure,
+)
 
 
 def _custom_verifier(target: str):
