@@ -78,5 +78,11 @@ dags/out/
 dag_defs/out/
 models.json.v7-*.bak
 
+# 上面的 Python 打包模板里有 `parts/`，会误伤源码目录 vea_v6/parts/。
+# bootstrap.py 是已跟踪文件，不放行的话每次改完 `git add` 都会被拦。
+!vea_v6/parts/
+# 但目录里的固化备份不入库
+vea_v6/parts/*.bak*
+
 # 本地 agent 工作记录（不属于项目本身）
 .workbuddy/

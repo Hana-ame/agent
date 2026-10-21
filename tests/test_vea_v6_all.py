@@ -545,6 +545,10 @@ def test_12_bootstrap_dag_generates_framework_code() -> None:
 
     code = dag.get_result()
     assert code and len(code) > 20000, "产出过短，不像完整框架"
+    # 收敛性：正常一轮 run 就该跑完（实测 ticks=1、新增 15 条、其中合成 2 条，
+    # 分属「三路汇聚」与「skeleton_code 汇聚」两条不同的边）。
+    # 若哪天某条边开始反复合成，ticks 会先涨——这条比数量断言更早报警。
+    assert ticks <= 3, f"DAG 未在 3 轮内收敛（ticks={ticks}），可能有边在重复合成"
     # 产出必须是合法 Python
     compile(code, "<bootstrapped>", "exec")
     # 框架的公共 API 名都在源码里
