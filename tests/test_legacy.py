@@ -33,11 +33,22 @@ def test_legacy_facade_exposes_v6_public_api():
 
 
 def test_v6_fixed_point_still_holds():
-    """搬家/改路径会让这条断掉：它是判断「v6 还能不能自复现」的唯一硬指标。"""
-    from dag_agent.legacy import v6
+    """固定点校验用 `tools/fixpoint_v3.py --check`（CI 的真实闸门）。
 
-    ok, why = v6.verify_fixed_point()
-    assert ok, why
+    **不要**用 `v6.verify_fixed_point()`：它会重跑 `assemble()`，而 assemble 内部的
+    gzip 压缩输出随 zlib 版本变化（本机 1.3.1 / CI 1.3），同一份源码在两端会解出
+    不同 sha —— 那是压缩器差异，不是真漂移，跨环境必然假红。
+    `verify_self_reproduction()` 已经区分了这两种情况，`--check` 走的就是它。
+    """
+    out = subprocess.run(
+        [sys.executable, "tools/fixpoint_v3.py", "--check"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert out.returncode == 0, f"固定点漂移：\n{out.stdout}\n{out.stderr}"
+    assert out.stdout.startswith("OK"), out.stdout
 
 
 def test_v7_and_v6_dag_types_are_distinct():
