@@ -1,15 +1,25 @@
-# Agent
+# Agent · DAG Agent v7
 
-> 本仓库在 2026-10-20 合并了两条**无共同祖先**的历史：
-> `dag_agent` v7 线（远端 `main`）与 `vea_v6` v6 自举线（原先只存在于本地）。
-> 两个框架代码互不重叠（`dag_agent/`+`examples/ex*.py` 与 `vea_v6/`+`tools/`），
-> 因此是**并存**而非取舍 —— 两边的 README 原文完整保留在下面两大部分里，
-> 只把标题各降一级以便嵌套。
+> **主线只有一条：v7（`dag_agent`）。**
+>
+> 2026-10-20 合并进来的 `vea_v6` 已于 2026-10-22 降级为**自举子系统（legacy）**，
+> 不再是并列主线：
+>
+> - v6 里对 v7 有普适价值的三项能力已**重新实现**进 v7：
+>   1. `dag_agent/llm.py`：SSE 流式（`stream=True`）+ reasoning 兜底
+>   2. `dag_agent/llm.py`：重试白名单（`max_retries=N`，403/1010/10054/429/5xx/超时）
+>   3. `dag_agent/builder.py`：`parse_edges_from_description()` / `build_dag_from_description()`
+>      —— 从自然语言描述直接生成可运行的 DAG（v7 原来只会"改 DAG"，不会"造 DAG"）
+> - v6 的 `DAG` / `Edge` / `ContentItem` 只服务它自己的自举链，**新代码一律用 `dag_agent.DAG`**
+> - 需要碰 v6 时走门面：`from dag_agent.legacy import v6`（惰性加载，不拖慢 import）
+> - ⚠️ `vea_v6/parts/*` 的**路径是固定点锚点**（`FRAME_FILES` 写死 + payload 内嵌），
+>   物理移动会让 `fixpoint_v3.py --check` / `gen3_probe` / `oneshot_chain` 全链失效。
+>   要搬家必须同步改 SPEC 并重新固化
 
-| 线 | 代码 | 测试入口 |
+| 模块 | 代码 | 测试入口 |
 |---|---|---|
-| DAG Agent v7 | `dag_agent/`, `examples/ex*.py` | `python -m pytest tests/ -q`（**推荐**）、`python examples/run_all_examples_parallel.py`、`python test_live_endpoints.py`（真实端点） |
-| VEA v6 自举线 | `vea_v6/`, `tools/` | `python tests/test_vea_v6_all.py`、`python tools/accept_run.py <run>` |
+| **v7 主线** | `dag_agent/`, `dags/`, `dag_defs/`, `examples/ex*.py` | `python -m pytest tests/ -q`（推荐）、`python examples/run_all_examples_parallel.py`、`python test_live_endpoints.py`（真实端点） |
+| v6 自举子系统（legacy） | `vea_v6/`, `tools/` | `python -m pytest tests/test_vea_v6_all.py -q`、`python tools/accept_run.py <run>` |
 
 ### 测试怎么跑（2026-10-22 分层，默认离线）
 

@@ -63,6 +63,11 @@ from dag_agent.watcher import (
     WatcherOptimizerLoop,
     create_watcher_dag,
 )
+from dag_agent.builder import (
+    build_dag_from_description,
+    parse_edges_from_description,
+    parse_json_stream,
+)
 from dag_agent.versions import (
     VersionA_MinimalDAG,
     VersionB_SemanticEmbeddingDAG,
@@ -96,6 +101,9 @@ __all__ = [
     "create_meta_dag",
     "transform_dag_with_meta_dag",
     "apply_prompt_to_dag_dict",
+    "parse_edges_from_description",
+    "build_dag_from_description",
+    "parse_json_stream",
     "cosine_similarity",
     "ngram_similarity",
     "deterministic_semantic_embedding",
@@ -115,4 +123,8 @@ __all__ = [
     "VersionE_AsyncParallelDAG",
     "VersionF_TransactionalReactiveDAG",
     "VersionG_ProductionCompleteDAG",
+    "legacy",
 ]
+
+# v6 自举子系统门面（惰性：只有访问 dag_agent.legacy.v6 时才 import vea_v6）
+from dag_agent import legacy  # noqa: E402,F401
