@@ -242,3 +242,44 @@ def test_cli_run_dry_run(capsys, tmp_path, clean_specs):
     captured = capsys.readouterr().out
     assert "dry-run" in captured
     assert not out_file.exists()
+
+
+def test_run_dag_seed_override(tmp_path, clean_specs):
+    """--seed / run_dag(seed=...) 必须覆盖注册时写死的 seed_content。"""
+    seen = {}
+
+    def build():
+        d = DAG(name="seed_probe", models={}, llm_client=MockLLMClient())
+
+        def echo(x):
+            seen["got"] = getattr(x, "contents", x)
+            return "ok"
+
+        d.add_edge(input_tags=["seed"], processor=echo, output_tags=["final"])
+        return d
+
+    spec = _spec()
+    spec.build = build
+    DAG_SPECS["tmp-seed"] = spec
+    run_dag("tmp-seed", output=str(tmp_path / "o.md"), dry_run=True, seed="替换后的种子")
+    assert seen["got"] == "替换后的种子"
+
+
+def test_cli_run_seed(capsys, tmp_path, clean_specs):
+    seen = {}
+
+    def build():
+        d = DAG(name="seed_probe2", models={}, llm_client=MockLLMClient())
+
+        def echo(x):
+            seen["got"] = getattr(x, "contents", x)
+            return "ok"
+
+        d.add_edge(input_tags=["seed"], processor=echo, output_tags=["final"])
+        return d
+
+    spec = _spec()
+    spec.build = build
+    DAG_SPECS["tmp-seed2"] = spec
+    assert cli_main(["run", "tmp-seed2", "--dry-run", "--seed", "from-cli", "-o", str(tmp_path / "o.md")]) == 0
+    assert seen["got"] == "from-cli"

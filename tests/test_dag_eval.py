@@ -144,3 +144,21 @@ def test_custom_verifier_discovery():
 
     assert _custom_verifier("stage1st-ai-24h") is not None
     assert _custom_verifier("no-such-dag") is None
+
+
+# ---------------------------------------------------------------------------
+# 标定桩：评测器自身的金标准
+# ---------------------------------------------------------------------------
+def test_selftest_stable_passes(clean_specs):
+    """输入完美时评测器必须给满分，否则它没资格评真 DAG。"""
+    report = _run({"target": "selftest-stable", "runs": 3}, {})
+    assert "判定：**PASS**" in report
+    assert "文本 3-gram Jaccard 均值：**1.000**" in report
+    assert "长度变异系数 CV：**0.000**" in report
+    assert "| custom_verify | 100% |" in report
+
+
+def test_selftest_noisy_warns(clean_specs):
+    report = _run({"target": "selftest-noisy", "runs": 3}, {})
+    assert "判定：**WARN**" in report
+    assert "结构字段不稳定" in report

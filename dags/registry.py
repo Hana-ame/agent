@@ -172,10 +172,12 @@ def run_dag(
     output: Optional[str] = None,
     max_steps: int = 30,
     dry_run: bool = False,
+    seed: Optional[str] = None,
 ) -> Dict[str, object]:
     """一次调用跑完整条 DAG：build → 注入种子 → run(until_tag) → 写文件。
 
     dry_run=True 时只跑到取结果，不落盘（测试与 CI 用，避免污染工作树）。
+    seed 覆盖注册时写死的 seed_content（评测类 DAG 靠它换目标，如 dag-eval）。
 
     返回 {name, dag, report, output, written, elapsed, steps, timings}。
     """
@@ -186,7 +188,11 @@ def run_dag(
     _timings.clear()
     t0 = time.perf_counter()
     dag = spec.build()
-    dag.add_content(contents=spec.seed_content, tags=[spec.seed_tag], gen=0)
+    dag.add_content(
+        contents=spec.seed_content if seed is None else seed,
+        tags=[spec.seed_tag],
+        gen=0,
+    )
     steps = dag.run(until_tag=spec.final_tag, max_steps=max_steps)
     elapsed = time.perf_counter() - t0
 
