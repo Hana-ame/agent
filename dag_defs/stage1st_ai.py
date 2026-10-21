@@ -607,3 +607,31 @@ def build_stage1st_ai_dag() -> DAG:
         layer=3,
     )
     return d
+
+
+# ---------------------------------------------------------------------------
+# 评测接口：dag-eval 会调用这个判「语义正确率」
+# ---------------------------------------------------------------------------
+def verify_report(text: str) -> Tuple[bool, str]:
+    """本 DAG 的验收判据（供 dag_eval 调用）。
+
+    只看报告本身能不能交差，不看内容对不对（那需要标准答案）：
+    - 两段必须在：`## 摘要` / `## 主题索引`
+    - 摘要不能走兜底（抽取式 = LLM 挂了）
+    - 摘要必须以句末标点收尾（防截断）
+    - 索引至少 3 条（否则等于没整理）
+    """
+    text = text or ""
+    if "## 摘要" not in text:
+        return False, "缺 `## 摘要` 段"
+    if "## 主题索引" not in text:
+        return False, "缺 `## 主题索引` 段"
+    head, _, tail = text.partition("## 主题索引")
+    if "LLM 摘要不可用" in head or "抽取式摘要" in head:
+        return False, "摘要走了抽取式兜底（LLM 不可用）"
+    if not re.search(r"[。！？.]\s*$", head.strip()):
+        return False, "摘要未以句末标点结束（疑似截断）"
+    items = len(re.findall(r"^- \[", tail, re.M))
+    if items < 3:
+        return False, f"主题索引只有 {items} 条（< 3）"
+    return True, f"结构完整，索引 {items} 条"

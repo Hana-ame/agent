@@ -101,30 +101,64 @@ def get_definition_module(stem: str) -> Any:
 def load_definitions(directory: Union[str, Path], *, force: bool = False) -> List[str]:
     """自动发现并加载一个目录下的所有任务 DAG 模块（忽略 `_` 开头）。
 
-    缓存键里带目录指纹：不同目录下的同名模块不会互相顶掉（早先只用 stem，
-    多目录加载时会拿错模块）。
+    两种加载方式，优先走包导入：
+    - 目录有 `__init__.py`（是个包）→ `importlib.import_module("dag_defs.xxx")`。
+      这样 `from dag_defs.xxx import y` 与自动发现拿到的是**同一个模块对象**，
+      不会出现两份实例各注册一次（早先用文件加载，两种写法混用时必重复注册）。
+    - 否则（散装脚本目录）→ 按文件路径加载，模块名带目录指纹，避免多目录同名串味。
     """
     d = Path(directory)
     if not d.is_dir():
         return []
+    # 只有「父目录已在 sys.path 上」的包才走包导入。临时目录（同名且不在 sys.path）
+    # 若也走包导入，会撞 sys.modules 缓存拿到别的目录的模块。
+    # `sys.path` 里的空串表示当前工作目录，不能过滤掉（`python -c` / `-m` 都靠它）
+    search_roots = {str(Path(p or ".").resolve()) for p in sys.path}
+    is_package = (d / "__init__.py").exists() and str(d.parent.resolve()) in search_roots
+    pkg_root = d.parent
     digest = hashlib.sha1(str(d.resolve()).encode("utf-8")).hexdigest()[:8]
     loaded: List[str] = []
+
     for path in sorted(d.glob("*.py")):
         if path.name.startswith("_"):
             continue
-        mod_name = f"dag_defs_{digest}_{path.stem}"
-        if mod_name in sys.modules and not force:
-            LOADED_MODULES.setdefault(path.stem, sys.modules[mod_name])
-            loaded.append(path.stem)
-            continue
-        spec = importlib.util.spec_from_file_location(mod_name, path)
-        if spec is None or spec.loader is None:
-            continue
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[mod_name] = module
-        spec.loader.exec_module(module)
-        LOADED_MODULES[path.stem] = module
-        loaded.append(path.stem)
+        stem = path.stem
+        module: Any = None
+
+        if is_package:
+            qualname = f"{d.name}.{stem}"
+            if qualname in sys.modules and not force:
+                module = sys.modules[qualname]
+            else:
+                root_str = str(pkg_root)
+                if root_str not in sys.path:
+                    sys.path.insert(0, root_str)
+                try:
+                    module = importlib.import_module(qualname)
+                    if force:
+                        module = importlib.reload(module)
+                except Exception as exc:  # noqa: BLE001 - 包导入失败回落到文件加载
+                    warnings.warn(
+                        f"包导入 {qualname} 失败（{type(exc).__name__}: {exc}），回落到文件加载",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                    module = None
+
+        if module is None:
+            mod_name = f"dag_defs_{digest}_{stem}"
+            if mod_name in sys.modules and not force:
+                module = sys.modules[mod_name]
+            else:
+                spec = importlib.util.spec_from_file_location(mod_name, path)
+                if spec is None or spec.loader is None:
+                    continue
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[mod_name] = module
+                spec.loader.exec_module(module)
+
+        LOADED_MODULES[stem] = module
+        loaded.append(stem)
     return loaded
 
 
