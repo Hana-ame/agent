@@ -18,6 +18,11 @@ from examples.ex23_stage1st_ai_crawler_and_digest_dag import (
     scrape_s1_ai_catalog,
 )
 
+# 三个用例都要抓 stage1st.com 的真实页面（test_03 只是 LLM 用 mock）。
+# 不打标记的话，断网环境下是「卡到超时」而不是「失败」——CI 因此长期挂死。
+# 默认跳过；本地显式 `pytest tests/test_stage1st_dag.py --run-network` 才跑。
+pytestmark = pytest.mark.network
+
 
 class TestStage1stPipelineDAG:
     """Test suite validating S1 157 forum scraping, Python interleaving, and multi-stage DAG synthesis."""

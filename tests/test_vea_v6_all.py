@@ -11,6 +11,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vea_v6 import (
@@ -551,9 +553,15 @@ def test_12_bootstrap_dag_generates_framework_code() -> None:
 
     # 拓扑：三段式（spec / skeleton / flesh）汇聚到 skeleton_code 的那条边缺三路输入，
     # 必须由预设边把三条 layer-1 产物合成一个中间条目，否则整链断在这里。
+    #
+    # 只锁契约、不锁条数：`_preset_synthesized` 会被多条边复用（三段式汇聚边、
+    # skeleton_code 汇聚边各会合成），历史断言 `== 1` 与「只允许三路 tag」都会误报。
+    # 真正要保证的是「三路 tag 的那条合成确实存在」——缺了它 skeleton_code 边就断。
     synth = [i for i in dag.context if i.get("_preset_synthesized")]
-    assert len(synth) == 1, f"预设边应恰好合成 1 条，实际 {len(synth)}"
-    assert sorted(synth[0]["tags"]) == ["flesh_plan", "skeleton_plan", "spec_plan"]
+    assert synth, "预设边没有合成任何中间条目 —— 三段式会在 skeleton_code 边断链"
+    want = ["flesh_plan", "skeleton_plan", "spec_plan"]
+    three_way = [i for i in synth if sorted(i["tags"]) == want]
+    assert three_way, f"没有三路合成条目，实际合成了：{[sorted(i['tags']) for i in synth]}"
 
     # 产出必须是**整个 vea_v6**：主源自包含，清单与内嵌源码都齐全
     assert "BOOTSTRAP_B64" in code
@@ -826,75 +834,107 @@ def test_18_llm_text_extraction_falls_back_to_reasoning() -> None:
         raise AssertionError("空正文应当抛出 ValueError")
 
 
+def _unittest_only(fn):
+    """unittest 兼容包装：pytest 下跳过，避免同一逻辑跑两遍。
+
+    1~23 号在模块级已有同名函数式测试（pytest 收集模块级那份即可）；这个类
+    只是让 `python -m unittest` 也能跑。unittest 不认 pytest 的 mark，那边照常执行。
+    """
+    return pytest.mark.skip(reason="unittest 兼容包装：pytest 下由模块级同名测试覆盖")(fn)
+
+
 class TestVEAV6Suite(unittest.TestCase):
     """兼容 unittest 测试运行器的包装类。"""
 
+    @_unittest_only
     def test_1(self) -> None:
         test_1_dag_structure_and_edge_formats()
 
+    @_unittest_only
     def test_2(self) -> None:
         test_2_message_structure_with_optional_image_and_gen()
 
+    @_unittest_only
     def test_3(self) -> None:
         test_3_preset_edge_fallback_when_edge_has_no_input()
 
+    @_unittest_only
     def test_4(self) -> None:
         test_4_external_loop_termination_on_result_tag()
 
+    @_unittest_only
     def test_5(self) -> None:
         test_5_dict_literal_initialization_and_direct_list_mutation()
 
+    @_unittest_only
     def test_6(self) -> None:
         test_6_meta_dag_builder_builds_runnable_v6_dag()
 
+    @_unittest_only
     def test_7(self) -> None:
         test_7_parse_edge_sentences_variants()
 
+    @_unittest_only
     def test_8(self) -> None:
         test_8_models_registry_and_layer_ordering()
 
+    @_unittest_only
     def test_9(self) -> None:
         test_9_tag_based_fetch_and_reverse()
 
+    @_unittest_only
     def test_10(self) -> None:
         test_10_openai_compatible_api_edge()
 
+    @_unittest_only
     def test_11(self) -> None:
         test_11_multi_model_registry_switch()
 
+    @_unittest_only
     def test_12(self) -> None:
         test_12_bootstrap_dag_generates_framework_code()
 
+    @_unittest_only
     def test_13(self) -> None:
         test_13_bootstrap_fixed_point_is_byte_identical()
 
+    @_unittest_only
     def test_14(self) -> None:
         test_14_bootstrap_generates_another_framework_from_same_prompt()
 
+    @_unittest_only
     def test_15(self) -> None:
         test_15_generated_framework_is_runnable()
 
+    @_unittest_only
     def test_16(self) -> None:
         test_16_inline_openai_config_on_edge()
 
+    @_unittest_only
     def test_17(self) -> None:
         test_17_registry_key_not_treated_as_model_name()
 
+    @_unittest_only
     def test_18(self) -> None:
         test_18_llm_text_extraction_falls_back_to_reasoning()
 
+    @_unittest_only
     def test_19(self) -> None:
         test_19_every_generation_runs_a_self_chosen_dag()
 
+    @_unittest_only
     def test_20(self) -> None:
         test_20_meta_dag_dispatches_eight_steps_without_network()
 
+    @_unittest_only
     def test_21(self) -> None:
         test_21_provider_failure_is_not_accepted_as_a_generation()
 
+    @_unittest_only
     def test_22(self) -> None:
         test_22_source_gate_rejects_a_generation_with_nothing_new()
 
+    @_unittest_only
     def test_23(self) -> None:
         test_23_head_steps_and_checkout_verification()
 

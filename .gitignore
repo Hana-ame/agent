@@ -72,5 +72,11 @@ generated_builder.py
 demo/
 SMOKE.log
 
+# DAG 运行产物：每次跑都会变，属于运行时状态而非源码。
+# 要留档的快照请显式 cp 到 docs/ 或另命名后提交。
+dags/out/
+dag_defs/out/
+models.json.v7-*.bak
+
 # 本地 agent 工作记录（不属于项目本身）
 .workbuddy/

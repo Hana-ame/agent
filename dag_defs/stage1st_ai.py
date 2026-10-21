@@ -578,7 +578,7 @@ def s1_summarize_report(digest: Any) -> str:
     seed_tag="s1_board_url",
     seed_content="https://stage1st.com/2b/forum-157-1.html",
     final_tag="s1_ai_report",
-    default_output="dags/out/stage1st_ai_24h.md",
+    default_output="dag_defs/out/stage1st_ai_24h.md",
 )
 def build_stage1st_ai_dag() -> DAG:
     d = DAG(name="stage1st_ai_24h", models=str(ROOT / "models.json"))

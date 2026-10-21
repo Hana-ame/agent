@@ -10,10 +10,14 @@
 from __future__ import annotations
 
 import functools
+import hashlib
+import importlib.util
+import sys
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -48,6 +52,10 @@ class DagSpec:
 
 DAG_SPECS: Dict[str, DagSpec] = {}
 
+# stem -> 已加载的定义模块。定义模块自己需要兄弟模块（如稳定性脚本要拿
+# stage1st_ai 的函数）时用 get_definition_module()，不要靠猜 sys.modules 的键名。
+LOADED_MODULES: Dict[str, Any] = {}
+
 
 def register(
     name: str,
@@ -59,6 +67,15 @@ def register(
     default_output: str,
 ):
     def deco(build: Callable[[], object]):
+        old = DAG_SPECS.get(name)
+        if old is not None and old.build is not build:
+            # 静默覆盖会让人以为新定义生效、实际跑的是别的模块 —— 只警告不阻断，
+            # 保留热重载能力。
+            warnings.warn(
+                f"重复注册 DAG {name!r}：{old.build.__module__} 被 {build.__module__} 覆盖",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         DAG_SPECS[name] = DagSpec(
             name=name,
             description=description,
@@ -73,6 +90,44 @@ def register(
     return deco
 
 
+def get_definition_module(stem: str) -> Any:
+    """取已加载的定义模块；不存在时抛 KeyError 并列出可用的。"""
+    try:
+        return LOADED_MODULES[stem]
+    except KeyError:
+        raise KeyError(f"定义模块未加载: {stem!r}；已加载: {sorted(LOADED_MODULES)}") from None
+
+
+def load_definitions(directory: Union[str, Path], *, force: bool = False) -> List[str]:
+    """自动发现并加载一个目录下的所有任务 DAG 模块（忽略 `_` 开头）。
+
+    缓存键里带目录指纹：不同目录下的同名模块不会互相顶掉（早先只用 stem，
+    多目录加载时会拿错模块）。
+    """
+    d = Path(directory)
+    if not d.is_dir():
+        return []
+    digest = hashlib.sha1(str(d.resolve()).encode("utf-8")).hexdigest()[:8]
+    loaded: List[str] = []
+    for path in sorted(d.glob("*.py")):
+        if path.name.startswith("_"):
+            continue
+        mod_name = f"dag_defs_{digest}_{path.stem}"
+        if mod_name in sys.modules and not force:
+            LOADED_MODULES.setdefault(path.stem, sys.modules[mod_name])
+            loaded.append(path.stem)
+            continue
+        spec = importlib.util.spec_from_file_location(mod_name, path)
+        if spec is None or spec.loader is None:
+            continue
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[mod_name] = module
+        spec.loader.exec_module(module)
+        LOADED_MODULES[path.stem] = module
+        loaded.append(path.stem)
+    return loaded
+
+
 def list_dags() -> List[DagSpec]:
     return [DAG_SPECS[k] for k in sorted(DAG_SPECS)]
 
@@ -82,10 +137,13 @@ def run_dag(
     *,
     output: Optional[str] = None,
     max_steps: int = 30,
+    dry_run: bool = False,
 ) -> Dict[str, object]:
     """一次调用跑完整条 DAG：build → 注入种子 → run(until_tag) → 写文件。
 
-    返回 {name, dag, report, output, elapsed, steps, timings}。
+    dry_run=True 时只跑到取结果，不落盘（测试与 CI 用，避免污染工作树）。
+
+    返回 {name, dag, report, output, written, elapsed, steps, timings}。
     """
     spec = DAG_SPECS.get(name)
     if spec is None:
@@ -100,14 +158,18 @@ def run_dag(
 
     report = dag.get_result(spec.final_tag) or ""
     out_path = Path(output) if output else ROOT / spec.default_output
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(report, encoding="utf-8")
+    written = False
+    if not dry_run:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(report, encoding="utf-8")
+        written = True
 
     return {
         "name": name,
         "dag": dag,
         "report": report,
         "output": str(out_path),
+        "written": written,
         "elapsed": elapsed,
         "steps": steps,
         "timings": dict(_timings),

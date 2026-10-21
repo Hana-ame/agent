@@ -11,13 +11,34 @@
 | DAG Agent v7 | `dag_agent/`, `examples/ex*.py` | `python -m pytest tests/ -q`（**推荐**）、`python examples/run_all_examples_parallel.py`、`python test_live_endpoints.py`（真实端点） |
 | VEA v6 自举线 | `vea_v6/`, `tools/` | `python tests/test_vea_v6_all.py`、`python tools/accept_run.py <run>` |
 
+### 测试怎么跑（2026-10-22 分层，默认离线）
+
+```bash
+pytest tests/ -q                     # 默认：离线。network / llm 标记的用例自动跳过
+pytest tests/ -q --run-network       # 联网：stage1st 抓取 + 真实端点（CI 里是独立手动 job）
+pytest tests/test_dag_contracts.py   # 只验所有已注册 DAG 的契约
+python -m dags list                  # 注册表能否发现 dag_defs/
+python -m dags run <name> --dry-run  # 跑完整条 DAG 但不落盘
+```
+
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 库 | `tests/test_dags_library.py` | 注册 / 自动发现 / CLI / run_dag，全离线 |
+| 契约 | `tests/test_dag_contracts.py` | 参数化**所有**已注册 DAG：种子可注入、`final_tag` 从种子可达、产物落 `out/`、默认 `max_steps` 够用 |
+| 定义 | `tests/test_dag_defs_offline.py` | 解析 / 兜底纯函数（时间、模型序号、抽取式摘要、META 块） |
+| 引擎 | `tests/test_dag_agent_all.py`、`test_dynamic_and_discontinuous.py`、`test_watcher_loop.py` | v7 引擎 |
+| 自举 | `tests/test_vea_v6_all.py` | v6 线；`TestVEAV6Suite` 只是 unittest 兼容包装，pytest 下自动跳过（否则同一逻辑跑两遍） |
+| 联网 | `tests/test_stage1st_dag.py` | 打 `network` 标记，默认跳过 |
+
+**新增 DAG 不用改测试**：契约测试参数化自动带上；只要 `@register` 的元数据齐全、
+`final_tag` 从 `seed_tag` 可达，就会自动纳入闸门。
+
 > **测试入口的坑（实测）**：下面 Part I 文档里写的
 > `python -m unittest tests/test_dag_agent_all.py -v` **只跑得到 9 个测试** ——
 > v7 线另有 12 个测试（`test_dynamic_and_discontinuous.py` 6 个、
 > `test_stage1st_dag.py` 3 个、`test_watcher_loop.py` 3 个）是 **pytest 风格**
 > （普通类 + `test_*` 方法，不继承 `unittest.TestCase`），`unittest` 收集不到，
-> 会静默显示 `Ran 0 tests` 而不报错。要跑全请用 `python -m pytest tests/ -q`
-> （当前 67 passed = v7 21 个 + v6 46 个）。
+> 会静默显示 `Ran 0 tests` 而不报错。要跑全请用 `python -m pytest tests/ -q`。
 
 > ⚠️ **`models.json` 不入库**（内含端点凭据）：先
 > `cp models.json.example models.json` 再跑真实端点脚本。

@@ -1,8 +1,8 @@
 """稳定性测试：同一输入重复跑，量化输出是否稳定。
 
 用法：
-  python3 -m dags._stability classify 4     # 分类环节跑 4 次
-  python3 -m dags._stability full 2         # 完整 DAG 跑 2 次，比较结构完整性
+  python3 -m dag_defs.stage1st_stability classify 4     # 分类环节跑 4 次
+  python3 -m dag_defs.stage1st_stability full 2         # 完整 DAG 跑 2 次，比较结构完整性
 """
 from __future__ import annotations
 
@@ -15,8 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import dags  # noqa: E402,F401  (触发 dag_defs 自动加载)
 from dags import registry  # noqa: E402
-from dags import stage1st_ai as s1  # noqa: E402
+
+# 定义模块的 sys.modules 键名由 registry 维护（带目录指纹），不要自己猜：
+# 早先写死 sys.modules["dag_defs_stage1st_ai"]，换个加载顺序或从包路径导入就 KeyError。
+s1 = registry.get_definition_module("stage1st_ai")
 
 
 def _jaccard(a, b) -> float:
@@ -83,9 +87,10 @@ def test_full(runs: int = 2) -> None:
     print(f"=== 完整 DAG 稳定性：{runs} 次 ===")
     reports = []
     for i in range(runs):
-        res = registry.run_dag("stage1st-ai-24h")
+        # dry_run：只跑到取结果，正式产物 dag_defs/out/ 留给 `python -m dags run` 写
+        res = registry.run_dag("stage1st-ai-24h", dry_run=True)
         text = str(res["report"])
-        snap = ROOT / "dags" / "out" / f"stability_run{i + 1}.md"
+        snap = ROOT / "dag_defs" / "out" / f"stability_run{i + 1}.md"
         snap.parent.mkdir(parents=True, exist_ok=True)
         snap.write_text(text, encoding="utf-8")
         st = _structure_report(text)
