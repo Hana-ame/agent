@@ -279,7 +279,11 @@ def main(argv: List[str]) -> int:
     ns2: Dict = {"Any": object, "Dict": dict, "List": list}
     exec(re.search(r"^FRAMEWORK_SPEC: Dict\[str, Any\] = \{.*?^\}", files[MAIN], re.S | re.M).group(0), ns2)
     final, pad = build(files, ns2["FRAMEWORK_SPEC"])
-    (ROOT / MAIN).write_text(final, encoding="utf-8")
+    # newline="\n"：Windows 上默认会把 \n 写成 \r\n，导致磁盘字节数与清单里的
+    # `bytes`（按 LF 算）不符。本地 --check 因为 read_text 的 universal newline
+    # 看不出来，但 Linux/CI checkout 成 LF 后 verify_fixed_point() 会 FAIL。
+    # 固定点必须与平台无关，这里强制 LF。
+    (ROOT / MAIN).write_text(final, encoding="utf-8", newline="\n")
     print(f"固化完成：主源 {len(final.encode('utf-8'))} 字节，pad={pad}")
     return 0
 
