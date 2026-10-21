@@ -416,6 +416,14 @@ def s1_scrape_catalog(seed: Any) -> str:
     _as_text(seed)
     print("  [edge_0] 抓取 S1 157 板块目录…")
     threads = scrape_catalog()
+    if not threads:
+        # 抓取失败会被 scrape_catalog 内部吞成空列表（它逐页 try/except 打印警告）。
+        # 继续跑只会产出一份 500 字的空报告，还显示「成功」——评测里就是这么骗过
+        # steps=4 / reached_final_tag=True 的。这里直接失败，把病根暴露出来。
+        raise RuntimeError(
+            "目录抓取失败：0 帖（检查网络/代理是否可达 stage1st.com；"
+            "实测常见原因是 SSL 握手超时 _ssl.c:1015）"
+        )
     print(f"           目录 {len(threads)} 帖，交给 LLM 判定 AI 相关性…")
     ai = classify_ai_threads(threads)
     print(f"           LLM 判定 AI 相关：{len(ai)} 帖")

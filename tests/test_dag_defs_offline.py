@@ -137,3 +137,17 @@ def test_structure_report_flags_truncated_summary():
 # ---------------------------------------------------------------------------
 def test_builtin_definitions_are_loaded():
     assert {"stage1st_ai", "stage1st_stability"} <= set(registry.LOADED_MODULES)
+
+
+def test_scrape_catalog_fails_fast_when_zero_threads(monkeypatch):
+    """抓取被吞成空列表时必须直接失败，不能继续产出一份空报告。"""
+    monkeypatch.setattr(s1, "scrape_catalog", lambda *a, **k: [])
+    with pytest.raises(RuntimeError, match="目录抓取失败：0 帖"):
+        s1.s1_scrape_catalog("seed")
+
+
+def test_scrape_catalog_proceeds_with_threads(monkeypatch):
+    monkeypatch.setattr(s1, "scrape_catalog", lambda *a, **k: [{"tid": "1", "url": "u", "title": "t"}])
+    monkeypatch.setattr(s1, "classify_ai_threads", lambda threads: threads)
+    out = s1.s1_scrape_catalog("seed")
+    assert json.loads(out)["threads"][0]["tid"] == "1"
