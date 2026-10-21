@@ -3,7 +3,8 @@
 ## 怎么用
 
 ```bash
-python -m dags run dag-eval                                  # 默认测 stage1st-ai-24h，跑 3 次
+python -m dags run dag-eval                                   # 默认测标定桩，秒级出结果
+python -m dags run dag-eval --seed '{"target":"stage1st-ai-24h","runs":3}'   # 测真 DAG（要外网+key）
 ```
 
 或者在别的 DAG 里把它当前置步骤：种子内容是 JSON
@@ -57,7 +58,10 @@ from dags.registry import register, timed
 
 __all__ = ["build_dag_eval", "DEFAULT_REQUEST"]
 
-DEFAULT_REQUEST: Dict[str, Any] = {"target": "stage1st-ai-24h", "runs": 3, "max_steps": 30}
+# 默认目标用标定桩：不带参数直接跑必须能立刻出结果。
+# 想评真 DAG 就显式指定，例如：
+#   python -m dags run dag-eval --seed '{"target":"stage1st-ai-24h","runs":3}'
+DEFAULT_REQUEST: Dict[str, Any] = {"target": "selftest-stable", "runs": 3, "max_steps": 30}
 
 # 阈值：任一 FAIL 判 FAIL，任一 WARN 判 WARN
 THRESHOLDS = {

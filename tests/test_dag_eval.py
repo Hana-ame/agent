@@ -102,10 +102,12 @@ def test_unknown_target_raises(clean_specs):
         dag.run(until_tag="eval_report", max_steps=5)
 
 
-def test_default_request_targets_stage1st():
+def test_default_request_uses_selftest_probe():
+    """默认目标必须是离线桩：不带参数直接跑不能卡在外网。"""
     req = json.loads(DAG_SPECS["dag-eval"].seed_content)
-    assert req["target"] == "stage1st-ai-24h"
+    assert req["target"] == "selftest-stable"
     assert req["runs"] >= 1
+    assert "selftest-stable" in DAG_SPECS, "默认目标必须已注册"
 
 
 # ---------------------------------------------------------------------------
