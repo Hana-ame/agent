@@ -121,10 +121,27 @@ SELECT run_id, content FROM contents WHERE tags LIKE '%final%' AND run_id IN (..
 ## 测试
 
 ```bash
-cd v8 && python -m pytest tests/ -q
+cd v8 && python -m pytest tests/ -q                  # 17 条，含真实调用，约 2 分钟
+cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，约 50 秒
 ```
 
-13 条离线测试：配置加载、占位符渲染、sqlite 读写、引擎调度（含缺输入跳过、pi 报错记录、注入 fake agent）。全部不碰 pi。
+| 文件 | 条数 | 是否碰 pi |
+|---|---|---|
+| `tests/test_dag8.py` | 13 | 否 —— 配置加载、占位符渲染、sqlite 读写、调度（注入 fake agent） |
+| `tests/test_live_pi.py` | 4 | **是** —— 真实调用 `laptop/deepseek-v4-flash` |
+
+live 的四条：
+
+1. 单次直调：返回「收到」，耗时 < 120s
+2. provider 写错时抛 `PiError`，而不是静默返回空串
+3. 边级：engine 渲染 prompt → pi 执行 → 结果落 sqlite（校验 contents 条数、edge 耗时 > 0、run 状态 `ok`）
+4. 整图三边（标 `slow`）：起草 → 挑错 → 定稿，校验多输入边的 `prompt_chars`
+
+gating：`tests/_probe.py` 只跑 `ssh ... command -v pi`（**不调模型**），探不到就 `skip`，
+不会把「没跑」伪装成「通过」。环境变量可覆盖：`DAG8_SSH_HOST` / `DAG8_SSH_KEY` /
+`DAG8_LOCAL_PI=1`（本机有 pi 时不走 ssh）。
+
+实测：全量 `17 passed in 123.78s`；跳过 slow `16 passed, 1 deselected in 49.51s`。
 
 ## 已知限制
 
