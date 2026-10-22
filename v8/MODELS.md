@@ -2,23 +2,26 @@
 
 实测时间 2026-10-23。判据是**真的用 `pi` 发一次请求**，不是看 `/v1/models` 列表。
 
-## 结论：v8 只能用 `laptop` 这一家
+## 只有 `laptop` 一家，5 个模型
 
-| provider | model | v8 可用 | 上下文 | 输出上限 | 备注 |
+| provider | model | 可用 | 上下文 | 输出上限 | 备注 |
 |---|---|---|---|---|---|
 | `laptop` | `deepseek-v4-flash` | ✅ | 1048576 | 384000 | 最快，v8 默认 |
 | `laptop` | `glm-5.2` | ✅ | 1048576 | 131072 | |
 | `laptop` | `kimi-k3` | ✅ | 1048576 | 1048576 | 输出上限最大 |
 | `laptop` | `deepseek-flash` | ✅ | 1048576 | 393216 | |
 | `laptop` | `sensenova-6.8-flash-lite` | ✅ | 262144 | 65536 | |
-| `laptop` | `deepseek-v4.1-flash` | ❌ | — | — | `403 model is not available in the current token plan` |
-| `sensenova` | `deepseek-flash` | ❌ | — | — | 挂死，45s 无任何输出 |
-| `sensenova` | `sensenova-6.8-flash-lite` | ❌ | — | — | 挂死，45s 无任何输出 |
 
-**`sensenova` 这个 provider 整个不可用**，两个模型都表现为静默挂死（不返回内容、不报错、不退出）。
-别写进配置，会白等 `pi.timeout` 秒然后失败。
+## 已移除
 
-`deepseek-v4.1-flash` 在网关的 `/v1/models` 里列着，但实际调用被 token plan 拒掉。
+| provider | model | 移除原因 |
+|---|---|---|
+| `laptop` | `deepseek-v4.1-flash` | `403 model is not available in the current token plan` |
+| `sensenova` | 整个 provider（2 个模型） | 静默挂死：45s 不返回内容、不报错、不退出 |
+
+移除后行为已验证：`sensenova/*` 报 `Error: Unknown provider "sensenova"`，
+`laptop/deepseek-v4.1-flash` 报 `Model "deepseek-v4.1-flash" not found` —— 都是立刻失败，
+不会再出现「等 timeout 才反应」的静默死挂。
 
 ## 写进 v8 配置的样子
 
@@ -39,7 +42,7 @@
 `pi` 对未注册的模型会打印 `Warning: Model "x" not found for provider "laptop". Using custom model id.`
 然后**照常透传给网关**。行为分两种：
 
-- 网关恰好有这个名字 → 正常返回（`deepseek-flash` 就是这样，之前没注册也能跑）
+- 网关恰好有这个名字 → 正常返回（`deepseek-flash` 早期就是这种情况）
 - 网关没有 → 网关侧报 `404 model is not found`
 
 危险的是第一种：拼写错了但碰巧命中，或者拼错了却被 `pi` 当 custom id 透传，

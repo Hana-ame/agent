@@ -33,7 +33,7 @@ python -m dag8 runs                             # 列出历史运行
 python -m dag8 show <run_id>                    # 看某次运行的全部中间内容
 ```
 
-**可用模型只有 `laptop` 这一家的 5 个**，`sensenova` provider 整体不可用（静默挂死）。
+**可用模型只有 `laptop` 这一家的 5 个**（`sensenova` provider 与 `deepseek-v4.1-flash` 已删除）。
 完整清单与实测数据见 [`MODELS.md`](MODELS.md)。
 
 `--check-model` 存在的理由：`pi` 遇到未注册的模型名只打一行 Warning 就按 custom model id
