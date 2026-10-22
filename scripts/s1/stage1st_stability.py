@@ -69,13 +69,16 @@ def _structure_report(text: str) -> dict:
     summary = text[text.find("## 摘要"): i] if i > 0 else text
     ends_ok = bool(re.search(r"[。！？.|]\s*$", summary.rstrip()))
     failed = ("LLM 摘要不可用" in summary) or ("抽取式摘要" in summary)
+    # 只数索引段内的条目。早先按全文数 `^- [`，摘要正文里的链接列表会被误算进去
+    # （实测出现过 [3,2] 的假分叉，实际索引都是 2 条）。
+    index_part = text[i:] if i > 0 else ""
     return {
         "lines": len(text.splitlines()),
         "summary_chars": len(summary),
         "summary_ends_properly": ends_ok,
         "summary_fallback": failed,
         "has_index_section": "## 主题索引" in text,
-        "index_items": len(re.findall(r"^- \[", text, re.M)),
+        "index_items": len(re.findall(r"^- \[", index_part, re.M)),
         "sections_count": len(re.findall(r"^## ", text, re.M)),
     }
 
