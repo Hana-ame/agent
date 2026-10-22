@@ -94,9 +94,12 @@ run 77c97fbb431a · demo_pipeline · ok
 - `ssh_host` 为空：直接跑本机 `pi`
 - `ssh_host` 有值：`ssh host 'export PATH=<nvm>; pi -p ...'`，prompt 走 stdin
 
-WSL 有两个可用地址：`172.29.89.192`（eth0 实际 IP，示例配置用它）和 `127.0.0.1`
-（Windows 侧 `wslrelay` 转发）。**前者在 WSL 重启后会变**，变了用
-`DAG8_SSH_HOST=lumin@<新IP> python -m dag8 run ...` 覆盖，或把配置改回 127。
+WSL 有两个可用地址，都能到同一个系统：
+
+- `172.29.89.192` —— eth0 地址（固定），示例配置用它，直连 WSL 内的 sshd
+- `127.0.0.1` —— Windows 侧 `wslrelay` 转发，多一层转发
+
+换机器或换网络时用 `DAG8_SSH_HOST=lumin@<地址> python -m dag8 run ...` 覆盖。
 
 prompt 用 stdin 传而不是命令行参数，避免多层 shell 的引号和换行问题（实测命令行方式在多行中文 prompt 上会被截断）。
 
