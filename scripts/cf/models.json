@@ -1,14 +1,13 @@
 {
   "_readme": "模型注册表。KEY 就是边里 {\"模型\": KEY} 的 KEY。只允许使用 laptop-8000 与 sensenova 两类；卡顿可换 model，但 api 不可换。",
   "_probe": "实测：laptop-8000 网关免 key。可用模型 deepseek-v4-flash / deepseek-v4.1-flash(403 t区不可用) / glm-5.2 / sensenova-6.8-flash-lite / kimi-k3(温度必须为1) / deepseek-flash；sensenova-u1.5-lite 虽然在 /v1/models 里列出但实际 404 not found，不可用。max_tokens 硬上限 65536，超出即 400。非推理模型 deepseek-v4-flash 最快（简单任务约 6s）。",
-  "_max_tokens_note": "【实测结论】laptop-8000 网关对 max_tokens 的硬上限是 65536，超过即 HTTP 400 'field MaxTokens invalid, should be in [1, 65536]'（已验证 65537 / 262144 / 278528 全部被拒，65536 正常返回）。GET /v1/models 的 max_output_length 同为 65536。因此这里填 65536 即该端点允许的最大值；272k 只存在于 context_length（262144，输入侧），不是单次输出预算。若换到别的端点且其 max_output_length 更大，再相应上调。",
+  "_max_tokens_note": "【已移除】不再设置输出上限。历史的 max_tokens=65536 是网关允许的最大值（超过即 400），但把它写进参数等于强行设定上限；现在一律不传，由模型自行收尾。",
   "laptop-6.8": {
     "api": "https://laptop-8000.moonchan.xyz/v1",
     "key": "not-needed",
     "model": "deepseek-v4-flash",
     "params": {
-      "temperature": 0.2,
-      "max_tokens": 32768
+      "temperature": 0.2
     }
   },
   "laptop-deepseek": {
@@ -16,8 +15,7 @@
     "key": "not-needed",
     "model": "deepseek-v4.1-flash",
     "params": {
-      "temperature": 0.2,
-      "max_tokens": 65536
+      "temperature": 0.2
     }
   },
   "laptop-deepseek-v4": {
@@ -25,8 +23,7 @@
     "key": "not-needed",
     "model": "deepseek-v4-flash",
     "params": {
-      "temperature": 0.2,
-      "max_tokens": 65536
+      "temperature": 0.2
     }
   },
   "laptop-glm": {
@@ -34,8 +31,7 @@
     "key": "not-needed",
     "model": "glm-5.2",
     "params": {
-      "temperature": 0.2,
-      "max_tokens": 65536
+      "temperature": 0.2
     }
   },
   "laptop-kimi": {
@@ -43,8 +39,7 @@
     "key": "not-needed",
     "model": "kimi-k3",
     "params": {
-      "temperature": 0.2,
-      "max_tokens": 65536
+      "temperature": 0.2
     }
   },
   "sensenova-6.8": {
@@ -52,8 +47,7 @@
     "key": "not-needed",
     "model": "sensenova-u1.5-lite",
     "params": {
-      "temperature": 0.2,
-      "max_tokens": 65536
+      "temperature": 0.2
     }
   }
 }

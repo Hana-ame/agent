@@ -124,7 +124,7 @@ def _llm_text(
     prompt: str,
     *,
     model_key: str = SUMMARY_MODEL_KEY,
-    max_tokens: int = 4000,
+    max_tokens: Optional[int] = None,
     timeout: float = 150.0,
 ) -> str:
     """调指定模型，只取 message.content；代理/直连切换 + 429 重试。"""
@@ -145,9 +145,11 @@ def _llm_text(
     body = {
         "model": cfg.model or cfg.key,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
         "temperature": float(cfg.params.get("temperature", 0.2)),
     }
+    # 不设输出上限：传 max_tokens 会把长摘要截断，模型自己知道该停在哪
+    if max_tokens is not None:
+        body["max_tokens"] = int(max_tokens)
 
     def _once() -> str:
         resp = requests.post(url, headers=headers, json=body, timeout=timeout)
@@ -279,12 +281,12 @@ def classify_ai_threads(threads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     used_model = CLASSIFY_MODEL_KEY
     t_start = __import__("time").perf_counter()
     try:
-        out = _llm_text(prompt, model_key=CLASSIFY_MODEL_KEY, max_tokens=8000)
+        out = _llm_text(prompt, model_key=CLASSIFY_MODEL_KEY)
     except Exception as ex:  # noqa: BLE001
         print(f"           ⚠️ {CLASSIFY_MODEL_KEY} 不可用（{type(ex).__name__}），回退 {SUMMARY_MODEL_KEY}")
         used_model = SUMMARY_MODEL_KEY
         try:
-            out = _llm_text(prompt, model_key=SUMMARY_MODEL_KEY, max_tokens=8000)
+            out = _llm_text(prompt, model_key=SUMMARY_MODEL_KEY)
         except Exception as ex2:  # noqa: BLE001
             raise RuntimeError(f"AI 相关性判定失败（两个模型均不可用）: {ex2}") from ex2
 
@@ -293,7 +295,7 @@ def classify_ai_threads(threads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # 再给一次更严格的机会
         retry = prompt + "\n\n注意：只输出形如 {\"ai\": [1,3,5]} 的 JSON，不要任何其他文字。"
         try:
-            out2 = _llm_text(retry, model_key=CLASSIFY_MODEL_KEY, max_tokens=8000)
+            out2 = _llm_text(retry, model_key=CLASSIFY_MODEL_KEY)
             idx = _parse_index_list(out2, len(threads))
         except Exception:  # noqa: BLE001
             idx = []
@@ -599,7 +601,7 @@ def s1_summarize_report(digest: Any) -> str:
             f"{n_posts} 条这个总数，不要自行统计样本条数。\n\n"
             f"【原文】\n{digest}"
         )
-        summary = _llm_text(prompt, model_key=SUMMARY_MODEL_KEY, max_tokens=8000)
+        summary = _llm_text(prompt, model_key=SUMMARY_MODEL_KEY)
     except Exception as ex:  # noqa: BLE001
         print(f"           ⚠️ LLM 不可用（{type(ex).__name__}: {str(ex)[:120]}），降级为抽取式摘要")
         summary = _extractive(digest, note=str(ex))

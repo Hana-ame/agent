@@ -166,8 +166,6 @@ class OpenAICompatibleClient:
             "messages": messages,
             **cfg.params,
         }
-        if "max_tokens" not in body:
-            body["max_tokens"] = 1024
 
         headers = {
             "Content-Type": "application/json",
