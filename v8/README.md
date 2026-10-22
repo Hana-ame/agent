@@ -33,8 +33,9 @@ python -m dag8 runs                             # 列出历史运行
 python -m dag8 show <run_id>                    # 看某次运行的全部中间内容
 ```
 
-**可用模型只有 `laptop` 这一家的 5 个**（`sensenova` provider 与 `deepseek-v4.1-flash` 已删除）。
-完整清单与实测数据见 [`MODELS.md`](MODELS.md)。
+**实际可用的是 `laptop` 这一家的 5 个**（`deepseek-v4.1-flash` 已删除）。
+`sensenova` provider 已按 `laptop` 复制登记，但**未配 key**，调用会在 1 秒内报
+`No API key found for sensenova.`。完整清单与实测数据见 [`MODELS.md`](MODELS.md)。
 
 `--check-model` 存在的理由：`pi` 遇到未注册的模型名只打一行 Warning 就按 custom model id
 透传，**退出码仍是 0**，模型名拼错时 v8 看不出异常。预检会在开跑前用一次真实调用把问题暴露出来。
