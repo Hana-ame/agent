@@ -403,16 +403,20 @@ def collect_24h(
     limit: int = MAX_THREADS,
     threads: Optional[List[Dict[str, Any]]] = None,
     catalog_total: Optional[int] = None,
+    catalog_active: Optional[int] = None,
 ) -> Dict[str, Any]:
     now = dt.datetime.now()
     since = now - dt.timedelta(hours=hours)
 
     all_threads = threads if threads is not None else scrape_catalog()
     active: List[Tuple[dt.datetime, Dict[str, Any]]] = []
+    idle: List[Dict[str, Any]] = []
     for t in all_threads:
         lp = _parse_dt(t.get("last_post", ""))
         if lp is not None and lp >= since:
             active.append((lp, t))
+        else:
+            idle.append(t)
     active.sort(key=lambda x: x[0], reverse=True)
     active = active[:limit]
 
@@ -436,6 +440,19 @@ def collect_24h(
         "ai_total": len(all_threads),
         "active_total": len(active),
         "threads": collected,
+        # AI 相关但 24h 内没有新回复的帖：仍然列进报告（只给标题和最后回复），
+        # 早先直接丢掉，读者会以为「只有这几个 AI 帖」。
+        "idle": [
+            {
+                "tid": t["tid"],
+                "title": t["title"],
+                "url": t["url"],
+                "last_post": t.get("last_post", ""),
+                "replies": t.get("replies", 0),
+            }
+            for t in idle
+        ],
+        "catalog_active": catalog_active if catalog_active is not None else len(active),
     }
 
 
@@ -449,8 +466,18 @@ def s1_scrape_catalog(seed: Any) -> str:
     threads = scrape_catalog()
     print(f"           目录 {len(threads)} 帖，交给 LLM 判定 AI 相关性…")
     ai = classify_ai_threads(threads)
-    print(f"           LLM 判定 AI 相关：{len(ai)} 帖")
-    return json.dumps({"catalog_total": len(threads), "threads": ai}, ensure_ascii=False)
+    # 全目录里 24h 内有回复的帖数：用来把「板块活跃度」和「AI 相关帖活跃度」分开，
+    # 避免报告里写「24h 活跃 2 帖」被读成全板块只有 2 帖在动。
+    since = dt.datetime.now() - dt.timedelta(hours=HOURS)
+    catalog_active = sum(
+        1 for t in threads
+        if (lp := _parse_dt(t.get("last_post", ""))) is not None and lp >= since
+    )
+    print(f"           LLM 判定 AI 相关：{len(ai)} 帖（全目录 24h 有回复 {catalog_active} 帖）")
+    return json.dumps(
+        {"catalog_total": len(threads), "catalog_active": catalog_active, "threads": ai},
+        ensure_ascii=False,
+    )
 
 
 def s1_fetch_24h(threads_json: Any) -> str:
@@ -461,9 +488,10 @@ def s1_fetch_24h(threads_json: Any) -> str:
         payload = json.loads(threads_json)
         threads = payload.get("threads", [])
         cat_total = payload.get("catalog_total")
+        cat_active = payload.get("catalog_active")
     except Exception:
-        threads, cat_total = [], None
-    data = collect_24h(threads=threads, catalog_total=cat_total)
+        threads, cat_total, cat_active = [], None, None
+    data = collect_24h(threads=threads, catalog_total=cat_total, catalog_active=cat_active)
     n_posts = sum(t["posts_total_24h"] for t in data["threads"])
     print(f"           活跃帖 {data['active_total']} 个，24h 回帖 {n_posts} 条")
     return json.dumps(data, ensure_ascii=False)
@@ -480,7 +508,8 @@ def s1_build_digest(posts_json: Any) -> str:
         f"- 采集时间：{d['generated_at']}",
         f"- 时间窗口：{d['window_start']} ~ {d['generated_at']}",
         f"- 板块：{d['board']}",
-        f"- 目录 {d['catalog_total']} 帖，AI 相关 {d['ai_total']} 帖，24h 内活跃 {d['active_total']} 帖",
+        f"- 目录 {d['catalog_total']} 帖（其中 {d.get('catalog_active', d['active_total'])} 帖 24h 内有回复）"
+        f"，AI 相关 {d['ai_total']} 帖，其中 {d['active_total']} 帖 24h 内有回帖",
         "",
     ]
     total_posts = 0
@@ -505,6 +534,8 @@ def s1_build_digest(posts_json: Any) -> str:
         "catalog_total": d["catalog_total"],
         "ai_total": d["ai_total"],
         "active_total": d["active_total"],
+        "catalog_active": d.get("catalog_active"),
+        "idle": d.get("idle", []),
         "threads": [
             {
                 "title": it["thread"]["title"],
@@ -584,8 +615,9 @@ def s1_summarize_report(digest: Any) -> str:
         f"- 生成时间：{meta['generated_at']}",
         f"- 时间窗口：{meta['window_start']} ~ {meta['generated_at']}",
         f"- 数据源：{meta['board']}",
-        f"- 覆盖：目录 {meta['catalog_total']} 帖 / AI 相关 {meta['ai_total']} 帖 / "
-        f"24h 活跃 {meta['active_total']} 帖 / 回帖 {total_posts} 条",
+        f"- 覆盖：目录 {meta['catalog_total']} 帖（{meta.get('catalog_active', '?')} 帖 24h 内有回复）"
+        f" / AI 相关 {meta['ai_total']} 帖 / 其中有回帖 {meta['active_total']} 帖"
+        f" / 回帖 {total_posts} 条",
         "",
         "## 摘要",
         "",
@@ -599,6 +631,12 @@ def s1_summarize_report(digest: Any) -> str:
             f"- [{it['title']}]({it['url']}) — 最后回复 {it['last_post']}，"
             f"24h 回帖 {it['post_count']} 条（末页 {it['last_page']}，回溯 {it['pages_read']} 页）"
         )
+    # AI 相关但 24h 内没人回的帖也列出来：不列的话读者会以为「AI 帖只有上面几个」。
+    idle = meta.get("idle") or []
+    if idle:
+        head += ["", "## 24h 内暂无新回复的 AI 帖", ""]
+        for it in idle:
+            head.append(f"- [{it['title']}]({it['url']}) — 最后回复 {it.get('last_post') or '未知'}")
     return "\n".join(head)
 
 
