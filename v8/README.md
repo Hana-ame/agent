@@ -137,9 +137,9 @@ live 的四条：
 3. 边级：engine 渲染 prompt → pi 执行 → 结果落 sqlite（校验 contents 条数、edge 耗时 > 0、run 状态 `ok`）
 4. 整图三边（标 `slow`）：起草 → 挑错 → 定稿，校验多输入边的 `prompt_chars`
 
-gating：`tests/_probe.py` 只跑 `ssh ... command -v pi`（**不调模型**），探不到就 `skip`，
-不会把「没跑」伪装成「通过」。环境变量可覆盖：`DAG8_SSH_HOST` / `DAG8_SSH_KEY` /
-`DAG8_LOCAL_PI=1`（本机有 pi 时不走 ssh）。
+gating：`tests/_probe.py` 只跑 `ssh ... command -v pi`（**不调模型**）。探不到时**直接 fail**，
+不是 skip —— skip 会让「环境没准备好」和「全部通过」长得一模一样，那是假绿。
+环境变量可覆盖：`DAG8_SSH_HOST` / `DAG8_SSH_KEY` / `DAG8_LOCAL_PI=1`（本机有 pi 时不走 ssh）。
 
 实测：全量 `17 passed in 123.78s`；跳过 slow `16 passed, 1 deselected in 49.51s`。
 

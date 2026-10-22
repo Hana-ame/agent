@@ -31,10 +31,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _probe import pi_probe  # noqa: E402
 
 AVAILABLE, WHY = pi_probe()
-pytestmark = [
-    pytest.mark.live,
-    pytest.mark.skipif(not AVAILABLE, reason=f"pi 不可用：{WHY}"),
-]
+pytestmark = [pytest.mark.live]
+
+
+@pytest.fixture(autouse=True)
+def _require_pi():
+    """pi 不可用就直接失败。
+
+    不用 skip：skip 会把「环境没准备好」伪装成「没问题」——CI 上悄悄跳过
+    跟全部通过长得一样，这是假绿。宁可红。
+    """
+    if not AVAILABLE:
+        pytest.fail(f"pi 不可用：{WHY}", pytrace=False)
 
 
 def _pi_cfg(**kw) -> PiConfig:
