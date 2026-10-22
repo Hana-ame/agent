@@ -1,7 +1,7 @@
 {
   "_readme": "模型注册表。KEY 就是边里 {\"模型\": KEY} 的 KEY。只允许使用 laptop-8000 与 sensenova 两类；卡顿可换 model，但 api 不可换。",
-  "_probe": "实测：laptop-8000 网关免 key。可用模型 deepseek-v4-flash / deepseek-v4.1-flash(403 t区不可用) / glm-5.2 / sensenova-6.8-flash-lite / kimi-k3(温度必须为1) / deepseek-flash；sensenova-u1.5-lite 虽然在 /v1/models 里列出但实际 404 not found，不可用。max_tokens 硬上限 65536，超出即 400。非推理模型 deepseek-v4-flash 最快（简单任务约 6s）。",
-  "_max_tokens_note": "【已移除】不再设置输出上限。历史的 max_tokens=65536 是网关允许的最大值（超过即 400），但把它写进参数等于强行设定上限；现在一律不传，由模型自行收尾。",
+  "_probe": "实测：laptop-8000 网关免 key。可用模型 deepseek-v4-flash / deepseek-v4.1-flash(403 t区不可用) / glm-5.2 / sensenova-6.8-flash-lite / kimi-k3(温度必须为1) / deepseek-flash；sensenova-u1.5-lite 虽然在 /v1/models 里列出但实际 404 not found，不可用。非推理模型 deepseek-v4-flash 最快（简单任务约 6s）。",
+  "_max_tokens_note": "【已移除】不再设置输出上限，一律不传，由模型自行收尾。踩坑记录：网关各模型的 max_tokens 上限并不统一，超限时服务端报 'field MaxTokens invalid, should be in [1, N]'；实测 N 为 deepseek-v4-flash=384000、kimi-k3=1048576、glm-5.2=131072、sensenova-6.8-flash-lite=65536。注意 GET /v1/models 的 max_output_length 与真实校验值不一致（会把 kimi-k3、deepseek-v4-flash 低估为 65536），不要拿它当依据。'65536 是网关硬上限'的旧结论已作废。",
   "laptop-6.8": {
     "api": "https://laptop-8000.moonchan.xyz/v1",
     "key": "not-needed",

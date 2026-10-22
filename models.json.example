@@ -1,14 +1,14 @@
 {
   "_readme": "模型注册表模板。KEY 就是边里 {\"模型\": KEY} 的 KEY。两个端点固定：laptop-8000（自建网关，免 key）与 sensenova.moonchan.xyz（反代，需 key）。key 一律留空，运行时用你自己的值填（本文件不要提交真实 key）。",
-  "_probe": "实测：laptop-8000 网关免 key。可用模型 deepseek-v4-flash / deepseek-v4.1-flash(403 t区不可用) / glm-5.2 / sensenova-6.8-flash-lite / kimi-k3(温度必须为1) / deepseek-flash；sensenova-u1.5-lite 虽然在 /v1/models 里列出但实际 404 not found，不可用。max_tokens 硬上限 65536，超出即 400。非推理模型 deepseek-v4-flash 最快（简单任务约 6s）。",
-  "_max_tokens_note": "【实测结论】laptop-8000 网关对 max_tokens 的硬上限是 65536，超过即 HTTP 400 'field MaxTokens invalid, should be in [1, 65536]'（已验证 65537 / 262144 / 278528 全部被拒，65536 正常返回）。GET /v1/models 的 max_output_length 同为 65536。因此这里填 65536 即该端点允许的最大值；272k 只存在于 context_length（262144，输入侧），不是单次输出预算。若换到别的端点且其 max_output_length 更大，再相应上调。",
+  "_probe": "实测：laptop-8000 网关免 key。可用模型 deepseek-v4-flash / deepseek-v4.1-flash(403 t区不可用) / glm-5.2 / sensenova-6.8-flash-lite / kimi-k3(温度必须为1) / deepseek-flash；sensenova-u1.5-lite 虽然在 /v1/models 里列出但实际 404 not found，不可用。各模型 max_tokens 上限不统一，见 _max_tokens_note。非推理模型 deepseek-v4-flash 最快（简单任务约 6s）。",
+  "_max_tokens_note": "【实测结论】网关按模型分别校验 max_tokens，超限报 field MaxTokens invalid, should be in [1, N]。实测 N：deepseek-v4-flash=384000、kimi-k3=1048576、deepseek-flash=393216、glm-5.2=131072、sensenova-6.8-flash-lite=65536（均已用边界值发请求验证被服务端接受）。deepseek-v4.1-flash 不在当前 token plan、无法实测，暂按 65536 占位。注意 GET /v1/models 的 max_output_length 不可信：它把 kimi-k3 与 deepseek-v4-flash 都低估成 65536。旧结论「65536 是网关硬上限」已作废。",
   "laptop-6.8": {
     "api": "https://laptop-8000.moonchan.xyz/v1",
     "key": "",
     "model": "deepseek-v4-flash",
     "params": {
       "temperature": 0.2,
-      "max_tokens": 32768
+      "max_tokens": 384000
     }
   },
   "laptop-deepseek": {
@@ -26,7 +26,7 @@
     "model": "deepseek-v4-flash",
     "params": {
       "temperature": 0.2,
-      "max_tokens": 65536
+      "max_tokens": 384000
     }
   },
   "laptop-glm": {
@@ -35,7 +35,7 @@
     "model": "glm-5.2",
     "params": {
       "temperature": 0.2,
-      "max_tokens": 65536
+      "max_tokens": 131072
     }
   },
   "laptop-kimi": {
@@ -44,7 +44,7 @@
     "model": "kimi-k3",
     "params": {
       "temperature": 0.2,
-      "max_tokens": 65536
+      "max_tokens": 1048576
     }
   },
   "sensenova-6.8": {

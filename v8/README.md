@@ -26,11 +26,18 @@ v7 的 `scripts/` 保留不动；v8 是独立目录，互不影响。
 
 ```bash
 cd v8
+python -m dag8 run configs/demo.json --check-model  # 先验模型能不能调通（3 秒）
 python -m dag8 run configs/demo.json            # 三边流水线：起草 → 挑错 → 定稿
 python -m dag8 run configs/demo.json --dry-run  # 不调 pi，只验配置与占位符渲染
 python -m dag8 runs                             # 列出历史运行
 python -m dag8 show <run_id>                    # 看某次运行的全部中间内容
 ```
+
+**可用模型只有 `laptop` 这一家的 5 个**，`sensenova` provider 整体不可用（静默挂死）。
+完整清单与实测数据见 [`MODELS.md`](MODELS.md)。
+
+`--check-model` 存在的理由：`pi` 遇到未注册的模型名只打一行 Warning 就按 custom model id
+透传，**退出码仍是 0**，模型名拼错时 v8 看不出异常。预检会在开跑前用一次真实调用把问题暴露出来。
 
 实测（`laptop/deepseek-v4-flash`）：
 
