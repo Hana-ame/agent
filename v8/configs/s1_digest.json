@@ -1,0 +1,35 @@
+{
+  "name": "s1_digest",
+  "_comment": "S1 157 近 24h AI 讨论 → 要点提取 → 情报摘要。种子由 v8/scripts/export_s1_seed.py 生成。",
+
+  "seed_tag": "posts",
+  "seed_content": "",
+  "result_tag": "digest",
+
+  "pi": {
+    "provider": "laptop",
+    "model": "deepseek-v4-flash",
+    "tools": false,
+    "timeout": 240,
+    "retries": 3,
+    "ssh_host": "172.29.89.192",
+    "ssh_key": "~/.ssh/id_rsa"
+  },
+
+  "edges": [
+    {
+      "id": "extract",
+      "layer": 0,
+      "input_tags": ["posts"],
+      "output_tags": ["points"],
+      "prompt": "下面是 S1 论坛归墟板块近 24 小时的讨论原文（含板块统计与各帖回帖）。\n\n任务：提取 5~8 个讨论主题。每条一行，格式严格为：\n`主题 | 涉及的技术或产品 | 一句话关键事实`\n\n要求：\n- 只基于原文，不要补充原文没有的信息\n- 按热度排序（回帖多的在前）\n- 只输出列表，不要开场白、不要总结\n\n【原文】\n{contents}"
+    },
+    {
+      "id": "digest",
+      "layer": 1,
+      "input_tags": ["posts", "points"],
+      "output_tags": ["digest"],
+      "prompt": "你是科技情报分析师。根据下面的原文与已提取的要点，写一份中文情报摘要。\n\n【格式硬约束】\n- 不要写文章大标题（报告标题由脚本拼接）\n- 四个小节一律以 `### ` 开头、编号 1)~4)\n- 不要额外再加一层小节总标题\n\n小节：\n1) 一句话总览（今天社区在聊什么）\n2) 核心议题（按热度排序，每条 1~2 句，注明涉及的技术/产品/公司）\n3) 社区观点与争议（正反方）\n4) 值得关注的信号/风险\n\n【统计口径】原文开头给了板块统计（目录多少帖、其中多少帖 24h 内有回复、AI 相关多少帖、其中多少帖有回帖）。凡需引用数量，一律用这几个数，不要自行统计样本条数。\n\n【已提取要点】\n{tag:points}\n\n【原文】\n{tag:posts}"
+    }
+  ]
+}

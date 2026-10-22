@@ -11,13 +11,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from dag8 import run as run_dag
 from dag8.store import Store
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    res = run_dag(args.config, seed_content=args.seed, db_path=args.db, dry_run=args.dry_run)
+    seed = args.seed
+    if args.seed_file:
+        seed = Path(args.seed_file).read_text(encoding="utf-8")
+    res = run_dag(args.config, seed_content=seed, db_path=args.db, dry_run=args.dry_run)
     print(res.summary())
     print(f"\ndb: {res.db_path}")
     if res.result:
@@ -71,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("run", help="跑一张配置好的图")
     rp.add_argument("config")
     rp.add_argument("--seed", default=None, help="覆盖配置里的 seed_content")
+    rp.add_argument("--seed-file", default=None, help="从文件读 seed（长文本用，优先级高于 --seed）")
     rp.add_argument("--dry-run", action="store_true", help="不调 pi，把渲染后的 prompt 当输出")
     rp.set_defaults(func=_cmd_run)
 
