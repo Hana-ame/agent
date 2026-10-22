@@ -81,10 +81,21 @@ MAX_TEXT_CHARS = 300
 # ---------------------------------------------------------------------------
 # 基础工具
 # ---------------------------------------------------------------------------
-def _http(url: str, timeout: float = 15.0) -> Tuple[str, str]:
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.geturl(), resp.read().decode("utf-8", errors="ignore")
+def _http(url: str, timeout: float = 15.0, retries: int = 3) -> Tuple[str, str]:
+    """抓一页。带重试：站点实测会出现「TCP 通了但 TLS 不回」的瞬时故障，
+    2026-10-22 上午就撞过一次（11 小时后同一份代码 6/6 全通）。
+    没有重试的话，一次抖动就会让整条 DAG 在 edge_0 挂掉。"""
+    last: Optional[BaseException] = None
+    for attempt in range(max(1, retries)):
+        try:
+            req = urllib.request.Request(url, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.geturl(), resp.read().decode("utf-8", errors="ignore")
+        except Exception as ex:  # noqa: BLE001 - 统一退避重试
+            last = ex
+            if attempt < retries - 1:
+                time.sleep(1.0 * (2 ** attempt))
+    raise RuntimeError(f"抓取失败（{retries} 次重试）：{url} — {type(last).__name__}: {last}") from last
 
 
 def _parse_dt(s: str) -> Optional[dt.datetime]:
@@ -360,7 +371,10 @@ def fetch_thread_24h(tid: str, since: dt.datetime, max_pages: int = MAX_BACKFILL
     while page >= 1 and pages_read < max_pages:
         try:
             posts = posts_on_page(tid, page)
-        except Exception:
+        except Exception as ex:  # noqa: BLE001 - 单帖失败不该拖垮整场采集
+            # 必须出声：静默 break 会让「0 条回帖」看起来像「今天没人说话」，
+            # 实际是抓取失败。2026-10-22 就是这么误判过一次。
+            print(f"           ⚠️ 帖 {tid} 第 {page} 页抓取失败：{type(ex).__name__}: {str(ex)[:120]}")
             break
         pages_read += 1
         if posts:
