@@ -11,7 +11,7 @@ def pi_probe() -> tuple[bool, str]:
     if local:
         return True, f"local:{local}"
 
-    host = os.environ.get("DAG8_SSH_HOST", "lumin@127.0.0.1")
+    host = os.environ.get("DAG8_SSH_HOST", "lumin@172.29.89.192")
     key = os.path.expanduser(os.environ.get("DAG8_SSH_KEY", "~/.ssh/id_rsa"))
     remote = "export PATH=$HOME/.nvm/versions/node/v22.23.1/bin:$PATH; command -v pi"
     try:

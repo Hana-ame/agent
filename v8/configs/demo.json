@@ -1,41 +1,51 @@
 {
   "name": "demo_pipeline",
-  "_comment": "三边小图：起草 → 挑错 → 定稿。用来验证 v8 的配置/pi/sqlite 三段是否打通。",
-
+  "_comment": "三边小图：起草 → 挑错 → 定稿。用于验证配置/pi/sqlite 三段是否打通。 ssh_host 用 WSL 的 eth0 地址；WSL 重启后 IP 会变，可用环境变量 DAG8_SSH_HOST 覆盖，或改回 127.0.0.1（走 wslrelay 转发）。",
   "seed_tag": "task",
   "seed_content": "用三句话解释什么是「标签驱动的 DAG」",
   "result_tag": "final",
-
   "pi": {
     "provider": "laptop",
     "model": "deepseek-v4-flash",
     "tools": false,
     "timeout": 180,
     "retries": 3,
-    "ssh_host": "lumin@127.0.0.1",
+    "ssh_host": "172.29.89.192",
     "ssh_key": "~/.ssh/id_rsa"
   },
-
   "edges": [
     {
       "id": "draft",
       "layer": 0,
-      "input_tags": ["task"],
-      "output_tags": ["draft"],
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "draft"
+      ],
       "prompt": "你是技术写作者。完成下面这个任务，直接给成品，不要解释你在做什么。\n\n任务：{contents}"
     },
     {
       "id": "critique",
       "layer": 1,
-      "input_tags": ["draft"],
-      "output_tags": ["critique"],
+      "input_tags": [
+        "draft"
+      ],
+      "output_tags": [
+        "critique"
+      ],
       "prompt": "下面是一段草稿。只挑出最关键的 1 个问题（事实错误、表述含糊、或遗漏），一句话说清，不要改写它。\n\n草稿：\n{contents}"
     },
     {
       "id": "final",
       "layer": 2,
-      "input_tags": ["draft", "critique"],
-      "output_tags": ["final"],
+      "input_tags": [
+        "draft",
+        "critique"
+      ],
+      "output_tags": [
+        "final"
+      ],
       "prompt": "下面是草稿和一条批评意见。请据此给出定稿：保留草稿的优点，修掉批评指出的问题。只输出定稿正文。\n\n【草稿】\n{tag:draft}\n\n【批评】\n{tag:critique}"
     }
   ]

@@ -47,7 +47,7 @@ def _require_pi():
 
 def _pi_cfg(**kw) -> PiConfig:
     """跟 configs/demo.json 一致：pi 在 WSL，Windows 侧走 ssh。"""
-    host = os.environ.get("DAG8_SSH_HOST", "lumin@127.0.0.1")
+    host = os.environ.get("DAG8_SSH_HOST", "lumin@172.29.89.192")
     key = os.environ.get("DAG8_SSH_KEY", "~/.ssh/id_rsa")
     base = dict(provider="laptop", model="deepseek-v4-flash", tools=False,
                 timeout=120.0, retries=3,
