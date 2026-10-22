@@ -26,6 +26,7 @@ import shlex
 import shutil
 import subprocess
 import time
+from pathlib import Path
 from typing import List, Optional
 
 from dag8.config import PiConfig
@@ -34,6 +35,23 @@ __all__ = ["PiAgent", "PiError"]
 
 _RETRYABLE = ("429", "rate_limit", "insufficient_quota", "timeout", "Temporary failure")
 _NODE_BIN = "$HOME/.nvm/versions/node/v22.23.1/bin"
+
+
+def find_pi() -> Optional[str]:
+    """找 pi 可执行文件。
+
+    先看 PATH；找不到再翻 nvm 目录 —— 非交互 shell（ssh 执行、cron）不加载 .bashrc，
+    `which pi` 会落空，但 pi 其实装在 nvm 下面。
+    """
+    exe = shutil.which("pi")
+    if exe:
+        return exe
+    base = Path.home() / ".nvm" / "versions" / "node"
+    if base.is_dir():
+        for cand in sorted(base.glob("*/bin/pi"), reverse=True):
+            if cand.exists():
+                return str(cand)
+    return None
 
 
 class PiError(RuntimeError):
@@ -71,9 +89,12 @@ class PiAgent:
     def _command(self, provider: str, model: str, tools: bool) -> List[str]:
         args = self._pi_args(provider, model, tools)
         if not self.cfg.ssh_host:
-            exe = shutil.which("pi")
+            exe = find_pi()
             if exe is None:
-                raise PiError("本机找不到 pi 可执行文件；若 pi 装在 WSL，请配置 pi.ssh_host")
+                raise PiError(
+                    "本机找不到 pi（PATH 与 ~/.nvm/versions/node/*/bin 都没有）；"
+                    "若 pi 装在 WSL，请配置 pi.ssh_host"
+                )
             args[0] = exe
             return args
 

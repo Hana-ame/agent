@@ -2,12 +2,19 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import shutil
 import subprocess
 
 
 def pi_probe() -> tuple[bool, str]:
     local = shutil.which("pi")
+    if not local:
+        base = pathlib.Path.home() / ".nvm" / "versions" / "node"
+        if base.is_dir():
+            hits = sorted(base.glob("*/bin/pi"), reverse=True)
+            if hits:
+                local = str(hits[0])
     if local:
         return True, f"local:{local}"
 

@@ -150,6 +150,26 @@ gating：`tests/_probe.py` 只跑 `ssh ... command -v pi`（**不调模型**）�
 
 实测：全量 `17 passed in 123.78s`；跳过 slow `16 passed, 1 deselected in 49.51s`。
 
+### 在 WSL 本地跑（不走 ssh）
+
+pi 装在 WSL 时，把代码放进 WSL 直接跑最快——省掉每条边一次 ssh 往返：
+
+```bash
+# 在 WSL 里
+cd /mnt/c/Users/lumin/Downloads/agent/v8
+DAG8_LOCAL_PI=1 python3 -m pytest tests/ -q
+```
+
+`DAG8_LOCAL_PI=1` 让 live 用例用本机 pi 而不是 ssh。实测对比：
+
+| 环境 | 全量 | 跳过 slow |
+|---|---|---|
+| Windows（ssh 到 WSL） | 123.78s | 34.95s |
+| WSL 本地 | **94.99s** | **21.53s** |
+
+`dag8.pi.find_pi()` 会先查 PATH，再翻 `~/.nvm/versions/node/*/bin/pi` —— ssh 非交互 shell
+不加载 `.bashrc`，不翻 nvm 目录的话 `which pi` 会落空。
+
 ## 已知限制
 
 1. **没有相似度匹配**：tag 必须精确相等。v7 那套 N-gram/向量匹配没搬过来。
