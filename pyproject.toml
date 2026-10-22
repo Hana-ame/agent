@@ -2,19 +2,11 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-# 2026-10-20：两条无共同祖先的历史合并进同一个仓库，这里取两边清单的**并集**
-#   - v7 线（dag_agent）：name = "dag_agent"，version = "7.0.0"，依赖 requests
-#   - v6 线（vea_v6，原 main）：name = "vertex-edge-agent"，version = "6.0.0"，
-#     依赖 httpx（真模型链路 `_post_sync` 硬依赖；Cloudflare 拦 urllib 默认 UA），
-#     且 pytest 需要 asyncio_mode = "auto"
-# 两边的原始清单都还在历史里（本次合并的两个父提交），这里只是取工作树可用的并集。
-
 [project]
-name = "dag_agent"
+name = "dag"
 version = "7.0.0"
-description = "Tag-driven DAG agent (v7) + the merged-in vea_v6 self-bootstrapping line (v6)."
+description = "Tag-driven DAG execution framework (`import dag`)."
 readme = "README.md"
-authors = [{ name = "Hana-ame & DeepMind Team" }, { name = "Vertex Edge Agent Team" }]
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
@@ -30,14 +22,4 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["dag_agent*", "vea_v6*", "dags*"]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-# 标记语义（门控由 tests/conftest.py 实现：默认跳过 network/llm，--run-network 放行）
-markers = [
-    "network: 需要真实外网（stage1st.com 等），默认跳过",
-    "llm: 需要真实 LLM 端点，默认跳过",
-    "slow: 单次执行超过 10s",
-]
+include = ["dag*"]

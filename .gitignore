@@ -1,9 +1,4 @@
-# 2026-10-20 合并：本仓库并入两条无共同祖先的历史
-#   - DAG Agent v7 线（dag_agent/ + examples/ex*.py）
-#   - VEA v6 自举线（vea_v6/ + tools/meta_dag.py）
-# 下面是两边的并集，规则一个都没丢（重复项只保留一次，并注明来源）。
-
-# ---- Python 通用（v7 线）----------------------------------------------
+# ---- Python 通用产物 ----------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -17,7 +12,6 @@ eggs/
 .eggs/
 lib/
 lib64/
-parts/
 sdist/
 var/
 wheels/
@@ -29,60 +23,44 @@ MANIFEST
 .pytest_cache/
 .coverage
 htmlcov/
+
+# ---- 环境与密钥配置 ------------------------------------------------------
 .env
+.env.local
+*.env
 .venv
 env/
 venv/
 ENV/
 
-# ---- VEA v6 线 --------------------------------------------------------
-scratch/
-*.pyc
-*.db
-.pytest_cache/.coverage
-examples/s1profile_collect/data/
-
-# Secrets — never commit .env（两边都有 .env，此处补 v6 的其余写法）
-.env.local
-*.env
-
-# Secrets — provider endpoints + api keys (laptop-6.8 / sensenova-6.8)
-vea_v6/models.json
-# Model registry with real API keys (keep only the .example template in VCS)
+# 含真实 API Key 的模型配置与备份不入库（仅保留模板与免 Key 配置）
 models.json
-# 例外：cf_dag/models.json 的 key 全部为 "not-needed"（laptop-8000 网关免 key），
-# 属于可入库的配置模板。若日后往里填真实 key，请删掉这两行例外。
-!cf_dag/models.json
-
-# 含真实 API key 的历史备份——绝不入库（文件保留在本地，不做删除）
 models.json*.bak
+!models.json.example
+!scripts/cf/models.json
 
-# Submodule directories — only defined on hf-submodule branch,
-# would show as untracked on other branches after checkout.
-additive-rand-transformer/
-maze-transformer/
+# ---- DAG 脚本运行产物 (Outputs & Reports) -------------------------------
+# S1 帖子抓取与情报摘要产物
+scripts/s1/out/
+stage1st_ai_*.md
+stability_run*.md
 
-# Backup directory
-config_backup/
-snapshots/
+# CF 流量统计与校验报告产物
+scripts/cf/cf_report.md
+scripts/cf/out/
+cf_report.md
+*_report.md
 
-# 自举产物：框架造框架跑出来的东西（v6 线的 bootstrap_runs/ 与验收临时目录）
-bootstrap_runs/
-generated_builder.py
-demo/
-SMOKE.log
-
-# DAG 运行产物：每次跑都会变，属于运行时状态而非源码。
-# 要留档的快照请显式 cp 到 docs/ 或另命名后提交。
-dags/out/
-dag_defs/out/
-models.json.v7-*.bak
-
-# 上面的 Python 打包模板里有 `parts/`，会误伤源码目录 vea_v6/parts/。
-# bootstrap.py 是已跟踪文件，不放行的话每次改完 `git add` 都会被拦。
-!vea_v6/parts/
-# 但目录里的固化备份不入库
-vea_v6/parts/*.bak*
-
-# 本地 agent 工作记录（不属于项目本身）
+# 其他运行输出、临时文件与日志产物
+out/
+*/out/
+*/*/out/
+report.html
+*.report.html
+*.log
+*.db
+scratch/
 .workbuddy/
+
+# ---- v6 自举历史产物（本仓库已不含 vea_v6，产物留档但不入库）-------------
+bootstrap_runs/
