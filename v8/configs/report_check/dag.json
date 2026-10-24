@@ -8,7 +8,7 @@
     "provider": "laptop",
     "model": "deepseek-flash",
     "tools": false,
-    "timeout": 180,
+    "timeout": 240,
     "retries": 2
   },
   "edges": [
