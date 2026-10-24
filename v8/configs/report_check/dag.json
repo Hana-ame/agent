@@ -1,0 +1,233 @@
+{
+  "name": "report_check",
+  "_comment": "通用汇报格式检查：确定性指标 + 结构/证据/表达三路并行评审 + 汇总判定。seed 传报告正文。",
+  "seed_tag": "report",
+  "seed_content": "",
+  "result_tag": "verdict",
+  "pi": {
+    "provider": "laptop",
+    "model": "deepseek-flash",
+    "tools": false,
+    "timeout": 180,
+    "retries": 2
+  },
+  "edges": [
+    {
+      "id": "metrics",
+      "kind": "command",
+      "layer": 0,
+      "input_tags": [
+        "report"
+      ],
+      "output_tags": [
+        "metrics"
+      ],
+      "command": "python3 check_report.py",
+      "stdin": true,
+      "timeout": 60
+    },
+    {
+      "id": "structure",
+      "layer": 0,
+      "input_tags": [
+        "report"
+      ],
+      "output_tags": [
+        "structure"
+      ],
+      "prompt": "你是汇报结构评审。按清单检查：1) 结论是否在首屏、是否先行；2) 是否有背景/目标；3) 是否说清做法/交付；4) 是否有可核对的证据；5) 是否写风险/限制；6) 是否有下一步。评分 0-10，严格。字段：score、issues、suggestions、missing_sections。\n\n只输出 JSON，不要 Markdown 代码块。\n\n汇报正文：\n{contents}",
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "suggestions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "missing_sections": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "score",
+            "issues",
+            "suggestions"
+          ]
+        }
+      },
+      "repair": 1
+    },
+    {
+      "id": "evidence",
+      "layer": 0,
+      "input_tags": [
+        "report"
+      ],
+      "output_tags": [
+        "evidence"
+      ],
+      "prompt": "你是证据标注评审，只检查格式，不评判实验设计。检查：每个关键数字是否标注了基线、时间、样本量（单次也可，写“单次”即可）、来源/命令；是否区分“已验证”与“未验证/推测”；是否把单次结果说成稳定结论。不要要求重复实验、不要要求 P95，也不要因为样本少而扣分——样本少但标注清楚就算合格。评分 0-10，严格。\n只输出 JSON，不要 Markdown 代码块。字段：score、issues、suggestions。\n\n汇报正文：\n{contents}",
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "suggestions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "missing_sections": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "score",
+            "issues",
+            "suggestions"
+          ]
+        }
+      },
+      "repair": 1
+    },
+    {
+      "id": "clarity",
+      "layer": 0,
+      "input_tags": [
+        "report"
+      ],
+      "output_tags": [
+        "clarity"
+      ],
+      "prompt": "你是表达评审。检查：术语是否解释；句子是否过长；是否有模糊词（大概/可能/比较好）；结论是否一眼可见；是否堆功能而不是回答问题。评分 0-10，严格。字段：score、issues、suggestions。\n\n只输出 JSON，不要 Markdown 代码块。\n\n汇报正文：\n{contents}",
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "suggestions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "missing_sections": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "score",
+            "issues",
+            "suggestions"
+          ]
+        }
+      },
+      "repair": 1
+    },
+    {
+      "id": "verdict",
+      "layer": 1,
+      "input_tags": [
+        "report",
+        "metrics",
+        "structure",
+        "evidence",
+        "clarity"
+      ],
+      "output_tags": [
+        "verdict"
+      ],
+      "prompt": "你是汇报终审。综合确定性指标和三位评审，输出最终结论。\n规则：score 取四路加权平均（指标 25%、结构 30%、证据 20%、表达 25%），保留一位小数；pass=true 当且仅当 score>=6.5 且结论/证据/下一步都不缺失。\nissues 合并去重，按严重度排序；suggestions 最多 5 条，必须可执行；summary 一句话（<=80 字）。\n字段：pass、score、issues、suggestions、missing_sections、summary。\n\n[确定性指标]\n{tag:metrics}\n\n[结构评审]\n{tag:structure}\n\n[证据评审]\n{tag:evidence}\n\n[表达评审]\n{tag:clarity}",
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "pass": {
+              "type": "boolean"
+            },
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "suggestions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "missing_sections": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pass",
+            "score",
+            "issues",
+            "suggestions"
+          ]
+        }
+      },
+      "repair": 1
+    }
+  ]
+}

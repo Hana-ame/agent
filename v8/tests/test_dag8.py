@@ -567,7 +567,7 @@ def test_contract_repair_succeeds(tmp_path):
     res = dag8.run(_expect_cfg(tmp_path, {"type": "json", "required_keys": ["ok"]}, repair=1),
                    db_path=tmp_path / "c.sqlite3", agent=agent)
     assert res.status == "ok", res.summary()
-    assert res.result == '{"ok": true}'
+    assert json.loads(res.result) == {"ok": True}
     assert len(agent.prompts) == 2
     assert "格式校验" in agent.prompts[1]
 
@@ -1101,3 +1101,19 @@ def test_auto_model_ignores_tiny_samples(tmp_path):
     assert res.status == "ok"
     with Store(db) as st:
         assert st.edge_records(res.run_id)[0]["model"] == "laptop/deepseek-flash"
+
+
+def test_json_contract_strips_fences(tmp_path):
+    class _Fenced:
+        def run(self, prompt, **kw):
+            return '```json\n{"score": 5, "ok": true}\n```'
+
+    data = dict(BASE)
+    data["edges"] = [{"id": "e", "input_tags": ["task"], "output_tags": ["out"],
+                      "prompt": "P {contents}",
+                      "expect": {"type": "json", "required_keys": ["score"]}}]
+    res = dag8.run(_write(tmp_path, data), db_path=tmp_path / "j.sqlite3",
+                   agent=_Fenced())
+    assert res.status == "ok"
+    assert "```" not in res.result
+    assert json.loads(res.result)["score"] == 5

@@ -22,7 +22,7 @@ provider 速度/价格观测。**实测优化被网关 530 阻塞**，offline �
 
 ## 当前证据
 
-- 离线测试：**259 passed**（根仓库另 17 passed）；全量 263 条（含 4 live）
+- 离线测试：**263 passed**（根仓库另 17 passed）；全量 267 条（含 4 live）
 - 自检：`bash scripts/smoke_offline.sh` 全绿（pytest / doctor / 模板 / compose / convert）
 - 演示：`python -m dag8 demo` → `A|B`（不调模型）
 - GA 账本：**77 次（65 有效 / 12 失败）**

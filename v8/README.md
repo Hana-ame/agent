@@ -356,7 +356,7 @@ graph 节点默认跑 v7 顺序子图；把 `engine` 设为 `v8`，它就会指�
 - 只做确定性检查，不调模型，适合当便宜的质量闸门
 - `graph` / `command` 节点不支持 repair（失败直接记 error）
 - dry-run 不校验（预览不是真实输出）
-- 校验通过才写缓存，坏输出不会污染缓存
+- 校验通过才写缓存，坏输出不会污染缓存；JSON 契约通过后会去掉 ``` 围栏并缩进规范化再落库
 
 示例：[configs/nested_demo.json](configs/nested_demo.json)。实测：
 
@@ -962,7 +962,7 @@ SELECT run_id, content FROM contents WHERE tags LIKE '%final%' AND run_id IN (..
 ## 测试
 
 ```bash
-cd v8 && python -m pytest tests/ -q                  # 263 条，含 4 条真实调用，约 3–5 分钟
+cd v8 && python -m pytest tests/ -q                  # 267 条，含 4 条真实调用，约 3–5 分钟
 cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，本机实测约 2–3 分钟
 cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 ```
@@ -972,10 +972,11 @@ cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 | `tests/test_approval.py` | 5 | 否 —— 无 marker 阻断 / 放行 / 拒绝 / resume / 不是节点 |
 | `tests/test_db_node.py` | 4 | 否 —— 本地 SQLite：查询/截断/只读/配置 |
 | `tests/test_http_node.py` | 5 | 否 —— 本地 server：GET/POST/错误码/URL 校验 |
+| `tests/test_report_check.py` | 3 | 否 —— 汇报指标/配置 lint/dry-run |
 | `tests/test_router.py` | 4 | 否 —— 成功率/时延/价格权重、CLI |
 | `tests/test_cli_help.py` | 1 | 否 —— 所有子命令 --help 可退出 |
 | `tests/test_adaptive_http.py` | 1 | 否 —— mock 429 下 AIMD 降并发 |
-| `tests/test_dag8.py` | 75 | 否 —— 配置加载、占位符渲染、sqlite 读写、调度（注入 fake agent）、graph 节点、command 节点 |
+| `tests/test_dag8.py` | 76 | 否 —— 配置加载、占位符渲染、sqlite 读写、调度（注入 fake agent）、graph 节点、command 节点 |
 | `tests/test_explain.py` | 6 | 否 —— 429/缺输入/续跑建议、CLI |
 | `tests/test_diff.py` | 4 | 否 —— 边状态/时延/Δ、缺失边、CLI |
 | `tests/test_http_retry.py` | 1 | 否 —— 本地 mock HTTP server 验证 429 重试链路 |
@@ -1022,10 +1023,10 @@ skip 会让「环境没准备好」和「全部通过」长得一模一样，那
 
 | 套件 | 结果 | 耗时 |
 |---|---|---|
-| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **259 passed** | 约 15s |
+| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **263 passed** | 约 15s |
 | live 非 slow（3 条） | **3 passed** | 167s |
 | live slow（整图三边） | **1 passed** | 113s |
-| 全量 | **263 passed**（含 4 live） | 约 5 分钟 |
+| 全量 | **267 passed**（含 4 live） | 约 5 分钟 |
 
 注意：live 用例会真实碰网关，网关 530/429/变慢时**会红**——这是有意的，不是 flaky skip。
 不想碰网关就用 `-m "not live"`。

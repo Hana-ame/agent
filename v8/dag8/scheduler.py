@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from dag8 import config as cfg_mod
 from dag8.cache import NodeCache
-from dag8.contracts import validate_output
+from dag8.contracts import canonical_output, validate_output
 from dag8.nodes import Node, NodeError, build_node
 from dag8.pi import PiAgent, PiError
 from dag8.ratelimit import shared_limiter
@@ -247,6 +247,7 @@ def _run_jobs(jobs: Sequence[Job], *, dry_run: bool, max_workers: int,
                     ok, reason = validate_output(out, edge.expect)
                 if not ok:
                     raise NodeError(f"输出契约失败：{reason}")
+            out = canonical_output(out, edge.expect)
             if not dry_run and edge.judge:
                 out = _run_judge(edge, out, cfg, agent, limiter)
             return (edge, node.label, len(preview), time.perf_counter() - t0, out, False, key)

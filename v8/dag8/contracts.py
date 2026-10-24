@@ -30,7 +30,7 @@ import json
 import re
 from typing import Any, Dict, Tuple
 
-__all__ = ["normalize_spec", "validate_output"]
+__all__ = ["normalize_spec", "validate_output", "canonical_output"]
 
 _ALLOWED = {"type", "required_keys", "pattern", "min_chars", "max_chars", "min_sections", "schema"}
 _TYPES = {"text", "json"}
@@ -152,6 +152,17 @@ def _check_schema(value: Any, schema: Any, path: str = "$") -> str:
                 if err:
                     return err
     return ""
+
+
+def canonical_output(text: str, spec: Dict[str, Any]) -> str:
+    """JSON 契约通过后，去掉围栏并规范化落库，避免下游还要再 strip。"""
+    if not spec or not (spec.get("type") == "json" or "schema" in spec):
+        return text
+    try:
+        data = _parse_json(text)
+    except json.JSONDecodeError:
+        return text
+    return json.dumps(data, ensure_ascii=False, indent=2)
 
 
 def validate_output(text: str, spec: Dict[str, Any]) -> Tuple[bool, str]:
