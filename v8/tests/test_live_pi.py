@@ -1,7 +1,8 @@
 """真实调用 pi 的测试。
 
-默认就跑（用户要求测试必须真的碰 pi）。pi 不可用时自动 skip，不会假绿：
-conftest 里的 `pi_probe()` 只做 `command -v pi`，不调模型。
+默认就跑（用户要求测试必须真的碰 pi）。pi 不可用时直接 fail，不会假绿：
+`_probe.py` 只做 `command -v pi`，不调模型。本机有 pi 时自动走本地，
+没有本地 pi 才走 `DAG8_SSH_HOST`（可用 `DAG8_LOCAL_PI=1/0` 强制）。
 
 三种粒度：
 
@@ -49,9 +50,13 @@ def _pi_cfg(**kw) -> PiConfig:
     """跟 configs/demo.json 一致：pi 在 WSL，Windows 侧走 ssh。"""
     host = os.environ.get("DAG8_SSH_HOST", "lumin@172.29.89.192")
     key = os.environ.get("DAG8_SSH_KEY", "~/.ssh/id_rsa")
+    # 本机有 pi 就优先本地；没有才走 SSH；显式环境变量可覆盖
+    local = AVAILABLE and WHY.startswith("local:")
+    force = os.environ.get("DAG8_LOCAL_PI")
+    use_local = force == "1" or (force != "0" and local)
     base = dict(provider="laptop", model="deepseek-v4-flash", tools=False,
                 timeout=120.0, retries=3,
-                ssh_host=None if os.environ.get("DAG8_LOCAL_PI") else host,
+                ssh_host=None if use_local else host,
                 ssh_key=key)
     base.update(kw)
     return PiConfig(**base)

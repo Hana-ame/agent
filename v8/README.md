@@ -956,8 +956,9 @@ SELECT run_id, content FROM contents WHERE tags LIKE '%final%' AND run_id IN (..
 ## 测试
 
 ```bash
-cd v8 && python -m pytest tests/ -q                  # 262 条，含真实调用，约 2 分钟
-cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，约 50 秒
+cd v8 && python -m pytest tests/ -q                  # 262 条，含 4 条真实调用，约 3–5 分钟
+cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，本机实测约 2–3 分钟
+cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 ```
 
 | 文件 | 条数 | 是否碰 pi |
@@ -1003,11 +1004,25 @@ live 的四条：
 3. 边级：调度器取输入 → pi 执行 → 结果落 sqlite（校验 contents 条数、edge 耗时 > 0、run 状态 `ok`）
 4. 整图三边（标 `slow`）：起草 → 挑错 → 定稿，校验多输入边的 `prompt_chars`
 
-gating：`tests/_probe.py` 只跑 `ssh ... command -v pi`（**不调模型**）。探不到时**直接 fail**，
-不是 skip —— skip 会让「环境没准备好」和「全部通过」长得一模一样，那是假绿。
-环境变量可覆盖：`DAG8_SSH_HOST` / `DAG8_SSH_KEY` / `DAG8_LOCAL_PI=1`（本机有 pi 时不走 ssh）。
+gating：`tests/_probe.py` 先查本机 `command -v pi`（**不调模型**），没有再探测
+`ssh $DAG8_SSH_HOST command -v pi`。探不到时**直接 fail**，不是 skip ——
+skip 会让「环境没准备好」和「全部通过」长得一模一样，那是假绿。
 
-实测：离线 `pytest tests/ -q --ignore=tests/test_live_pi.py` → **258 passed**；全量 262 条（含 4 条 live，其中 1 条 slow）。
+- 本机有 pi：live 用例自动走本地，不需要设环境变量
+- 只有 WSL/远端有 pi：设 `DAG8_SSH_HOST` / `DAG8_SSH_KEY`
+- 强制：`DAG8_LOCAL_PI=1`（本地）/ `DAG8_LOCAL_PI=0`（走 ssh）
+
+实测（2026-10-24，本机 pi + laptop 网关）：
+
+| 套件 | 结果 | 耗时 |
+|---|---|---|
+| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **258 passed** | 约 15s |
+| live 非 slow（3 条） | **3 passed** | 167s |
+| live slow（整图三边） | **1 passed** | 113s |
+| 全量 | **262 passed**（含 4 live） | 约 5 分钟 |
+
+注意：live 用例会真实碰网关，网关 530/429/变慢时**会红**——这是有意的，不是 flaky skip。
+不想碰网关就用 `-m "not live"`。
 
 ### 在 WSL 本地跑（不走 ssh）
 
@@ -1016,15 +1031,11 @@ pi 装在 WSL 时，把代码放进 WSL 直接跑最快——省掉每条边一�
 ```bash
 # 在 WSL 里
 cd /mnt/c/Users/lumin/Downloads/agent/v8
-DAG8_LOCAL_PI=1 python3 -m pytest tests/ -q
+python3 -m pytest tests/ -q          # 本机有 pi，会自动走本地
 ```
 
-`DAG8_LOCAL_PI=1` 让 live 用例用本机 pi 而不是 ssh。实测对比：
-
-| 环境 | 全量 | 跳过 slow |
-|---|---|---|
-| Windows（ssh 到 WSL） | 123.78s | 34.95s |
-| WSL 本地 | **94.99s** | **21.53s** |
+本机有 pi 时已无需 `DAG8_LOCAL_PI=1`；只有想强制走 ssh 时才设 `DAG8_LOCAL_PI=0`。
+历史实测（旧网关、旧版本）全量约 95–124s；2026-10-24 网关变慢时 live 约 280s。
 
 `dag8.pi.find_pi()` 会先查 PATH，再翻 `~/.nvm/versions/node/*/bin/pi` —— ssh 非交互 shell
 不加载 `.bashrc`，不翻 nvm 目录的话 `which pi` 会落空。
