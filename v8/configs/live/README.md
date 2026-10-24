@@ -51,3 +51,6 @@ python scripts/judge_calibration.py
 ```
 
 结果写 `data/judge_calibration.json`。这是**校准**，不是默认阈值的真实运行。
+
+实测（2026-10-24）：10 份样本全部拿到分数，均值 **5.7**；默认阈值 7 通过 **3/10**。
+被判通过的只有 06_jargon、09_parallel、10_bounded；structured 6 分、self_report 5 分被拒。
