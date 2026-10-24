@@ -69,3 +69,10 @@ bootstrap_runs/
 v8/data/
 v8/**/__pycache__/
 .pytest_cache/
+
+# ---- 本地临时脚本与模型快照（2026-10-24 清理）---------------------------
+/.fix_example.py
+/.gen_models.py
+/.models_new.*
+/.probe_cap.py
+/.verify_cap.py
