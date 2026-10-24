@@ -1,0 +1,65 @@
+{
+  "name": "v7_serial_3",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-v4-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [
+    {
+      "tags": [
+        "task"
+      ],
+      "content": "x"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "p1"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "只回复两个字：收到\n\n{contents}"
+      }
+    },
+    {
+      "id": "e2",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "p2"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "只回复两个字：收到\n\n{contents}"
+      }
+    },
+    {
+      "id": "e3",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "p3"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "只回复两个字：收到\n\n{contents}"
+      }
+    }
+  ]
+}
