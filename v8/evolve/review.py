@@ -78,7 +78,12 @@ def _render_md(review: Dict[str, Any]) -> str:
             auto_txt += f"（原 {raw}）"
         auto_txt += f" ({auto.get('passed',0)}/{auto.get('total',0)})"
         leak = c.get("leakage") or {}
-        leak_txt = "是 ×0.1" if leak.get("leak") else "否"
+        if not leak.get("enabled"):
+            leak_txt = "未启用"
+        elif leak.get("leak"):
+            leak_txt = "是 ×0.1"
+        else:
+            leak_txt = "否"
         lines.append(
             f"| `{c['candidate_id']}` · {c.get('name','')} "
             f"| {auto_txt} | {leak_txt} "
@@ -105,6 +110,8 @@ def _render_md(review: Dict[str, Any]) -> str:
                          f"{leak.get('reason','')}")
             for m in (leak.get("matches") or [])[:5]:
                 lines.append(f"  - `{m.get('where')}`: {m.get('segment','')[:120]}")
+        elif leak:
+            lines.append(f"- 泄漏审计：未启用；{leak.get('reason','')}")
         if c.get("error"):
             lines.append(f"- 错误：`{c['error']}`")
         lines.append("")
@@ -181,6 +188,15 @@ def select_candidate(run_dir: str | Path, by: str = "human") -> Dict[str, Any]:
     return result
 
 
+def rebuild_review(run_dir: str | Path) -> Path:
+    """用 review.json 重新渲染 review.md（改了展示逻辑后不用重跑候选）。"""
+    base = Path(run_dir)
+    review = _read_json(base / "review.json")
+    out = base / "review.md"
+    out.write_text(_render_md(review), encoding="utf-8")
+    return out
+
+
 def load_review(run_dir: str | Path) -> Dict[str, Any]:
     return _read_json(Path(run_dir) / "review.json")
 
@@ -194,10 +210,11 @@ def render_table(run_dir: str | Path) -> str:
         cid = c["candidate_id"]
         human = (ratings.get(cid) or {}).get("score")
         leak = c.get("leakage") or {}
+        leak_txt = "未启用" if not leak.get("enabled") else ("是" if leak.get("leak") else "否")
         lines.append(
             f"| `{cid}` · {c.get('name','')} | "
             f"{c.get('auto',{}).get('score',0)} | "
-            f"{'是' if leak.get('leak') else '否'} | "
+            f"{leak_txt} | "
             f"{human if human is not None else '-'} | "
             f"{(ratings.get(cid) or {}).get('note','')} |"
         )

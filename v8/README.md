@@ -963,7 +963,7 @@ SELECT run_id, content FROM contents WHERE tags LIKE '%final%' AND run_id IN (..
 ## 测试
 
 ```bash
-cd v8 && python -m pytest tests/ -q                  # 270 条，含 4 条真实调用，约 3–5 分钟
+cd v8 && python -m pytest tests/ -q                  # 271 条，含 4 条真实调用，约 3–5 分钟
 cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，本机实测约 2–3 分钟
 cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 ```
@@ -1003,7 +1003,7 @@ cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 | `tests/test_backoff.py` | 3 | 否 —— 抖动边界/上限/零基数 |
 | `tests/test_evolve_leakage.py` | 5 | 否 —— 评测泄漏检查（离线） |
 | `tests/test_evolve_human.py` | 6 | 否 —— 人工评价闭环（离线） |
-| `tests/test_evolve.py` | 10 | 否 —— GA 基因/解码、2×2 交互分桶、结构性无效过滤 |
+| `tests/test_evolve.py` | 11 | 否 —— GA 基因/解码、2×2 交互分桶、结构性无效过滤 |
 | `tests/test_live_pi.py` | 4 | **是** —— 真实调用 `laptop/deepseek-v4-flash` |
 
 live 的四条：
@@ -1025,10 +1025,10 @@ skip 会让「环境没准备好」和「全部通过」长得一模一样，那
 
 | 套件 | 结果 | 耗时 |
 |---|---|---|
-| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **266 passed** | 约 15s |
+| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **267 passed** | 约 15s |
 | live 非 slow（3 条） | **3 passed** | 167s |
 | live slow（整图三边） | **1 passed** | 113s |
-| 全量 | **270 passed**（含 4 live） | 约 5 分钟 |
+| 全量 | **271 passed**（含 4 live） | 约 5 分钟 |
 
 注意：live 用例会真实碰网关，网关 530/429/变慢时**会红**——这是有意的，不是 flaky skip。
 不想碰网关就用 `-m "not live"`。

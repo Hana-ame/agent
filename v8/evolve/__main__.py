@@ -85,12 +85,22 @@ def cmd_run(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
 
+    # --repeats > 1：同一个 genome 原样跑多次，用于测随机波动。
+    jobs = []
+    for g in population:
+        if args.repeats <= 1:
+            jobs.append(g)
+        else:
+            for r in range(1, args.repeats + 1):
+                jobs.append(g.replicate(r, args.repeats))
+
     agent = _MockAgent() if args.mock else None
+    use_cache = (not args.no_cache) and args.repeats <= 1
     records = []
-    for i, g in enumerate(population, 1):
-        print(f"[{i}/{len(population)}] {g.id} {g.name} ...", flush=True)
+    for i, g in enumerate(jobs, 1):
+        print(f"[{i}/{len(jobs)}] {g.id} {g.name} ...", flush=True)
         rec = run_candidate(
-            g, task, run_dir, agent=agent, use_cache=not args.no_cache,
+            g, task, run_dir, agent=agent, use_cache=use_cache,
             source_path=args.source or None, answer_path=args.answer or None,
         )
         leak = rec.get("leakage") or {}
@@ -163,6 +173,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     rp = sub.add_parser("run", help="生成候选并跑出人工评价包")
     rp.add_argument("--task", required=True, help="task JSON")
     rp.add_argument("--population", type=int, default=3)
+    rp.add_argument("--repeats", type=int, default=1,
+                    help="同一个 genome 原样跑几次（>1 自动禁用缓存，用于测波动）")
     rp.add_argument("--seed", type=int, default=7)
     rp.add_argument("--workers", type=int, default=1)
     rp.add_argument("--ops", default="", help="逗号分隔的变异算子")

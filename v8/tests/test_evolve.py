@@ -141,3 +141,15 @@ def test_contract_gene_sets_expect():
 
 def test_contract_defaults_off():
     assert ev.Genome("single", "deepseek-flash", "terse", 1).contract == "off"
+
+
+def test_replicate_keeps_config_and_marks_repeat():
+    from evolve.genome import Genome
+
+    g = Genome(id="g", name="n", config={"edges": []}, config_path="x")
+    r = g.replicate(2, 3)
+    assert r.id == "g-r2"
+    assert r.name == "n#r2"
+    assert r.config == g.config
+    assert r.config is not g.config
+    assert r.lineage["op"] == "repeat"

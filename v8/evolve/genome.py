@@ -125,6 +125,18 @@ class Genome:
         child.id = _fingerprint(child.config, child.workers)
         return child
 
+    def replicate(self, index: int, total: int) -> "Genome":
+        """同一个配置的第 index 次重复运行（用于测随机波动，不改变 genome）。"""
+        return Genome(
+            id=f"{self.id}-r{index}",
+            name=f"{self.name}#r{index}",
+            config=copy.deepcopy(self.config),
+            config_path=self.config_path,
+            workers=self.workers,
+            lineage={**self.lineage, "op": "repeat",
+                     "detail": f"repeat {index}/{total} of {self.id}"},
+        )
+
     # -- 落盘 ---------------------------------------------------------------
     def materialize(self, dest_dir: str | Path) -> Path:
         """把候选配置及其同目录脚本复制到独立目录，返回 dag.json 路径。
