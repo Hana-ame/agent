@@ -1,0 +1,12 @@
+{
+  "name": "nested_inner",
+  "seed_tag": "task",
+  "seed_content": "",
+  "result_tag": "out",
+  "pi": {"provider": "laptop", "model": "deepseek-flash", "tools": false, "timeout": 120, "retries": 2},
+  "edges": [
+    {"id": "x", "layer": 0, "input_tags": ["task"], "output_tags": ["x"], "prompt": "用一句话说明标签驱动 DAG 的好处"},
+    {"id": "y", "layer": 0, "input_tags": ["task"], "output_tags": ["y"], "prompt": "用一句话说明标签驱动 DAG 的风险"},
+    {"id": "m", "layer": 1, "input_tags": ["x", "y"], "output_tags": ["out"], "prompt": "把下面两句话合并成 80 字以内短文，只输出正文：\n{contents}"}
+  ]
+}

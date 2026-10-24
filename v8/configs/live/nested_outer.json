@@ -1,0 +1,12 @@
+{
+  "name": "nested_outer",
+  "seed_tag": "task",
+  "seed_content": "标签驱动 DAG",
+  "result_tag": "out",
+  "pi": {"provider": "laptop", "model": "deepseek-flash", "tools": false, "timeout": 120, "retries": 2},
+  "edges": [{
+    "id": "g", "kind": "graph",
+    "input_tags": ["task"], "output_tags": ["out"],
+    "graph": {"path": "nested_inner.json", "engine": "v8", "workers": 2, "timeout": 180}
+  }]
+}

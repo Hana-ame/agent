@@ -1,0 +1,15 @@
+{
+  "name": "judge_gate_live",
+  "_comment": "质量闸门实机：pi 产出后调 judge 评分；min_score 改 10 可复现拒绝路径。",
+  "seed_tag": "task",
+  "seed_content": "用一句话解释标签驱动 DAG",
+  "result_tag": "out",
+  "pi": {"provider": "laptop", "model": "deepseek-flash", "tools": false, "timeout": 120, "retries": 2},
+  "edges": [{
+    "id": "e",
+    "input_tags": ["task"],
+    "output_tags": ["out"],
+    "prompt": "用一句话解释：{contents}",
+    "judge": {"min_score": 0}
+  }]
+}

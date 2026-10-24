@@ -125,6 +125,8 @@ def main() -> int:
     ap.add_argument("--rpm", type=int, default=3)
     ap.add_argument("--out", default=None)
     ap.add_argument("--width", type=int, default=2)
+    ap.add_argument("--skip-judge", action="store_true",
+                    help="只测时延，不调评审模型（省调用）")
     ap.add_argument("--mode", choices=["pi", "graph"], default="pi",
                     help="pi = v8 pi 节点；graph = 每条边一张单边 v7 子图")
     args = ap.parse_args()
@@ -149,7 +151,7 @@ def main() -> int:
     cfg_path = outdir / "v8.json"
     cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    judge = ss.make_judge(gap=2)
+    judge = (lambda _o: (0.0, "")) if args.skip_judge else ss.make_judge(gap=2)
     v7_lat, v7_out, v8_lat, v8_out = [], [], [], []
     pairs = []
     v7_failed = 0
@@ -171,12 +173,22 @@ def main() -> int:
     def med(xs):
         return statistics.median(xs) if xs else 0.0
 
+    def pct(xs, q):
+        if not xs:
+            return 0.0
+        s = sorted(xs)
+        k = (len(s) - 1) * q
+        lo, hi = int(k), min(int(k) + 1, len(s) - 1)
+        return s[lo] + (s[hi] - s[lo]) * (k - lo)
+
     report = [
         "# v7 串行 vs v8 波次并行",
         "",
         f"- runs={args.runs} workers={args.workers} rpm={args.rpm} mode={args.mode}",
-        f"- v7: 时延 p50 {med(v7_lat):.1f}s，质量 {med(q7):.1f}，失败 {v7_failed}/{args.runs}",
-        f"- v8: 时延 p50 {med(v8_lat):.1f}s，质量 {med(q8):.1f}",
+        f"- v7: 时延 p50 {med(v7_lat):.1f}s / p95 {pct(v7_lat, 0.95):.1f}s，"
+        f"质量 {med(q7):.1f}，失败 {v7_failed}/{args.runs}",
+        f"- v8: 时延 p50 {med(v8_lat):.1f}s / p95 {pct(v8_lat, 0.95):.1f}s，"
+        f"质量 {med(q8):.1f}",
         f"- 配对加速比（每次 v7/v8）：{[round(x, 2) for x in pairs]}，"
         f"p50 {med(pairs):.2f}×",
         f"- 比值口径（p50 之比）：{(med(v7_lat) / med(v8_lat)) if med(v8_lat) else 0:.2f}×",
@@ -186,6 +198,14 @@ def main() -> int:
         v8_out[-1] if v8_out else "（空）",
     ]
     (outdir / "report.md").write_text("\n".join(report) + "\n", encoding="utf-8")
+    (outdir / "raw.json").write_text(json.dumps({
+        "runs": args.runs, "width": args.width, "mode": args.mode,
+        "workers": args.workers, "rpm": args.rpm,
+        "v7_lat": v7_lat, "v8_lat": v8_lat, "pairs": pairs,
+        "v7_failed": v7_failed,
+        "v7_p50": med(v7_lat), "v7_p95": pct(v7_lat, 0.95),
+        "v8_p50": med(v8_lat), "v8_p95": pct(v8_lat, 0.95),
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
     print("\n".join(report))
     return 0
 

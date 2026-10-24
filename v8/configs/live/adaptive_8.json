@@ -1,0 +1,19 @@
+{
+  "name": "adaptive_8",
+  "_comment": "8 并发过载测试：第二波只依赖 e2 的 o2，便于观察 AIMD 降并发。",
+  "seed_tag": "task",
+  "seed_content": "x",
+  "result_tag": "out",
+  "pi": {"provider": "laptop", "model": "deepseek-flash", "tools": false, "timeout": 60, "retries": 1},
+  "edges": [
+    {"id": "e1", "layer": 0, "input_tags": ["task"], "output_tags": ["o1"], "prompt": "只回复 ok"},
+    {"id": "e2", "layer": 0, "input_tags": ["task"], "output_tags": ["o2"], "prompt": "只回复 ok"},
+    {"id": "e3", "layer": 0, "input_tags": ["task"], "output_tags": ["o3"], "prompt": "只回复 ok"},
+    {"id": "e4", "layer": 0, "input_tags": ["task"], "output_tags": ["o4"], "prompt": "只回复 ok"},
+    {"id": "e5", "layer": 0, "input_tags": ["task"], "output_tags": ["o5"], "prompt": "只回复 ok"},
+    {"id": "e6", "layer": 0, "input_tags": ["task"], "output_tags": ["o6"], "prompt": "只回复 ok"},
+    {"id": "e7", "layer": 0, "input_tags": ["task"], "output_tags": ["o7"], "prompt": "只回复 ok"},
+    {"id": "e8", "layer": 0, "input_tags": ["task"], "output_tags": ["o8"], "prompt": "只回复 ok"},
+    {"id": "e9", "layer": 1, "input_tags": ["o2"], "output_tags": ["out"], "prompt": "只回复 ok"}
+  ]
+}
