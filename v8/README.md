@@ -191,6 +191,7 @@ run 77c97fbb431a · demo_pipeline · ok
 
 - 支持 GET/POST/PUT/PATCH/DELETE/HEAD；url/body/headers 都支持占位符
 - 只允许 http(s)；4xx/5xx 直接记节点失败，响应截断到 `max_chars`
+- 实机：`GET https://example.com` → 577 字符，status ok（外网 HTTPS 可用）
 
 `kind` 可省略：写了 `graph` 就是 graph 节点，写了 `command` 就是 command 节点，写了 `url` 就是 http 节点，否则是 pi 节点。未知 `kind` 直接报错。
 
