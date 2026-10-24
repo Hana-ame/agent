@@ -154,7 +154,8 @@ class DAGConfig:
     raw: Dict[str, Any] = field(default_factory=dict)
 
     def sorted_edges(self) -> List[EdgeConfig]:
-        return sorted(self.edges, key=lambda e: (e.layer, self.edges.index(e)))
+        return [e for _, e in sorted(enumerate(self.edges),
+                                     key=lambda p: (p[1].layer, p[0]))]
 
 
 def _parse_graph(raw: Any, i: int) -> GraphConfig:

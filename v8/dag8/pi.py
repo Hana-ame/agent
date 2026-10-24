@@ -36,7 +36,12 @@ from dag8.config import PiConfig
 __all__ = ["PiAgent", "PiError"]
 
 _RETRYABLE = ("429", "rate_limit", "insufficient_quota", "timeout", "Temporary failure")
-_NODE_BIN = "$HOME/.nvm/versions/node/v22.23.1/bin"
+
+
+def _remote_path_prefix() -> str:
+    """远端 PATH 前缀：动态找最新的 nvm node bin，不写死版本。"""
+    return ('export PATH="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null '
+            '| sort -V | tail -n 1):$PATH"; ')
 
 
 def find_pi() -> Optional[str]:
@@ -102,7 +107,7 @@ class PiAgent:
             args[0] = exe
             return args
 
-        remote = f"export PATH={_NODE_BIN}:$PATH; " + " ".join(shlex.quote(a) for a in args)
+        remote = _remote_path_prefix() + " ".join(shlex.quote(a) for a in args)
         cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
         if self.cfg.ssh_key:
             # subprocess 不过 shell，`~` 不会被展开，必须自己展开

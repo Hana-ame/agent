@@ -141,9 +141,17 @@ class Store:
 
     def contents_for_tag(self, run_id: str, tag: str) -> List[Dict[str, Any]]:
         """取带某 tag 的全部内容（按 gen、id 升序）。"""
-        rows = self.conn.execute(
-            "SELECT * FROM contents WHERE run_id=? ORDER BY gen, id", (run_id,)
-        ).fetchall()
+        try:
+            rows = self.conn.execute(
+                "SELECT * FROM contents WHERE run_id=? AND EXISTS ("
+                "SELECT 1 FROM json_each(contents.tags) WHERE value=?) "
+                "ORDER BY gen, id", (run_id, tag)
+            ).fetchall()
+        except sqlite3.OperationalError:  # 旧 SQLite 没有 JSON1，退回全表扫描
+            rows = self.conn.execute(
+                "SELECT * FROM contents WHERE run_id=? ORDER BY gen, id", (run_id,)
+            ).fetchall()
+            rows = [r for r in rows if tag in json.loads(r["tags"])]
         out = []
         for r in rows:
             tags = json.loads(r["tags"])

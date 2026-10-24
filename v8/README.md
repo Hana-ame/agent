@@ -963,7 +963,7 @@ SELECT run_id, content FROM contents WHERE tags LIKE '%final%' AND run_id IN (..
 ## 测试
 
 ```bash
-cd v8 && python -m pytest tests/ -q                  # 267 条，含 4 条真实调用，约 3–5 分钟
+cd v8 && python -m pytest tests/ -q                  # 270 条，含 4 条真实调用，约 3–5 分钟
 cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，本机实测约 2–3 分钟
 cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 ```
@@ -973,6 +973,7 @@ cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 | `tests/test_approval.py` | 5 | 否 —— 无 marker 阻断 / 放行 / 拒绝 / resume / 不是节点 |
 | `tests/test_db_node.py` | 4 | 否 —— 本地 SQLite：查询/截断/只读/配置 |
 | `tests/test_http_node.py` | 5 | 否 —— 本地 server：GET/POST/错误码/URL 校验 |
+| `tests/test_review_fixes.py` | 3 | 否 —— 动态 PATH/排序稳定性/tag SQL 过滤 |
 | `tests/test_report_check.py` | 3 | 否 —— 汇报指标/配置 lint/dry-run |
 | `tests/test_router.py` | 4 | 否 —— 成功率/时延/价格权重、CLI |
 | `tests/test_cli_help.py` | 1 | 否 —— 所有子命令 --help 可退出 |
@@ -1024,10 +1025,10 @@ skip 会让「环境没准备好」和「全部通过」长得一模一样，那
 
 | 套件 | 结果 | 耗时 |
 |---|---|---|
-| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **263 passed** | 约 15s |
+| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **266 passed** | 约 15s |
 | live 非 slow（3 条） | **3 passed** | 167s |
 | live slow（整图三边） | **1 passed** | 113s |
-| 全量 | **267 passed**（含 4 live） | 约 5 分钟 |
+| 全量 | **270 passed**（含 4 live） | 约 5 分钟 |
 
 注意：live 用例会真实碰网关，网关 530/429/变慢时**会红**——这是有意的，不是 flaky skip。
 不想碰网关就用 `-m "not live"`。
