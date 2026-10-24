@@ -69,6 +69,19 @@ print(d.contents)
 print(d.edges)
 ```
 
+## 测试
+
+根目录已配置 `pytest.ini`，默认收集全部项目测试：
+
+```bash
+python -m pytest -q                 # 297 条：根 19 + v8 278（含 4 条 live）
+python -m pytest -q -m "not live"   # 293 条：不碰模型
+cd v8 && python -m pytest tests/ -q # 只跑 v8 的 278 条
+```
+
+- `.venv/` 里的是第三方依赖测试，不属于本项目
+- live 用例需要真实 pi；没有 pi 会直接 fail，不 skip
+
 ## 运行现有脚本
 
 ```bash
