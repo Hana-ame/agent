@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -59,7 +60,20 @@ class LLMClientProtocol(Protocol):
 
 
 def deterministic_semantic_embedding(text: str, dim: int = 32) -> List[float]:
-    """Compute a deterministic character/subword semantic vector for offline & fallback embedding similarity."""
+    """Compute a deterministic token/semantic vector for offline & fallback embedding similarity.
+
+    v7 修复（2026-10-22）：旧版把**每个字符和 bigram** 都塞进哈希向量，于是
+    「拼写像」被当成「语义像」——`cf_subdomain_daily` 与 `cf_wa_daily` 的余弦是
+    0.7402，越过默认 0.70 阈值，`cf_verify` 直接把 Web Analytics 的 JSON 当流量
+    数据吃了（scripts/cf 上真串过一次）。
+
+    现在只编码三类 token：
+    - 整串（一个 token）：两个 tag 只共享 2/3 个词时，分数不会被抬到 0.67 附近
+    - 按 `_ - : . 空白` 切出的词
+    - 同义词组 canonical（权重 3）：report ↔ 报告 这类跨语言/近义
+
+    纯拼写变体（draft ↔ drafts、typo）交给词法 n-gram，不靠这个向量。
+    """
     cleaned = str(text).lower().strip()
     if not cleaned:
         return [0.0] * dim
@@ -76,17 +90,10 @@ def deterministic_semantic_embedding(text: str, dim: int = 32) -> List[float]:
         ({"review", "audit", "check", "审核", "检查", "校验"}, "sem_review"),
     ]
     tokens = [cleaned]
+    tokens += [w for w in re.split(r"[_\-\s:.]+", cleaned) if w and w != cleaned]
     for group, canonical in synonym_groups:
-        for word in group:
-            if word in cleaned:
-                tokens.append(canonical)
-    for ch in cleaned:
-        if ch.strip() and ch not in "_-:":
-            tokens.append(f"c:{ch}")
-    for i in range(len(cleaned) - 1):
-        bg = cleaned[i : i + 2]
-        if bg.strip():
-            tokens.append(f"bg:{bg}")
+        if any(word in cleaned for word in group):
+            tokens.append(canonical)
 
     vec = [0.0] * dim
     for tok in tokens:

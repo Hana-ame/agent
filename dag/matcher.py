@@ -5,6 +5,9 @@ Evaluates whether existing `ContentItem` tags match an edge's `input_tags` via:
 2. Lexical / N-gram similarity
 3. Vector embedding cosine similarity (`>= threshold`)
 
+**fn 边（`Processor(fn=...)`，强 schema 的代码）只走第 1 条**：它吃的是特定结构，
+模糊匹配会把「长得像」的数据串进来（2026-10-22 CF 图的真实事故）。LLM 边仍可用模糊匹配。
+
 Ranks runnable `(edge, matched_items)` candidates by:
 - `edge.layer` ascending (`0` is highest priority)
 - `input.gen` ascending (`0` is highest priority, earlier generations processed first)
@@ -94,12 +97,25 @@ class TagMatcher:
         threshold: float = 0.70,
         use_embeddings: bool = True,
         allow_multi_item_direct_match: bool = False,
+        exact_match_for_fn: bool = True,
     ) -> None:
         self.llm_client = llm_client
         self.threshold = float(threshold)
         self.use_embeddings = bool(use_embeddings)
         self.allow_multi_item_direct_match = bool(allow_multi_item_direct_match)
+        # fn 边是强 schema 的代码（吃特定结构的 JSON/文本），只认精确 tag。
+        # 2026-10-22 的真实事故：cf_task ↔ cf_wa_task 相似度 0.8044，两条拉数边
+        # 各跑两遍；cf_subdomain_daily ↔ cf_wa_daily 相似度 0.7402，cf_verify
+        # 把 Web Analytics 的 JSON 当流量数据。LLM 边仍走模糊匹配。
+        self.exact_match_for_fn = bool(exact_match_for_fn)
         self._embed_cache: Dict[str, List[float]] = {}
+
+    @staticmethod
+    def _is_fn_edge(edge: EdgeSpec) -> bool:
+        return edge.processor is not None and edge.processor.fn is not None
+
+    def _requires_exact(self, edge: EdgeSpec) -> bool:
+        return self.exact_match_for_fn and self._is_fn_edge(edge)
 
     def _get_embedding(self, tag: str) -> List[float]:
         key = tag.strip().lower()
@@ -179,13 +195,19 @@ class TagMatcher:
             if not edge.input_tags:
                 continue
             # 1. Single content item satisfying all of `edge.input_tags`
+            exact = self._requires_exact(edge)
             for c_idx, item in enumerate(contents):
                 sig = (e_idx, (c_idx,))
                 if sig in executed_signatures:
                     continue
                 if set(edge.output_tags) == set(item.tags) and edge.input_tags != edge.output_tags:
                     continue
-                sim = self.item_matches_required_tags(edge.input_tags, item.tags)
+                if exact:
+                    if not set(edge.input_tags).issubset(set(item.tags)):
+                        continue
+                    sim: Optional[float] = 1.0
+                else:
+                    sim = self.item_matches_required_tags(edge.input_tags, item.tags)
                 if sim is not None and sim >= self.threshold:
                     candidates.append(
                         EdgeMatchCandidate(
@@ -203,9 +225,15 @@ class TagMatcher:
                 for req in edge.input_tags:
                     matches_for_req = []
                     for c_idx, item in enumerate(contents):
-                        best = max((self.tag_similarity(req, t) for t in item.tags), default=0.0)
-                        if best >= self.threshold:
-                            matches_for_req.append((c_idx, best))
+                        if set(edge.output_tags) == set(item.tags) and edge.input_tags != edge.output_tags:
+                            continue
+                        if exact:
+                            if req in item.tags:
+                                matches_for_req.append((c_idx, 1.0))
+                        else:
+                            best = max((self.tag_similarity(req, t) for t in item.tags), default=0.0)
+                            if best >= self.threshold:
+                                matches_for_req.append((c_idx, best))
                     if not matches_for_req:
                         possible = False
                         break

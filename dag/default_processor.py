@@ -117,6 +117,10 @@ class DefaultProcessor:
         for e_idx, edge in ranked_edges:
             if not edge.input_tags:
                 continue
+            # fn 边是强 schema 的代码，只接受精确 tag 的输入（见 TagMatcher.exact_match_for_fn）；
+            # 让它们进 LLM 拼装会把结构不对的东西喂给代码。
+            if getattr(matcher, "exact_match_for_fn", False) and getattr(edge.processor, "fn", None) is not None:
+                continue
             max_limit = getattr(edge, "max_count", None) or getattr(self, "max_edge_count", None)
             if max_limit is not None and edge.count >= max_limit:
                 continue

@@ -2,12 +2,17 @@
 """CF 子域×每日 流量 DAG（无缓存、拉最新、纯 fn 边、快）。
 
 DAG 边：
-  edge_0  cf_task            → [fn:cf_query]  → cf_subdomain_daily   （fresh GraphQL，并行）
-  edge_1  cf_subdomain_daily → [fn:cf_verify] → cf_verify_result     （自洽校验）
-  edge_2  cf_subdomain_daily → [fn:cf_itemize] → cf_itemized_table   （逐日逐子域明细表）
-  edge_3  cf_itemized_table  → [fn:cf_report]  → cf_final_report     （成稿交付）
+  edge_0  cf_task            → [fn:cf_query]   → cf_subdomain_daily   （fresh GraphQL，并行）
+  edge_1  cf_subdomain_daily → [fn:cf_verify]  → cf_verify_result     （自洽校验）
+  edge_2  cf_subdomain_daily → [fn:cf_itemize] → cf_itemized_table    （逐日逐子域明细表）
+  edge_4  cf_wa_task         → [fn:wa_query]   → cf_wa_daily          （Web Analytics RUM，bot=0）
+  edge_5  cf_wa_daily        → [fn:wa_itemize] → cf_wa_report         （WA 页面浏览量小节）
+  edge_3  cf_itemized_table + cf_wa_report → [fn:cf_report] → cf_final_report（成稿交付）
 
-所有数据边为 Python fn，确定性、无网络（除 edge_0 拉 CF）；不写本地缓存。
+所有数据边为 Python fn，确定性、无网络（除 edge_0 / edge_4 拉 CF）；不写本地缓存。
+
+Web Analytics 口径：账户级 GraphQL `rumPageloadEventsAdaptiveGroups`，
+filter `bot: 0` 对应 dashboard 的 excludeBots=Yes；count = 页面浏览量，sum.visits = 访问数。
 """
 from __future__ import annotations
 
@@ -15,6 +20,8 @@ import datetime as dt
 import functools
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 import types
@@ -39,6 +46,10 @@ ZONES = {
     "ac6701051cbfbfb41c35d14f36353c8e": "4545810.xyz",
 }
 
+CF_ACCOUNT = "e81cd9a68fe7ea7e3d6b46fe7f5cbd3c"   # Web Analytics 所在账户
+GRAPHQL_API = "https://api.cloudflare.com/client/v4/graphql"
+RUM_SITES_API = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT}/rum/site_info/list"
+
 
 def fmt_bytes(b: float) -> str:
     if b >= 1e12:
@@ -59,7 +70,7 @@ def fmt_num(n: int) -> str:
 # ---- fn processors --------------------------------------------------------
 def _window(days: int = 7):
     """UTC 昨天为窗口结束日（CF analytics 的最新完整日）。"""
-    today_utc = dt.datetime.utcnow().date()
+    today_utc = dt.datetime.now(dt.timezone.utc).date()
     end = today_utc - dt.timedelta(days=1)
     start = end - dt.timedelta(days=days - 1)
     return start.isoformat(), end.isoformat()
@@ -80,7 +91,7 @@ def cf_query(_task_text: str) -> str:
     out = {
         "from": frm,
         "to": to,
-        "fetched_at": dt.datetime.utcnow().isoformat() + "Z",
+        "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "zones": [{"zone": ZONES[i], "id": i, "subdomains": agg[i]} for i in ids],
         "truncated": trunc,
     }
@@ -214,18 +225,160 @@ def cf_itemize(data_json: str) -> str:
     return "\n".join(out)
 
 
-def cf_report(table_text: str) -> str:
-    """edge_3：成稿——明细表 + 拉取元信息。"""
-    return table_text
+# ---- Web Analytics（RUM）---------------------------------------------------
+def _post_graphql(query: str) -> dict:
+    """账户级 GraphQL。Web Analytics 走 accountTag 过滤，和 cf_usage 的 zone 级查询不同。"""
+    email, key = os.environ["CF_EMAIL"], os.environ["CF_GLOBAL_KEY"]
+    body = json.dumps({"query": query})
+    r = subprocess.run(
+        ["curl", "-s", "--max-time", "90", GRAPHQL_API,
+         "-H", "X-AUTH-EMAIL: " + email, "-H", "X-AUTH-KEY: " + key,
+         "-H", "Content-Type: application/json", "-d", body],
+        capture_output=True, text=True,
+    )
+    data = json.loads(r.stdout or "{}")
+    if data.get("errors"):
+        raise RuntimeError("Web Analytics GraphQL 错误：" +
+                           json.dumps(data["errors"], ensure_ascii=False)[:300])
+    return data["data"]["viewer"]["accounts"][0]
+
+
+def _wa_site_names() -> dict:
+    """site_tag → 域名。REST 一次拿全站点；失败直接抛，不静默降级。"""
+    email, key = os.environ["CF_EMAIL"], os.environ["CF_GLOBAL_KEY"]
+    r = subprocess.run(
+        ["curl", "-s", "--max-time", "40", RUM_SITES_API,
+         "-H", "X-AUTH-EMAIL: " + email, "-H", "X-AUTH-KEY: " + key],
+        capture_output=True, text=True,
+    )
+    data = json.loads(r.stdout or "{}")
+    if not data.get("success"):
+        raise RuntimeError("拉 Web Analytics 站点列表失败：" +
+                           json.dumps(data.get("errors"), ensure_ascii=False)[:300])
+    return {
+        s["site_tag"]: ((s.get("ruleset") or {}).get("zone_name") or s["site_tag"])
+        for s in data.get("result") or []
+    }
+
+
+def wa_query(_task_text: str) -> str:
+    """edge_4：拉账户级 Web Analytics（RUM）页面浏览量，按站点×日期，排除 Bot。
+
+    对应的 dashboard 视图：`/web-analytics/overview/page-views?excludeBots=Yes`
+    - `count`      = 页面浏览量（page load 次数）
+    - `sum.visits` = 访问数（会话数）
+    """
+    frm, to = _window(7)
+    q = (
+        'query { viewer { accounts(filter: {accountTag: "%s"}) {'
+        " rumPageloadEventsAdaptiveGroups(limit: 10000,"
+        ' filter: {datetime_geq: "%sT00:00:00Z", datetime_leq: "%sT23:59:59Z", bot: 0},'
+        " orderBy: [count_DESC]) { count sum { visits } dimensions { date siteTag } }"
+        " } } }" % (CF_ACCOUNT, frm, to)
+    )
+    rows = _post_graphql(q).get("rumPageloadEventsAdaptiveGroups") or []
+    names = _wa_site_names()
+
+    dates = [
+        (dt.date.fromisoformat(frm) + dt.timedelta(days=i)).isoformat()
+        for i in range((dt.date.fromisoformat(to) - dt.date.fromisoformat(frm)).days + 1)
+    ]
+    per_site = {tag: {date: [0, 0] for date in dates} for tag in names}
+    for row in rows:
+        dim = row.get("dimensions") or {}
+        tag, date = dim.get("siteTag"), dim.get("date")
+        if tag not in per_site or date not in per_site[tag]:
+            continue  # 窗口外日期或未登记站点，忽略
+        per_site[tag][date][0] += int(row.get("count") or 0)
+        per_site[tag][date][1] += int((row.get("sum") or {}).get("visits") or 0)
+
+    sites = []
+    for tag, days in per_site.items():
+        sites.append({
+            "site_tag": tag,
+            "zone": names[tag],
+            "page_views": sum(v[0] for v in days.values()),
+            "visits": sum(v[1] for v in days.values()),
+            "days": {d: {"page_views": v[0], "visits": v[1]} for d, v in days.items()},
+        })
+    sites.sort(key=lambda s: -s["page_views"])
+    total_pv = sum(s["page_views"] for s in sites)
+    total_vs = sum(s["visits"] for s in sites)
+    # 自洽：站点合计 == 逐日合计（同一批 rows 的两种切法，必须相等）
+    if total_pv != sum(sum(v["page_views"] for v in s["days"].values()) for s in sites):
+        raise RuntimeError("Web Analytics 站点合计与逐日合计不一致")
+
+    out = {
+        "account": CF_ACCOUNT,
+        "from": frm,
+        "to": to,
+        "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "exclude_bots": True,
+        "sites": sites,
+        "totals": {"page_views": total_pv, "visits": total_vs},
+    }
+    return json.dumps(out, ensure_ascii=False)
+
+
+def wa_itemize(wa_json: str) -> str:
+    """edge_5：把 Web Analytics JSON 渲染成报告小节（按站点 + 逐日趋势）。"""
+    d = json.loads(wa_json)
+    frm, to = d["from"], d["to"]
+    dates = [
+        (dt.date.fromisoformat(frm) + dt.timedelta(days=i)).isoformat()
+        for i in range((dt.date.fromisoformat(to) - dt.date.fromisoformat(frm)).days + 1)
+    ]
+    out = [
+        f"\n## Web Analytics 页面浏览量（排除 Bot，{frm} ~ {to}）",
+        f"> 账户 `{d['account']}`，数据源 Cloudflare Web Analytics `rumPageloadEventsAdaptiveGroups`"
+        f"（`bot: 0` = excludeBots），拉取时间 {d['fetched_at']}",
+        "> 口径：页面浏览量 = `count`（page load 次数），访问数 = `sum.visits`（会话数）。",
+        "",
+        "| 站点 | 页面浏览量 | 访问数 |",
+        "|---|--:|--:|",
+    ]
+    for s in d["sites"]:
+        out.append(f"| {s['zone']} | {fmt_num(s['page_views'])} | {fmt_num(s['visits'])} |")
+    t = d["totals"]
+    out.append(f"| **合计** | **{fmt_num(t['page_views'])}** | **{fmt_num(t['visits'])}** |")
+
+    day_pv = {date: 0 for date in dates}
+    day_vs = {date: 0 for date in dates}
+    for s in d["sites"]:
+        for date, v in s["days"].items():
+            day_pv[date] += v["page_views"]
+            day_vs[date] += v["visits"]
+    out += ["", f"### 逐日趋势（{len(dates)} 天）",
+            "| 日期 | 页面浏览量 | 访问数 |", "|---|--:|--:|"]
+    for date in dates:
+        out.append(f"| {date} | {fmt_num(day_pv[date])} | {fmt_num(day_vs[date])} |")
+    out.append(f"| **合计** | **{fmt_num(t['page_views'])}** | **{fmt_num(t['visits'])}** |")
+    return "\n".join(out)
+
+
+def cf_report(table_text: str, inputs) -> str:
+    """edge_3：成稿——明细表 + Web Analytics 小节。
+
+    引擎对两参数 fn 的约定是 `(首个输入的内容, 全部输入)`；不要依赖顺序，
+    直接按 tag 从条目里各取各的（多输入边已开直接匹配，见 build_dag）。
+    """
+    items = inputs if isinstance(inputs, list) else [inputs]
+    table = next((it.contents for it in items
+                  if "cf_itemized_table" in getattr(it, "tags", [])), table_text)
+    wa = next((it.contents for it in items
+               if "cf_wa_report" in getattr(it, "tags", [])), "")
+    return table + wa if wa else table
 
 
 # ---- 每条 edge 的耗时记录 -------------------------------------------------
 EDGE_TIMINGS: dict[str, float] = {}
 EDGE_NETWORK: dict[str, bool] = {
-    "cf_query": True,   # 走 CF GraphQL
+    "cf_query": True,   # 走 CF GraphQL（zone 级流量）
     "cf_verify": False,
     "cf_itemize": False,
     "cf_report": False,
+    "wa_query": True,   # 走 CF GraphQL（账户级 Web Analytics）
+    "wa_itemize": False,
 }
 
 
@@ -246,6 +399,14 @@ def timed(fn):
 # ---- build & run DAG ------------------------------------------------------
 def build_dag():
     d = dag.DAG(name="cf_subdomain_daily", models=str(SCRIPT_DIR / "models.json"))
+    # 成稿边有两个输入（明细表 + WA 小节）。框架默认【不】直接匹配多条目，
+    # 会走 default_processor 的 LLM 拼装；这里 LLM 是 Mock，拼装会把内容吃掉。
+    # 打开后按 tag 精确取两个条目直接执行。
+    #
+    # 注：这里**不**调高 threshold。v7 曾把 cf_subdomain_daily 和 cf_wa_daily 算成
+    # 0.7402（字符级伪 embedding），cf_verify 因此吃了 WA 的 JSON；根因已在
+    # dag/llm.py 的 deterministic_semantic_embedding 修掉，现在默认 0.70 就够。
+    d.matcher.allow_multi_item_direct_match = True
     d.add_edge(
         input_tags=["cf_task"],
         processor=Processor(fn=timed(cf_query), model="cf_query"),
@@ -265,7 +426,19 @@ def build_dag():
         layer=1,
     )
     d.add_edge(
-        input_tags=["cf_itemized_table"],
+        input_tags=["cf_wa_task"],
+        processor=Processor(fn=timed(wa_query), model="wa_query"),
+        output_tags=["cf_wa_daily"],
+        layer=0,
+    )
+    d.add_edge(
+        input_tags=["cf_wa_daily"],
+        processor=Processor(fn=timed(wa_itemize), model="wa_itemize"),
+        output_tags=["cf_wa_report"],
+        layer=1,
+    )
+    d.add_edge(
+        input_tags=["cf_itemized_table", "cf_wa_report"],
         processor=Processor(fn=timed(cf_report), model="cf_report"),
         output_tags=["cf_final_report"],
         layer=2,
@@ -274,23 +447,25 @@ def build_dag():
 
 
 def run_once() -> str:
-    """一次调用得到全部结果：构建 DAG → 单次 dag.run() → 返回逐子域×逐日明细。
+    """一次调用得到全部结果：构建 DAG → 单次 dag.run() → 返回完整报告。
 
-    内部 4 条 fn 边由框架按标签路由自动依次执行（query→verify / query→itemize→report），
+    内部 6 条 fn 边由框架按标签路由自动执行：
+      cf_query → verify / itemize；wa_query → wa_itemize；最后 report 合并两条支路。
     对调用者而言就是「一次 dag 调用」。返回最终交付物 cf_final_report 全文。
     """
     EDGE_TIMINGS.clear()
     d = build_dag()
     d.add_content(contents="按子域×逐日分项列出 CF 全量子域访问量与流量", tags=["cf_task"], gen=0)
-    d.run(until_tag="cf_final_report")  # 一次调用，框架内部按 layer/gen 调度 4 条边
+    d.add_content(contents="拉账户级 Web Analytics 页面浏览量（排除 Bot）", tags=["cf_wa_task"], gen=0)
+    d.run(until_tag="cf_final_report")  # 一次调用，框架内部按 layer/gen 调度 6 条边
     return d.get_result("cf_final_report")
 
 
 def print_timings(total: float) -> None:
     """打印每条 edge 的耗时表（含占 run 总耗时比例）。"""
-    order = ["cf_query", "cf_verify", "cf_itemize", "cf_report"]
-    edge_of = {"cf_query": "edge_0", "cf_verify": "edge_1",
-               "cf_itemize": "edge_2", "cf_report": "edge_3"}
+    order = ["cf_query", "cf_verify", "cf_itemize", "cf_report", "wa_query", "wa_itemize"]
+    edge_of = {"cf_query": "edge_0", "cf_verify": "edge_1", "cf_itemize": "edge_2",
+               "cf_report": "edge_3", "wa_query": "edge_4", "wa_itemize": "edge_5"}
     print("\n=== 各 edge 耗时 ===")
     print(f"{'edge':<8}{'处理器':<14}{'耗时(s)':>10}{'占比':>10}  网络")
     print("-" * 56)
@@ -320,8 +495,9 @@ def main():
     out_path = SCRIPT_DIR / "cf_report.md"
     with open(out_path, "w", encoding="utf-8") as fh:
         fh.write(report)
+    n_subs = len(re.findall(r"^### .+（.+） — 周：", report, re.M))
     print(f"=== 交付 ===\n{out_path}")
-    print(f"明细行数: {len(report.splitlines())} 行（790 子域 × 逐日）")
+    print(f"明细行数: {len(report.splitlines())} 行（{n_subs} 子域 × 逐日 + Web Analytics 小节）")
 
     print_timings(total)
 

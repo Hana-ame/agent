@@ -8,7 +8,7 @@
 │   ├── __init__.py             # 暴露 dag.load(), dag.step(), dag.contents, dag.edges, DAG
 │   ├── engine.py               # DAG 核心执行引擎与单步调度
 │   ├── schema.py               # models / contents / edges / tools 数据结构与 JSON 持久化
-│   ├── matcher.py              # 标签精确匹配、N-gram 与向量余弦相似度匹配
+│   ├── matcher.py              # 标签匹配：fn 边只认精确 tag，LLM 边支持 N-gram/向量模糊
 │   ├── default_processor.py    # 默认处理器（N-in-1-out 拼凑与干净上下文自主路由）
 │   ├── llm.py                  # OpenAI 兼容客户端（支持流式与重试）与本地 Mock 客户端
 │   ├── meta.py                 # 元图（Meta-DAG）动态修改器
@@ -19,9 +19,10 @@
 │   │   ├── stage1st_stability.py       # S1 分类与摘要稳定性测试脚本
 │   │   └── stage1st_crawler_digest.py  # S1 157 爬虫、Python 交错与时间线汇总脚本
 │   └── cf/                     # Cloudflare 子域流量拉取、校验与日报
-│       ├── run_cf_dag.py               # CF 子域×每日流量统计 DAG
+│       ├── run_cf_dag.py               # CF 子域×每日流量 + Web Analytics 页面浏览量 DAG
 │       ├── cf_fns.py                   # CF 数据拉取与三道闸校验函数
 │       └── models.json                 # CF 脚本免 Key 网关配置
+├── tests/                      # 框架回归测试（标签匹配串数据 / fn 边契约）
 ├── .gitignore                  # 忽略真实密钥与所有脚本运行产物（cf_report.md, out/ 等）
 ├── models.json.example         # 模型配置模板（复制为 models.json 填写密钥后使用）
 └── pyproject.toml              # 包构建配置
@@ -63,6 +64,7 @@ python3 scripts/s1/stage1st_ai.py
 # 2. Stage1st 稳定性测试
 python3 scripts/s1/stage1st_stability.py classify 4
 
-# 3. Cloudflare 子域×每日访问量与流量统计（产物默认输出至 scripts/cf/cf_report.md）
+# 3. Cloudflare 子域×每日流量统计 + Web Analytics 页面浏览量（排除 Bot）
+#    （产物默认输出至 scripts/cf/cf_report.md）
 python3 scripts/cf/run_cf_dag.py
 ```

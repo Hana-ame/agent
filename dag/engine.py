@@ -323,11 +323,14 @@ class DAG:
                     input_items[0] if len(input_items) == 1 else list(input_items),
                 )
             elif len(params) == 1:
-                arg = input_items[0] if len(input_items) == 1 else list(input_items)
-                try:
-                    raw_out = proc.fn(arg.contents if isinstance(arg, ContentItem) else [i.contents for i in arg])
-                except Exception:
-                    raw_out = proc.fn(arg)
+                # 单参数 fn 只收文本；多输入时收文本列表。
+                # 旧版在这里 try/except 后拿 ContentItem 再调一次：
+                # ① 会吞掉 fn 自己的异常（KeyError 被换成难懂的 TypeError）；
+                # ② 有副作用的 fn（发请求、写库）会被执行两遍。
+                raw_out = proc.fn(
+                    input_items[0].contents if len(input_items) == 1
+                    else [i.contents for i in input_items]
+                )
             else:
                 raw_out = proc.fn()
             out_text = serialize_content(raw_out)
