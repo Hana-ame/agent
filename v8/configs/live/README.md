@@ -40,3 +40,14 @@ python -m dag8 run configs/live/nested_outer.json --workers 2 --rpm 3 --json
 - 都需要真实 `laptop` 网关；网关 429/530 时运行会失败
 - 模型是 `deepseek-flash`，网关慢时会触发 timeout
 - 这些配置的证据是单次观察，不是稳定性结论
+
+## judge_score_probe.json
+
+校准用：`min_score=10` 强制所有样本走失败路径，从 error 里读回 judge 分数；
+再按 `score>=7` 推断默认阈值的通过率。样本与脚本：
+
+```bash
+python scripts/judge_calibration.py
+```
+
+结果写 `data/judge_calibration.json`。这是**校准**，不是默认阈值的真实运行。

@@ -1,0 +1,15 @@
+{
+  "name": "judge_score_probe",
+  "_comment": "校准用：min_score=10 强制所有样本走失败路径，从 error 里读回 judge 分数；默认阈值 7 的通过率由此推断。",
+  "seed_tag": "task",
+  "seed_content": "",
+  "result_tag": "out",
+  "pi": {"provider": "laptop", "model": "deepseek-flash", "tools": false, "timeout": 240, "retries": 2},
+  "edges": [{
+    "id": "e",
+    "input_tags": ["task"],
+    "output_tags": ["out"],
+    "prompt": "用一句话解释：{contents}",
+    "judge": {"min_score": 10}
+  }]
+}
