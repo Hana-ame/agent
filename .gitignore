@@ -76,3 +76,4 @@ v8/**/__pycache__/
 /.models_new.*
 /.probe_cap.py
 /.verify_cap.py
+v9/data/

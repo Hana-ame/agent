@@ -5,12 +5,14 @@
 ```text
 v7/                      # DAG 本体（canonical，可 import v7；v7.step()/contents/set）
 v8/                      # 组织层（多张 v7 图并行、合并、缓存、契约、落库）
+v9/                      # 开放世界知识推理层（实体/关系/来源/推理循环）
 v8/configs/v7_core/      # “v7 本体 + v8 组织”可运行原型
 dag/                     # 旧 import 路径（兼容 scripts/tests，不再作为新入口）
 ```
 
 - v7 负责“图怎么跑”：标签匹配、边执行、DefaultProcessor、Meta-DAG
 - v8 负责“多张图怎么组织”：波次并行、合并、缓存、质量闸门、SQLite 轨迹
+- v9 负责“知识怎么增长”：外部证据、关系推理、来源与推理链
 - 新代码优先 `import v7`；v8 的 graph 节点也优先加载 `v7`，失败再回退 `dag`
 
 
@@ -74,11 +76,13 @@ print(d.edges)
 根目录已配置 `pytest.ini`，默认收集全部项目测试：
 
 ```bash
-python -m pytest -q                 # 297 条：根 19 + v8 278（含 4 条 live）
-python -m pytest -q -m "not live"   # 293 条：不碰模型
+python -m pytest -q                 # 302 条：根 19 + v8 278（含 4 live）+ v9 5
+python -m pytest -q -m "not live"   # 298 条：不碰模型
 cd v8 && python -m pytest tests/ -q # 只跑 v8 的 278 条
+python -m pytest v9/tests -q        # 只跑 v9 的 5 条
 ```
 
+- v9 用 Wikipedia 摘要做真实外部证据；无网络时 demo 会失败
 - `.venv/` 里的是第三方依赖测试，不属于本项目
 - live 用例需要真实 pi；没有 pi 会直接 fail，不 skip
 
