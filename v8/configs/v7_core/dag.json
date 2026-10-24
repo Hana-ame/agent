@@ -1,0 +1,76 @@
+{
+  "name": "v7_core_v8_org",
+  "_comment": "v7 子图是 DAG 本体；v8 只做波次并行、合并与落库。",
+  "seed_tag": "task",
+  "seed_content": "标签驱动 DAG",
+  "result_tag": "out",
+  "edges": [
+    {
+      "id": "benefit",
+      "kind": "graph",
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "p1"
+      ],
+      "graph": {
+        "path": "stage_benefit.json",
+        "seed_tag": "task",
+        "result_tag": "out",
+        "timeout": 120
+      }
+    },
+    {
+      "id": "risk",
+      "kind": "graph",
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "p2"
+      ],
+      "graph": {
+        "path": "stage_risk.json",
+        "seed_tag": "task",
+        "result_tag": "out",
+        "timeout": 120
+      }
+    },
+    {
+      "id": "cost",
+      "kind": "graph",
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "p3"
+      ],
+      "graph": {
+        "path": "stage_cost.json",
+        "seed_tag": "task",
+        "result_tag": "out",
+        "timeout": 120
+      }
+    },
+    {
+      "id": "merge",
+      "kind": "graph",
+      "input_tags": [
+        "p1",
+        "p2",
+        "p3"
+      ],
+      "output_tags": [
+        "out"
+      ],
+      "graph": {
+        "path": "stage_merge.json",
+        "seed_tag": "task",
+        "result_tag": "out",
+        "timeout": 180
+      },
+      "layer": 1
+    }
+  ]
+}

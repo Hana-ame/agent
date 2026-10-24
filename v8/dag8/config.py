@@ -78,7 +78,7 @@ from dag8.contracts import normalize_spec
 
 PLACEHOLDER = re.compile(r"\{([a-zA-Z0-9_:,\-]+)\}")
 
-NODE_KINDS = ("pi", "graph", "command", "http", "db")
+NODE_KINDS = ("pi", "graph", "command", "script", "http", "db")
 
 
 @dataclass
@@ -118,6 +118,7 @@ class EdgeConfig:
     kind: str = "pi"                 # pi | graph | command
     graph: Optional[GraphConfig] = None
     command: Optional[str] = None    # 仅 command 节点：一段 shell 命令；stdin=True 时输入走 stdin
+    script: Optional[str] = None     # 仅 script 节点：脚本路径（.py 用当前解释器）
     stdin: bool = False              # 仅 command 节点：把输入文本喂给命令的 stdin
     model: Optional[str] = None      # 覆盖 DAG 级 provider/model，形如 "provider/id"（仅 pi 节点）
     timeout: Optional[float] = None
@@ -187,7 +188,9 @@ def _edge_from_dict(d: Dict[str, Any], i: int) -> EdgeConfig:
     kind = str(
         d.get("kind")
         or ("graph" if "graph" in d else ("command" if "command" in d
-            else ("http" if "url" in d else ("db" if "db_path" in d else "pi"))))
+            else ("script" if "script" in d else ("http" if "url" in d
+                  else ("db" if "db_path" in d
+                        else ("pi" if "prompt" in d else "script"))))))
     ).lower()
     if kind not in NODE_KINDS:
         raise ValueError(
@@ -203,6 +206,16 @@ def _edge_from_dict(d: Dict[str, Any], i: int) -> EdgeConfig:
         command = str(d.get("command") or "").strip()
         if not command:
             raise ValueError(f"第 {i + 1} 条 edge 缺字段 'command'：{d}")
+    script: Optional[str] = None
+    if kind == "script":
+        raw_script = d.get("script")
+        raw_command = d.get("command")
+        if not raw_script and not raw_command:
+            raise ValueError(f"第 {i + 1} 条 script edge 需要 script 或 command")
+        if raw_script and raw_command:
+            raise ValueError(f"第 {i + 1} 条 script edge 不能同时给 script/command")
+        script = str(raw_script).strip() if raw_script else None
+        command = str(raw_command).strip() if raw_command else None
     if kind == "graph":
         graph = _parse_graph(d.get("graph"), i)
 
@@ -305,6 +318,7 @@ def _edge_from_dict(d: Dict[str, Any], i: int) -> EdgeConfig:
         kind=kind,
         graph=graph,
         command=command,
+        script=script,
         stdin=bool(d.get("stdin", False)),
         model=d.get("model"),
         timeout=d.get("timeout"),

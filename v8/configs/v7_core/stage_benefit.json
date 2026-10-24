@@ -1,0 +1,30 @@
+{
+  "name": "stage_benefit",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-v4-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "e",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "out"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "用一句话说明标签驱动 DAG 的一个好处：\n\n{contents}"
+      }
+    }
+  ]
+}

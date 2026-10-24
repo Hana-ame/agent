@@ -1,0 +1,30 @@
+{
+  "name": "stage_merge",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-v4-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "e",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "out"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "把下面三句话合并成 60 字以内短文，只输出正文：\n\n{contents}"
+      }
+    }
+  ]
+}

@@ -22,7 +22,9 @@ provider 速度/价格观测。**实测优化被网关 530 阻塞**，offline �
 
 ## 当前证据
 
-- 离线测试：**270 passed**（根仓库另 17 passed）；全量 274 条（含 4 live）
+- 离线测试：**274 passed**（根仓库另 17 passed）；全量 278 条（含 4 live）
+- **v7 本体 / v8 组织**原型：3 个短 v7 子图，v8 并行 4.0s vs 串行 10.8s（2.7×）
+- script 成为默认节点：JSON env/stdin 输入、stdout 输出（4 测试）
 - 库式会话：`Dag.step()` / `contents` / `blocked` / `set()`，脚本可在外部处理后继续（3 测试）
 - 评审修复：远端 nvm PATH 动态解析；sorted_edges 改稳定 O(N logN)；contents_for_tag 走 JSON1 过滤（旧库回退）
 - 自检：`bash scripts/smoke_offline.sh` 全绿（pytest / doctor / 模板 / compose / convert）

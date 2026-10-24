@@ -1,0 +1,57 @@
+{
+  "name": "v7_core_parallel",
+  "_comment": "3 个短 v7 子图；只测 v8 组织层的并行/串行墙钟。",
+  "seed_tag": "task",
+  "seed_content": "x",
+  "result_tag": "p1",
+  "edges": [
+    {
+      "id": "g1",
+      "kind": "graph",
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "p1"
+      ],
+      "graph": {
+        "path": "stage_short.json",
+        "seed_tag": "task",
+        "result_tag": "out",
+        "timeout": 120
+      }
+    },
+    {
+      "id": "g2",
+      "kind": "graph",
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "p2"
+      ],
+      "graph": {
+        "path": "stage_short.json",
+        "seed_tag": "task",
+        "result_tag": "out",
+        "timeout": 120
+      }
+    },
+    {
+      "id": "g3",
+      "kind": "graph",
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "p3"
+      ],
+      "graph": {
+        "path": "stage_short.json",
+        "seed_tag": "task",
+        "result_tag": "out",
+        "timeout": 120
+      }
+    }
+  ]
+}

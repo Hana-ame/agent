@@ -19,7 +19,7 @@ prompt/HTTP，只负责按 `layer` 取输入、调用节点、落库。
 | | v7 | v8 |
 |---|---|---|
 | 节点执行者 | Python 函数 / HTTP LLM 客户端 | **`pi` agent（子进程）**；可选把整张 v7 图或一段 shell 当节点 |
-| 节点类型 | fn / LLM 边 | **pi + graph + command + http + db** |
+| 节点类型 | fn / LLM 边 | **script + pi + graph + command + http + db** |
 | 内容存放 | 内存 + 输出 Markdown | **sqlite3**（可查询、可回溯） |
 | prompt 定义 | 写死在 Python 里 | **配置 JSON 的一个字段** |
 | 图定义 | Python 代码 | **JSON** |
@@ -247,7 +247,23 @@ run 77c97fbb431a · demo_pipeline · ok
 - 输出 JSON：`{"columns": [...], "rows": [[...]], "truncated": false}`
 - 超过 `max_rows` 截断并标 `truncated: true`
 
-`kind` 可省略：写了 `graph` 就是 graph 节点，写了 `command` 就是 command 节点，写了 `url` 就是 http 节点，写了 `db_path` 就是 db 节点，否则是 pi 节点。未知 `kind` 直接报错（审批不是节点，见下）。
+`kind` 可省略：写了 `graph` / `command` / `script` / `url` / `db_path` 就按对应类型；写了 `prompt` 才是 pi；**什么都没有时默认 script**。未知 `kind` 直接报错（审批不是节点，见下）。
+
+### script 节点（默认）
+
+```json
+{
+  "id": "fetch",
+  "input_tags": ["url"],
+  "output_tags": ["html"],
+  "script": "fetch.py"
+}
+```
+
+- 默认 `kind=script`；`.py` 用当前解释器，其他文件直接执行
+- 输入：`DAG8_INPUTS`（JSON，tag → 文本）+ stdin 同一份 JSON
+- 输出：stdout；非零退出码即失败，stderr 进 `edges.error`
+- `command` 仍可用于一段 shell；二选一
 
 ### 人工闸门（edge 级 `approval`）
 
@@ -992,7 +1008,7 @@ SELECT run_id, content FROM contents WHERE tags LIKE '%final%' AND run_id IN (..
 ## 测试
 
 ```bash
-cd v8 && python -m pytest tests/ -q                  # 274 条，含 4 条真实调用，约 3–5 分钟
+cd v8 && python -m pytest tests/ -q                  # 278 条，含 4 条真实调用，约 3–5 分钟
 cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，本机实测约 2–3 分钟
 cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 ```
@@ -1032,6 +1048,7 @@ cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 | `tests/test_backoff.py` | 3 | 否 —— 抖动边界/上限/零基数 |
 | `tests/test_evolve_leakage.py` | 5 | 否 —— 评测泄漏检查（离线） |
 | `tests/test_evolve_human.py` | 6 | 否 —— 人工评价闭环（离线） |
+| `tests/test_script_node.py` | 4 | 否 —— 默认 script/JSON 输入/非零退出/缺文件 |
 | `tests/test_session.py` | 3 | 否 —— step/blocked/set 注入 |
 | `tests/test_evolve.py` | 11 | 否 —— GA 基因/解码、2×2 交互分桶、结构性无效过滤 |
 | `tests/test_live_pi.py` | 4 | **是** —— 真实调用 `laptop/deepseek-v4-flash` |
@@ -1055,10 +1072,10 @@ skip 会让「环境没准备好」和「全部通过」长得一模一样，那
 
 | 套件 | 结果 | 耗时 |
 |---|---|---|
-| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **270 passed** | 约 15s |
+| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **274 passed** | 约 15s |
 | live 非 slow（3 条） | **3 passed** | 167s |
 | live slow（整图三边） | **1 passed** | 113s |
-| 全量 | **274 passed**（含 4 live） | 约 5 分钟 |
+| 全量 | **278 passed**（含 4 live） | 约 5 分钟 |
 
 注意：live 用例会真实碰网关，网关 530/429/变慢时**会红**——这是有意的，不是 flaky skip。
 不想碰网关就用 `-m "not live"`。

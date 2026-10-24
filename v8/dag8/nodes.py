@@ -303,6 +303,66 @@ class HttpNode:
         return resp.text[:self.max_chars]
 
 
+class ScriptNode:
+    """脚本边：执行一个脚本文件，输入是 JSON（env DAG8_INPUTS + stdin），输出 stdout。"""
+
+    def __init__(self, script: Optional[str] = None, command: Optional[str] = None, *,
+                 cwd: Optional[Path] = None, timeout: float = 600.0) -> None:
+        self.script = script
+        self.command = command
+        self.cwd = Path(cwd) if cwd else None
+        self.timeout = float(timeout)
+        self.label = f"script:{script or (command or '')[:40]}"
+        self.supports_repair = False
+        self.uses_api = False
+
+    def preview(self, inputs: Dict[str, List[str]]) -> str:
+        return self.label
+
+    def cache_key(self, inputs: Dict[str, List[str]]) -> str:
+        mtime = 0.0
+        if self.script:
+            p = Path(self.script) if Path(self.script).is_absolute() else Path(self.cwd or Path.cwd()) / self.script
+            if p.is_file():
+                mtime = p.stat().st_mtime
+        return fingerprint({"kind": "script", "script": self.script,
+                            "command": self.command, "mtime": mtime,
+                            "inputs": inputs})
+
+    def run(self, inputs: Dict[str, List[str]], repair: str = "") -> str:
+        flat = {tag: "\n\n---\n\n".join(vals) for tag, vals in inputs.items()}
+        payload = json.dumps(flat, ensure_ascii=False)
+        env = dict(os.environ)
+        env["DAG8_INPUTS"] = payload
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        try:
+            if self.script:
+                p = Path(self.script)
+                if not p.is_absolute():
+                    p = Path(self.cwd or Path.cwd()) / p
+                if not p.is_file():
+                    raise NodeError(f"script 不存在：{p}")
+                args = [sys.executable, str(p)] if p.suffix == ".py" else [str(p)]
+                proc = subprocess.run(args, input=payload, capture_output=True,
+                                      text=True, encoding="utf-8",
+                                      errors="replace", timeout=self.timeout,
+                                      cwd=str(self.cwd) if self.cwd else None, env=env)
+            else:
+                proc = subprocess.run(self.command or "", shell=True, input=payload,
+                                      capture_output=True, text=True, encoding="utf-8",
+                                      errors="replace", timeout=self.timeout,
+                                      cwd=str(self.cwd) if self.cwd else None, env=env)
+        except subprocess.TimeoutExpired as exc:
+            raise NodeError(f"script 超时（{self.timeout:.0f}s）：{self.label}") from exc
+        except OSError as exc:
+            raise NodeError(f"script 启动失败：{type(exc).__name__}: {exc}") from exc
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            raise NodeError(f"script 退出码 {proc.returncode}：{detail[:1000]}")
+        return proc.stdout.rstrip("\n")
+
+
 class CommandNode:
     """一段确定性 shell 命令：把「取 URL / 抓字幕 / 落盘」这类活交给代码，不交给 LLM。
 
@@ -592,6 +652,10 @@ def build_node(
         return HttpNode(edge.url or "", method=edge.method, headers=edge.headers,
                         body=edge.body, timeout=edge.timeout or 60.0,
                         max_chars=edge.max_chars)
+    if edge.kind == "script":
+        base = Path(cfg.path).resolve().parent if cfg.path else Path.cwd()
+        return ScriptNode(edge.script, edge.command, cwd=base,
+                          timeout=edge.timeout or 600.0)
     if edge.kind == "command":
         base = Path(cfg.path).resolve().parent if cfg.path else Path.cwd()
         return CommandNode(
