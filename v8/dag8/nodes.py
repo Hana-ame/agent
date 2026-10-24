@@ -441,14 +441,19 @@ def _v7() -> Dict[str, Any]:
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     try:
-        from dag import DAG
-        from dag.llm import OpenAICompatibleClient
-        from dag.schema import ModelRegistry
-    except ImportError as exc:  # pragma: no cover - 环境缺 v7 时才走到
-        raise NodeError(
-            "graph 节点需要 v7 的 dag 包；请在仓库根目录下运行，"
-            "或把仓库根加入 PYTHONPATH"
-        ) from exc
+        from v7 import DAG
+        from v7.llm import OpenAICompatibleClient
+        from v7.schema import ModelRegistry
+    except ImportError:  # 兼容旧目录名 dag/
+        try:
+            from dag import DAG
+            from dag.llm import OpenAICompatibleClient
+            from dag.schema import ModelRegistry
+        except ImportError as exc:  # pragma: no cover
+            raise NodeError(
+                "graph 节点需要 v7/ 或 dag/；请在仓库根目录下运行，"
+                "或把仓库根加入 PYTHONPATH"
+            ) from exc
     return {"DAG": DAG, "OpenAICompatibleClient": OpenAICompatibleClient,
             "ModelRegistry": ModelRegistry}
 

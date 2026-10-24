@@ -1,11 +1,25 @@
 # DAG Framework & Scripts
 
+## 版本结构
+
+```text
+v7/                      # DAG 本体（canonical，可 import v7；v7.step()/contents/set）
+v8/                      # 组织层（多张 v7 图并行、合并、缓存、契约、落库）
+v8/configs/v7_core/      # “v7 本体 + v8 组织”可运行原型
+dag/                     # 旧 import 路径（兼容 scripts/tests，不再作为新入口）
+```
+
+- v7 负责“图怎么跑”：标签匹配、边执行、DefaultProcessor、Meta-DAG
+- v8 负责“多张图怎么组织”：波次并行、合并、缓存、质量闸门、SQLite 轨迹
+- 新代码优先 `import v7`；v8 的 graph 节点也优先加载 `v7`，失败再回退 `dag`
+
+
 ## 目录结构
 
 ```text
 .
-├── dag/                        # DAG 核心框架（支持 import dag）
-│   ├── __init__.py             # 暴露 dag.load(), dag.step(), dag.contents, dag.edges, DAG
+├── dag/                        # 旧 import 路径（兼容；canonical 是 v7/）
+│   ├── __init__.py             # 旧入口（兼容）；新代码用 v7/
 │   ├── engine.py               # DAG 核心执行引擎与单步调度
 │   ├── schema.py               # models / contents / edges / tools 数据结构与 JSON 持久化
 │   ├── matcher.py              # 标签匹配：fn 边只认精确 tag，LLM 边支持 N-gram/向量模糊
@@ -28,20 +42,20 @@
 └── pyproject.toml              # 包构建配置
 ```
 
-## 快速使用 `dag` 框架
+## 快速使用 `v7` 本体
 
 ```python
-import dag
+import v7
 
 # 1. 加载（支持 JSON 文件路径、包含 models/contents/edges.json 的目录、JSON 字符串或 dict）
-dag.load("path/to/dag.json")
+v7.load("path/to/dag.json")
 
 # 2. 单步执行
-dag.step()
+v7.step()
 
 # 3. 查看或读写当前内容池与边集合
-print(dag.contents)
-print(dag.edges)
+print(v7.contents)
+print(v7.edges)
 ```
 
 也支持实例式调用：
@@ -49,7 +63,7 @@ print(dag.edges)
 ```python
 import dag
 
-d = dag.load("path/to/dag.json")
+d = v7.load("path/to/dag.json")
 d.step()
 print(d.contents)
 print(d.edges)
