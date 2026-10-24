@@ -6,7 +6,7 @@ conftest 里的 `pi_probe()` 只做 `command -v pi`，不调模型。
 三种粒度：
 
 1. 单次直调 —— 验证 PiAgent → ssh → pi → 模型这条链路（约 5~20 秒）
-2. 边级执行 —— 验证 engine 把 prompt 渲染好、结果写进 sqlite（约 10 秒）
+2. 边级执行 —— 验证调度器把 prompt 交给节点、结果写进 sqlite（约 10 秒）
 3. 整图三边 —— 验证 layer 调度与多输入拼接（约 45 秒，标 slow）
 
 跳过方式：
@@ -78,13 +78,18 @@ def test_pi_reports_error_for_unknown_provider():
 
 
 # ---------------------------------------------------------------------------
-# 2. 边级：engine + store 打通
+# 2. 边级：scheduler + store 打通
 # ---------------------------------------------------------------------------
 def test_single_edge_writes_to_sqlite(tmp_path):
     cfg_path = tmp_path / "one.json"
-    cfg_path.write_text(
-        (V8 / "configs" / "demo.json").read_text(encoding="utf-8"), encoding="utf-8"
-    )
+    # 拷 demo.json，但去掉输出契约：这个用例喂的是 2 个字的种子，
+    # 不该被 min_chars=80 拦住（契约本身由 test_contracts / test_dag8 覆盖）。
+    import json as _json
+    data = _json.loads((V8 / "configs" / "demo.json").read_text(encoding="utf-8"))
+    for edge in data.get("edges", []):
+        edge.pop("expect", None)
+        edge.pop("repair", None)
+    cfg_path.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
     res = dag8.run(
         cfg_path,
         seed_content="只回复两个字：收到",

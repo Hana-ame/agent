@@ -1,0 +1,47 @@
+{
+  "name": "nested_demo",
+  "_comment": "演示 graph 节点：edge_0 是普通 pi 节点；edge_1 把一张 v7 图（graphs/v7_tighten.json）整体当成一个节点跑。graph 路径相对本文件所在目录。",
+  "seed_tag": "topic",
+  "seed_content": "用三句话解释「标签驱动的 DAG」",
+  "result_tag": "final",
+  "pi": {
+    "provider": "laptop",
+    "model": "deepseek-v4-flash",
+    "tools": false,
+    "timeout": 180,
+    "retries": 3
+  },
+  "edges": [
+    {
+      "id": "points",
+      "layer": 0,
+      "input_tags": [
+        "topic"
+      ],
+      "output_tags": [
+        "points"
+      ],
+      "prompt": "把下面的主题写成 3 条要点，每条一行，不要开场白：\n\n{contents}"
+    },
+    {
+      "id": "tighten",
+      "kind": "graph",
+      "layer": 1,
+      "input_tags": [
+        "points"
+      ],
+      "output_tags": [
+        "final"
+      ],
+      "graph": {
+        "path": "graphs/v7_tighten.json",
+        "seed_tag": "draft",
+        "result_tag": "tightened",
+        "max_steps": 10
+      },
+      "expect": {
+        "min_chars": 30
+      }
+    }
+  ]
+}

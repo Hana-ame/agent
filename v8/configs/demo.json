@@ -1,6 +1,6 @@
 {
   "name": "demo_pipeline",
-  "_comment": "三边小图：起草 → 挑错 → 定稿。用于验证配置/pi/sqlite 三段是否打通。ssh_host 用 WSL 的 eth0 地址（固定 172.29.89.192）；要从别的机器跑，用环境变量 DAG8_SSH_HOST 覆盖。",
+  "_comment": "三边小图：起草 → 挑错 → 定稿。用于验证配置/pi/sqlite 三段是否打通。本文件给「代码在 Windows、pi 在 WSL」用，走 ssh 到 WSL 的 eth0 地址（固定 172.29.89.192）。代码和 pi 在同一台机器（比如直接在 WSL 里跑）时，用同目录的 demo.local.json——它不设 ssh_host，直接调本机 pi。",
   "seed_tag": "task",
   "seed_content": "用三句话解释什么是「标签驱动的 DAG」",
   "result_tag": "final",
@@ -46,7 +46,10 @@
       "output_tags": [
         "final"
       ],
-      "prompt": "下面是草稿和一条批评意见。请据此给出定稿：保留草稿的优点，修掉批评指出的问题。只输出定稿正文。\n\n【草稿】\n{tag:draft}\n\n【批评】\n{tag:critique}"
+      "prompt": "下面是草稿和一条批评意见。请据此给出定稿：保留草稿的优点，修掉批评指出的问题。只输出定稿正文。\n\n【草稿】\n{tag:draft}\n\n【批评】\n{tag:critique}",
+      "expect": {
+        "min_chars": 80
+      }
     }
   ],
   "eval": {

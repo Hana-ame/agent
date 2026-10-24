@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS edges (
     error        TEXT,
     elapsed      REAL,
     content_id   INTEGER,
+    cached       INTEGER NOT NULL DEFAULT 0,
     created_at   REAL NOT NULL,
     FOREIGN KEY (run_id) REFERENCES runs(run_id)
 );
@@ -77,7 +78,14 @@ class Store:
         self.conn = sqlite3.connect(str(self.path))
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """给旧库补列（CREATE TABLE IF NOT EXISTS 不会改已存在的表）。"""
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(edges)")}
+        if "cached" not in cols:
+            self.conn.execute("ALTER TABLE edges ADD COLUMN cached INTEGER NOT NULL DEFAULT 0")
 
     # -- runs ---------------------------------------------------------------
     def new_run(
@@ -181,11 +189,12 @@ class Store:
         error: Optional[str] = None,
         elapsed: Optional[float] = None,
         content_id: Optional[int] = None,
+        cached: bool = False,
     ) -> None:
         self.conn.execute(
             "INSERT INTO edges (run_id, edge_id, layer, input_tags, output_tags, model, "
-            "prompt_chars, status, error, elapsed, content_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "prompt_chars, status, error, elapsed, content_id, cached, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 run_id,
                 edge_id,
@@ -198,12 +207,41 @@ class Store:
                 error,
                 elapsed,
                 content_id,
+                1 if cached else 0,
                 time.time(),
             ),
         )
         self.conn.commit()
 
     # -- 查询 ---------------------------------------------------------------
+    def edge_latest(self, run_id: str) -> Dict[str, Dict[str, Any]]:
+        """每条边的最新一次记录（同一 run 内可能有多条尝试）。"""
+        rows = self.conn.execute(
+            "SELECT * FROM edges WHERE run_id=? ORDER BY id", (run_id,)
+        ).fetchall()
+        latest: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            latest[r["edge_id"]] = dict(r)
+        return latest
+
+    def delete_edges(self, run_id: str, edge_ids: List[str]) -> None:
+        ids = [str(x) for x in edge_ids]
+        if not ids:
+            return
+        q = ",".join("?" * len(ids))
+        self.conn.execute(
+            f"DELETE FROM edges WHERE run_id=? AND edge_id IN ({q})",
+            (run_id, *ids),
+        )
+        self.conn.commit()
+
+    def resume_run(self, run_id: str) -> None:
+        self.conn.execute(
+            "UPDATE runs SET status='running', finished_at=NULL, error=NULL WHERE run_id=?",
+            (run_id,),
+        )
+        self.conn.commit()
+
     def run_info(self, run_id: str) -> Dict[str, Any]:
         r = self.conn.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
         if not r:
@@ -215,6 +253,32 @@ class Store:
             "SELECT * FROM edges WHERE run_id=? ORDER BY id", (run_id,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def abort_run(self, run_id: str) -> bool:
+        """把卡在 running 的 run 标为 interrupted（供 --resume-last 接管）。"""
+        cur = self.conn.execute(
+            "UPDATE runs SET status='interrupted', finished_at=?, error=? "
+            "WHERE run_id=? AND status='running'",
+            (time.time(), "手动标记中断", run_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def prune(self, keep: int = 20, *, dry_run: bool = True) -> int:
+        """删除除最近 keep 个之外的所有 run（含 contents/edges）。"""
+        keep = max(0, int(keep))
+        rows = self.conn.execute(
+            "SELECT run_id FROM runs ORDER BY started_at DESC"
+        ).fetchall()
+        old = [r["run_id"] for r in rows[keep:]]
+        if dry_run or not old:
+            return len(old)
+        for rid in old:
+            self.conn.execute("DELETE FROM contents WHERE run_id=?", (rid,))
+            self.conn.execute("DELETE FROM edges WHERE run_id=?", (rid,))
+            self.conn.execute("DELETE FROM runs WHERE run_id=?", (rid,))
+        self.conn.commit()
+        return len(old)
 
     def result(self, run_id: str, tag: str) -> Optional[str]:
         items = self.contents_for_tag(run_id, tag)

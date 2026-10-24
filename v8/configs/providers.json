@@ -1,0 +1,35 @@
+{
+  "_readme": "v8 调度/搜索用的 provider 元数据。价格单位：currency / 1M tokens（输入、输出分开）。laptop-8000 是免 key 网关，价格记 0；速度以实测时延为准，不写死。",
+  "laptop": {
+    "base_url": "https://laptop-8000.moonchan.xyz/v1",
+    "currency": "CNY",
+    "free": true,
+    "models": {
+      "deepseek-v4-flash": {
+        "price_in": 0,
+        "price_out": 0,
+        "note": "v8 默认；非推理，最快"
+      },
+      "deepseek-flash": {
+        "price_in": 0,
+        "price_out": 0,
+        "note": "同族备选"
+      },
+      "glm-5.2": {
+        "price_in": 0,
+        "price_out": 0,
+        "note": "中等速度"
+      },
+      "kimi-k3": {
+        "price_in": 0,
+        "price_out": 0,
+        "note": "输出上限最大"
+      },
+      "sensenova-6.8-flash-lite": {
+        "price_in": 0,
+        "price_out": 0,
+        "note": "上下文较小"
+      }
+    }
+  }
+}

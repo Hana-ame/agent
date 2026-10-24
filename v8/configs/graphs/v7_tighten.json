@@ -1,0 +1,30 @@
+{
+  "name": "v7_tighten",
+  "_comment": "v7 图，被 v8 的 graph 节点整体调用。输入 tag=draft，输出 tag=tightened。模型走免 key 的 laptop-8000。",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-v4-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "edges": [
+    {
+      "id": "tighten",
+      "layer": 0,
+      "input_tags": [
+        "draft"
+      ],
+      "output_tags": [
+        "tightened"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "把下面的内容压缩到 60 字以内，只输出压缩后的正文，不要解释：\n\n{contents}"
+      }
+    }
+  ]
+}

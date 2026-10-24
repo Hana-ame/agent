@@ -1,0 +1,29 @@
+{
+  "id": "troll_notes",
+  "title": "B 站「强秦/DOGE/好组织两条」深度阅读笔记",
+  "config": "../../configs/troll_tea_party/dag.json",
+  "seed": "https://www.bilibili.com/video/BV1W5nw6PExs/",
+  "description": "从 URL 出发，6.8 工具取字幕，写一篇结构固定的深度阅读笔记。",
+  "criteria": [
+    "覆盖：贾谊《过秦论》/三苏、耕战、DOGE、SOP 五阶段、双支柱、日本企业、诛晁错是否齐全",
+    "准确：人名/典故/术语/因果链是否与源材料一致，是否编造具体时间/数字",
+    "结构：四个一级章节、四行案例表、五阶段、双支柱、八行三列勘误表、ASCII+Mermaid 是否齐全",
+    "可读：是否像给人读的笔记，而不是提纲或逐字稿"
+  ],
+  "checks": {
+    "min_chars": 5000,
+    "max_chars": 12000,
+    "required_headings": [
+      "## 一、 一句话核心概括（Executive Summary）",
+      "## 二、 完整内容摘要（Comprehensive Abstract）",
+      "## 三、 结构化深度阅读笔记（Structured Reading Notes）",
+      "## 四、 树状思维导图（Text & Mermaid Mind Map）",
+      "### 1. 案例对标：单一指标考核的系统性失灵",
+      "### 2. 核心管理学推演：SOP 是如何杀死组织的？",
+      "### 3. 好组织运作的“双支柱模型”",
+      "### 4. 原文口语/谐音词汇对照勘误表（Transcript Glossary）"
+    ],
+    "required_terms": ["过秦论", "三苏", "耕战", "DOGE", "本本主义", "经济基础", "信任基础", "晁错"],
+    "forbidden_terms": ["A 国", "B 国"]
+  }
+}

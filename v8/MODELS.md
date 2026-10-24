@@ -21,24 +21,36 @@
 移除后行为已验证：`laptop/deepseek-v4.1-flash` 报 `Model "deepseek-v4.1-flash" not found`，
 立刻失败，不会静默等 timeout。
 
-## `sensenova` provider 现状：已登记，但未配 key
+## `sensenova` provider：直连可用，且 6.8 支持工具
 
-`sensenova` 是 `laptop` 配置的整份复制，只换了 `baseUrl`，`apiKey` 字段**整个省略**：
+`sensenova` 现在直连 `https://token.sensenova.cn/v1`，`apiKey` 从本机
+`~/.dsh/.credentials.yaml` 取（命令插值，不把 key 写进文件）：
 
 ```json
 "sensenova": {
-  "baseUrl": "https://sensenova.moonchan.xyz/v1",
+  "baseUrl": "https://token.sensenova.cn/v1",
   "api": "openai-completions",
-  "compat": { ...同 laptop... },
+  "apiKey": "!grep -m1 'SENSENOVA_API_KEY:' /home/lumin/.dsh/.credentials.yaml | sed 's/.*: //'",
+  "compat": {
+    "supportsDeveloperRole": false,
+    "supportsReasoningEffort": true,
+    "thinkingFormat": "deepseek",
+    "requiresReasoningContentOnAssistantMessages": false
+  },
   "models": [ ...同 laptop 的 5 个... ]
 }
 ```
 
-调用行为：`No API key found for sensenova.`，**约 1 秒内失败**。
+关键：`requiresReasoningContentOnAssistantMessages` 必须是 `false`。pi 在工具结果
+回放时会同时带 `reasoning` 与 `reasoning_content`，该端点不接受这一对字段同时出现，
+表现为带工具就 400 `inference request is invalid`。改 `false` 后：
 
-配 auth 就能用，两种方式：
-- `pi` 里 `/login` 选 sensenova
-- 或命令行传 `--api-key`
+```bash
+pi -p --provider sensenova --model sensenova-6.8-flash-lite --tools bash
+# 能执行 echo 并把结果回给模型
+```
+
+注意：`laptop` 代理上的同一个 6.8 带工具仍会 400；工具要走 `sensenova` 直连。
 
 ⚠️ **不要把 `apiKey` 写成 `""`**。pi 的 schema 要求 ≥1 字符，空串会让**整个**
 `models.json` 校验失败，连 `laptop` 的 5 个模型一起消失：
@@ -95,3 +107,16 @@ field MaxTokens invalid, should be in [1, 384000]
 它把 `kimi-k3` 和 `deepseek-v4-flash` 都低估成 65536（实际分别是 1048576 和 384000）。
 
 注意探测时要区分 `rpm`/`tpm` 限流错误，否则会把限流误当成上限。
+
+## 速度实测（2026-10-23）
+
+同一张简单图（1 个 pi 节点，写 150~250 字短文），各 3 次取中位数：
+
+| 模型 | 时延 p50 | 质量（评审 3~15） |
+|---|---:|---:|
+| `deepseek-flash` | **6.20s** | 15 |
+| `deepseek-v4-flash` | 8.27s | 15 |
+| `glm-5.2` | 34.18s | 15 |
+
+结论：简单任务上 `deepseek-flash` 比 `deepseek-v4-flash` 快约 25%，
+「v4-flash 最快」的旧说法不成立。以 `scripts/search_schedule.py --models` 的实测为准。

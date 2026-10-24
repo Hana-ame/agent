@@ -26,6 +26,8 @@ import shlex
 import shutil
 import subprocess
 import time
+
+from dag8.backoff import jittered
 from pathlib import Path
 from typing import List, Optional
 
@@ -70,7 +72,7 @@ class PiAgent:
                 setattr(self.cfg, k, v)
 
     # -- 命令拼装 -----------------------------------------------------------
-    def _pi_args(self, provider: str, model: str, tools: bool) -> List[str]:
+    def _pi_args(self, provider: str, model: str, tools: bool, thinking: Optional[str] = None) -> List[str]:
         args = [
             "pi",
             "-p",
@@ -82,12 +84,14 @@ class PiAgent:
             "--mode",
             "text",
         ]
+        if thinking:
+            args += ["--thinking", str(thinking)]
         if not tools:
             args.append("--no-tools")   # edge 是纯文本变换，不该读写磁盘
         return args
 
-    def _command(self, provider: str, model: str, tools: bool) -> List[str]:
-        args = self._pi_args(provider, model, tools)
+    def _command(self, provider: str, model: str, tools: bool, thinking: Optional[str] = None) -> List[str]:
+        args = self._pi_args(provider, model, tools, thinking)
         if not self.cfg.ssh_host:
             exe = find_pi()
             if exe is None:
@@ -112,19 +116,34 @@ class PiAgent:
         provider = provider or self.cfg.provider
         model = model or self.cfg.model
         tools = self.cfg.tools if tools is None else tools
-        cmd = self._command(provider, model, tools)
+        cmd = self._command(provider, model, tools, self.cfg.thinking)
 
-        last: Optional[PiError] = None
+        # `timeout` 是**总预算**，不是单次尝试的上限：
+        # 旧实现最坏要等 timeout × retries（实测一次链式卡顿 637s）。
+        total = float(timeout or self.cfg.timeout)
+        deadline = time.monotonic() + total
         attempts = max(1, int(self.cfg.retries))
         for attempt in range(attempts):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise PiError(
+                    f"pi 超时（总预算 {total:.0f}s，已尝试 {attempt} 次）",
+                    retryable=False,
+                )
             try:
-                return self._once(cmd, prompt, timeout or self.cfg.timeout)
+                return self._once(cmd, prompt, min(remaining, total))
             except PiError as exc:
-                last = exc
                 if not exc.retryable or attempt == attempts - 1:
                     raise
-                time.sleep(2.0 * (2 ** attempt))
-        raise last  # pragma: no cover - 循环内必 return/raise
+                remaining_after = max(0.0, deadline - time.monotonic())
+                backoff = min(jittered(2.0, attempt), remaining_after)
+                if backoff <= 0:
+                    raise PiError(
+                        f"pi 超时（总预算 {total:.0f}s，重试退避已耗尽）",
+                        retryable=False,
+                    ) from exc
+                time.sleep(backoff)
+        raise PiError(f"pi 超时（总预算 {total:.0f}s）")  # pragma: no cover
 
     @staticmethod
     def _once(cmd: List[str], prompt: str, timeout: float) -> str:

@@ -1,6 +1,6 @@
 {
   "name": "s1_digest",
-  "_comment": "S1 157 近 24h AI 讨论 → 要点提取 → 情报摘要。种子由 v8/scripts/export_s1_seed.py 生成。",
+  "_comment": "S1 157 近 24h AI 讨论 → 要点提取 → 情报摘要。种子由 v8/scripts/export_s1_seed.py 生成。本文件走 ssh（Windows 侧跑、pi 在 WSL）；代码和 pi 在同一台机器时用 s1_digest.local.json。",
   "seed_tag": "posts",
   "seed_content": "",
   "result_tag": "digest",

@@ -1,0 +1,10 @@
+{
+  "id": "demo",
+  "title": "离线 demo（mock agent）",
+  "config": "../../configs/demo.json",
+  "seed": "用三句话解释标签驱动 DAG",
+  "checks": {
+    "min_chars": 20,
+    "required_terms": ["DAG"]
+  }
+}
