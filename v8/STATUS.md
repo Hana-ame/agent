@@ -22,7 +22,7 @@ provider 速度/价格观测。**实测优化被网关 530 阻塞**，offline �
 
 ## 当前证据
 
-- 离线测试：**258 passed**（根仓库另 17 passed）；全量 262 条（含 4 live）
+- 离线测试：**259 passed**（根仓库另 17 passed）；全量 263 条（含 4 live）
 - 自检：`bash scripts/smoke_offline.sh` 全绿（pytest / doctor / 模板 / compose / convert）
 - 演示：`python -m dag8 demo` → `A|B`（不调模型）
 - GA 账本：**77 次（65 有效 / 12 失败）**
@@ -93,7 +93,7 @@ provider 速度/价格观测。**实测优化被网关 530 阻塞**，offline �
 | 条件边 `when` | ✅ | present/absent/pattern/equals；3 测试 |
 | `http` 节点 | ✅ | GET/POST/占位符/错误码/截断；5 测试 |
 | `db` 节点 | ✅ | 只读 SQLite/参数绑定/JSON/截断；4 测试 |
-| `approval` 人工闸门 | ✅ | marker 放行/拒绝 + resume；4 测试 |
+| `approval` 人工闸门 | ✅ | **edge 级**（不是节点）：执行前检查 marker；5 测试 |
 | `judge` 质量闸门 | ✅ | 输出后评分，低于阈值判失败；3 测试 |
 | `--max-cost` | ✅ | over_budget + cost_estimate + explain；2 测试 |
 | provider 自动路由 | ✅ | route/--auto-model；4 测试 |

@@ -78,7 +78,7 @@ from dag8.contracts import normalize_spec
 
 PLACEHOLDER = re.compile(r"\{([a-zA-Z0-9_:,\-]+)\}")
 
-NODE_KINDS = ("pi", "graph", "command", "http", "db", "approval")
+NODE_KINDS = ("pi", "graph", "command", "http", "db")
 
 
 @dataclass
@@ -138,7 +138,7 @@ class EdgeConfig:
     params: List[str] = field(default_factory=list)  # SQL 绑定参数（可含占位符）
     max_rows: int = 1000
     read_only: bool = True
-    marker: Optional[str] = None      # 仅 approval 节点：批准标记文件（相对配置文件）
+    approval: Optional[Dict[str, Any]] = None  # 人工闸门（edge 级）：执行前检查 marker
 
 
 @dataclass
@@ -186,8 +186,7 @@ def _edge_from_dict(d: Dict[str, Any], i: int) -> EdgeConfig:
     kind = str(
         d.get("kind")
         or ("graph" if "graph" in d else ("command" if "command" in d
-            else ("http" if "url" in d else ("db" if "db_path" in d
-                  else ("approval" if "marker" in d else "pi")))))
+            else ("http" if "url" in d else ("db" if "db_path" in d else "pi"))))
     ).lower()
     if kind not in NODE_KINDS:
         raise ValueError(
@@ -254,9 +253,16 @@ def _edge_from_dict(d: Dict[str, Any], i: int) -> EdgeConfig:
             raise ValueError(f"第 {i + 1} 条 db edge 的 params 必须是字符串数组")
         if max_rows <= 0:
             raise ValueError(f"第 {i + 1} 条 db edge 的 max_rows 必须为正")
-    marker = d.get("marker")
-    if kind == "approval" and not marker:
-        raise ValueError(f"第 {i + 1} 条 approval edge 缺 marker")
+    approval = d.get("approval")
+    if approval is not None:
+        if not isinstance(approval, dict):
+            raise ValueError(f"第 {i + 1} 条 edge 的 approval 必须是对象")
+        unknown_approval = set(approval) - {"marker"}
+        if unknown_approval:
+            raise ValueError(f"第 {i + 1} 条 edge 的 approval 有未知字段：{sorted(unknown_approval)}")
+        if not str(approval.get("marker") or ""):
+            raise ValueError(f"第 {i + 1} 条 edge 的 approval 缺 marker")
+        approval = {"marker": str(approval["marker"])}
     judge = d.get("judge")
     if judge is not None:
         if not isinstance(judge, dict):
@@ -318,7 +324,7 @@ def _edge_from_dict(d: Dict[str, Any], i: int) -> EdgeConfig:
         params=[str(x) for x in params],
         max_rows=max_rows,
         read_only=read_only,
-        marker=str(marker) if marker is not None else None,
+        approval=approval,
     )
 
 

@@ -19,7 +19,7 @@ prompt/HTTP，只负责按 `layer` 取输入、调用节点、落库。
 | | v7 | v8 |
 |---|---|---|
 | 节点执行者 | Python 函数 / HTTP LLM 客户端 | **`pi` agent（子进程）**；可选把整张 v7 图或一段 shell 当节点 |
-| 节点类型 | fn / LLM 边 | **pi + graph + command + http + db + approval** |
+| 节点类型 | fn / LLM 边 | **pi + graph + command + http + db** |
 | 内容存放 | 内存 + 输出 Markdown | **sqlite3**（可查询、可回溯） |
 | prompt 定义 | 写死在 Python 里 | **配置 JSON 的一个字段** |
 | 图定义 | Python 代码 | **JSON** |
@@ -247,22 +247,27 @@ run 77c97fbb431a · demo_pipeline · ok
 - 输出 JSON：`{"columns": [...], "rows": [[...]], "truncated": false}`
 - 超过 `max_rows` 截断并标 `truncated: true`
 
-### 人工闸门（approval）
+`kind` 可省略：写了 `graph` 就是 graph 节点，写了 `command` 就是 command 节点，写了 `url` 就是 http 节点，写了 `db_path` 就是 db 节点，否则是 pi 节点。未知 `kind` 直接报错（审批不是节点，见下）。
+
+### 人工闸门（edge 级 `approval`）
+
+审批**不是节点**：它不产出内容，只决定这条边能不能执行。
 
 ```json
 {
   "id": "publish",
-  "kind": "approval",
   "input_tags": ["draft"],
   "output_tags": ["published"],
-  "marker": "APPROVED.flag"
+  "approval": {"marker": "APPROVED.flag"},
+  "prompt": "发布：{contents}"
 }
 ```
 
-- marker（相对配置文件）不存在 → 该边失败，提示“创建标记文件后 --resume 续跑”
-- marker 存在 → 原样放行输入内容
-- marker 内容为 `{"approved": false, "reason": "..."}` → 显式拒绝
-- 配合 `--resume-last`：先跑到闸门，人工确认后创建文件，再续跑只补该边
+- 输入就绪后、节点执行**前**检查 marker（相对配置文件）
+- marker 不存在 → 该边 `error`，提示“创建标记文件后 --resume 续跑”
+- marker 内容 `{"approved": false, "reason": "..."}` → 显式拒绝
+- marker 存在 → 正常执行这条边的 prompt（内容仍由节点产出）
+- 配合 `--resume-last`：先跑到闸门，人工确认后只补这条边
 
 ### 条件边（when）
 
@@ -957,14 +962,14 @@ SELECT run_id, content FROM contents WHERE tags LIKE '%final%' AND run_id IN (..
 ## 测试
 
 ```bash
-cd v8 && python -m pytest tests/ -q                  # 262 条，含 4 条真实调用，约 3–5 分钟
+cd v8 && python -m pytest tests/ -q                  # 263 条，含 4 条真实调用，约 3–5 分钟
 cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，本机实测约 2–3 分钟
 cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 ```
 
 | 文件 | 条数 | 是否碰 pi |
 |---|---|---|
-| `tests/test_approval.py` | 4 | 否 —— 无 marker 阻断 / marker 放行 / 拒绝 / resume |
+| `tests/test_approval.py` | 5 | 否 —— 无 marker 阻断 / 放行 / 拒绝 / resume / 不是节点 |
 | `tests/test_db_node.py` | 4 | 否 —— 本地 SQLite：查询/截断/只读/配置 |
 | `tests/test_http_node.py` | 5 | 否 —— 本地 server：GET/POST/错误码/URL 校验 |
 | `tests/test_router.py` | 4 | 否 —— 成功率/时延/价格权重、CLI |
@@ -1017,10 +1022,10 @@ skip 会让「环境没准备好」和「全部通过」长得一模一样，那
 
 | 套件 | 结果 | 耗时 |
 |---|---|---|
-| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **258 passed** | 约 15s |
+| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **259 passed** | 约 15s |
 | live 非 slow（3 条） | **3 passed** | 167s |
 | live slow（整图三边） | **1 passed** | 113s |
-| 全量 | **262 passed**（含 4 live） | 约 5 分钟 |
+| 全量 | **263 passed**（含 4 live） | 约 5 分钟 |
 
 注意：live 用例会真实碰网关，网关 530/429/变慢时**会红**——这是有意的，不是 flaky skip。
 不想碰网关就用 `-m "not live"`。

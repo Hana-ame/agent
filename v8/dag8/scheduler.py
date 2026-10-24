@@ -174,6 +174,28 @@ def _edge_cost(model: str, prompt_chars: int, output_chars: int,
             + (output_chars or 0) / 2.0 * pout) / 1e6
 
 
+def approval_block_reason(edge: Any, cfg: Any) -> Optional[str]:
+    """人工闸门：None = 放行；否则返回阻止原因。"""
+    spec = edge.approval
+    if not spec:
+        return None
+    base = Path(cfg.path).resolve().parent if cfg.path else Path.cwd()
+    marker = Path(str(spec["marker"]))
+    if not marker.is_absolute():
+        marker = base / marker
+    if not marker.is_file():
+        return f"等待人工批准：创建 {marker} 后 --resume 续跑"
+    text = marker.read_text(encoding="utf-8", errors="replace").strip()
+    if text.startswith("{"):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = {}
+        if isinstance(data, dict) and data.get("approved") is False:
+            return f"人工拒绝：{data.get('reason') or marker}"
+    return None
+
+
 def when_matches(when: Dict[str, Any], store: Store, run_id: str) -> bool:
     """条件边：tag 内容是否满足 when。"""
     text = "\n".join(it["content"] for it in store.contents_for_tag(run_id, str(when["tag"])))
@@ -374,7 +396,7 @@ def run(
                 return result
 
             # 1) 挑出输入已就绪的波次；其余的等下一轮
-            ready, blocked, when_skipped = [], [], []
+            ready, blocked, when_skipped, approval_blocked = [], [], [], []
             for edge in pending:
                 satisfied = all(
                     store.contents_for_tag(run_id, t) or t in edge.optional_inputs
@@ -384,6 +406,9 @@ def run(
                     blocked.append(edge)
                 elif edge.when and not when_matches(edge.when, store, run_id):
                     when_skipped.append(edge)
+                elif not dry_run and edge.approval and (
+                        reason := approval_block_reason(edge, cfg)):
+                    approval_blocked.append((edge, reason))
                 else:
                     ready.append(edge)
 
@@ -394,8 +419,16 @@ def run(
                 store.log_edge(run_id, edge.id, edge.layer, edge.input_tags,
                                edge.output_tags, status="skipped", error=rec.error)
 
+            for edge, reason in approval_blocked:
+                had_error = True
+                first_error = first_error or f"{edge.id}: {reason}"
+                rec = EdgeRun(edge.id, edge.layer, "error", error=reason)
+                result.edges.append(rec)
+                store.log_edge(run_id, edge.id, edge.layer, edge.input_tags,
+                               edge.output_tags, status="error", error=reason)
+
             if not ready:
-                if when_skipped:
+                if when_skipped or approval_blocked:
                     pending = blocked
                     continue
                 # 再也等不到输入 → 剩下的全标 skipped，结束

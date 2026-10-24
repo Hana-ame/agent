@@ -198,42 +198,6 @@ class V8GraphNode:
         return res.result
 
 
-class ApprovalNode:
-    """人工闸门：marker 文件存在才放行；内容 {"approved": false} 可显式拒绝。"""
-
-    def __init__(self, marker: str, *, base_dir: Optional[Path] = None) -> None:
-        self.marker = (Path(marker) if Path(marker).is_absolute()
-                       else Path(base_dir or Path.cwd()) / marker)
-        self.label = "approval"
-        self.supports_repair = False
-        self.uses_api = False
-
-    def preview(self, inputs: Dict[str, List[str]]) -> str:
-        return _join(inputs)
-
-    def cache_key(self, inputs: Dict[str, List[str]]) -> str:
-        marker = ""
-        if self.marker.is_file():
-            marker = self.marker.read_text(encoding="utf-8", errors="replace")
-        return fingerprint({"kind": "approval", "marker": str(self.marker),
-                            "value": marker, "inputs": self.preview(inputs)})
-
-    def run(self, inputs: Dict[str, List[str]], repair: str = "") -> str:
-        if not self.marker.is_file():
-            raise NodeError(
-                f"等待人工批准：创建标记文件 {self.marker} 后 --resume 续跑"
-            )
-        text = self.marker.read_text(encoding="utf-8", errors="replace").strip()
-        if text.startswith("{"):
-            try:
-                data = json.loads(text)
-            except ValueError:
-                data = {}
-            if isinstance(data, dict) and data.get("approved") is False:
-                raise NodeError(f"人工拒绝：{data.get('reason') or self.marker}")
-        return _join(inputs)
-
-
 class DbNode:
     """只读 SQLite 查询节点：SQL + 参数绑定，输出 JSON（columns/rows）。"""
 
@@ -618,9 +582,6 @@ def build_node(
             return V8GraphNode(edge.graph, base_dir=base, limiter=limiter)
         return GraphNode(edge.graph, base_dir=base, llm_client=graph_llm_client,
                          limiter=limiter)
-    if edge.kind == "approval":
-        base = Path(cfg.path).resolve().parent if cfg.path else Path.cwd()
-        return ApprovalNode(edge.marker or "", base_dir=base)
     if edge.kind == "db":
         base = Path(cfg.path).resolve().parent if cfg.path else Path.cwd()
         return DbNode(edge.db_path or "", edge.query or "",
