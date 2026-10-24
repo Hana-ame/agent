@@ -1,0 +1,13 @@
+{
+  "name": "v9_gen_org",
+  "seed_tag": "task",
+  "result_tag": "out",
+  "edges": [{
+    "id": "gen",
+    "kind": "graph",
+    "input_tags": ["task"],
+    "output_tags": ["out"],
+    "graph": {"path": "../graphs/gen.json", "seed_tag": "task",
+              "result_tag": "out", "timeout": 240}
+  }]
+}

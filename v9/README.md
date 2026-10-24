@@ -13,8 +13,19 @@ v7 是 DAG 本体，v8 是组织层，v9 负责**知识**：
 v9/
 ├── knowledge.py   # entities / claims / sources / explored
 ├── infer.py       # InferenceEngine: 选实体对 → 抓证据 → 生成 → 校验来源 → 入库
+├── executor.py    # V8Executor：生成走 v7 图 + v8 graph 节点，抓取走 v8 http 节点
+├── configs/       # v8 的 gen/get 两个小 DAG
+├── graphs/gen.json# v7 单边 LLM 图
 └── demo.py        # Wikipedia 真实演示
 ```
+
+## 执行层复用
+
+v9 不自己造调度：
+
+- `generate(prompt)` → v8 跑 `configs/gen.json`，里面是一个 graph 节点，再调用 v7 `graphs/gen.json` 的单边 LLM 图
+- `fetch(url)` → v8 跑 `configs/get.json`，用 v8 的 http 节点
+- 两者都复用 v8 的 sqlite 轨迹、`use_cache=True` 缓存、超时/重试
 
 ## 跑
 
@@ -33,9 +44,9 @@ python -m pytest v9/tests -q
 - 1 条新知识入库：
 
 ```text
-Directed acyclic graph --uses--> Topological sorting
-confidence 0.95
-source: https://en.wikipedia.org/api/rest_v1/page/summary/Directed_acyclic_graph
+Directed acyclic graph --applies_to--> Topological sorting
+confidence 1.0
+source: https://en.wikipedia.org/api/rest_v1/page/summary/Topological_sorting
 ```
 
 `explored` 记录了“试过但没有关系”的实体对，避免每轮重复问同一个问题。

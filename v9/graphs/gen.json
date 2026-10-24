@@ -1,0 +1,20 @@
+{
+  "name": "v9_gen",
+  "_comment": "v7 单边图：把 seed 当 prompt，交给 LLM；被 v8 graph 节点调用。",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-v4-flash",
+      "params": {"temperature": 0.2}
+    }
+  },
+  "contents": [],
+  "edges": [{
+    "id": "gen",
+    "layer": 0,
+    "input_tags": ["task"],
+    "output_tags": ["out"],
+    "processor": {"model": "laptop", "prompt": "{contents}"}
+  }]
+}

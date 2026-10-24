@@ -1,0 +1,23 @@
+{
+  "name": "v9_get",
+  "seed_tag": "url",
+  "result_tag": "out",
+  "edges": [
+    {
+      "id": "get",
+      "kind": "http",
+      "input_tags": [
+        "url"
+      ],
+      "output_tags": [
+        "out"
+      ],
+      "url": "{tag:url}",
+      "method": "GET",
+      "max_chars": 20000,
+      "headers": {
+        "User-Agent": "v9-demo/1.0"
+      }
+    }
+  ]
+}
