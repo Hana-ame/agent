@@ -27,6 +27,7 @@ v9/
 ├── knowledge.py   # entities / claims / sources / explored
 ├── infer.py       # InferenceEngine: 选实体对 → 抓证据 → 生成 → 校验来源 → 入库
 ├── executor.py    # V8Executor：生成走 v7 图 + v8 graph 节点，抓取走 v8 http 节点
+├── expand.py      # 从 Wikipedia 外链扩展实体，打破人工 seed 封闭集
 ├── configs/       # v8 的 gen/get 两个小 DAG
 ├── graphs/gen.json# v7 单边 LLM 图
 └── demo.py        # Wikipedia 真实演示
@@ -47,6 +48,17 @@ cd /mnt/c/Users/lumin/Downloads/agent
 python -m v9.demo
 python -m pytest v9/tests -q
 ```
+
+## 实体扩展
+
+```python
+from v9.expand import expand
+added = expand(knowledge, executor.fetch, "Directed acyclic graph", limit=2)
+```
+
+从 Wikipedia `prop=links` 抓外链，去重、跳过已有实体，写回 `entities`。
+实测一次扩展：新增 `Academic Press`、`Acyclic dependencies principle`；
+知识库从 3 个实体增长到 5 个，来源数 5。
 
 ## 真实结果（2026-10-25）
 
@@ -69,4 +81,5 @@ source: https://en.wikipedia.org/api/rest_v1/page/summary/Topological_sorting
 - 只做 1-hop 实体对，没有多跳链式推理
 - 没有矛盾检测（同一对出现相反 claim 时不会自动降权）
 - 来源只保存 URL + 摘要，没有精确到句子/段落的证据定位
-- 实体列表目前是人工 seed；还没有“从外部页面自动扩展实体”
+- 实体扩展是 1 跳外链，按页面顺序取前 N 个；还没有按相关性筛选
+- 扩展后的新实体需要继续跑推理循环才会产生新知识

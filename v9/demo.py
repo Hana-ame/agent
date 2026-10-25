@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from v9.expand import expand  # noqa: E402
 from v9.executor import V8Executor  # noqa: E402
 from v9.infer import InferenceEngine  # noqa: E402
 from v9.knowledge import Knowledge  # noqa: E402
@@ -34,6 +35,10 @@ def main() -> int:
         k, generate=ex.generate,
         fetch=lambda name: ex.fetch(wiki_url(name)))
     for res in engine.run(cycles=3):
+        print(res)
+    added = expand(k, ex.fetch, "Directed acyclic graph", limit=2)
+    print("expanded:", added)
+    for res in engine.run(cycles=2):
         print(res)
     print("stats", k.stats())
     for c in k.claims():
