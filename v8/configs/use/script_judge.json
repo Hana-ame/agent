@@ -22,14 +22,13 @@
       "output_tags": [
         "out"
       ],
-      "prompt": "根据统计结果写一句不超过 50 字的结论，只输出正文：\n{contents}",
+      "prompt": "根据统计结果写一句结论，只输出正文：\n{contents}",
       "judge": {
         "min_score": 0
       },
       "layer": 1,
       "expect": {
-        "min_chars": 5,
-        "max_chars": 80
+        "type": "text"
       }
     }
   ]

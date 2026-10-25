@@ -16,8 +16,7 @@
       "url": "{tag:url_a}",
       "headers": {
         "User-Agent": "v9-cycle/1.0"
-      },
-      "max_chars": 4000
+      }
     },
     {
       "id": "get_b",
@@ -31,8 +30,7 @@
       "url": "{tag:url_b}",
       "headers": {
         "User-Agent": "v9-cycle/1.0"
-      },
-      "max_chars": 4000
+      }
     },
     {
       "id": "gen",

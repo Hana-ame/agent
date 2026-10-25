@@ -15,9 +15,6 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-MAX_STATEMENT_CHARS = 200
-MAX_SOURCE_CHARS = 4000
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,10 +74,6 @@ class Knowledge:
                   derived_from: Optional[List[int]] = None) -> int:
         if not source_url and not derived_from:
             raise ValueError("claim 必须有 source_url 或 derived_from")
-        if len(statement) > MAX_STATEMENT_CHARS:
-            raise ValueError(f"statement 超过 {MAX_STATEMENT_CHARS} 字")
-        if len(subject) > 120 or len(obj) > 120 or len(predicate) > 80:
-            raise ValueError("subject/object/predicate 过长")
         cur = self.conn.execute(
             "INSERT INTO claims (subject, predicate, object, statement, confidence, "
             "source_url, derived_from, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -91,7 +84,6 @@ class Knowledge:
         return int(cur.lastrowid)
 
     def put_source(self, url: str, text: str) -> None:
-        text = text[:MAX_SOURCE_CHARS]
         self.conn.execute(
             "INSERT OR REPLACE INTO sources (url, fetched_at, text, hash) "
             "VALUES (?, ?, ?, ?)",

@@ -183,7 +183,7 @@
       "output_tags": [
         "verdict"
       ],
-      "prompt": "你是汇报终审。综合确定性指标和三位评审，输出最终结论。\n规则：score 取四路加权平均（指标 25%、结构 30%、证据 20%、表达 25%），保留一位小数；pass=true 当且仅当 score>=6.5 且结论/证据/下一步都不缺失。\nissues 合并去重，按严重度排序；suggestions 最多 5 条，必须可执行；summary 一句话（<=80 字）。\n字段：pass、score、issues、suggestions、missing_sections、summary。\n\n[确定性指标]\n{tag:metrics}\n\n[结构评审]\n{tag:structure}\n\n[证据评审]\n{tag:evidence}\n\n[表达评审]\n{tag:clarity}",
+      "prompt": "你是汇报终审。综合确定性指标和三位评审，输出最终结论。\n规则：score 取四路加权平均（指标 25%、结构 30%、证据 20%、表达 25%），保留一位小数；pass=true 当且仅当 score>=6.5 且结论/证据/下一步都不缺失。\nissues 合并去重，按严重度排序；suggestions 最多 5 条，必须可执行；summary 一句话。\n字段：pass、score、issues、suggestions、missing_sections、summary。\n\n[确定性指标]\n{tag:metrics}\n\n[结构评审]\n{tag:structure}\n\n[证据评审]\n{tag:evidence}\n\n[表达评审]\n{tag:clarity}",
       "expect": {
         "type": "json",
         "schema": {

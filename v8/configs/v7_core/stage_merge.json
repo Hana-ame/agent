@@ -23,7 +23,7 @@
       ],
       "processor": {
         "model": "laptop",
-        "prompt": "把下面三句话合并成 60 字以内短文，只输出正文：\n\n{contents}"
+        "prompt": "把下面三句话合并成短文，只输出正文：\n\n{contents}"
       }
     }
   ]

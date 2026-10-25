@@ -16,8 +16,7 @@
       "url": "https://en.wikipedia.org/api/rest_v1/page/summary/Directed_acyclic_graph",
       "headers": {
         "User-Agent": "v8-use/1.0"
-      },
-      "max_chars": 4000
+      }
     },
     {
       "id": "w2",
@@ -31,8 +30,7 @@
       "url": "https://en.wikipedia.org/api/rest_v1/page/summary/Topological_sorting",
       "headers": {
         "User-Agent": "v8-use/1.0"
-      },
-      "max_chars": 4000
+      }
     },
     {
       "id": "brief",
@@ -43,10 +41,9 @@
       "output_tags": [
         "brief"
       ],
-      "prompt": "根据下面两段资料，写 3 条中文要点，每条不超过 40 字，只输出正文：\n{contents}",
+      "prompt": "根据下面两段资料，写 3 条中文要点，只输出正文：\n{contents}",
       "expect": {
-        "min_chars": 30,
-        "max_chars": 240
+        "type": "text"
       },
       "repair": 1,
       "layer": 1

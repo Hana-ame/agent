@@ -26,11 +26,6 @@ def main() -> int:
             k.mark_explored(a, c, "none")
             print(json.dumps({"status": "no_relation"}, ensure_ascii=False))
             return 0
-        if len(statement) > 200:
-            k.mark_explored(a, c, "too_long")
-            print(json.dumps({"status": "rejected", "reason": "too_long"},
-                             ensure_ascii=False))
-            return 0
         cid = k.add_claim(a, relation, c, statement,
                           confidence=float(claim.get("confidence", 0.5)),
                           derived_from=[c1, c2])

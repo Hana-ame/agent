@@ -32,17 +32,17 @@ def test_unexplored_pairs_skip_linked_and_explored():
     k.close()
 
 
-def test_statement_length_limit():
+def test_long_statement_allowed():
     k = Knowledge()
     k.add_entity("a")
     k.add_entity("b")
-    with pytest.raises(ValueError, match="200"):
-        k.add_claim("a", "rel", "b", "x" * 201, source_url="https://x")
+    k.add_claim("a", "rel", "b", "x" * 5000, source_url="https://x")
+    assert len(k.claims()[0]["statement"]) == 5000
     k.close()
 
 
-def test_source_is_truncated():
+def test_source_not_truncated():
     k = Knowledge()
     k.put_source("https://x", "y" * 5000)
-    assert len(k.get_source("https://x")) == 4000
+    assert len(k.get_source("https://x")) == 5000
     k.close()

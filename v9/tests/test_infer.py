@@ -69,16 +69,16 @@ def test_none_marks_explored_and_moves_on():
     k.close()
 
 
-def test_rejects_overlong_statement():
+def test_accepts_long_statement():
     k = Knowledge()
     k.add_entity("a")
     k.add_entity("b")
     engine = InferenceEngine(k, generate=_gen({
-        "relation": "rel", "statement": "x" * 201,
+        "relation": "rel", "statement": "x" * 5000,
         "confidence": 0.9, "evidence_url": "https://x/a"}), fetch=_Fetch())
     res = engine.step()
-    assert res["status"] == "rejected"
-    assert k.claims() == []
+    assert res["status"] == "claim"
+    assert len(k.claims()[0]["statement"]) == 5000
     k.close()
 
 

@@ -36,11 +36,6 @@ def main() -> int:
             print(json.dumps({"status": "rejected", "reason": "bad_source"},
                              ensure_ascii=False))
             return 0
-        if len(statement) > 200:
-            k.mark_explored(a, b, "too_long")
-            print(json.dumps({"status": "rejected", "reason": "too_long"},
-                             ensure_ascii=False))
-            return 0
         cid = k.add_claim(a, relation, b, statement,
                           confidence=float(claim.get("confidence", 0.5)),
                           source_url=src)

@@ -19,7 +19,7 @@ DERIVE_PROMPT = """你是知识推理器。只根据下面两条已有知识，�
 
 只输出 JSON，不要 Markdown 代码块：
 {{"relation": "none" 或 "推出关系的谓词",
-  "statement": "一句可核验的中文事实，不超过 80 字",
+  "statement": "一句可核验的中文事实",
   "confidence": 0.0}}
 
 如果两条知识不足以推出 A 与 C 的关系，relation 输出 "none"，不要编造。"""
@@ -36,7 +36,7 @@ PROMPT = """你是开放世界知识推理器。只根据给出的外部证据�
 
 只输出 JSON，不要 Markdown 代码块：
 {{"relation": "none" 或 "有关系的谓词，如 uses/part_of/contrasts_with",
-  "statement": "一句可核验的中文事实，不超过 80 字",
+  "statement": "一句可核验的中文事实",
   "confidence": 0.0,
   "evidence_url": "必须是上面两个 URL 之一"}}
 
@@ -99,17 +99,13 @@ class InferenceEngine:
         ea, eb = self._evidence(a), self._evidence(b)
         raw = self.generate(PROMPT.format(
             a=a, b=b, url_a=ea["url"], url_b=eb["url"],
-            text_a=ea["text"][:1200], text_b=eb["text"][:1200]))
+            text_a=ea["text"], text_b=eb["text"]))
         data = parse_json(raw) or {}
         relation = str(data.get("relation") or "none").strip()
         statement = str(data.get("statement") or "").strip()
         if relation == "none" or not statement:
             self.k.mark_explored(a, b, "none")
             return {"status": "no_relation", "pair": [a, b], "raw": raw[:200]}
-        if len(statement) > 200:
-            self.k.mark_explored(a, b, "too_long")
-            return {"status": "rejected", "pair": [a, b],
-                    "reason": "statement 超过 200 字"}
 
         raw_url = str(data.get("evidence_url") or "").strip()
         url = normalize_source(raw_url, (ea["url"], eb["url"]))
@@ -149,10 +145,6 @@ class InferenceEngine:
                     self.k.mark_explored(a, c, "none")
                     return {"status": "no_relation", "pair": [a, c],
                             "raw": raw[:200]}
-                if len(statement) > 200:
-                    self.k.mark_explored(a, c, "too_long")
-                    return {"status": "rejected", "pair": [a, c],
-                            "reason": "statement 超过 200 字"}
                 cid = self.k.add_claim(
                     a, relation, c, statement,
                     confidence=float(data.get("confidence", 0.5)),

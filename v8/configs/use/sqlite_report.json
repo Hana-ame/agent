@@ -24,10 +24,9 @@
       "output_tags": [
         "conclusion"
       ],
-      "prompt": "根据下面的销量数据，写一句结论，不超过 40 字，只输出正文：\n{contents}",
+      "prompt": "根据下面的销量数据，写一句结论，只输出正文：\n{contents}",
       "expect": {
-        "min_chars": 10,
-        "max_chars": 60
+        "type": "text"
       },
       "layer": 1
     }

@@ -52,7 +52,7 @@ python -m dag8 run configs/use/research_brief.json --workers 2 --rpm 3 --json
 
 - 只在有**独立分支**时上 v8；单链任务用 v7
 - 分支用 `when`；汇聚用 `join:"any"`，避免剪枝后死等
-- 输出加契约：`expect: {min_chars, max_chars, type:"json"}`；限制结果长度
+- 输出加契约：`expect: {type:"json", required_keys:[...]}`；只挡格式，不挡长度
 - 确定性步骤用 `script`；语义步骤用 `pi`；外部数据用 `http/db`
 - 当前策略：**不用缓存**；每次重新算，避免旧结果污染
 - 慢调用用 `--rpm`/`--max-seconds` 控，不靠加 workers 硬顶
@@ -64,7 +64,7 @@ python -m dag8 run configs/use/research_brief.json --workers 2 --rpm 3 --json
 | `parallel_speedup` | 串行墙钟 / 并行墙钟 | **2.7×**（3 个短 v7 子图：10.83s → 4.0s） |
 | `contract_pass_rate` | 契约通过边 / 执行边 | 3/3（research/sqlite/script） |
 | `failure_rate` | error 边 / 执行边 | 0 |
-| `output_chars` | 结果字符数 | 108 / 29 / 19（受 max_chars 限制） |
+| `output_chars` | 结果字符数 | 189 / 40 / 20（实测） |
 | `model_p50_ratio` | 快模型 p50 / 慢模型 p50 | 0.26（sqlite：3.97s vs 15.09s，95% CI 0.08–0.50） |
 
 ## 4. v9：知识推理
@@ -80,7 +80,6 @@ python -m v9.demo                # 完整 demo：推理 + 实体扩展 + 多跳
 
 - claim 必须有 `source_url` 或 `derived_from`；无来源不写
 - 只给模型当前需要的两段外部证据；不回灌已有 claims/结果
-- 限制字数：statement ≤200，来源 ≤4000，prompt 结论 ≤80
 - 证据不足就 `none`，不要为了产出硬凑
 - `explored` 记录试过的实体对，避免死循环
 - 允许扩展实体，但扩展后继续推理才能产生新知识
@@ -114,7 +113,7 @@ python -m v9.demo                # 完整 demo：推理 + 实体扩展 + 多跳
 |---|---|---|
 | v7 | 3 边串行 | 10.83s，3/3 成功 |
 | v8 | 3 个 v7 子图并行 | 4.0s，2.7× |
-| v8 | 3 个示例 DAG | 全部 ok，契约 3/3，输出 108/29/19 字 |
+| v8 | 3 个示例 DAG | 全部 ok，契约 3/3，输出 189/40/20 字 |
 | v9 | Wikipedia 推理 | 5 实体/5 来源/1 claim；来源覆盖 1.0，claim 产率 0.2 |
 
 ## 7. 反模式

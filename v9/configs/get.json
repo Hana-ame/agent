@@ -14,7 +14,6 @@
       ],
       "url": "{tag:url}",
       "method": "GET",
-      "max_chars": 20000,
       "headers": {
         "User-Agent": "v9-demo/1.0"
       }
