@@ -1,2 +1,3 @@
 configs/data/
 configs/*.local.json
+configs/use/.sweep_*.json
