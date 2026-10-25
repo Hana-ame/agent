@@ -70,8 +70,11 @@ python -m dag8 run configs/use/research_brief.json --workers 2 --rpm 3 --json
 ## 4. v9：知识推理
 
 ```bash
-python -m v9.demo
+python -m v9.demo                # 完整 demo：推理 + 实体扩展 + 多跳
 ```
+
+一个推理周期也可以是一张 v8 DAG（`v9/configs/cycle.json`）：
+两路 http 并行 → v7 图生成 → script 校验入库。
 
 **最佳实践**
 

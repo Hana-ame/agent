@@ -1133,3 +1133,18 @@ def test_join_any_with_pruned_branch(tmp_path):
     assert res.status == "ok", res.summary()
     assert [e.status for e in res.edges if e.edge_id == "e2"] == ["skipped"]
     assert [e.status for e in res.edges if e.edge_id == "e3"] == ["ok"]
+
+
+def test_extra_seeds_injects_multiple_tags(tmp_path):
+    data = {"name": "t", "seed_tag": "a", "seed_content": "A",
+            "result_tag": "out",
+            "edges": [
+                {"id": "e1", "input_tags": ["a"], "output_tags": ["x"],
+                 "prompt": "P {contents}"},
+                {"id": "e2", "input_tags": ["b"], "output_tags": ["out"],
+                 "prompt": "Q {contents}"},
+            ]}
+    res = dag8.run(_write(tmp_path, data), db_path=tmp_path / "e.sqlite3",
+                   agent=_Upper(), extra_seeds={"b": "B"})
+    assert res.status == "ok", res.summary()
+    assert "B" in res.result

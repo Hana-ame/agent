@@ -1008,7 +1008,7 @@ SELECT run_id, content FROM contents WHERE tags LIKE '%final%' AND run_id IN (..
 ## 测试
 
 ```bash
-cd v8 && python -m pytest tests/ -q                  # 279 条，含 4 条真实调用，约 3–5 分钟
+cd v8 && python -m pytest tests/ -q                  # 280 条，含 4 条真实调用，约 3–5 分钟
 cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，本机实测约 2–3 分钟
 cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 ```
@@ -1023,7 +1023,7 @@ cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 | `tests/test_router.py` | 4 | 否 —— 成功率/时延/价格权重、CLI |
 | `tests/test_cli_help.py` | 1 | 否 —— 所有子命令 --help 可退出 |
 | `tests/test_adaptive_http.py` | 1 | 否 —— mock 429 下 AIMD 降并发 |
-| `tests/test_dag8.py` | 77 | 否 —— 配置加载、占位符渲染、sqlite 读写、调度（注入 fake agent）、graph 节点、command 节点 |
+| `tests/test_dag8.py` | 78 | 否 —— 配置加载、占位符渲染、sqlite 读写、调度（注入 fake agent）、graph 节点、command 节点 |
 | `tests/test_explain.py` | 6 | 否 —— 429/缺输入/续跑建议、CLI |
 | `tests/test_diff.py` | 4 | 否 —— 边状态/时延/Δ、缺失边、CLI |
 | `tests/test_http_retry.py` | 1 | 否 —— 本地 mock HTTP server 验证 429 重试链路 |
@@ -1072,10 +1072,10 @@ skip 会让「环境没准备好」和「全部通过」长得一模一样，那
 
 | 套件 | 结果 | 耗时 |
 |---|---|---|
-| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **275 passed** | 约 15s |
+| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **276 passed** | 约 15s |
 | live 非 slow（3 条） | **3 passed** | 167s |
 | live slow（整图三边） | **1 passed** | 113s |
-| 全量 | **279 passed**（含 4 live） | 约 5 分钟 |
+| 全量 | **280 passed**（含 4 live） | 约 5 分钟 |
 
 注意：live 用例会真实碰网关，网关 530/429/变慢时**会红**——这是有意的，不是 flaky skip。
 不想碰网关就用 `-m "not live"`。

@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS explored (
 
 class Knowledge:
     def __init__(self, path: str | Path = ":memory:") -> None:
+        self.path = str(path)
         self.conn = sqlite3.connect(str(path))
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)

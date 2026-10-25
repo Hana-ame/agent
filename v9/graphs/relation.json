@@ -1,0 +1,22 @@
+{
+  "name": "v9_relation",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-v4-flash",
+      "params": {"temperature": 0.2}
+    }
+  },
+  "contents": [],
+  "edges": [{
+    "id": "relation",
+    "layer": 0,
+    "input_tags": ["task"],
+    "output_tags": ["claim"],
+    "processor": {
+      "model": "laptop",
+      "prompt": "你是知识推理器。只根据下面两段外部证据，判断两个实体之间是否存在一条可核验的关系。\n只输出 JSON，不要代码块：{\"relation\": \"none\" 或谓词, \"statement\": \"不超过80字的中文事实\", \"confidence\": 0.0, \"evidence_url\": \"证据里的 Wikipedia URL\"}\n证据不足就输出 none，不要编造。\n\n{contents}"
+    }
+  }]
+}

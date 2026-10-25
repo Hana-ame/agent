@@ -150,6 +150,7 @@ class DAGConfig:
     result_tag: str
     seed_tag: Optional[str] = None
     seed_content: Optional[str] = None
+    extra_seed_tags: List[str] = field(default_factory=list)  # run 时由调用方注入
     db_path: Optional[str] = None
     pi: PiConfig = field(default_factory=PiConfig)
     path: Optional[str] = None
@@ -377,6 +378,7 @@ def load(path: str | Path) -> DAGConfig:
         result_tag=str(result_tag),
         seed_tag=data.get("seed_tag"),
         seed_content=data.get("seed_content"),
+        extra_seed_tags=[str(t) for t in (data.get("extra_seed_tags") or [])],
         db_path=data.get("db_path"),
         pi=pi,
         path=str(p.resolve()),

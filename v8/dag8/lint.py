@@ -85,10 +85,11 @@ def lint_config(cfg: DAGConfig) -> List[Issue]:
     if cfg.result_tag not in producers and cfg.result_tag != cfg.seed_tag:
         issues.append(Issue("error", f"result_tag={cfg.result_tag!r} 没有任何边生产"))
 
-    # 3) 不可达输入
+    # 3) 不可达输入（extra_seed_tags 由调用方在 run 时注入）
+    seeds = {cfg.seed_tag, *cfg.extra_seed_tags}
     for e in cfg.edges:
         for t in e.input_tags:
-            if t == cfg.seed_tag or t in producers or t in e.optional_inputs:
+            if t in seeds or t in producers or t in e.optional_inputs:
                 continue
             issues.append(Issue(
                 "error",

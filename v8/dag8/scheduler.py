@@ -268,6 +268,7 @@ def run(
     config_path: str | Path,
     *,
     seed_content: Optional[str] = None,
+    extra_seeds: Optional[Dict[str, str]] = None,
     db_path: Optional[str | Path] = None,
     agent: Optional[PiAgent] = None,
     graph_llm_client: Optional[Any] = None,
@@ -343,6 +344,9 @@ def run(
             store.resume_run(run_id)
             if not store.contents_for_tag(run_id, cfg.seed_tag):
                 store.add_content(run_id, [cfg.seed_tag], seed, gen=0, source_edge=None)
+            for tag, text in (extra_seeds or {}).items():
+                if not store.contents_for_tag(run_id, tag):
+                    store.add_content(run_id, [tag], text, gen=0, source_edge=None)
             latest = store.edge_latest(run_id)
             pending = [e for e in cfg.sorted_edges()
                        if latest.get(e.id, {}).get("status") != "ok"]
@@ -351,6 +355,8 @@ def run(
         else:
             run_id = store.new_run(cfg.name, str(Path(config_path).resolve()), cfg.seed_tag, seed)
             store.add_content(run_id, [cfg.seed_tag], seed, gen=0, source_edge=None)
+            for tag, text in (extra_seeds or {}).items():
+                store.add_content(run_id, [tag], text, gen=0, source_edge=None)
             pending = cfg.sorted_edges()
 
         result = RunResult(run_id=run_id, dag_name=cfg.name, result=None,
