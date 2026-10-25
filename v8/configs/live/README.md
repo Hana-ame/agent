@@ -54,3 +54,13 @@ python scripts/judge_calibration.py
 
 实测（2026-10-24）：10 份样本全部拿到分数，均值 **5.7**；默认阈值 7 通过 **3/10**。
 被判通过的只有 06_jargon、09_parallel、10_bounded；structured 6 分、self_report 5 分被拒。
+
+## join_any.json
+
+`b` 分支被 `when` 剪掉，汇聚边 `join: "any"` 只靠 `a` 继续：
+
+```bash
+python -m dag8 run configs/live/join_any.json --workers 2 --rpm 3 --json
+```
+
+实测：`b=skipped`，`a=ok`，`merge=ok`，result=A，run=ok。

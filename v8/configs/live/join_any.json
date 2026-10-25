@@ -1,0 +1,14 @@
+{
+  "name": "join_any_live",
+  "seed_tag": "task",
+  "seed_content": "x",
+  "result_tag": "out",
+  "pi": {"provider": "laptop", "model": "deepseek-flash", "tools": false, "timeout": 120, "retries": 2},
+  "edges": [
+    {"id": "a", "layer": 0, "input_tags": ["task"], "output_tags": ["a"], "prompt": "只回复字母 A"},
+    {"id": "b", "layer": 0, "input_tags": ["task"], "output_tags": ["b"], "prompt": "只回复字母 B",
+     "when": {"tag": "task", "pattern": "NEVER"}},
+    {"id": "merge", "layer": 1, "input_tags": ["a", "b"], "join": "any", "output_tags": ["out"],
+     "prompt": "只回复收到的内容：{contents}"}
+  ]
+}
