@@ -1,0 +1,113 @@
+{
+  "metadata": {
+    "name": "Complex DAG Pipeline",
+    "description": "Multi-path DAG with fan-out, fan-in, external scripts, and concurrent processing"
+  },
+  "vertices": [
+    {
+      "id": "input_a",
+      "settings": {
+        "type": "source",
+        "label": "Primary Input"
+      },
+      "initial_data": [
+        {
+          "channel": "text",
+          "value": "The quick brown fox jumps over the lazy dog. AI is transforming every industry."
+        },
+        {
+          "channel": "text",
+          "value": "The quick brown fox jumps over the lazy dog. AI is transforming every industry."
+        }
+      ]
+    },
+    {
+      "id": "input_b",
+      "settings": {
+        "type": "source",
+        "label": "Context Input"
+      },
+      "initial_data": [
+        {
+          "channel": "text",
+          "value": "Focus on technology and innovation themes."
+        }
+      ]
+    },
+    {
+      "id": "transform",
+      "settings": {
+        "type": "process"
+      },
+      "script": "../scripts/uppercase_handler.py"
+    },
+    {
+      "id": "merge",
+      "settings": {
+        "type": "merge"
+      },
+      "script": "../scripts/validator.py"
+    },
+    {
+      "id": "output",
+      "settings": {
+        "type": "sink"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "input_a",
+      "destination": "transform",
+      "channel": "text",
+      "settings": {
+        "prompt": "Analyze the following text for key themes:",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e2",
+      "source": "input_b",
+      "destination": "transform",
+      "channel": "text",
+      "settings": {
+        "prompt": "Extract relevant context from:",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e3",
+      "source": "transform",
+      "destination": "merge",
+      "channel": "result",
+      "settings": {
+        "prefix": "[ANALYZED]",
+        "suffix": "[/ANALYZED]",
+        "prompt": "Combine analysis results into a coherent summary:",
+        "model": "hy3-free"
+      },
+      "script": "../scripts/prefix_handler.py"
+    },
+    {
+      "id": "e4",
+      "source": "input_a",
+      "destination": "merge",
+      "channel": "text",
+      "settings": {
+        "prompt": "Format the original text for reference:",
+        "model": "hy3-free"
+      }
+    },
+    {
+      "id": "e5",
+      "source": "merge",
+      "destination": "output",
+      "channel": "final",
+      "settings": {
+        "prompt": "Generate a final report combining all inputs:",
+        "model": "hy3-free"
+      }
+    }
+  ]
+}

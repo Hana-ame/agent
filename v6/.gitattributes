@@ -1,0 +1,13 @@
+# 统一换行符：仓库内一律 LF，避免 Windows 上反复出现"零行改动"
+* text=auto eol=lf
+
+# 二进制
+*.png binary
+*.jpg binary
+*.gif binary
+*.pdf binary
+*.zip binary
+*.gz binary
+
+# 生成物/快照不应被当作文本规范化
+bootstrap_runs/** -text

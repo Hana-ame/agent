@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "name": "Finance Calculator Tool Subgraph",
+    "description": "Calculates revenue, margin, profit and outputs financial review"
+  },
+  "vertices": [
+    {
+      "name": "sub_in",
+      "content": "",
+      "state": "todo",
+      "attributes": ["start"]
+    },
+    {
+      "name": "sub_calculated",
+      "content": "",
+      "state": "todo"
+    },
+    {
+      "name": "sub_out",
+      "content": "",
+      "state": "todo",
+      "attributes": ["end"]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_calc",
+      "type": "code",
+      "input_vertex": "sub_in",
+      "output_vertex": "sub_calculated",
+      "script": "examples/dynamic_tool_library/tool_scripts.py:calculate_financial_metrics"
+    },
+    {
+      "id": "e_summary",
+      "type": "code",
+      "input_vertex": "sub_calculated",
+      "output_vertex": "sub_out",
+      "script": "examples/dynamic_tool_library/tool_scripts.py:summarize_financial_health"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "name": "OpenCode CLI Agent",
+    "description": "One edge loaded from `script: zen_edge.py:OpenCodeEdge` that launches the local `opencode` CLI to process the prompt. Everything is declared in the config: edge class (script), prompt and model."
+  },
+  "vertices": [
+    {
+      "id": "prompt_in",
+      "settings": { "type": "source" },
+      "initial_data": [
+        { "channel": "text", "value": "Explain why a DAG execution engine is a good fit for orchestrating AI agents, in two sentences." }
+      ]
+    },
+    { "id": "zen_out", "settings": { "type": "sink" } }
+  ],
+  "edges": [
+    {
+      "id": "e_zen",
+      "source": "prompt_in",
+      "destination": "zen_out",
+      "channel": "text",
+      "concurrency_type": "llm",
+      "script": "zen_edge.py:OpenCodeEdge",
+      "settings": {
+        "prompt": "You are a concise technical writer.",
+        "model": "hy3-free"
+      }
+    }
+  ]
+}

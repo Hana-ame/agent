@@ -1,0 +1,51 @@
+scratch/
+*.pyc
+__pycache__/
+*.db
+.coverage
+.pytest_cache/.coverage
+examples/s1profile_collect/data/
+
+*.egg-info/
+.pytest_cache/
+
+# Secrets — never commit .env
+.env
+.env.local
+*.env
+
+# Secrets — provider endpoints + api keys (laptop-6.8 / sensenova-6.8)
+vea_v6/models.json
+
+# Submodule directories — only defined on hf-submodule branch,
+# would show as untracked on other branches after checkout.
+additive-rand-transformer/
+maze-transformer/
+
+# Backup directory
+config_backup/
+snapshots/
+
+# Bootstrap artifacts (generated framework code from examples/09)
+build/
+
+# Local venv for real-endpoint verification
+.venv/
+
+# Bootstrap run artifacts (specs / chain checkpoints / logs)
+bootstrap_runs/
+
+# Model registry with real API keys (keep only the .example template in VCS)
+models.json
+
+# Local agent work records (not part of the project)
+.workbuddy/
+
+# 自举产物（由 examples/08 等在根目录生成的历史遗留），不进版本控制
+generated_builder.py
+
+# 仓库根 demo/ 是本地跑验收脚本时生成的临时产物，不入版本库
+demo/
+
+# 自举冒烟日志（本地跑 smoke_bootstrap 落盘）
+SMOKE.log

@@ -1,0 +1,80 @@
+{
+  "metadata": {
+    "name": "Finance AI Report (MapEdge)",
+    "description": "MapEdge clone of the chatto-bot finance plugin pipeline: fetch stage1st finance board thread list -> LLM filter (finance/trading/politics topics) -> ProcessThreadsMap (concurrent fetch-replies + summarize pipeline) -> report.md. Same architecture as s1_ai_report_map / hn_ai_report."
+  },
+  "vertices": [
+    {
+      "id": "v_forum",
+      "initial_data": [
+        {
+          "channel": "default",
+          "value": "https://stage1st.com/2b/forum-157-1.html"
+        }
+      ]
+    },
+    {
+      "id": "v_threads"
+    },
+    {
+      "id": "v_router"
+    },
+    {
+      "id": "v_report",
+      "script": "vertex/report_hook.py"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_fetch_threads",
+      "source": "v_forum",
+      "destination": "v_threads",
+      "channel": "default",
+      "concurrency_type": "fetch",
+      "script": "finance_edges.py:FetchThreadsEdge"
+    },
+    {
+      "id": "e_filter",
+      "source": "v_threads",
+      "destination": "v_router",
+      "channel": "default",
+      "concurrency_type": "llm",
+      "script": "finance_edges.py:FilterEdge",
+      "settings": {
+        "prompt": "Here is a list of active forum threads:\n{data}\n\nTask: Select threads related to finance, investment, economics, business, or geopolitics. Include all relevant candidates without restricting count.\n\nOutput only a valid JSON array whose elements contain 'tid', 'title', and 'url' fields. Do not include markdown formatting or explanations.",
+        "model": "sensenova-6.8-flash-lite",
+        "timeout": 7200,
+        "base_url": "https://opencode.ai/zen/v1/chat/completions"
+      }
+    },
+    {
+      "id": "e_process_threads",
+      "source": "v_router",
+      "destination": "v_report",
+      "channel": "default",
+      "script": "finance_edges.py:ProcessThreadsMap",
+      "settings": {
+        "pipeline": [
+          {
+            "type": "fetch",
+            "script": "finance_edges.py:FetchEdge",
+            "settings": {
+              "timeout": 30
+            }
+          },
+          {
+            "type": "llm",
+            "script": "finance_edges.py:SummarizeEdge",
+            "settings": {
+              "prompt": "You are a financial observer summarizing forum discussions into a concise briefing.\n\n## Guidelines\n\n1. **Body only**: Return markdown organized into three sections: [Events], [Perspectives], and [Impact].\n2. **Chronological order**: Order events chronologically using timestamps from post headers ('### #N **User** \u00b7 Time'). Do not invent dates.\n3. **Concise and informative**: Use concise bullet points with high signal-to-noise ratio. Avoid filler sentences.\n4. **Faithful to source**: Only report actual discussion points, asset names, policies, and company names mentioned in the thread.\n5. **Language**: English.\n6. **No redundant titles/links**: Do not repeat the thread title or URL, and provide no preamble.",
+              "model": "sensenova-6.8-flash-lite",
+              "timeout": 7200,
+              "base_url": "https://opencode.ai/zen/v1/chat/completions"
+            }
+          }
+        ],
+        "max_concurrency": 1
+      }
+    }
+  ]
+}

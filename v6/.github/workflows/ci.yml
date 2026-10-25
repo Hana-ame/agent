@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Run tests
+      run: python -m pytest tests/ -q
+
+    - name: Verify framework fixed point
+      # 逐字节自校验：清单 sha/bytes 与真实源码全符 + 生成器能复现自己
+      run: python tools/fixpoint_v3.py --check
+
+    - name: Verify four-generation self-bootstrap
+      # 内存内连续自举四代，逐字节比对（不调模型）
+      run: python tools/gen3_probe.py
+
+    - name: Verify one-shot chain (offline)
+      # 磁盘框架连续三代自举，每代落盘并自校验
+      run: python tools/oneshot_chain.py --generations 3 --offline
+
+    - name: Run examples
+      run: |
+        python examples/05_vea_v6_quickstart.py
+        python examples/06_vea_v6_meta_builder.py

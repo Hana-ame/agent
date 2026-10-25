@@ -1,0 +1,8 @@
+{
+  "name": "dir_input",
+  "content": "Hello from Directory Loading!",
+  "attributes": [
+    "start"
+  ],
+  "state": "data_ready"
+}

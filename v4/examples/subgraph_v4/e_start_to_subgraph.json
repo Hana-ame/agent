@@ -1,0 +1,6 @@
+{
+  "id": "e_in_to_subgraph",
+  "type": "code",
+  "input_vertex": "session_input",
+  "output_vertex": "enrichment_box"
+}

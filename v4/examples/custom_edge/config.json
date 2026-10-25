@@ -1,0 +1,34 @@
+{
+  "version": "4.0",
+  "metadata": {
+    "name": "custom_edge_demo",
+    "description": "Uses user-defined edge classes resolved from a script path — no framework edits needed."
+  },
+  "vertices": [
+    { "name": "v_in", "content": "the quick brown fox jumps", "state": "data ready", "attributes": ["start"] },
+    { "name": "v_count", "content": "", "state": "todo" },
+    { "name": "v_upper", "content": "", "state": "todo" },
+    { "name": "v_out", "content": "", "state": "todo", "attributes": ["end"] }
+  ],
+  "edges": [
+    {
+      "id": "e_count",
+      "type": "my_edges.py:WordCountEdge",
+      "input_vertex": "v_in",
+      "output_vertex": "v_count",
+      "settings": { "label": "words" }
+    },
+    {
+      "id": "e_upper",
+      "type": "my_edges.py:UpperCaseEdge",
+      "input_vertex": "v_count",
+      "output_vertex": "v_upper"
+    },
+    {
+      "id": "e_passthrough",
+      "type": "code",
+      "input_vertex": "v_upper",
+      "output_vertex": "v_out"
+    }
+  ]
+}
