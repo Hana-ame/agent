@@ -126,6 +126,7 @@ class EdgeConfig:
     expect: Dict[str, Any] = field(default_factory=dict)  # 输出契约（见 dag8/contracts.py）
     repair: int = 0                  # 契约失败后把原因回灌给 pi 节点重跑的次数
     optional_inputs: List[str] = field(default_factory=list)  # 缺失也不阻塞的输入 tag
+    join: str = "all"                # all=所有输入就绪；any=至少一路（settlement barrier）
     cache: Optional[bool] = None     # False = 该边禁用缓存（易变节点，如扫描当前文件）
     when: Optional[Dict[str, Any]] = None  # 条件边：输入就绪后按 tag 内容决定是否执行
     url: Optional[str] = None         # 仅 http 节点
@@ -228,6 +229,9 @@ def _edge_from_dict(d: Dict[str, Any], i: int) -> EdgeConfig:
         raise ValueError(f"第 {i + 1} 条 edge 的 repair 必须是非负整数：{repair}")
 
     input_tags = [str(t) for t in d["input_tags"]]
+    join = str(d.get("join") or "all").lower()
+    if join not in ("all", "any"):
+        raise ValueError(f"第 {i + 1} 条 edge 的 join 只支持 all/any，收到 {join!r}")
     optional = [str(t) for t in (d.get("optional_inputs") or [])]
     unknown_opt = [t for t in optional if t not in input_tags]
     if unknown_opt:
@@ -326,6 +330,7 @@ def _edge_from_dict(d: Dict[str, Any], i: int) -> EdgeConfig:
         expect=expect,
         repair=repair,
         optional_inputs=optional,
+        join=join,
         cache=(None if "cache" not in d else bool(d["cache"])),
         when=when,
         url=str(url) if url is not None else None,

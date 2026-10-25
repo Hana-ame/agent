@@ -1117,3 +1117,19 @@ def test_json_contract_strips_fences(tmp_path):
     assert res.status == "ok"
     assert "```" not in res.result
     assert json.loads(res.result)["score"] == 5
+
+
+def test_join_any_with_pruned_branch(tmp_path):
+    data = dict(BASE, seed_content="x", edges=[
+        {"id": "e1", "layer": 0, "input_tags": ["task"], "output_tags": ["a"],
+         "prompt": "A {contents}"},
+        {"id": "e2", "layer": 0, "input_tags": ["task"], "output_tags": ["b"],
+         "prompt": "B {contents}", "when": {"tag": "task", "pattern": "YES"}},
+        {"id": "e3", "layer": 1, "input_tags": ["a", "b"], "join": "any",
+         "output_tags": ["out"], "prompt": "C {contents}"},
+    ])
+    res = dag8.run(_write(tmp_path, data), db_path=tmp_path / "j.sqlite3",
+                   agent=_Upper())
+    assert res.status == "ok", res.summary()
+    assert [e.status for e in res.edges if e.edge_id == "e2"] == ["skipped"]
+    assert [e.status for e in res.edges if e.edge_id == "e3"] == ["ok"]

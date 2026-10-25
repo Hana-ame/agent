@@ -76,9 +76,9 @@ print(d.edges)
 根目录已配置 `pytest.ini`，默认收集全部项目测试：
 
 ```bash
-python -m pytest -q                 # 302 条：根 19 + v8 278（含 4 live）+ v9 5
-python -m pytest -q -m "not live"   # 298 条：不碰模型
-cd v8 && python -m pytest tests/ -q # 只跑 v8 的 278 条
+python -m pytest -q                 # 303 条：根 19 + v8 279（含 4 live）+ v9 5
+python -m pytest -q -m "not live"   # 299 条：不碰模型
+cd v8 && python -m pytest tests/ -q # 只跑 v8 的 279 条
 python -m pytest v9/tests -q        # 只跑 v9 的 5 条
 ```
 

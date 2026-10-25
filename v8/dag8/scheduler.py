@@ -399,10 +399,14 @@ def run(
             # 1) 挑出输入已就绪的波次；其余的等下一轮
             ready, blocked, when_skipped, approval_blocked = [], [], [], []
             for edge in pending:
-                satisfied = all(
-                    store.contents_for_tag(run_id, t) or t in edge.optional_inputs
-                    for t in edge.input_tags
-                )
+                if edge.join == "any":
+                    satisfied = any(store.contents_for_tag(run_id, t)
+                                    for t in edge.input_tags)
+                else:
+                    satisfied = all(
+                        store.contents_for_tag(run_id, t) or t in edge.optional_inputs
+                        for t in edge.input_tags
+                    )
                 if not satisfied:
                     blocked.append(edge)
                 elif edge.when and not when_matches(edge.when, store, run_id):

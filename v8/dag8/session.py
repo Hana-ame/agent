@@ -145,6 +145,11 @@ class Dag:
         return pending, logged
 
     def _missing(self, edge) -> List[str]:
+        if edge.join == "any":
+            if any(self.store.contents_for_tag(self.run_id, t)
+                   for t in edge.input_tags):
+                return []
+            return list(edge.input_tags)
         return [t for t in edge.input_tags
                 if not self.store.contents_for_tag(self.run_id, t)
                 and t not in edge.optional_inputs]
