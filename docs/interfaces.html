@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v7 / v8 / v9 接口规范</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --panel:#ffffff; --ink:#0f172a; --muted:#64748b;
+    --line:#dbe3ee; --v7:#2563eb; --v8:#059669; --v9:#7c3aed;
+    --storage:#d97706; --external:#64748b; --shadow:0 10px 30px rgba(15,23,42,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif}
+  header{padding:28px 32px 18px;background:linear-gradient(135deg,#eef4ff 0%,#f7f4ff 55%,#eefaf5 100%);
+    border-bottom:1px solid var(--line)}
+  h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  .sub{color:var(--muted);max-width:980px;margin:0}
+  .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;color:var(--muted);font-size:12px}
+  .meta span{background:#fff;border:1px solid var(--line);padding:3px 9px;border-radius:999px}
+  .policies{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .policy{background:#fff;border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:12px}
+  .policy b{color:var(--ink)} .policy span{color:var(--muted)}
+  main{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:18px;padding:18px 32px 30px;max-width:1600px;margin:0 auto}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;min-width:0}
+  .panel-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .panel-head h2{font-size:15px;margin:0;margin-right:auto}
+  .count{color:var(--muted);font-size:12px}
+  .toolbar{display:flex;gap:6px;flex-wrap:wrap}
+  button{font:inherit;font-size:12px;border:1px solid var(--line);background:#fff;color:var(--ink);
+    border-radius:8px;padding:5px 9px;cursor:pointer}
+  button:hover{border-color:#b8c5d6;background:#f8fafc}
+  button.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+  input[type=search]{font:inherit;font-size:12px;border:1px solid var(--line);border-radius:8px;
+    padding:6px 9px;min-width:180px;outline:none}
+  input[type=search]:focus{border-color:#94a3b8;box-shadow:0 0 0 3px rgba(148,163,184,.15)}
+  .table-wrap{max-height:70vh;overflow:auto}
+  table{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+  th{position:sticky;top:0;background:#f8fafc;color:var(--muted);text-align:left;font-weight:600;
+    padding:9px 10px;border-bottom:1px solid var(--line);z-index:2;white-space:nowrap}
+  td{padding:9px 10px;border-bottom:1px solid #edf1f7;vertical-align:top}
+  tr:hover td{background:#fbfdff}
+  td.name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:#1e293b;word-break:break-word}
+  td.notes{color:#475569;min-width:180px}
+  .badge{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.02em;
+    padding:2px 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+  .badge.v7{color:var(--v7);background:#eff6ff}.badge.v8{color:var(--v8);background:#ecfdf5}
+  .badge.v9{color:var(--v9);background:#f5f3ff}.badge.storage{color:var(--storage);background:#fffbeb}
+  .badge.external{color:var(--external);background:#f8fafc}
+  .empty{padding:26px;color:var(--muted);text-align:center}
+  .graph-panel{display:flex;flex-direction:column;min-height:640px}
+  .graph-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .graph-head h2{font-size:15px;margin:0;margin-right:auto}
+  .graph-hint{font-size:12px;color:var(--muted);padding:8px 16px;border-bottom:1px solid #eef2f7}
+  #graph{width:100%;height:calc(100% - 90px);min-height:560px;display:block;background:
+    radial-gradient(circle at 1px 1px,#e6edf7 1px,transparent 0) 0 0/22px 22px,#fbfdff;touch-action:none;cursor:grab}
+  #graph.dragging{cursor:grabbing}
+  .edge{stroke:#a8b8cc;stroke-width:1.6;fill:none}
+  .edge.hot{stroke:#475569;stroke-width:2.4}
+  .edge-label{font-size:10.5px;fill:#64748b;text-anchor:middle;paint-order:stroke;stroke:#fbfdff;stroke-width:4px;stroke-linejoin:round}
+  .node{cursor:grab}
+  .node:active{cursor:grabbing}
+  .node .box{stroke-width:1.6;filter:drop-shadow(0 3px 8px rgba(15,23,42,.08))}
+  .node text{pointer-events:none;user-select:none}
+  .node .title{font-size:13px;font-weight:700;fill:#0f172a}
+  .node .sub{font-size:10.5px;fill:#64748b}
+  .node .dot{opacity:.85}
+  .node:hover .box{filter:drop-shadow(0 5px 12px rgba(15,23,42,.16))}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;padding:10px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:11.5px}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:99px;margin-right:5px;vertical-align:0}
+  footer{color:var(--muted);font-size:11.5px;padding:0 32px 26px;max-width:1600px;margin:0 auto}
+  code{background:#f1f5f9;padding:1px 5px;border-radius:5px;font-size:.92em}
+  @media(max-width:1100px){
+    main{grid-template-columns:1fr;padding:14px}
+    .graph-panel{min-height:560px}
+    header{padding:22px 16px 16px} footer{padding:0 16px 20px}
+    #graph{min-height:520px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <p class="sub" id="summary"></p>
+  <div class="meta">
+    <span>版本 <code id="version"></code></span>
+    <span>更新 <span id="updated"></span></span>
+    <span><span id="rowCount"></span> 条接口</span>
+  </div>
+  <div class="policies" id="policies"></div>
+</header>
+
+<main>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>接口表</h2>
+      <span class="count" id="visibleCount"></span>
+      <div class="toolbar" id="filters"></div>
+      <input id="search" type="search" placeholder="搜索接口 / 说明…">
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="empty" hidden>没有匹配的接口</div>
+    </div>
+  </section>
+
+  <section class="panel graph-panel">
+    <div class="graph-head">
+      <h2>接口拓扑（可拖拽）</h2>
+      <button id="reset">重置布局</button>
+      <button id="fit">回到全图</button>
+      <a href="interfaces.json" download><button>下载 JSON</button></a>
+    </div>
+    <div class="graph-hint">拖动节点看关系；悬停节点高亮相邻边。</div>
+    <svg id="graph" viewBox="0 0 1100 700" role="img" aria-label="v7 v8 v9 接口关系图"></svg>
+    <div class="legend" id="legend"></div>
+  </section>
+</main>
+
+<footer>
+  JSON 是源数据，HTML 内嵌同一份；当前版本 <code id="footVersion"></code>。
+  说明：字数限制已取消；HTTP 抓取的响应截断只是网络保护，不是生成限制。
+</footer>
+
+<script id="data" type="application/json">{"title": "v7 / v8 / v9 接口规范", "version": "36bccfb", "updated": "2026-10-26", "summary": "v7 是 DAG 本体，v8 是执行/组织层，v9 是知识推理层。当前策略：契约保留、缓存关闭、只存知识、输出不设字数上限。", "policies": [{"key": "缓存", "value": "关闭", "note": "v9 executor use_cache=False；示例不加 --cache"}, {"key": "字数", "value": "无硬上限", "note": "输出/提示词不设长度；HTTP 响应截断仅作技术保护"}, {"key": "知识", "value": "只存知识", "note": "claims / sources / explored；v8 轨迹只调试"}, {"key": "契约", "value": "保留", "note": "格式 / JSON / 来源；不设 min_chars / max_chars"}], "columns": [{"key": "layer", "label": "层"}, {"key": "type", "label": "类型"}, {"key": "name", "label": "接口"}, {"key": "input", "label": "输入"}, {"key": "output", "label": "输出"}, {"key": "notes", "label": "说明"}], "rows": [{"id": "v7.load", "layer": "v7", "type": "Python", "name": "v7.load(source, *, preset_edge=None, llm_client=None)", "input": "路径 / dict", "output": "DAG 实例", "notes": "加载标签图；v7 是 DAG 本体。"}, {"id": "v7.step", "layer": "v7", "type": "Python", "name": "v7.step()", "input": "无", "output": "推进一条就绪边", "notes": "卡住时由脚本处理，再 set() 继续。"}, {"id": "v7.contents", "layer": "v7", "type": "Python", "name": "v7.contents / v7.get_result(tag)", "input": "tag（可选）", "output": "ContentItem 列表 / 内容", "notes": "每项含 tags、content、gen。"}, {"id": "v7.set", "layer": "v7", "type": "Python", "name": "v7.set(tag, content)", "input": "tag, content", "output": "写入内容池", "notes": "外部处理结果回填。"}, {"id": "v7.graph", "layer": "v7", "type": "JSON", "name": "V7 图配置", "input": "models + contents + edges", "output": "v7 DAG", "notes": "edge: input_tags / output_tags / processor / layer。"}, {"id": "v8.cli.run", "layer": "v8", "type": "CLI", "name": "python -m dag8 run <config> [flags]", "input": "DAG 配置路径", "output": "RunResult / --json", "notes": "--workers / --rpm / --max-seconds / --keep-going / --adaptive。"}, {"id": "v8.cli.lint", "layer": "v8", "type": "CLI", "name": "python -m dag8 lint <config>", "input": "DAG 配置路径", "output": "errors / warnings / exit code", "notes": "先 lint，再 dry-run。"}, {"id": "v8.cli.trace", "layer": "v8", "type": "CLI", "name": "python -m dag8 runs / show / explain", "input": "run_id, --db", "output": "轨迹 / 诊断", "notes": "SQLite 只作调试轨迹。"}, {"id": "v8.run", "layer": "v8", "type": "Python", "name": "dag8.run(config, *, seed_content=None, extra_seeds=None, db_path=None, max_workers=1, rpm=None, use_cache=False, ...)", "input": "配置 + seeds", "output": "RunResult", "notes": "extra_seeds 用于多 tag 注入。"}, {"id": "v8.dag.step", "layer": "v8", "type": "Python", "name": "Dag(config).step()", "input": "配置 + seed", "output": "StepResult", "notes": "status: ran / blocked / done / error / incomplete；可 set() 回填。"}, {"id": "v8.dag.config", "layer": "v8", "type": "JSON", "name": "DAG 根配置", "input": "name, seed_tag, seed_content, extra_seed_tags, result_tag, pi, edges", "output": "可执行 DAG", "notes": "extra_seed_tags 声明调用方注入的 tag。"}, {"id": "v8.edge", "layer": "v8", "type": "JSON", "name": "Edge 配置", "input": "id, kind, input_tags, output_tags, prompt/script/http/db/graph, when, join, expect, judge, approval, timeout", "output": "一条边", "notes": "join: all | any；approval 是边级闸门。"}, {"id": "v8.script", "layer": "v8", "type": "进程", "name": "script 节点协议", "input": "DAG8_INPUTS 环境变量 + stdin JSON", "output": "stdout；非 0 退出 = 失败", "notes": "tag → 内容字符串；脚本路径相对配置目录。"}, {"id": "v8.graph", "layer": "v8", "type": "节点", "name": "graph 节点", "input": "graph.path / seed_tag / result_tag / timeout", "output": "v7 图的输出", "notes": "v8 组织层调用 v7 本体。"}, {"id": "v8.httpdb", "layer": "v8", "type": "节点", "name": "http / db 节点", "input": "url/headers 或 db_path/query", "output": "文本 / 查询结果", "notes": "http 默认有响应截断（技术保护，不是生成字数限制）。"}, {"id": "v8.expect", "layer": "v8", "type": "契约", "name": "expect 输出契约", "input": "type / required_keys / schema / pattern", "output": "pass 或 error / repair", "notes": "当前不设 min_chars / max_chars；只挡格式。"}, {"id": "v9.knowledge", "layer": "v9", "type": "Python", "name": "Knowledge(path)", "input": "SQLite 路径", "output": "entities / claims / sources / explored", "notes": "长期数据只存知识。"}, {"id": "v9.claim", "layer": "v9", "type": "Python", "name": "Knowledge.add_claim(subject, predicate, obj, statement, *, confidence, source_url, derived_from)", "input": "关系 + 语句 + 来源/推理链", "output": "claim_id", "notes": "source_url 与 derived_from 至少一个；不设字数上限。"}, {"id": "v9.cycle.step", "layer": "v9", "type": "Python", "name": "CycleEngine.step()", "input": "知识库中的未探索实体对", "output": "claim / no_relation / rejected", "notes": "执行 v8 cycle.json：两路 http → v7 图 → script 入库。"}, {"id": "v9.cycle.json", "layer": "v9", "type": "JSON", "name": "一个推理周期", "input": "a, b, url_a, url_b（seed）", "output": "commit_result", "notes": "get_a/get_b → gen(graph) → commit(script)。"}, {"id": "v9.derive", "layer": "v9", "type": "Python", "name": "CycleEngine.derive_step()", "input": "A→B + B→C", "output": "derived claim / no_chain / no_relation", "notes": "执行 derive.json；derived_from=[c1,c2]。"}, {"id": "v9.derive.json", "layer": "v9", "type": "JSON", "name": "多跳周期", "input": "c1_json, c2_json, c1_id, c2_id, a, c", "output": "commit_result", "notes": "gen(graph) → commit_derived(script)。"}, {"id": "v9.expand", "layer": "v9", "type": "Python", "name": "expand(knowledge, fetch, entity, limit=3)", "input": "实体 + fetch", "output": "新增实体名列表", "notes": "Wikipedia prop=links 外链扩展。"}], "graph": {"nodes": [{"id": "v7.core", "label": "v7 本体", "sub": "load / step / contents / set", "layer": "v7", "x": 470, "y": 330}, {"id": "v8.scheduler", "label": "v8 调度器", "sub": "波次 / when / join / 契约", "layer": "v8", "x": 730, "y": 410}, {"id": "v8.nodes", "label": "v8 节点层", "sub": "pi / script / http / db / graph", "layer": "v8", "x": 730, "y": 210}, {"id": "v8.cli", "label": "v8 CLI", "sub": "run / lint / show / explain", "layer": "v8", "x": 940, "y": 480}, {"id": "v8.store", "label": "SQLite 轨迹", "sub": "runs / edges / contents", "layer": "storage", "x": 940, "y": 600}, {"id": "v9.cycle", "label": "v9 CycleEngine", "sub": "step / derive_step", "layer": "v9", "x": 190, "y": 360}, {"id": "v9.knowledge", "label": "v9 知识库", "sub": "claims / sources / explored", "layer": "v9", "x": 190, "y": 190}, {"id": "v9.infer", "label": "v9 InferenceEngine", "sub": "generate / fetch 回调", "layer": "v9", "x": 190, "y": 540}, {"id": "v9.expand", "label": "v9 实体扩展", "sub": "Wikipedia prop=links", "layer": "v9", "x": 420, "y": 100}, {"id": "v9.dags", "label": "v9 DAG 配置", "sub": "cycle.json / derive.json", "layer": "v9", "x": 440, "y": 570}, {"id": "ext", "label": "外部世界", "sub": "Wikipedia / HTTP / SQLite", "layer": "external", "x": 980, "y": 100}], "edges": [{"from": "v8.cli", "to": "v8.scheduler", "label": "run / lint"}, {"from": "v8.scheduler", "to": "v8.nodes", "label": "build / run"}, {"from": "v8.scheduler", "to": "v8.store", "label": "trace"}, {"from": "v8.nodes", "to": "v7.core", "label": "graph 节点"}, {"from": "v8.nodes", "to": "ext", "label": "http / db"}, {"from": "v9.cycle", "to": "v9.dags", "label": "load"}, {"from": "v9.cycle", "to": "v8.scheduler", "label": "dag8.run"}, {"from": "v9.cycle", "to": "v9.knowledge", "label": "pairs / commit"}, {"from": "v9.infer", "to": "v8.nodes", "label": "generate / fetch"}, {"from": "v9.infer", "to": "v9.knowledge", "label": "claims"}, {"from": "v9.expand", "to": "ext", "label": "prop=links"}, {"from": "v9.expand", "to": "v9.knowledge", "label": "add_entity"}, {"from": "v9.knowledge", "to": "v9.cycle", "label": "unexplored_pairs"}], "legend": [{"layer": "v7", "label": "v7 DAG 本体"}, {"layer": "v8", "label": "v8 组织层"}, {"layer": "v9", "label": "v9 知识层"}, {"layer": "storage", "label": "存储 / 轨迹"}, {"layer": "external", "label": "外部世界"}]}}</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const COLORS = {
+  v7:'#2563eb', v8:'#059669', v9:'#7c3aed',
+  storage:'#d97706', external:'#64748b'
+};
+const NAMES = {
+  v7:'v7 本体', v8:'v8 组织', v9:'v9 知识',
+  storage:'存储', external:'外部'
+};
+
+document.getElementById('title').textContent = DATA.title;
+document.getElementById('summary').textContent = DATA.summary;
+document.getElementById('version').textContent = DATA.version;
+document.getElementById('footVersion').textContent = DATA.version;
+document.getElementById('updated').textContent = DATA.updated;
+document.getElementById('rowCount').textContent = DATA.rows.length;
+
+// policies
+const pdiv = document.getElementById('policies');
+DATA.policies.forEach(p => {
+  const el = document.createElement('div');
+  el.className = 'policy';
+  el.innerHTML = `<b>${esc(p.key)}</b> <span>${esc(p.value)}</span> · <span>${esc(p.note)}</span>`;
+  pdiv.appendChild(el);
+});
+
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+// table
+const thead = document.getElementById('thead');
+DATA.columns.forEach(c => {
+  const th = document.createElement('th');
+  th.textContent = c.label;
+  thead.appendChild(th);
+});
+
+const tbody = document.getElementById('tbody');
+const search = document.getElementById('search');
+const empty = document.getElementById('empty');
+const visibleCount = document.getElementById('visibleCount');
+let activeLayer = 'all';
+let query = '';
+
+function rowMatches(r){
+  if (activeLayer !== 'all' && r.layer !== activeLayer) return false;
+  if (!query) return true;
+  const hay = [r.layer, r.type, r.name, r.input, r.output, r.notes]
+    .join(' ').toLowerCase();
+  return hay.includes(query);
+}
+
+function renderTable(){
+  tbody.innerHTML = '';
+  let n = 0;
+  DATA.rows.forEach(r => {
+    if (!rowMatches(r)) return;
+    n++;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="badge ${esc(r.layer)}">${esc(r.layer)}</span></td>
+      <td>${esc(r.type)}</td>
+      <td class="name">${esc(r.name)}</td>
+      <td>${esc(r.input)}</td>
+      <td>${esc(r.output)}</td>
+      <td class="notes">${esc(r.notes)}</td>`;
+    tbody.appendChild(tr);
+  });
+  visibleCount.textContent = `${n} / ${DATA.rows.length}`;
+  empty.hidden = n !== 0;
+}
+
+const filters = document.getElementById('filters');
+const layers = ['all', 'v7', 'v8', 'v9', 'storage', 'external'];
+layers.forEach(layer => {
+  const b = document.createElement('button');
+  b.textContent = layer === 'all' ? '全部' : layer;
+  b.className = layer === 'all' ? 'active' : '';
+  b.dataset.layer = layer;
+  b.onclick = () => {
+    activeLayer = layer;
+    [...filters.children].forEach(x => x.classList.toggle('active', x.dataset.layer === layer));
+    renderTable();
+  };
+  filters.appendChild(b);
+});
+search.addEventListener('input', () => {
+  query = search.value.trim().toLowerCase();
+  renderTable();
+});
+
+// graph
+const svg = document.getElementById('graph');
+const edgesLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+const nodesLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+svg.appendChild(edgesLayer);
+svg.appendChild(nodesLayer);
+
+const nodes = DATA.graph.nodes.map(n => ({...n}));
+const initial = new Map(nodes.map(n => [n.id, {x:n.x, y:n.y}]));
+const byId = new Map(nodes.map(n => [n.id, n]));
+const W = 200, H = 66;
+
+function makeSVG(tag, attrs = {}){
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function edgePoint(n){ return {x:n.x, y:n.y}; }
+
+function drawEdges(){
+  edgesLayer.innerHTML = '';
+  DATA.graph.edges.forEach(e => {
+    const a = byId.get(e.from), b = byId.get(e.to);
+    if (!a || !b) return;
+    const p1 = edgePoint(a), p2 = edgePoint(b);
+    const line = makeSVG('line', {
+      x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, class:'edge',
+      'data-from':e.from, 'data-to':e.to
+    });
+    edgesLayer.appendChild(line);
+    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+    const label = makeSVG('text', {x:mx, y:my - 5, class:'edge-label'});
+    label.textContent = e.label;
+    edgesLayer.appendChild(label);
+  });
+}
+
+function drawNodes(){
+  nodesLayer.innerHTML = '';
+  nodes.forEach(n => {
+    const g = makeSVG('g', {
+      class:'node', 'data-id':n.id,
+      transform:`translate(${n.x},${n.y})`
+    });
+    const color = COLORS[n.layer] || '#64748b';
+    g.innerHTML = `
+      <rect class="box" x="${-W/2}" y="${-H/2}" width="${W}" height="${H}" rx="12"
+        fill="#ffffff" stroke="${color}"></rect>
+      <circle class="dot" cx="${-W/2+16}" cy="${-H/2+15}" r="4" fill="${color}"></circle>
+      <text class="title" x="${-W/2+28}" y="${-H/2+20}">${esc(n.label)}</text>
+      <text class="sub" x="${-W/2+16}" y="${-H/2+44}">${esc(n.sub)}</text>
+      <text class="sub" x="${W/2-16}" y="${H/2-10}" text-anchor="end" fill="${color}">${esc(NAMES[n.layer] || n.layer)}</text>`;
+    g.addEventListener('mouseenter', () => highlight(n.id, true));
+    g.addEventListener('mouseleave', () => highlight(n.id, false));
+    nodesLayer.appendChild(g);
+  });
+}
+
+function highlight(id, on){
+  edgesLayer.querySelectorAll('.edge').forEach(el => {
+    if (el.dataset.from === id || el.dataset.to === id) {
+      el.classList.toggle('hot', on);
+    }
+  });
+}
+
+function redraw(){
+  drawEdges();
+  drawNodes();
+}
+
+// drag
+let drag = null;
+function svgPoint(evt){
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+svg.addEventListener('pointerdown', evt => {
+  const g = evt.target.closest('.node');
+  if (!g) return;
+  const id = g.dataset.id;
+  const n = byId.get(id);
+  const p = svgPoint(evt);
+  drag = {id, dx: p.x - n.x, dy: p.y - n.y};
+  svg.classList.add('dragging');
+  evt.preventDefault();
+});
+window.addEventListener('pointermove', evt => {
+  if (!drag) return;
+  const n = byId.get(drag.id);
+  const p = svgPoint(evt);
+  n.x = Math.max(110, Math.min(990, p.x - drag.dx));
+  n.y = Math.max(70, Math.min(630, p.y - drag.dy));
+  const g = nodesLayer.querySelector(`.node[data-id="${drag.id}"]`);
+  if (g) g.setAttribute('transform', `translate(${n.x},${n.y})`);
+  drawEdges();
+  evt.preventDefault();
+});
+window.addEventListener('pointerup', () => {
+  drag = null;
+  svg.classList.remove('dragging');
+});
+
+document.getElementById('reset').onclick = () => {
+  nodes.forEach(n => {
+    const p = initial.get(n.id);
+    n.x = p.x; n.y = p.y;
+  });
+  redraw();
+};
+
+document.getElementById('fit').onclick = () => {
+  // 固定 viewBox 已覆盖全图；这里把跑远的节点拉回常用范围
+  nodes.forEach(n => {
+    n.x = Math.max(110, Math.min(990, n.x));
+    n.y = Math.max(70, Math.min(630, n.y));
+  });
+  redraw();
+};
+
+// legend
+const legend = document.getElementById('legend');
+DATA.graph.legend.forEach(item => {
+  const el = document.createElement('span');
+  el.innerHTML = `<i style="background:${COLORS[item.layer] || '#64748b'}"></i>${esc(item.label)}`;
+  legend.appendChild(el);
+});
+
+renderTable();
+redraw();
+
+// 供自动化测试/调试
+window.__interfacesGraph = {
+  nodes, edges: DATA.graph.edges,
+  move(id, x, y){ const n = byId.get(id); if (!n) return false; n.x=x; n.y=y;
+    const g = nodesLayer.querySelector(`.node[data-id="${id}"]`);
+    if (g) g.setAttribute('transform', `translate(${x},${y})`);
+    drawEdges(); return true; }
+};
+</script>
+</body>
+</html>
