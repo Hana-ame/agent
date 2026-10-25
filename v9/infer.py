@@ -12,6 +12,18 @@ from typing import Any, Callable, Dict, List, Optional
 
 from v9.knowledge import Knowledge
 
+DERIVE_PROMPT = """你是知识推理器。只根据下面两条已有知识，判断能否推出实体 A 与实体 C 之间的关系。
+
+知识 1：{s1} --{p1}--> {o1}：{t1}
+知识 2：{s2} --{p2}--> {o2}：{t2}
+
+只输出 JSON，不要 Markdown 代码块：
+{{"relation": "none" 或 "推出关系的谓词",
+  "statement": "一句可核验的中文事实，不超过 80 字",
+  "confidence": 0.0}}
+
+如果两条知识不足以推出 A 与 C 的关系，relation 输出 "none"，不要编造。"""
+
 PROMPT = """你是开放世界知识推理器。只根据给出的外部证据，判断两个实体之间是否存在一条可核验的关系。
 
 实体 A：{a}
@@ -113,6 +125,42 @@ class InferenceEngine:
         self.k.mark_explored(a, b, "linked")
         return {"status": "claim", "pair": [a, b], "claim_id": cid,
                 "relation": relation, "statement": statement, "source": url}
+
+    def derive(self) -> Dict[str, Any]:
+        """多跳：A→B + B→C ⇒ A→C，标 derived_from，不冒充外部来源。"""
+        claims = self.k.claims()
+        linked = {tuple(sorted((c["subject"], c["object"]))) for c in claims}
+        for c1 in claims:
+            for c2 in claims:
+                if c1["object"] != c2["subject"]:
+                    continue
+                a, b = c1["subject"], c2["subject"]
+                c = c2["object"]
+                if a == c or tuple(sorted((a, c))) in linked:
+                    continue
+                raw = self.generate(DERIVE_PROMPT.format(
+                    s1=c1["subject"], p1=c1["predicate"], o1=c1["object"],
+                    t1=c1["statement"], s2=c2["subject"], p2=c2["predicate"],
+                    o2=c2["object"], t2=c2["statement"]))
+                data = parse_json(raw) or {}
+                relation = str(data.get("relation") or "none").strip()
+                statement = str(data.get("statement") or "").strip()
+                if relation == "none" or not statement:
+                    self.k.mark_explored(a, c, "none")
+                    return {"status": "no_relation", "pair": [a, c],
+                            "raw": raw[:200]}
+                if len(statement) > 200:
+                    self.k.mark_explored(a, c, "too_long")
+                    return {"status": "rejected", "pair": [a, c],
+                            "reason": "statement 超过 200 字"}
+                cid = self.k.add_claim(
+                    a, relation, c, statement,
+                    confidence=float(data.get("confidence", 0.5)),
+                    derived_from=[c1["id"], c2["id"]])
+                return {"status": "claim", "pair": [a, c], "claim_id": cid,
+                        "relation": relation, "statement": statement,
+                        "derived_from": [c1["id"], c2["id"]]}
+        return {"status": "no_chain"}
 
     def run(self, cycles: int = 3) -> List[Dict[str, Any]]:
         out = []

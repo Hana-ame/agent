@@ -81,6 +81,7 @@ python -m v9.demo
 - 证据不足就 `none`，不要为了产出硬凑
 - `explored` 记录试过的实体对，避免死循环
 - 允许扩展实体，但扩展后继续推理才能产生新知识
+- 多跳只用已有 claim 的 statement，必须标 `derived_from`，不能冒充外部来源
 
 **指标**
 
@@ -91,6 +92,7 @@ python -m v9.demo
 | `no_relation_rate` | 证据不足拒绝 / 尝试对 | **0.8**（4/5） |
 | `statement_chars` | claim 语句长度 | 24 字（上限 200） |
 | `entity_growth` | 扩展新增实体 / 周期 | 2 个（3→5） |
+| `derived_ratio` | derived_from claim / 全部 claim | 待真实链形成 |
 
 ## 5. 参考示例
 

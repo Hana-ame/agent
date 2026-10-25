@@ -49,6 +49,17 @@ python -m v9.demo
 python -m pytest v9/tests -q
 ```
 
+## 多跳推理
+
+```python
+res = engine.derive()   # A --p--> B + B --q--> C ⇒ A --r--> C
+```
+
+- 只使用两条已有 claim 的 statement，不重新抓外部页面
+- 新 claim 无 `source_url`，但 `derived_from=[c1_id, c2_id]`
+- 推不出就 `none`，不写；重复的 A→C 不再推
+- 当前真实 demo 只有一条外部 claim，尚未形成真实链；多跳先在单测覆盖
+
 ## 实体扩展
 
 ```python
