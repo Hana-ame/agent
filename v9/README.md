@@ -10,6 +10,9 @@ v7 是 DAG 本体，v8 是组织层，v9 负责**知识**：
 ## 硬约束
 
 - **不缓存**：`V8Executor` 固定 `use_cache=False`；v8 的 run 轨迹只作调试，不复用
+- **契约保留**：`v9/configs/gen.json` 的 graph 节点带 v8 `expect`，输出必须是含
+  `relation/statement/confidence/evidence_url` 的 JSON；不合格边 error，不写知识
+  （graph 节点不支持 repair，失败即失败）
 - **只存知识**：长期数据只有 `claims / sources / explored`；原始结果不写回知识
 - **限制字数**：claim statement ≤ 200 字；外部来源 ≤ 4000 字；prompt 要求结论 ≤ 80 字
 - **限制结果透露**：推理时只给两段外部证据，不给已有 claims / 最终结果；

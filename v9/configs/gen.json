@@ -2,12 +2,48 @@
   "name": "v9_gen_org",
   "seed_tag": "task",
   "result_tag": "out",
-  "edges": [{
-    "id": "gen",
-    "kind": "graph",
-    "input_tags": ["task"],
-    "output_tags": ["out"],
-    "graph": {"path": "../graphs/gen.json", "seed_tag": "task",
-              "result_tag": "out", "timeout": 240}
-  }]
+  "edges": [
+    {
+      "id": "gen",
+      "kind": "graph",
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "out"
+      ],
+      "graph": {
+        "path": "../graphs/gen.json",
+        "seed_tag": "task",
+        "result_tag": "out",
+        "timeout": 240
+      },
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "relation": {
+              "type": "string"
+            },
+            "statement": {
+              "type": "string"
+            },
+            "confidence": {
+              "type": "number"
+            },
+            "evidence_url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "relation",
+            "statement",
+            "confidence",
+            "evidence_url"
+          ]
+        }
+      }
+    }
+  ]
 }
