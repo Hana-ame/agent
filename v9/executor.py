@@ -31,7 +31,7 @@ class V8Executor:
     def _run(self, cfg: Path, seed_tag: str, seed: str) -> str:
         res = dag8.run(str(cfg), seed_content=seed,
                        db_path=str(self.db), max_workers=1, rpm=3,
-                       use_cache=True, max_seconds=300)
+                       use_cache=False, max_seconds=300)
         if res.status != "ok" or not res.result:
             raise RuntimeError(f"v8 {cfg.name} 失败：{res.status} "
                                f"{res.summary()}")

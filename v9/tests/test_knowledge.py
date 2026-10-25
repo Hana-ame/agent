@@ -30,3 +30,19 @@ def test_unexplored_pairs_skip_linked_and_explored():
     k.mark_explored("a", "c", "none")
     assert k.unexplored_pairs(10) == [("b", "c")]
     k.close()
+
+
+def test_statement_length_limit():
+    k = Knowledge()
+    k.add_entity("a")
+    k.add_entity("b")
+    with pytest.raises(ValueError, match="200"):
+        k.add_claim("a", "rel", "b", "x" * 201, source_url="https://x")
+    k.close()
+
+
+def test_source_is_truncated():
+    k = Knowledge()
+    k.put_source("https://x", "y" * 5000)
+    assert len(k.get_source("https://x")) == 4000
+    k.close()

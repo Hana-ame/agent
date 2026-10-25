@@ -67,3 +67,35 @@ def test_none_marks_explored_and_moves_on():
     assert ("a", "c") in pairs
     assert ("a", "b") not in pairs
     k.close()
+
+
+def test_rejects_overlong_statement():
+    k = Knowledge()
+    k.add_entity("a")
+    k.add_entity("b")
+    engine = InferenceEngine(k, generate=_gen({
+        "relation": "rel", "statement": "x" * 201,
+        "confidence": 0.9, "evidence_url": "https://x/a"}), fetch=_Fetch())
+    res = engine.step()
+    assert res["status"] == "rejected"
+    assert k.claims() == []
+    k.close()
+
+
+def test_accepts_canonical_wikipedia_url():
+    k = Knowledge()
+    k.add_entity("a")
+    k.add_entity("b")
+
+    def fetch(entity):
+        return {"url": f"https://en.wikipedia.org/api/rest_v1/page/summary/{entity}",
+                "text": f"{entity} text"}
+
+    engine = InferenceEngine(k, generate=_gen({
+        "relation": "rel", "statement": "A 与 B 有关系",
+        "confidence": 0.8,
+        "evidence_url": "https://en.wikipedia.org/wiki/a"}), fetch=fetch)
+    res = engine.step()
+    assert res["status"] == "claim"
+    assert k.claims()[0]["source_url"].endswith("/summary/a")
+    k.close()
