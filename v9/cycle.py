@@ -23,6 +23,24 @@ from v9.expand import wiki_url  # noqa: E402
 from v9.knowledge import Knowledge  # noqa: E402
 
 CFG = Path(__file__).resolve().parent / "configs" / "cycle.json"
+CFG_DERIVE = Path(__file__).resolve().parent / "configs" / "derive.json"
+
+
+def find_chain(k: Knowledge):
+    """找 A→B + B→C，且 A→C 未连、未试过。"""
+    claims = k.claims()
+    linked = {tuple(sorted((c["subject"], c["object"]))) for c in claims}
+    for c1 in claims:
+        for c2 in claims:
+            if c1["object"] != c2["subject"]:
+                continue
+            a, b, c = c1["subject"], c1["object"], c2["object"]
+            if a == c or tuple(sorted((a, c))) in linked:
+                continue
+            if k.is_explored(a, c):
+                continue
+            return a, b, c, c1, c2
+    return None
 
 
 class CycleEngine:
@@ -52,6 +70,35 @@ class CycleEngine:
                     "error": res.summary()}
         data = json.loads(res.result)
         return {"pair": [a, b], **data}
+
+    def derive_step(self) -> Dict[str, Any]:
+        chain = find_chain(self.k)
+        if chain is None:
+            return {"status": "no_chain"}
+        a, b, c, c1, c2 = chain
+        os.environ["V9_DB"] = self.k.path
+        res = dag8.run(
+            str(CFG_DERIVE), seed_content=json.dumps(c1, ensure_ascii=False),
+            extra_seeds={
+                "c2_json": json.dumps(c2, ensure_ascii=False),
+                "c1_id": str(c1["id"]), "c2_id": str(c2["id"]),
+                "a": a, "c": c,
+            },
+            db_path=str(self.db), max_workers=1, rpm=3,
+            use_cache=False, max_seconds=300,
+        )
+        if res.status != "ok" or not res.result:
+            return {"status": "error", "pair": [a, c], "error": res.summary()}
+        return {"pair": [a, c], **json.loads(res.result)}
+
+    def derive(self, cycles: int = 2) -> List[Dict[str, Any]]:
+        out = []
+        for _ in range(cycles):
+            res = self.derive_step()
+            out.append(res)
+            if res["status"] in ("no_chain", "error"):
+                break
+        return out
 
     def run(self, cycles: int = 3) -> List[Dict[str, Any]]:
         out = []

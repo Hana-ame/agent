@@ -103,6 +103,12 @@ class Knowledge:
         row = self.conn.execute("SELECT text FROM sources WHERE url=?", (url,)).fetchone()
         return row["text"] if row else None
 
+    def is_explored(self, a: str, b: str) -> bool:
+        x, y = sorted((a, b))
+        return self.conn.execute(
+            "SELECT 1 FROM explored WHERE a=? AND b=?", (x, y)
+        ).fetchone() is not None
+
     def mark_explored(self, a: str, b: str, outcome: str) -> None:
         x, y = sorted((a, b))
         self.conn.execute(

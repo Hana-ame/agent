@@ -1,0 +1,27 @@
+{
+  "name": "v9_derive_cycle",
+  "_comment": "多跳周期：两条已有 claim → v7 图生成 → script 写 derived_from。",
+  "seed_tag": "c1_json",
+  "extra_seed_tags": ["c2_json", "c1_id", "c2_id", "a", "c"],
+  "result_tag": "commit_result",
+  "edges": [
+    {"id": "gen", "kind": "graph", "input_tags": ["c1_json", "c2_json"],
+     "output_tags": ["claim_json"],
+     "graph": {"path": "../graphs/derive.json", "seed_tag": "task",
+               "result_tag": "claim", "timeout": 240},
+     "expect": {"type": "json", "schema": {
+       "type": "object",
+       "properties": {
+         "relation": {"type": "string"},
+         "statement": {"type": "string"},
+         "confidence": {"type": "number"}
+       },
+       "required": ["relation", "statement", "confidence"]
+     }}},
+    {"id": "commit", "kind": "script", "layer": 1,
+     "input_tags": ["claim_json", "c1_id", "c2_id", "a", "c"],
+     "output_tags": ["commit_result"], "script": "../scripts/commit_derived.py",
+     "timeout": 60,
+     "expect": {"type": "json", "required_keys": ["status"]}}
+  ]
+}

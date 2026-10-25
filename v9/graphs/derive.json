@@ -1,0 +1,22 @@
+{
+  "name": "v9_derive",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-v4-flash",
+      "params": {"temperature": 0.2}
+    }
+  },
+  "contents": [],
+  "edges": [{
+    "id": "derive",
+    "layer": 0,
+    "input_tags": ["task"],
+    "output_tags": ["claim"],
+    "processor": {
+      "model": "laptop",
+      "prompt": "你是知识推理器。只根据下面两条已有知识，判断能否推出实体 A 与实体 C 之间的关系。\n只输出 JSON，不要代码块：{\"relation\": \"none\" 或谓词, \"statement\": \"不超过80字的中文事实\", \"confidence\": 0.0}\n证据不足就输出 none，不要编造。\n\n{contents}"
+    }
+  }]
+}

@@ -55,16 +55,30 @@ python -m v9.demo
 python -m pytest v9/tests -q
 ```
 
-## 多跳推理
+## 多跳推理（也是一张 v8 DAG）
 
 ```python
-res = engine.derive()   # A --p--> B + B --q--> C ⇒ A --r--> C
+res = engine.derive_step()   # A --p--> B + B --q--> C ⇒ A --r--> C
+```
+
+`configs/derive.json`：
+
+```
+c1_json + c2_json → gen (v8 graph → v7 图) → commit_derived (script) → claim
 ```
 
 - 只使用两条已有 claim 的 statement，不重新抓外部页面
 - 新 claim 无 `source_url`，但 `derived_from=[c1_id, c2_id]`
 - 推不出就 `none`，不写；重复的 A→C 不再推
-- 当前真实 demo 只有一条外部 claim，尚未形成真实链；多跳先在单测覆盖
+
+实测（fixture 链，非外部新链）：
+
+```
+Topological sorting --part_of--> Graph theory
+Graph theory --part_of--> Mathematics
+⇒ Topological sorting --part_of--> Mathematics
+derived_from = [1, 2]，source_url = null
+```
 
 ## 实体扩展
 

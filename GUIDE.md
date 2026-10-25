@@ -84,7 +84,7 @@ python -m v9.demo                # 完整 demo：推理 + 实体扩展 + 多跳
 - 证据不足就 `none`，不要为了产出硬凑
 - `explored` 记录试过的实体对，避免死循环
 - 允许扩展实体，但扩展后继续推理才能产生新知识
-- 多跳只用已有 claim 的 statement，必须标 `derived_from`，不能冒充外部来源
+- 多跳也用一张 v8 DAG：两条 claim → v7 图 → script 写 `derived_from`，不能冒充外部来源
 
 **指标**
 
