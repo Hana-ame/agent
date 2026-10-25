@@ -1,0 +1,32 @@
+{
+  "name": "script_judge",
+  "seed_tag": "task",
+  "seed_content": "v8 是标签驱动的 DAG 框架，支持并行、缓存与质量闸门。",
+  "result_tag": "out",
+  "edges": [
+    {
+      "id": "stats",
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "stats"
+      ],
+      "script": "stats.py"
+    },
+    {
+      "id": "rewrite",
+      "input_tags": [
+        "stats"
+      ],
+      "output_tags": [
+        "out"
+      ],
+      "prompt": "根据统计结果写一句不超过 50 字的结论，只输出正文：\n{contents}",
+      "judge": {
+        "min_score": 0
+      },
+      "layer": 1
+    }
+  ]
+}

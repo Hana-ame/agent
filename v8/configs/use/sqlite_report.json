@@ -1,0 +1,34 @@
+{
+  "name": "sqlite_report",
+  "seed_tag": "task",
+  "seed_content": "销量",
+  "result_tag": "conclusion",
+  "edges": [
+    {
+      "id": "rows",
+      "kind": "db",
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "rows"
+      ],
+      "db_path": "../../data/use/sales.sqlite3",
+      "query": "SELECT region, amount FROM sales ORDER BY amount DESC LIMIT 5"
+    },
+    {
+      "id": "conclusion",
+      "input_tags": [
+        "rows"
+      ],
+      "output_tags": [
+        "conclusion"
+      ],
+      "prompt": "根据下面的销量数据，写一句结论，不超过 40 字，只输出正文：\n{contents}",
+      "expect": {
+        "min_chars": 10
+      },
+      "layer": 1
+    }
+  ]
+}
