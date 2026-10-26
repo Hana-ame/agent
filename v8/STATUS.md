@@ -4,7 +4,7 @@
 
 ## 一句话
 
-框架能力已覆盖目标：任务复用、模型缓存、格式契约、波次并行、超时/续跑、架构分解图、
+框架能力已覆盖目标：任务复用、格式契约、波次并行、超时/续跑、架构分解图、
 provider 速度/价格观测。**实测优化被网关 530 阻塞**，offline 全链路可自检。
 
 ## 能力 → 证据
@@ -13,7 +13,6 @@ provider 速度/价格观测。**实测优化被网关 530 阻塞**，offline �
 |---|---|---|
 | 公共复用 | `dag8 new` 8 模板、`scaffold --compose`、`convert` | 模板 dry-run / compose lint+dry-run |
 | 不重复调查 | `scaffold --changed`（git 变更模块）、`--compose --review` | 本仓库 dogfood：3 模块 review 图 |
-| 换模型不丢缓存 | 缓存键含模型；`--cache-ttl`；`dag8 cache` | 缓存测试 8 条 |
 | 格式不配 | `expect`（JSON Schema 子集）+ `repair` | contracts 18 条 |
 | 并行效率 | 波次调度、`--workers`、可选输入、`--max-seconds`、`--keep-going` | dag8 62 条 |
 | 等不该等的 task | pi/graph 总超时、`--preflight`、`--resume`/`--resume-last` | 超时/续跑/预检测试 |
@@ -24,7 +23,6 @@ provider 速度/价格观测。**实测优化被网关 530 阻塞**，offline �
 
 - 离线测试：**273 passed**（根仓库另 19 passed）；全量 277 条（含 4 live）
 - **v7 本体 / v8 组织**原型：3 个短 v7 子图，v7 串行 10.83s vs v8 并行 4.0s（2.7×）；
-  v8 `--cache` 第一次 7.87s、第二次 0.28s（3 子图全命中，约 28×）
 - script 成为默认节点：JSON env/stdin 输入、stdout 输出（4 测试）
 - 分支取材：v4 的 `join:"any"` settlement barrier 已移植（条件分支被剪后仍可汇合）
 - 评审修复：远端 nvm PATH 动态解析；sorted_edges 改稳定 O(N logN)；contents_for_tag 走 JSON1 过滤（旧库回退）
@@ -42,7 +40,6 @@ provider 速度/价格观测。**实测优化被网关 530 阻塞**，offline �
   + 单次延迟方差（7–67s），不是调度器**；免费网关下宽并行无稳定收益
 - compose 真实跑：3 模块子图（36.6/92.7/48.0s）墙钟 136.5s + 汇总报告 4785 字符
 - compose-review 真实跑：2 模块（28.1/104.1s）+ 汇总 111.2s，墙钟 236.8s，2961 字评审
-- 缓存实测（同一 prompt）：3.86s → 0.15s（cached）；`--cache-ttl 0` → 4.13s（miss）
 - 自适应并发（`--adaptive`）：429/批量超时后 worker 减半、成功 +1；`workers_used` 可观测
 - 抖动退避验证（限速 mock，3 轮）：fixed p50 2.69s/7×429 vs jitter 1.65s/6×429
 - 默认策略 compose 收尾：2 模块（36.6/75.8s）+ 汇总 31.7s，status ok，3593 字；

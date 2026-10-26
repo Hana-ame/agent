@@ -1,5 +1,7 @@
 # v7 / v8 / v9 使用指南与自评指标
 
+> 架构与去重决策见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；接口表见 [docs/interfaces.html](docs/interfaces.html)。
+
 ## 1. 先选层
 
 ```text
