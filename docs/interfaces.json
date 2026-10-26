@@ -1,6 +1,6 @@
 {
   "title": "v7 / v8 / v9 接口规范",
-  "version": "36bccfb",
+  "version": "b0c3897",
   "updated": "2026-10-26",
   "summary": "v7 是 DAG 本体，v8 是执行/组织层，v9 是知识推理层。当前策略：契约保留、缓存关闭、只存知识、输出不设字数上限。",
   "policies": [
@@ -132,15 +132,6 @@
       "input": "配置 + seeds",
       "output": "RunResult",
       "notes": "extra_seeds 用于多 tag 注入。"
-    },
-    {
-      "id": "v8.dag.step",
-      "layer": "v8",
-      "type": "Python",
-      "name": "Dag(config).step()",
-      "input": "配置 + seed",
-      "output": "StepResult",
-      "notes": "status: ran / blocked / done / error / incomplete；可 set() 回填。"
     },
     {
       "id": "v8.dag.config",
