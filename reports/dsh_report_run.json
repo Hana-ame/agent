@@ -1,0 +1,64 @@
+{
+  "status": "ok",
+  "run_id": "f4c69787b91b",
+  "workers_used": [
+    1,
+    1,
+    1
+  ],
+  "edges": [
+    {
+      "edge": "g1",
+      "status": "error",
+      "elapsed": 138.02,
+      "error": "v7 图执行失败（/mnt/c/Users/lumin/Downloads/agent/v8/configs/dsh_report/per_session.json）：HTTPError: 429 Client Error: Too Many Requests for url: https://laptop-8000.moonchan.xyz/v1/chat/completions"
+    },
+    {
+      "edge": "g2",
+      "status": "ok",
+      "elapsed": 173.28,
+      "error": ""
+    },
+    {
+      "edge": "g3",
+      "status": "ok",
+      "elapsed": 60.82,
+      "error": ""
+    },
+    {
+      "edge": "g4",
+      "status": "ok",
+      "elapsed": 66.36,
+      "error": ""
+    },
+    {
+      "edge": "g5",
+      "status": "ok",
+      "elapsed": 59.4,
+      "error": ""
+    },
+    {
+      "edge": "g6",
+      "status": "ok",
+      "elapsed": 118.74,
+      "error": ""
+    },
+    {
+      "edge": "merge",
+      "status": "ok",
+      "elapsed": 141.83,
+      "error": ""
+    },
+    {
+      "edge": "persist",
+      "status": "ok",
+      "elapsed": 0.44,
+      "error": ""
+    }
+  ],
+  "report": "/mnt/c/Users/lumin/Downloads/agent/reports/dsh_sessions_report.md",
+  "sessions": 6,
+  "v8_status": "partial",
+  "recovered": "session-8602e05c-f6db-4d46-abff-1a43b54b4a0b 用 v7 per_session + deepseek-v4-flash 补跑",
+  "report_chars": 11095
+}

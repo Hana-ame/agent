@@ -1,0 +1,26 @@
+{
+  "name": "dsh_report_merge",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "merge",
+      "layer": 0,
+      "input_tags": ["task"],
+      "output_tags": ["report"],
+      "processor": {
+        "model": "laptop",
+        "prompt": "你是报告主编。下面是从 DSH 历史会话提取的结构化结论。\n请输出一份 Markdown 报告，要求：\n1. 一级标题 + 生成时间说明\n2. 一段总体摘要，点出共同结论与分歧\n3. 每个会话一节，含：会话、主题、用户诉求、结论、状态、下一步\n4. 最后给“跨会话结论”列表\n只输出 Markdown 正文，不要额外解释。\n\n结构化结论：\n{contents}"
+      }
+    }
+  ]
+}

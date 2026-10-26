@@ -1,0 +1,377 @@
+{
+  "name": "dsh_sessions_report",
+  "seed_tag": "s1",
+  "seed_content": "",
+  "extra_seed_tags": [
+    "s2",
+    "s3",
+    "s4",
+    "s5",
+    "s6"
+  ],
+  "result_tag": "persist_result",
+  "pi": {
+    "provider": "laptop",
+    "model": "deepseek-flash",
+    "tools": false,
+    "timeout": 180,
+    "retries": 2
+  },
+  "edges": [
+    {
+      "id": "g1",
+      "kind": "graph",
+      "layer": 0,
+      "input_tags": [
+        "s1"
+      ],
+      "output_tags": [
+        "o1"
+      ],
+      "graph": {
+        "path": "per_session.json",
+        "seed_tag": "task",
+        "result_tag": "digest",
+        "timeout": 600,
+        "max_steps": 4
+      },
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "conclusion": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "next": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "session_id",
+            "topic",
+            "conclusion"
+          ]
+        }
+      }
+    },
+    {
+      "id": "g2",
+      "kind": "graph",
+      "layer": 0,
+      "input_tags": [
+        "s2"
+      ],
+      "output_tags": [
+        "o2"
+      ],
+      "graph": {
+        "path": "per_session.json",
+        "seed_tag": "task",
+        "result_tag": "digest",
+        "timeout": 600,
+        "max_steps": 4
+      },
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "conclusion": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "next": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "session_id",
+            "topic",
+            "conclusion"
+          ]
+        }
+      }
+    },
+    {
+      "id": "g3",
+      "kind": "graph",
+      "layer": 0,
+      "input_tags": [
+        "s3"
+      ],
+      "output_tags": [
+        "o3"
+      ],
+      "graph": {
+        "path": "per_session.json",
+        "seed_tag": "task",
+        "result_tag": "digest",
+        "timeout": 600,
+        "max_steps": 4
+      },
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "conclusion": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "next": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "session_id",
+            "topic",
+            "conclusion"
+          ]
+        }
+      }
+    },
+    {
+      "id": "g4",
+      "kind": "graph",
+      "layer": 0,
+      "input_tags": [
+        "s4"
+      ],
+      "output_tags": [
+        "o4"
+      ],
+      "graph": {
+        "path": "per_session.json",
+        "seed_tag": "task",
+        "result_tag": "digest",
+        "timeout": 600,
+        "max_steps": 4
+      },
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "conclusion": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "next": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "session_id",
+            "topic",
+            "conclusion"
+          ]
+        }
+      }
+    },
+    {
+      "id": "g5",
+      "kind": "graph",
+      "layer": 0,
+      "input_tags": [
+        "s5"
+      ],
+      "output_tags": [
+        "o5"
+      ],
+      "graph": {
+        "path": "per_session.json",
+        "seed_tag": "task",
+        "result_tag": "digest",
+        "timeout": 600,
+        "max_steps": 4
+      },
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "conclusion": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "next": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "session_id",
+            "topic",
+            "conclusion"
+          ]
+        }
+      }
+    },
+    {
+      "id": "g6",
+      "kind": "graph",
+      "layer": 0,
+      "input_tags": [
+        "s6"
+      ],
+      "output_tags": [
+        "o6"
+      ],
+      "graph": {
+        "path": "per_session.json",
+        "seed_tag": "task",
+        "result_tag": "digest",
+        "timeout": 600,
+        "max_steps": 4
+      },
+      "expect": {
+        "type": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "conclusion": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "next": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "session_id",
+            "topic",
+            "conclusion"
+          ]
+        }
+      }
+    },
+    {
+      "id": "merge",
+      "kind": "graph",
+      "layer": 1,
+      "input_tags": [
+        "o1",
+        "o2",
+        "o3",
+        "o4",
+        "o5",
+        "o6"
+      ],
+      "output_tags": [
+        "report"
+      ],
+      "join": "any",
+      "graph": {
+        "path": "merge.json",
+        "seed_tag": "task",
+        "result_tag": "report",
+        "timeout": 900,
+        "max_steps": 2
+      },
+      "expect": {
+        "type": "text",
+        "pattern": "#"
+      }
+    },
+    {
+      "id": "persist",
+      "kind": "script",
+      "layer": 2,
+      "input_tags": [
+        "report",
+        "o1",
+        "o2",
+        "o3",
+        "o4",
+        "o5",
+        "o6"
+      ],
+      "output_tags": [
+        "persist_result"
+      ],
+      "script": "persist.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "status"
+        ]
+      },
+      "optional_inputs": [
+        "o1",
+        "o2",
+        "o3",
+        "o4",
+        "o5",
+        "o6"
+      ]
+    }
+  ]
+}

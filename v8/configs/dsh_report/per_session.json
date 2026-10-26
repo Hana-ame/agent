@@ -1,0 +1,26 @@
+{
+  "name": "dsh_session_digest",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "digest",
+      "layer": 0,
+      "input_tags": ["task"],
+      "output_tags": ["digest"],
+      "processor": {
+        "model": "laptop",
+        "prompt": "你是报告编辑。根据下面的 DSH session 记录，提取结构化结论。\n只输出 JSON，不要 Markdown 代码块，不要解释：\n{\"session_id\": \"原样\", \"topic\": \"一句话主题\", \"request\": \"用户当时要什么\", \"conclusion\": \"这次会话得出的结论，保留关键事实与数字\", \"status\": \"completed/aborted/其他\", \"next\": \"值得继续做的一件事\"}\n\n记录：\n{contents}"
+      }
+    }
+  ]
+}

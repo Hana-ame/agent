@@ -11,6 +11,7 @@ GUIDE.md                 # v7/v8/v9 使用方式、最佳实践、自评指标
 docs/ARCHITECTURE.md     # 当前分层、去重决策、执行链、限制
 docs/interfaces.html     # 接口表 + 可拖拽拓扑图
 docs/interfaces.json     # 接口规范 JSON 源
+v8/configs/dsh_report/   # DSH 历史 session → 格式化报告（v7/v8/v9 示例）
 v6/                      # VEA v6 历史设计备份（参考，不参与运行）
 v8/configs/v7_core/      # “v7 本体 + v8 组织”可运行原型
 dag/                     # 旧 import 路径（兼容 scripts/tests，不再作为新入口）
