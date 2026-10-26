@@ -48,8 +48,6 @@ __all__ = [
     "PiAgent",
     "PiError",
     "Store",
-    "Dag",
-    "StepResult",
     "DEFAULT_DB",
     "NodeCache",
     "DEFAULT_CACHE_DIR",
@@ -58,4 +56,3 @@ __all__ = [
     "normalize_spec",
 ]
 
-from dag8.session import Dag, StepResult  # noqa: E402

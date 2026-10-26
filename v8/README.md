@@ -859,35 +859,6 @@ python -m dag8 run cfg.json --auto-model
 - `route --json` 输出候选与分数；`--auto-model` 在 run 开始时覆盖 `pi.model`
 - 边界：edge 级显式 `model` 仍然优先；跨 provider 需要对应 key
 
-## 库式调用：脚本自己 step
-
-`dag8.run()` 一次跑完整张图；如果你想让脚本接管“卡住”的步骤，用 `Dag`：
-
-```python
-from dag8 import Dag
-
-d = Dag("configs/demo.json", seed_content="用三句话解释标签驱动 DAG")
-
-while True:
-    r = d.step()
-    if r.status == "blocked":
-        print("卡住：", r.blocked)        # [{"edge": "...", "missing": ["tag"]}]
-        print("内容池：", d.contents)      # {tag: [content, ...]}
-        d.set("external_result", "脚本在外面算好的结果")
-    elif r.status in ("done", "error", "incomplete"):
-        break
-
-print(d.result)
-d.close()
-```
-
-- `step()` 每次只执行**一条**已就绪的边；返回 `ran / blocked / done / error / incomplete`
-- `contents` 是当前内容池（tag → 内容列表），卡住时从这里看缺什么
-- `blocked` 给出缺输入的边和 tag；人工审批未通过时给 `reason`
-- `set(tag, content)` 把外部处理结果写回内容池，再 `step()` 继续
-- 需要缓存/自适应并发时仍用 `dag8.run()`；会话模式一条一条走，不复用缓存
-- 节点侧就是 **script**：`kind: "command"` 跑脚本，`pi` 只是内置的 LLM 节点
-
 ## 断点续跑
 
 ```bash
@@ -1008,7 +979,7 @@ SELECT run_id, content FROM contents WHERE tags LIKE '%final%' AND run_id IN (..
 ## 测试
 
 ```bash
-cd v8 && python -m pytest tests/ -q                  # 280 条，含 4 条真实调用，约 3–5 分钟
+cd v8 && python -m pytest tests/ -q                  # 277 条，含 4 条真实调用，约 3–5 分钟
 cd v8 && python -m pytest tests/ -q -m "not slow"    # 跳过整图那条，本机实测约 2–3 分钟
 cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 ```
@@ -1049,7 +1020,6 @@ cd v8 && python -m pytest tests/ -q -m "not live"    # 完全离线，约 15 秒
 | `tests/test_evolve_leakage.py` | 5 | 否 —— 评测泄漏检查（离线） |
 | `tests/test_evolve_human.py` | 6 | 否 —— 人工评价闭环（离线） |
 | `tests/test_script_node.py` | 4 | 否 —— 默认 script/JSON 输入/非零退出/缺文件 |
-| `tests/test_session.py` | 3 | 否 —— step/blocked/set 注入 |
 | `tests/test_evolve.py` | 11 | 否 —— GA 基因/解码、2×2 交互分桶、结构性无效过滤 |
 | `tests/test_live_pi.py` | 4 | **是** —— 真实调用 `laptop/deepseek-v4-flash` |
 
@@ -1072,10 +1042,10 @@ skip 会让「环境没准备好」和「全部通过」长得一模一样，那
 
 | 套件 | 结果 | 耗时 |
 |---|---|---|
-| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **276 passed** | 约 15s |
+| 离线（`-m "not live"` / `--ignore=tests/test_live_pi.py`） | **273 passed** | 约 15s |
 | live 非 slow（3 条） | **3 passed** | 167s |
 | live slow（整图三边） | **1 passed** | 113s |
-| 全量 | **280 passed**（含 4 live） | 约 5 分钟 |
+| 全量 | **277 passed**（含 4 live） | 约 5 分钟 |
 
 注意：live 用例会真实碰网关，网关 530/429/变慢时**会红**——这是有意的，不是 flaky skip。
 不想碰网关就用 `-m "not live"`。
