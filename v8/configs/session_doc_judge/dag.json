@@ -1,0 +1,137 @@
+{
+  "name": "session_doc_judge",
+  "seed_tag": "session_id",
+  "seed_content": "session-adf80908-d20f-4ffa-b00f-952b9b4bf15d",
+  "extra_seed_tags": [
+    "doc_path"
+  ],
+  "result_tag": "verdict",
+  "edges": [
+    {
+      "id": "read_session",
+      "kind": "script",
+      "layer": 0,
+      "input_tags": [
+        "session_id"
+      ],
+      "output_tags": [
+        "session"
+      ],
+      "script": "read_session.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "session_id",
+          "conclusion"
+        ]
+      }
+    },
+    {
+      "id": "read_doc",
+      "kind": "script",
+      "layer": 0,
+      "input_tags": [
+        "doc_path"
+      ],
+      "output_tags": [
+        "doc"
+      ],
+      "script": "read_doc.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "path",
+          "text"
+        ]
+      }
+    },
+    {
+      "id": "structure",
+      "kind": "script",
+      "layer": 1,
+      "input_tags": [
+        "doc"
+      ],
+      "output_tags": [
+        "structure"
+      ],
+      "script": "check_structure.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "score",
+          "empty_sections"
+        ]
+      }
+    },
+    {
+      "id": "coverage",
+      "kind": "script",
+      "layer": 1,
+      "input_tags": [
+        "session",
+        "doc"
+      ],
+      "output_tags": [
+        "coverage"
+      ],
+      "script": "check_coverage.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "ratio",
+          "details"
+        ]
+      }
+    },
+    {
+      "id": "faithfulness",
+      "kind": "script",
+      "layer": 1,
+      "input_tags": [
+        "session",
+        "doc"
+      ],
+      "output_tags": [
+        "faithfulness"
+      ],
+      "script": "check_faithfulness.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "score",
+          "supported_ratio"
+        ]
+      }
+    },
+    {
+      "id": "merge",
+      "kind": "script",
+      "layer": 2,
+      "input_tags": [
+        "session",
+        "structure",
+        "coverage",
+        "faithfulness"
+      ],
+      "output_tags": [
+        "verdict"
+      ],
+      "script": "merge.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "status",
+          "verdict",
+          "score"
+        ]
+      }
+    }
+  ]
+}

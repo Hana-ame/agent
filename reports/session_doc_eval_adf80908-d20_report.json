@@ -1,0 +1,103 @@
+{
+  "score": 0.488,
+  "verdict": "bad",
+  "findings": [
+    "空/占位章节：最终结论与证据, 风险与未决, 可复用经验与下一步",
+    "占位符出现 2 次",
+    "原文标题未降级，和报告章节同级",
+    "缺少结论先行/摘要",
+    "覆盖不足：最终结论与证据、风险与未决、可复用经验与下一步",
+    "文档未带 session id",
+    "文档未带可追溯 source"
+  ],
+  "structure": {
+    "path": "/mnt/c/Users/lumin/Downloads/agent/reports/session_adf80908-d20_report.md",
+    "chars": 3718,
+    "lines": 145,
+    "h1": [
+      "# DSH Session 复盘报告（本地合并）",
+      "# 按注册名跑（推荐）",
+      "# 直接当普通 Python 模块调"
+    ],
+    "h2": [
+      "## 背景与用户诉求",
+      "## 过程与关键动作",
+      "## 技术决策与判断",
+      "## 最终结论与证据",
+      "## 目录",
+      "## 三层职责",
+      "## 运行链路",
+      "## `stage1st_ai.py` 里那 4 条边",
+      "## 加新任务的做法",
+      "## 两个使用入口",
+      "## 风险与未决",
+      "## 可复用经验与下一步"
+    ],
+    "section_count": 12,
+    "empty_sections": [
+      "最终结论与证据",
+      "风险与未决",
+      "可复用经验与下一步"
+    ],
+    "placeholder_count": 2,
+    "code_ratio": 0.685,
+    "has_summary": false,
+    "nested_h2_from_original": 4,
+    "score": 0.23
+  },
+  "coverage": {
+    "covered": 3,
+    "total": 6,
+    "ratio": 0.5,
+    "details": [
+      {
+        "key": "background",
+        "label": "背景与用户诉求",
+        "found": true,
+        "chars": 109,
+        "ok": true
+      },
+      {
+        "key": "process",
+        "label": "过程与关键动作",
+        "found": true,
+        "chars": 43,
+        "ok": true
+      },
+      {
+        "key": "decisions",
+        "label": "技术决策与判断",
+        "found": true,
+        "chars": 33,
+        "ok": true
+      },
+      {
+        "key": "conclusion",
+        "label": "最终结论与证据",
+        "found": true,
+        "chars": 0,
+        "ok": false
+      },
+      {
+        "key": "risks",
+        "label": "风险与未决",
+        "found": true,
+        "chars": 27,
+        "ok": false
+      },
+      {
+        "key": "reuse",
+        "label": "可复用经验与下一步",
+        "found": true,
+        "chars": 21,
+        "ok": false
+      }
+    ]
+  },
+  "faithfulness": {
+    "supported_ratio": 0.862,
+    "session_id_present": false,
+    "source_present": false,
+    "score": 0.603
+  }
+}
