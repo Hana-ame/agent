@@ -46,6 +46,7 @@ def main() -> int:
     ranked = sorted(players.values(), key=lambda x: (-x["elo"], -(x.get("score") or 0)))
     for i, x in enumerate(ranked, 1): x["rank"] = i
     result = {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+              "backend": os.environ.get("ELO_JUDGE_BACKEND", "unknown"),
               "players": len(ranked), "pairs": len(pairs), "votes": len(votes),
               "items": ranked, "details": details}
     reports = ROOT / "reports"; reports.mkdir(parents=True, exist_ok=True)
