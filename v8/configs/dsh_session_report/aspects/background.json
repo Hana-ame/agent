@@ -1,0 +1,30 @@
+{
+  "name": "aspect_background",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "background",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "background"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "ASPECT:背景与用户诉求\n你是会话复盘编辑。只写“背景与用户诉求”这一段，用 Markdown 二级标题，不要写其他维度、不要写整篇报告。\n提取 session 的背景、用户原始诉求、约束条件。\n\n会话记录：\n{contents}"
+      }
+    }
+  ]
+}

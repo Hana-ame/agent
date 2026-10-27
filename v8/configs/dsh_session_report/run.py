@@ -27,35 +27,56 @@ from v7.llm import OpenAICompatibleClient  # noqa: E402
 class _LocalClient:
     """网关不可用时的本地降级：从 prompt 里的 session JSON 生成模板报告。"""
 
-    def complete(self, prompt: str, **_kwargs) -> str:
+    @staticmethod
+    def _session(prompt: str):
         marker = prompt.find('"session_id"')
         if marker < 0:
-            return "# 本地报告\n\n> 未解析到 session JSON。\n"
+            return {}
         start = prompt.rfind("{", 0, marker)
         if start < 0:
-            return "# 本地报告\n\n> 未解析到 session JSON。\n"
+            return {}
         import json as _json
         try:
             session, _ = _json.JSONDecoder().raw_decode(prompt[start:])
+            return session if isinstance(session, dict) else {}
         except ValueError:
-            return "# 本地报告\n\n> session JSON 解析失败。\n"
+            return {}
+
+    def complete(self, prompt: str, **_kwargs) -> str:
+        import json as _json
+        session = self._session(prompt)
+        if "ASPECT:" in prompt:
+            aspect = prompt.split("ASPECT:", 1)[1].split("\n", 1)[0].strip()
+            if aspect == "背景与用户诉求":
+                body = (f"- 标题：{session.get('title') or '（无）'}\n"
+                        f"- 工作目录：`{session.get('cwd')}`\n"
+                        f"- 更新时间：{session.get('updated_iso')}\n"
+                        f"- 用户诉求：{session.get('request') or '（无）'}\n")
+            elif aspect == "过程与关键动作":
+                body = (f"- turns：{session.get('turns')}\n"
+                        f"- tools：{session.get('tools')}\n"
+                        f"- 状态：{session.get('status')}\n")
+            elif aspect == "最终结论与证据":
+                body = f"{session.get('conclusion') or '（无）'}\n"
+            elif aspect == "技术决策与判断":
+                body = ("（本地降级未做决策归纳；结论原文见“最终结论与证据”）\n")
+            else:
+                body = "（本地降级未生成；网关恢复后重跑即可补全）\n"
+            return f"## {aspect}\n\n{body}"
+
+        if "MERGE_REPORT" in prompt:
+            body = prompt.split("维度材料：", 1)[-1].strip()
+            return ("# DSH Session 复盘报告（本地合并）\n\n"
+                    "> 本地模板：网关不可用，未调用模型；各维度来自 session 记录。\n\n"
+                    + body + "\n")
+
+        # 兼容旧的整篇报告 prompt
+        if not session:
+            return "# 本地报告\n\n> 未解析到 session JSON。\n"
         return (
             f"# {session.get('title') or session.get('session_id')} 复盘报告\n\n"
-            "> 本地模板：网关不可用，未调用模型；结论原文来自 session 记录。\n\n"
-            "## 会话概况\n"
-            f"- session：`{session.get('session_id')}`\n"
-            f"- 工作目录：`{session.get('cwd')}`\n"
-            f"- 更新时间：{session.get('updated_iso')}\n"
-            f"- turns / tools：{session.get('turns')} / {session.get('tools')}\n"
-            f"- 状态：{session.get('status')}\n\n"
-            "## 用户诉求\n"
-            f"{session.get('request') or '（无）'}\n\n"
-            "## 最终结论\n"
-            f"{session.get('conclusion') or '（无）'}\n\n"
-            "## 关键判断与可复用点\n"
-            "（本地降级模式未生成；网关恢复后重跑即可补全）\n\n"
-            "## 未决问题 / 风险\n"
-            "（本地降级模式未生成）\n"
+            "> 本地模板：网关不可用，未调用模型。\n\n"
+            f"## 最终结论\n{session.get('conclusion') or '（无）'}\n"
         )
 
     def embed(self, text: str, **_kwargs):
@@ -104,7 +125,9 @@ def main() -> int:
     res = dag8.run(
         str(CFG), seed_content=args.session,
         db_path=str(ROOT / "v8" / "data" / "dsh_session_report.sqlite3"),
-        max_workers=args.workers, rpm=args.rpm, use_cache=False,
+        max_workers=args.workers,
+        rpm=(None if args.backend == "local" else args.rpm),
+        use_cache=False,
         max_seconds=args.max_seconds, **kwargs,
     )
     print(res.summary())

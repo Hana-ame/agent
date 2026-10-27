@@ -30,10 +30,18 @@ python3 -m dag8 run configs/dsh_session_report/dag.json --workers 1 --rpm 1
 ## DAG
 
 ```text
-collect.py     script  layer0  session_id → session JSON（title/request/conclusion/turns/tools）
-report.json    v7 graph layer1  session JSON → Markdown 复盘
-persist.py     script  layer2  report + session → 文件 + v9 claim
+collect.py          script  layer0  session_id → session JSON（title/request/conclusion/turns/tools）
+a_background        v7 graph layer1  背景与用户诉求
+a_process           v7 graph layer1  过程与关键动作
+a_decisions         v7 graph layer1  技术决策与判断
+a_conclusion        v7 graph layer1  最终结论与证据
+a_risks             v7 graph layer1  风险与未决
+a_reuse             v7 graph layer1  可复用经验与下一步
+merge               v7 graph layer2  6 个维度整合成一份 Markdown
+persist.py          script  layer3   report + session → 文件 + v9 claim
 ```
+
+6 条 aspect edge 同层并行；merge 用 `join:"any"` + optional，个别维度失败也能出报告。
 
 - `dag.json`：`seed_tag=session_id`，默认 session 写在 `seed_content`
 - `run.py`：入口，负责传入目标 session、选后端、打印 report 路径
@@ -55,10 +63,16 @@ persist.py     script  layer2  report + session → 文件 + v9 claim
 用 `session-adf80908-d20f-4ffa-b00f-952b9b4bf15d`（“测试一下agent”，27 turns / 265 tools）跑通：
 
 ```text
-collect   0.2s  3758 字符
-summarize 0.0s  3660 字符   ← local backend
-persist   0.2s   443 字符
-report    3659 字符
+collect       0.4s  3758 字符
+a_background  0.0s   116 字符
+a_process     0.0s    50 字符
+a_decisions   0.0s    40 字符
+a_conclusion  0.0s  3346 字符
+a_risks       0.0s    32 字符
+a_reuse       0.0s    36 字符
+merge         0.0s  3719 字符
+persist       0.1s   443 字符
+report        3718 字符
 ```
 
-真实模型后端本次被网关 502 挡住；`--backend local` 用于验证 DAG 全链路，网关恢复后去掉该参数即可。
+`--backend local` 关闭了限流（本地不需要 rpm），用于验证 DAG 全链路；真实模型后端本次被 moonchan 网关 502 挡住，恢复后把 `local` 换成 `http` 即可。

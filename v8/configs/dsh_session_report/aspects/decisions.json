@@ -1,0 +1,30 @@
+{
+  "name": "aspect_decisions",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "decisions",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "decisions"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "ASPECT:技术决策与判断\n你是会话复盘编辑。只写“技术决策与判断”这一段，用 Markdown 二级标题，不要写其他维度、不要写整篇报告。\n提取技术决策、取舍、判断依据。\n\n会话记录：\n{contents}"
+      }
+    }
+  ]
+}

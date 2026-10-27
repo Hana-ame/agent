@@ -1,0 +1,30 @@
+{
+  "name": "aspect_risks",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "risks",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "risks"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "ASPECT:风险与未决\n你是会话复盘编辑。只写“风险与未决”这一段，用 Markdown 二级标题，不要写其他维度、不要写整篇报告。\n提取风险、未决问题、需要人工确认的点。\n\n会话记录：\n{contents}"
+      }
+    }
+  ]
+}

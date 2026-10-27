@@ -26,17 +26,163 @@
       }
     },
     {
-      "id": "summarize",
+      "id": "a_background",
       "kind": "graph",
       "layer": 1,
       "input_tags": [
         "session"
       ],
       "output_tags": [
-        "report"
+        "background"
       ],
       "graph": {
-        "path": "report.json",
+        "path": "aspects/background.json",
+        "seed_tag": "task",
+        "result_tag": "background",
+        "timeout": 300,
+        "max_steps": 2
+      },
+      "expect": {
+        "type": "text",
+        "pattern": "#"
+      }
+    },
+    {
+      "id": "a_process",
+      "kind": "graph",
+      "layer": 1,
+      "input_tags": [
+        "session"
+      ],
+      "output_tags": [
+        "process"
+      ],
+      "graph": {
+        "path": "aspects/process.json",
+        "seed_tag": "task",
+        "result_tag": "process",
+        "timeout": 300,
+        "max_steps": 2
+      },
+      "expect": {
+        "type": "text",
+        "pattern": "#"
+      }
+    },
+    {
+      "id": "a_decisions",
+      "kind": "graph",
+      "layer": 1,
+      "input_tags": [
+        "session"
+      ],
+      "output_tags": [
+        "decisions"
+      ],
+      "graph": {
+        "path": "aspects/decisions.json",
+        "seed_tag": "task",
+        "result_tag": "decisions",
+        "timeout": 300,
+        "max_steps": 2
+      },
+      "expect": {
+        "type": "text",
+        "pattern": "#"
+      }
+    },
+    {
+      "id": "a_conclusion",
+      "kind": "graph",
+      "layer": 1,
+      "input_tags": [
+        "session"
+      ],
+      "output_tags": [
+        "conclusion"
+      ],
+      "graph": {
+        "path": "aspects/conclusion.json",
+        "seed_tag": "task",
+        "result_tag": "conclusion",
+        "timeout": 300,
+        "max_steps": 2
+      },
+      "expect": {
+        "type": "text",
+        "pattern": "#"
+      }
+    },
+    {
+      "id": "a_risks",
+      "kind": "graph",
+      "layer": 1,
+      "input_tags": [
+        "session"
+      ],
+      "output_tags": [
+        "risks"
+      ],
+      "graph": {
+        "path": "aspects/risks.json",
+        "seed_tag": "task",
+        "result_tag": "risks",
+        "timeout": 300,
+        "max_steps": 2
+      },
+      "expect": {
+        "type": "text",
+        "pattern": "#"
+      }
+    },
+    {
+      "id": "a_reuse",
+      "kind": "graph",
+      "layer": 1,
+      "input_tags": [
+        "session"
+      ],
+      "output_tags": [
+        "reuse"
+      ],
+      "graph": {
+        "path": "aspects/reuse.json",
+        "seed_tag": "task",
+        "result_tag": "reuse",
+        "timeout": 300,
+        "max_steps": 2
+      },
+      "expect": {
+        "type": "text",
+        "pattern": "#"
+      }
+    },
+    {
+      "id": "merge",
+      "kind": "graph",
+      "layer": 2,
+      "input_tags": [
+        "background",
+        "process",
+        "decisions",
+        "conclusion",
+        "risks",
+        "reuse"
+      ],
+      "output_tags": [
+        "report"
+      ],
+      "join": "any",
+      "optional_inputs": [
+        "background",
+        "process",
+        "decisions",
+        "conclusion",
+        "risks",
+        "reuse"
+      ],
+      "graph": {
+        "path": "merge.json",
         "seed_tag": "task",
         "result_tag": "report",
         "timeout": 600,
@@ -50,7 +196,7 @@
     {
       "id": "persist",
       "kind": "script",
-      "layer": 2,
+      "layer": 3,
       "input_tags": [
         "report",
         "session"

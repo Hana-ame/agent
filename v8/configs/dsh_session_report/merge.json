@@ -1,0 +1,30 @@
+{
+  "name": "merge_aspects",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "merge",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "report"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "MERGE_REPORT\n把下面 6 个维度的分析整合成一份 Markdown 复盘报告，不要简单拼接，要综合。\n结构：\n# <标题> 复盘报告\n## 会话概况\n## 背景与用户诉求\n## 过程与关键动作\n## 技术决策与判断\n## 最终结论与证据\n## 风险与未决\n## 可复用经验与下一步\n\n维度材料：\n{contents}"
+      }
+    }
+  ]
+}

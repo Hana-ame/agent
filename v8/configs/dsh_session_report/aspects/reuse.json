@@ -1,0 +1,30 @@
+{
+  "name": "aspect_reuse",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "reuse",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "reuse"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "ASPECT:可复用经验与下一步\n你是会话复盘编辑。只写“可复用经验与下一步”这一段，用 Markdown 二级标题，不要写其他维度、不要写整篇报告。\n提取可复用经验、下一步行动。\n\n会话记录：\n{contents}"
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "aspect_process",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "process",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "process"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "ASPECT:过程与关键动作\n你是会话复盘编辑。只写“过程与关键动作”这一段，用 Markdown 二级标题，不要写其他维度、不要写整篇报告。\n根据 turns/tools/状态，概括执行过程、关键动作、卡点。\n\n会话记录：\n{contents}"
+      }
+    }
+  ]
+}

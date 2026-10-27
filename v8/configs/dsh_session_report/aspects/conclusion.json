@@ -1,0 +1,30 @@
+{
+  "name": "aspect_conclusion",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "conclusion",
+      "layer": 0,
+      "input_tags": [
+        "task"
+      ],
+      "output_tags": [
+        "conclusion"
+      ],
+      "processor": {
+        "model": "laptop",
+        "prompt": "ASPECT:最终结论与证据\n你是会话复盘编辑。只写“最终结论与证据”这一段，用 Markdown 二级标题，不要写其他维度、不要写整篇报告。\n提取最终结论、关键数字/事实/证据。\n\n会话记录：\n{contents}"
+      }
+    }
+  ]
+}
