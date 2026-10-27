@@ -1,6 +1,6 @@
 # v7 / v8 / v9 当前架构与边界
 
-> 版本：`2fd27e3`　更新：2026-10-27  
+> 版本：`abdd351`　更新：2026-10-27  
 > 接口表：[interfaces.json](interfaces.json)　可拖拽图：[interfaces.html](interfaces.html)
 
 ## 1. 一句话
@@ -169,7 +169,7 @@ python -m pytest -q
 
 | 提交 | 内容 |
 |---|---|
-| `pending` | v8 graph 默认 LLM 切到 `PiLLMClient`（pi） |
+| `abdd351` | v8 graph 默认 LLM 切到 `PiLLMClient`（pi） |
 | `2fd27e3` | 接口表同步删除 `v8.dag.step` |
 | `b0c3897` | 删除 v8 `Dag` / `StepResult` 会话 |
 | `36bccfb` | 取消输出字数限制 |
