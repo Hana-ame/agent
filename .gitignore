@@ -50,6 +50,7 @@ scripts/cf/cf_report.md
 scripts/cf/out/
 cf_report.md
 *_report.md
+!reports/session_*_report.md
 
 # 其他运行输出、临时文件与日志产物
 out/

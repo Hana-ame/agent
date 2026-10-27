@@ -1,0 +1,71 @@
+{
+  "name": "dsh_single_session_report",
+  "seed_tag": "session_id",
+  "seed_content": "session-adf80908-d20f-4ffa-b00f-952b9b4bf15d",
+  "result_tag": "persist_result",
+  "edges": [
+    {
+      "id": "collect",
+      "kind": "script",
+      "layer": 0,
+      "input_tags": [
+        "session_id"
+      ],
+      "output_tags": [
+        "session"
+      ],
+      "script": "collect.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "session_id",
+          "title",
+          "conclusion"
+        ]
+      }
+    },
+    {
+      "id": "summarize",
+      "kind": "graph",
+      "layer": 1,
+      "input_tags": [
+        "session"
+      ],
+      "output_tags": [
+        "report"
+      ],
+      "graph": {
+        "path": "report.json",
+        "seed_tag": "task",
+        "result_tag": "report",
+        "timeout": 600,
+        "max_steps": 2
+      },
+      "expect": {
+        "type": "text",
+        "pattern": "#"
+      }
+    },
+    {
+      "id": "persist",
+      "kind": "script",
+      "layer": 2,
+      "input_tags": [
+        "report",
+        "session"
+      ],
+      "output_tags": [
+        "persist_result"
+      ],
+      "script": "persist.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "status"
+        ]
+      }
+    }
+  ]
+}

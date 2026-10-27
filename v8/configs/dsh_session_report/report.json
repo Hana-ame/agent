@@ -1,0 +1,26 @@
+{
+  "name": "dsh_single_session_report",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {
+        "temperature": 0.2
+      }
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "report",
+      "layer": 0,
+      "input_tags": ["task"],
+      "output_tags": ["report"],
+      "processor": {
+        "model": "laptop",
+        "prompt": "你是会话复盘编辑。根据下面这个 DSH session 的记录，写一份 Markdown 报告。\n要求：\n# <会话标题> 复盘报告\n## 会话概况\n- session id、工作目录、更新时间、turns、tools、状态\n## 用户诉求\n## 最终结论\n## 关键判断与可复用点\n## 未决问题 / 风险\n只输出 Markdown 正文，不要额外解释；结论要忠实于原文，不要编造。\n\n会话记录：\n{contents}"
+      }
+    }
+  ]
+}
