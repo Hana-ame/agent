@@ -1,0 +1,24 @@
+{
+  "name": "elo_judge",
+  "models": {
+    "laptop": {
+      "api": "https://laptop-8000.moonchan.xyz/v1",
+      "key": "not-needed",
+      "model": "deepseek-flash",
+      "params": {"temperature": 0.0}
+    }
+  },
+  "contents": [],
+  "edges": [
+    {
+      "id": "judge",
+      "layer": 0,
+      "input_tags": ["task"],
+      "output_tags": ["votes"],
+      "processor": {
+        "model": "laptop",
+        "prompt": "ELO_JUDGE\n你是严格的评审。对每一对 A/B 的最终结论，判断哪个更好地完成了用户诉求：\n- 证据是否具体\n- 结论是否可执行\n- 是否有未说明的臆断\n只输出 JSON，不要代码块：\n{\"votes\":[{\"pair_id\":\"原样\",\"winner\":\"A|B|tie\",\"reason\":\"一句话\"}]}\n\n对局材料：\n{contents}"
+      }
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "name": "session_elo_judge",
+  "seed_tag": "seed",
+  "seed_content": "",
+  "result_tag": "judge_result",
+  "edges": [
+    {
+      "id": "select",
+      "kind": "script",
+      "layer": 0,
+      "input_tags": [
+        "seed"
+      ],
+      "output_tags": [
+        "pairs"
+      ],
+      "script": "select.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "path",
+          "pairs"
+        ]
+      }
+    },
+    {
+      "id": "judge",
+      "kind": "graph",
+      "layer": 1,
+      "input_tags": [
+        "pairs"
+      ],
+      "output_tags": [
+        "votes"
+      ],
+      "graph": {
+        "path": "judge.json",
+        "seed_tag": "task",
+        "result_tag": "votes",
+        "timeout": 600,
+        "max_steps": 2
+      },
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "votes"
+        ]
+      }
+    },
+    {
+      "id": "aggregate",
+      "kind": "script",
+      "layer": 2,
+      "input_tags": [
+        "pairs",
+        "votes"
+      ],
+      "output_tags": [
+        "judge_result"
+      ],
+      "script": "aggregate.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "status",
+          "players"
+        ]
+      }
+    }
+  ]
+}

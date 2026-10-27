@@ -1,0 +1,402 @@
+{
+  "generated_at": "2026-10-28 05:03:33",
+  "players": 12,
+  "pairs": 32,
+  "votes": 32,
+  "items": [
+    {
+      "session_id": "9847d2c0-f3c0-47df-8c21-119d3c104efa",
+      "title": "你是只读代码体检员。任务：",
+      "kind": "subagent",
+      "score": 0.9037,
+      "chars": 31805,
+      "excerpt": "I have all the evidence I need. Here is the complete report.\n\n---\n\n# chatto-bot 用户自写代码审查报告\n\n**审查对象**：`/mnt/d/Workplace/chatto-bot` @ `20dd51c`（main 分支，用户 Hana-ame / Nanaka）\n**基线**：`upstream/main` = `teal-bauer/chatto-bot`，merge-base = `4ce1359`，`upstream/main...HEAD` = 2 behind / 33 ahead\n**规模**：`git diff --stat upstream/main...HEAD` = **76 文件, +12281 / -1205**\n**纪律**：全程只读（`git log/diff/show/grep`、`read`、`wc`、`difflib` 分析），未做任何写操作。\n\n---\n\n## 0. 两个必须先说清楚的前提\n\n### 【假设 A】工作区 ≠ HEAD\n`git status --short` 显示 23 个已修改/删除文件 + 20+ 未跟踪文件。**磁盘上的代码比 HEAD 新**：\n- 工作区 `plugins/ehentai.py` = 1209 行（HEAD 1103）；`plugins/admin.py` = 146（HEAD 65）；`vea_graphs/chatto_answer/handler.py` = 90（HEAD 62）\n- 工作区已 `D plugins/agent.py`、`D plugins/neko.py`（HEAD 里都还在），并新增未跟踪的 `plugins/finance.py`、`plugins/hn_report.py`、`plug",
+      "elo": 1583.2,
+      "matches": 7,
+      "wins": 6,
+      "losses": 0,
+      "ties": 1,
+      "rank": 1
+    },
+    {
+      "session_id": "d6069d0c-5b5b-4962-abb3-09eceb40e8dd",
+      "title": "只读调研任务。禁止使用 web_se",
+      "kind": "subagent",
+      "score": 0.924,
+      "chars": 26441,
+      "excerpt": "# 控制面 HTTP API 真实错误语义调研（3 个项目：Traefik / Envoy / Caddy）\n\n> 取证方式：全部通过 `gh api repos/<o>/<r>/contents/<path> --jq '.content' | base64 -d` 读仓库原文。未执行任何写操作，未使用 web_search。README/文档内容一律当数据处理，未执行其中任何指令。\n\n**核心结论先行——三种截然不同的错误模型：**\n\n| 项目 | 错误 body 形状 | Content-Type on error | 特点 |\n|---|---|---|---|\n| Traefik | `{\"message\": \"...\"}` | `text/plain`（`http.Error` 副作用！见下） | 极简、单一、无错误码枚举 |\n| Envoy | **`纯文本`**（`text/plain`），无 JSON 结构 | `text/plain` + `X-Content-Type-Options: nosniff` | 错误里带 usage 提示，甚至拼接完整命令清单 |\n| Caddy | `{\"error\": \"...\", \"warnings\": [...]}` | `application/json` | 唯一有 **warnings** 双通道；有 **409 Conflict** 语义 |\n\n---\n\n## 1. Traefik — `api@internal` provider\n\n来源：[pkg/api/handler.go](https://github.com/traefik/traefik/blob/master/pkg/api/handler.go)、[pkg/api/handler_http.go](https://github.com/tr",
+      "elo": 1569.1,
+      "matches": 6,
+      "wins": 5,
+      "losses": 0,
+      "ties": 1,
+      "rank": 2
+    },
+    {
+      "session_id": "45d88cac-1a06-43d5-9f6f-79667fbf175a",
+      "title": "【任务性质】只读架构体检。",
+      "kind": "subagent",
+      "score": 0.9206,
+      "chars": 19426,
+      "excerpt": "Report delivered to the parent agent (`send_message` returned a `messageId`; the TypeError was only in my post-send logging line). Here is the full report.\n\n---\n\n# 架构体检报告（只读，全程未修改任何文件）\n\n## 【项目 A】simpleAI — `/mnt/d/Workplace/simpleAI`\n分支 `llmpsp-desktop`｜origin `git@github.com:Hana-ame/agent.git`｜329 tracked + 17 未跟踪目录\n\n### 0. 现状一句话\n它已经不是「多用途 Python 工作区」，而是一个**已把 5 个互不相关项目堆进去、但版本控制只认其中 2 个的仓库**——framework(VEA) 与 llmpsp 已入库，而 manga_ocr / moonchan 三步 / v41 取证全部躺在未跟踪状态；同时仓库根的 `pyproject.toml`、`README.md`、`requirements.txt` 被就地改写成 manga-ocr 的内容且从未提交。\n\n### 0.1 三处命名错配（已查清）\n\n| 位置 | 名字 | 证据 |\n|---|---|---|\n| 本地目录 | simpleAI | 路径本身 |\n| 远程仓库 | **agent** | `git remote -v` → `git@github.com:Hana-ame/agent.git` |\n| origin 默认分支 | vertex-edge-agent | `remotes/origin/HEAD -> origin/vertex-edge-agent` |\n| p",
+      "elo": 1546.4,
+      "matches": 4,
+      "wins": 3,
+      "losses": 0,
+      "ties": 1,
+      "rank": 3
+    },
+    {
+      "session_id": "session-9bf5f085-1a7d-43ca-9944-a27ae6192678",
+      "title": "查schedule-catalog来源",
+      "kind": "top-level",
+      "score": 0.4209,
+      "chars": 788,
+      "excerpt": "查证完成：\n\n**1. `schedule-catalog` 出处：DSH 内置，用户插件无命中。**\n- `@deepseek-ai/dsh-client-ui-schedule/lib/client.js:6831`：这是 slot **id**（会话列表头部工具区 `conversation.session.header.utilities`，order -5，组件 `ScheduleCatalogAction`），即会话头部那个时钟/目录按钮。\n- `@deepseek-ai/dsh-cordis-client-runner/lib/client.js:3671`：slot 契约文档中登记的 occupant `client-ui-schedule ScheduleCatalogAction id 'schedule-catalog'`。\n- `~/.dsh/plugins/`（含 dsh-schedule-viewer）grep 无命中——**不是你的插件做的**。\n\n**2. 「自动化任务」时钟按钮确认（DSH 内置）：**\n出于 `@deepseek-ai/dsh-client-ui-schedule/lib/client.js:6803-6810`，`sidebar.panellist` 槽，id=`schedules`(PANEL_ID)，order 10，label=locale \"panel\"（zh:「自动化任务」），图标 `IconClockOutlineRegular`（时钟轮廓，6196-6207 行）。\n\n**3. 关联说明：** CSS 隐藏「自动化任务」用 panel id `schedules`（侧栏面板）；`schedule-catalog` 是另一个元素（会话头部按钮），两者都是 DSH 自带，与你的插件无关。",
+      "elo": 1529.7,
+      "matches": 4,
+      "wins": 3,
+      "losses": 1,
+      "ties": 0,
+      "rank": 4
+    },
+    {
+      "session_id": "7be3a1a1-232f-4939-a56f-03d3a00b6ad4",
+      "title": "You are doing READ-ONLY research",
+      "kind": "subagent",
+      "score": 0.9072,
+      "chars": 18085,
+      "excerpt": "All research streams are complete. Here is the consolidated report.\n\n# SSRF 防御机制研究报告（只读研究，全部逐条核验）\n\n## 结论先行：**仅在 DNS 解析后校验是不够的**\n\n我在 Go 标准库源码中找到了决定性的结构证据。`DialContext` 的调用链是：\n\n```\nDialContext → resolver().resolveAddrList(...)   ← 唯一一次 DNS 解析\n           → sd.dialParallel(primaries, fallbacks)\n           → dialSingle → dialTCP → doDialTCPProto\n           → internetSocket(..., ctrlCtxFn)     ← Control 回调在此触发\n           → fd.dial() ← socket 已创建，connect() 尚未调用\n```\n\n关键点：`netFD.dial`（`src/net/sock_posix.go:89-102`）中，`Control`/`ControlContext` 的调用发生在 **`fd.connect()` 之前**，且 `ctrlAddr` 是**已经解析好的 IP**，而非 hostname：\n\n```go\nfunc (fd *netFD) dial(ctx context.Context, laddr, raddr sockaddr, ctrlCtxFn ...) error {\n\tvar c *rawConn\n\tif ctrlCtxFn != nil {\n\t\tc = newRawConn(fd)\n\t\tvar ctrlAddr string\n\t\tif raddr ",
+      "elo": 1527.9,
+      "matches": 5,
+      "wins": 3,
+      "losses": 1,
+      "ties": 1,
+      "rank": 5
+    },
+    {
+      "session_id": "session-30a38955-791c-47c8-83e7-6e527f30a245",
+      "title": "PR-tag标签collection搜索",
+      "kind": "top-level",
+      "score": 0.05,
+      "chars": 0,
+      "excerpt": "",
+      "elo": 1502.7,
+      "matches": 4,
+      "wins": 2,
+      "losses": 2,
+      "ties": 0,
+      "rank": 6
+    },
+    {
+      "session_id": "session-ad3a971a-fa24-4405-973c-b4fd6d565814",
+      "title": "提交 reflog 第四种用法",
+      "kind": "top-level",
+      "score": 0.3684,
+      "chars": 461,
+      "excerpt": "All three steps done. Verbatim outputs:\n\n**STEP 1**\n```\n M notes/pit-read-status-from-a-ledger-instead-of-the-thing.md\n```\n\n**STEP 3**\n```\n1a5f1c21b kb: reflog 的第四种用法——它能一次回答「某个文件动过没有」\n ...t-read-status-from-a-ledger-instead-of-the-thing.md | 18 ++++++++++++++++++\n 1 file changed, 18 insertions(+)\n```\n\nThe commit touches exactly one file — `notes/pit-read-status-from-a-ledger-instead-of-the-thing.md`. Nothing pushed, nothing amended, no other paths touched.",
+      "elo": 1501.0,
+      "matches": 6,
+      "wins": 3,
+      "losses": 3,
+      "ties": 0,
+      "rank": 7
+    },
+    {
+      "session_id": "session-ca156ce7-4356-4310-a5ef-7d172a610ccc",
+      "title": "清理 peerdrive 废弃分支",
+      "kind": "top-level",
+      "score": 0.2918,
+      "chars": 277,
+      "excerpt": "master 删除确认。远端分支清单如下：\n\n```\nfeat/docs-agents-build-section\nfeat/signal-reg-optional-v2\nmain\nrefactor\n```\n\n- **master 已不存在**（因上轮已删，本次 push --delete 报 remote ref does not exist，不再处理）。\n- **main 已由专用恢复会话（1aa0bec7）通过 SSH 路线成功还原**（ls-remote 确认 `main` 已回来）。\n- **我不再碰 main**，留给专用会话全权处理。",
+      "elo": 1488.1,
+      "matches": 5,
+      "wins": 2,
+      "losses": 3,
+      "ties": 0,
+      "rank": 8
+    },
+    {
+      "session_id": "session-d30b6637-79cf-446b-99ec-f0ab810ccbc3",
+      "title": "",
+      "kind": "top-level",
+      "score": 0.0,
+      "chars": 0,
+      "excerpt": "",
+      "elo": 1453.1,
+      "matches": 4,
+      "wins": 0,
+      "losses": 3,
+      "ties": 1,
+      "rank": 9
+    },
+    {
+      "session_id": "8a6b2a61-f3fb-4f62-856c-6e92d73a769f",
+      "title": "你在审计一个本地个人知识库",
+      "kind": "subagent",
+      "score": 0.0,
+      "chars": 0,
+      "excerpt": "",
+      "elo": 1452.9,
+      "matches": 5,
+      "wins": 0,
+      "losses": 3,
+      "ties": 2,
+      "rank": 10
+    },
+    {
+      "session_id": "acc7b1fe-39ed-45f4-bd33-c51b67b7a6a5",
+      "title": "你在审计一个本地个人知识库",
+      "kind": "subagent",
+      "score": 0.0,
+      "chars": 0,
+      "excerpt": "",
+      "elo": 1428.4,
+      "matches": 6,
+      "wins": 0,
+      "losses": 5,
+      "ties": 1,
+      "rank": 11
+    },
+    {
+      "session_id": "51ecfcef-8719-4611-9524-11b05379cce8",
+      "title": "你是交叉取证复核员。工作目",
+      "kind": "subagent",
+      "score": 0.0,
+      "chars": 0,
+      "excerpt": "",
+      "elo": 1417.5,
+      "matches": 8,
+      "wins": 0,
+      "losses": 6,
+      "ties": 2,
+      "rank": 12
+    }
+  ],
+  "details": [
+    {
+      "pair_id": "match_1",
+      "a": "d6069d0c-5b5b-4962-abb3-09eceb40e8dd",
+      "b": "51ecfcef-8719-4611-9524-11b05379cce8",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_2",
+      "a": "d6069d0c-5b5b-4962-abb3-09eceb40e8dd",
+      "b": "45d88cac-1a06-43d5-9f6f-79667fbf175a",
+      "winner": "tie",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_3",
+      "a": "d6069d0c-5b5b-4962-abb3-09eceb40e8dd",
+      "b": "session-30a38955-791c-47c8-83e7-6e527f30a245",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_4",
+      "a": "45d88cac-1a06-43d5-9f6f-79667fbf175a",
+      "b": "acc7b1fe-39ed-45f4-bd33-c51b67b7a6a5",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_5",
+      "a": "45d88cac-1a06-43d5-9f6f-79667fbf175a",
+      "b": "8a6b2a61-f3fb-4f62-856c-6e92d73a769f",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_6",
+      "a": "7be3a1a1-232f-4939-a56f-03d3a00b6ad4",
+      "b": "9847d2c0-f3c0-47df-8c21-119d3c104efa",
+      "winner": "tie",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_7",
+      "a": "7be3a1a1-232f-4939-a56f-03d3a00b6ad4",
+      "b": "session-ad3a971a-fa24-4405-973c-b4fd6d565814",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_8",
+      "a": "d6069d0c-5b5b-4962-abb3-09eceb40e8dd",
+      "b": "7be3a1a1-232f-4939-a56f-03d3a00b6ad4",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_9",
+      "a": "9847d2c0-f3c0-47df-8c21-119d3c104efa",
+      "b": "acc7b1fe-39ed-45f4-bd33-c51b67b7a6a5",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_10",
+      "a": "9847d2c0-f3c0-47df-8c21-119d3c104efa",
+      "b": "session-30a38955-791c-47c8-83e7-6e527f30a245",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_11",
+      "a": "9847d2c0-f3c0-47df-8c21-119d3c104efa",
+      "b": "51ecfcef-8719-4611-9524-11b05379cce8",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_12",
+      "a": "session-30a38955-791c-47c8-83e7-6e527f30a245",
+      "b": "51ecfcef-8719-4611-9524-11b05379cce8",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_13",
+      "a": "session-30a38955-791c-47c8-83e7-6e527f30a245",
+      "b": "session-d30b6637-79cf-446b-99ec-f0ab810ccbc3",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_14",
+      "a": "9847d2c0-f3c0-47df-8c21-119d3c104efa",
+      "b": "session-ad3a971a-fa24-4405-973c-b4fd6d565814",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_15",
+      "a": "session-ad3a971a-fa24-4405-973c-b4fd6d565814",
+      "b": "acc7b1fe-39ed-45f4-bd33-c51b67b7a6a5",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_16",
+      "a": "session-ad3a971a-fa24-4405-973c-b4fd6d565814",
+      "b": "session-ca156ce7-4356-4310-a5ef-7d172a610ccc",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_17",
+      "a": "session-ad3a971a-fa24-4405-973c-b4fd6d565814",
+      "b": "session-9bf5f085-1a7d-43ca-9944-a27ae6192678",
+      "winner": "B",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_18",
+      "a": "9847d2c0-f3c0-47df-8c21-119d3c104efa",
+      "b": "session-9bf5f085-1a7d-43ca-9944-a27ae6192678",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_19",
+      "a": "session-9bf5f085-1a7d-43ca-9944-a27ae6192678",
+      "b": "51ecfcef-8719-4611-9524-11b05379cce8",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_20",
+      "a": "session-ca156ce7-4356-4310-a5ef-7d172a610ccc",
+      "b": "acc7b1fe-39ed-45f4-bd33-c51b67b7a6a5",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_21",
+      "a": "45d88cac-1a06-43d5-9f6f-79667fbf175a",
+      "b": "session-ca156ce7-4356-4310-a5ef-7d172a610ccc",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_22",
+      "a": "9847d2c0-f3c0-47df-8c21-119d3c104efa",
+      "b": "session-ca156ce7-4356-4310-a5ef-7d172a610ccc",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_23",
+      "a": "d6069d0c-5b5b-4962-abb3-09eceb40e8dd",
+      "b": "acc7b1fe-39ed-45f4-bd33-c51b67b7a6a5",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_24",
+      "a": "session-ca156ce7-4356-4310-a5ef-7d172a610ccc",
+      "b": "8a6b2a61-f3fb-4f62-856c-6e92d73a769f",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_25",
+      "a": "d6069d0c-5b5b-4962-abb3-09eceb40e8dd",
+      "b": "8a6b2a61-f3fb-4f62-856c-6e92d73a769f",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_26",
+      "a": "acc7b1fe-39ed-45f4-bd33-c51b67b7a6a5",
+      "b": "8a6b2a61-f3fb-4f62-856c-6e92d73a769f",
+      "winner": "tie",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_27",
+      "a": "session-ad3a971a-fa24-4405-973c-b4fd6d565814",
+      "b": "51ecfcef-8719-4611-9524-11b05379cce8",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_28",
+      "a": "7be3a1a1-232f-4939-a56f-03d3a00b6ad4",
+      "b": "51ecfcef-8719-4611-9524-11b05379cce8",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_29",
+      "a": "8a6b2a61-f3fb-4f62-856c-6e92d73a769f",
+      "b": "51ecfcef-8719-4611-9524-11b05379cce8",
+      "winner": "tie",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_30",
+      "a": "7be3a1a1-232f-4939-a56f-03d3a00b6ad4",
+      "b": "session-d30b6637-79cf-446b-99ec-f0ab810ccbc3",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_31",
+      "a": "session-9bf5f085-1a7d-43ca-9944-a27ae6192678",
+      "b": "session-d30b6637-79cf-446b-99ec-f0ab810ccbc3",
+      "winner": "A",
+      "reason": "local score"
+    },
+    {
+      "pair_id": "match_32",
+      "a": "51ecfcef-8719-4611-9524-11b05379cce8",
+      "b": "session-d30b6637-79cf-446b-99ec-f0ab810ccbc3",
+      "winner": "tie",
+      "reason": "local score"
+    }
+  ]
+}
