@@ -29,7 +29,7 @@ import time
 
 from dag8.backoff import jittered
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional, Sequence
 
 from dag8.config import PiConfig
 
@@ -67,6 +67,52 @@ class PiError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool = False) -> None:
         super().__init__(message)
         self.retryable = retryable
+
+
+class PiLLMClient:
+    """把 `PiAgent` 适配成 v7 的 LLMClientProtocol。
+
+    v8 内的 graph 节点默认用它：v8 只有 pi 一个 LLM 后端；
+    v7 独立运行时仍可注入自己的 client。
+    """
+
+    def __init__(self, *, provider: str = "laptop",
+                 pi: Optional[PiConfig] = None,
+                 agent: Optional[PiAgent] = None,
+                 timeout: float = 180.0) -> None:
+        self.provider = provider
+        self.pi = pi or PiConfig()
+        self.agent = agent
+        self.timeout = float(timeout)
+
+    def complete(self, prompt: str, *, model_config: Any = None,
+                 system_prompt: str = "", phase: str = "edge",
+                 is_clean_context: bool = True,
+                 selected_inputs: Optional[Sequence[str]] = None) -> str:
+        provider = str(getattr(model_config, "key", "") or self.provider)
+        model = str(getattr(model_config, "model", "") or "deepseek-flash")
+        text = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+        runner = self.agent or PiAgent(self.pi)
+        return runner.run(text, provider=provider, model=model,
+                          tools=False, timeout=self.timeout)
+
+    def embed(self, text: str, *, model_config: Any = None) -> List[float]:
+        try:
+            from v7.llm import deterministic_semantic_embedding
+            return deterministic_semantic_embedding(text)
+        except ModuleNotFoundError:
+            # 纯 v8 环境（未安装 v7）也能做确定性的兜底向量
+            import hashlib
+            import math
+            cleaned = str(text).lower().strip()
+            vec = [0.0] * 32
+            if cleaned:
+                for i in range(32):
+                    h = hashlib.sha256(f"{cleaned}:{i}".encode()).digest()
+                    vec[i] = (h[0] / 127.5) - 1.0
+                norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+                vec = [x / norm for x in vec]
+            return vec
 
 
 class PiAgent:

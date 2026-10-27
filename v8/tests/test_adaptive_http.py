@@ -12,6 +12,10 @@ if str(V8) not in sys.path:
     sys.path.insert(0, str(V8))
 
 import dag8  # noqa: E402
+ROOT = V8.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from v7.llm import OpenAICompatibleClient  # noqa: E402
 
 
 class _Limiter(BaseHTTPRequestHandler):
@@ -89,7 +93,8 @@ def test_adaptive_reduces_workers_on_429(tmp_path, monkeypatch):
         })
 
         res = dag8.run(tmp_path / "dag.json", db_path=tmp_path / "r.sqlite3",
-                       max_workers=4, keep_going=True, adaptive=True)
+                       max_workers=4, keep_going=True, adaptive=True,
+                       graph_llm_client=OpenAICompatibleClient(timeout=30, max_retries=1))
         assert res.workers_used == [4, 2], (res.workers_used, res.summary())
         assert res.status == "partial", [(e.edge_id, e.status, e.error) for e in res.edges]
         assert res.result == "ok"

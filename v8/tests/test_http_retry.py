@@ -12,6 +12,10 @@ if str(V8) not in sys.path:
     sys.path.insert(0, str(V8))
 
 import dag8  # noqa: E402
+ROOT = V8.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from v7.llm import OpenAICompatibleClient  # noqa: E402
 
 
 class _Flaky(BaseHTTPRequestHandler):
@@ -82,7 +86,10 @@ def test_graph_retries_429_over_http(tmp_path, monkeypatch):
         cfg = tmp_path / "dag.json"
         cfg.write_text(json.dumps(parent), encoding="utf-8")
 
-        res = dag8.run(cfg, db_path=tmp_path / "r.sqlite3", max_seconds=30)
+        res = dag8.run(
+            cfg, db_path=tmp_path / "r.sqlite3", max_seconds=30,
+            graph_llm_client=OpenAICompatibleClient(timeout=30, max_retries=3),
+        )
         assert res.status == "ok", res.summary()
         assert res.result == "done"
         assert _Flaky.attempts >= 3

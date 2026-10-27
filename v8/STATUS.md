@@ -21,7 +21,7 @@ provider 速度/价格观测。**实测优化被网关 530 阻塞**，offline �
 
 ## 当前证据
 
-- 离线测试：**273 passed**（根仓库另 19 passed）；全量 277 条（含 4 live）
+- 离线测试：**275 passed**（根仓库另 19 passed）；全量 279 条（含 4 live）
 - **v7 本体 / v8 组织**原型：3 个短 v7 子图，v7 串行 10.83s vs v8 并行 4.0s（2.7×）；
 - script 成为默认节点：JSON env/stdin 输入、stdout 输出（4 测试）
 - 分支取材：v4 的 `join:"any"` settlement barrier 已移植（条件分支被剪后仍可汇合）

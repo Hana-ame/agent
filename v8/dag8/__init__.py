@@ -23,7 +23,7 @@ from dag8.cache import DEFAULT_CACHE_DIR, NodeCache, fingerprint
 from dag8.config import DAGConfig, EdgeConfig, GraphConfig, PiConfig, load, render_prompt
 from dag8.contracts import normalize_spec, validate_output
 from dag8.nodes import CommandNode, GraphNode, Node, NodeError, PiNode, build_node
-from dag8.pi import PiAgent, PiError
+from dag8.pi import PiAgent, PiError, PiLLMClient
 from dag8.scheduler import EdgeRun, RunResult, run
 from dag8.store import DEFAULT_DB, Store
 
@@ -47,6 +47,7 @@ __all__ = [
     "build_node",
     "PiAgent",
     "PiError",
+    "PiLLMClient",
     "Store",
     "DEFAULT_DB",
     "NodeCache",

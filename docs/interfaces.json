@@ -1,6 +1,6 @@
 {
   "title": "v7 / v8 / v9 接口规范",
-  "version": "2fd27e3",
+  "version": "230e737",
   "updated": "2026-10-27",
   "summary": "v7 是 DAG 本体，v8 是执行/组织层，v9 是知识推理层。当前策略：契约保留、缓存关闭、只存知识、输出不设字数上限。",
   "policies": [
@@ -168,6 +168,15 @@
       "input": "graph.path / seed_tag / result_tag / timeout",
       "output": "v7 图的输出",
       "notes": "v8 组织层调用 v7 本体。"
+    },
+    {
+      "id": "v8.llm",
+      "layer": "v8",
+      "type": "Python",
+      "name": "PiLLMClient.complete(prompt, *, model_config, system_prompt)",
+      "input": "v7 ModelConfig",
+      "output": "text",
+      "notes": "v8 graph 默认 LLM 适配器：把 pi 适配成 v7 LLMClientProtocol；v8 内不再默认走 HTTP。"
     },
     {
       "id": "v8.httpdb",

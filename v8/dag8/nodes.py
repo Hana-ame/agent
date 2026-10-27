@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Protocol
 from dag8.backoff import jittered
 from dag8.cache import fingerprint
 from dag8.config import DAGConfig, EdgeConfig, GraphConfig, PiConfig, render_prompt
-from dag8.pi import PiAgent, PiError
+from dag8.pi import PiAgent, PiError, PiLLMClient
 
 __all__ = ["NodeError", "Node", "PiNode", "GraphNode", "CommandNode", "build_node"]
 
@@ -582,9 +582,9 @@ class GraphNode:
     def _execute(self, graph_path: Path, models_path: Optional[Path], seed: str,
                  remaining: float) -> str:
         mods = _v7()
-        per_call = max(5.0, remaining / max(1, self.graph.max_steps))
+        per_call = max(30.0, min(remaining, 300.0))
         base_client = (self.llm_client
-                       or mods["OpenAICompatibleClient"](timeout=per_call, max_retries=1))
+                       or PiLLMClient(timeout=per_call))
         client = (_LimitedClient(base_client, self.limiter)
                   if self.limiter is not None else base_client)
         d = mods["DAG"](

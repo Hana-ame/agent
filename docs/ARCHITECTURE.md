@@ -37,24 +37,18 @@ v8 原来的 `Dag` / `StepResult` 是第二套 step API，已删除（`b0c3897`�
 
 单图推进现在只有 `v7.step()`；v8 只保留 `dag8.run()` 这种“整图调度”。
 
-### 3.3 LLM 调用：暂保留两个后端，但不是同一份代码
+### 3.3 LLM 调用：v8 内统一 pi，v7 独立保留 HTTP
 
 | 路径 | 实现 | 用途 |
 |---|---|---|
-| v7 图内 LLM 边 | `v7.llm.OpenAICompatibleClient` | v7 独立运行；v8 `graph` 节点内部 |
-| v8 原生 `pi` 节点 | `v8.dag8.pi.PiAgent` | v8 的 agent 调用、tools、fallback |
+| v8 `graph` 节点 | `PiLLMClient` → `PiAgent` | v8 默认；v7 图在 v8 内也走 pi |
+| v8 原生 `pi` 节点 | `PiAgent` | agent 调用、tools、fallback |
+| v7 独立运行 | `OpenAICompatibleClient` | 不经过 v8 时使用 |
+| HTTP 显式注入 | `OpenAICompatibleClient` | 测试 / legacy；需传 `graph_llm_client` |
 
-这两条不是复制粘贴的重复，而是两种后端：
-
-- HTTP client：直接 `chat/completions`，适合 v7 图和简单补全
-- `pi` CLI agent：支持 tools、会话隔离、provider fallback
-
-**待决策**：如果要全局只留一个 LLM 后端，需要选边：
-
-- 留 `pi`：v7 图在 v8 内也切到 pi；v7 独立运行时没有真实 HTTP 调用
-- 留 HTTP：v8 的 `pi` 节点改成 HTTP 适配器；失去 tools/fallback
-
-当前不做一刀切，避免为了“看起来干净”破坏可用路径。
+- v8 内部只有 **pi** 一个默认 LLM 后端，`graph` 节点不再默认走 HTTP。
+- 为保留 HTTP 重试/自适应测试，`graph_llm_client` 仍可显式注入 HTTP client；这不是默认路径。
+- v7 独立运行仍可用自己的 HTTP client；跨层全局只留一个后端需要再决定是否删 v7 HTTP。
 
 ## 4. 执行链
 
@@ -165,7 +159,7 @@ python -m pytest -q
 
 ## 9. 已知限制
 
-- **LLM 两个后端尚未合并**：v7 HTTP 与 v8 pi；要全局统一需先选后端。
+- **v8 已统一 pi**；v7 独立运行仍保留 HTTP。跨层全局统一需再决定是否删 v7 HTTP。
 - **v9 多跳目前是 fixture 验证**：还没有形成“真实外部 A→B→C”链。
 - **v8 轨迹仍落 SQLite**：只作调试，不复用；如要“连轨迹都不存”，需要改存储策略。
 - **跨 provider fallback**：缺第二家 key，配置可写但真实切换未验证。
@@ -175,6 +169,7 @@ python -m pytest -q
 
 | 提交 | 内容 |
 |---|---|
+| `pending` | v8 graph 默认 LLM 切到 `PiLLMClient`（pi） |
 | `2fd27e3` | 接口表同步删除 `v8.dag.step` |
 | `b0c3897` | 删除 v8 `Dag` / `StepResult` 会话 |
 | `36bccfb` | 取消输出字数限制 |
