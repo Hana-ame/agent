@@ -1,0 +1,88 @@
+{
+  "name": "session_elo",
+  "seed_tag": "seed",
+  "seed_content": "",
+  "result_tag": "rank_result",
+  "edges": [
+    {
+      "id": "scan",
+      "kind": "script",
+      "layer": 0,
+      "input_tags": [
+        "seed"
+      ],
+      "output_tags": [
+        "scan"
+      ],
+      "script": "scan.py",
+      "timeout": 1800,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "path",
+          "count"
+        ]
+      }
+    },
+    {
+      "id": "score",
+      "kind": "script",
+      "layer": 1,
+      "input_tags": [
+        "scan"
+      ],
+      "output_tags": [
+        "scored"
+      ],
+      "script": "score.py",
+      "timeout": 600,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "path",
+          "count"
+        ]
+      }
+    },
+    {
+      "id": "elo",
+      "kind": "script",
+      "layer": 2,
+      "input_tags": [
+        "scored"
+      ],
+      "output_tags": [
+        "ranking"
+      ],
+      "script": "elo.py",
+      "timeout": 900,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "path",
+          "count"
+        ]
+      }
+    },
+    {
+      "id": "report",
+      "kind": "script",
+      "layer": 3,
+      "input_tags": [
+        "ranking"
+      ],
+      "output_tags": [
+        "rank_result"
+      ],
+      "script": "report.py",
+      "timeout": 120,
+      "expect": {
+        "type": "json",
+        "required_keys": [
+          "status",
+          "path"
+        ]
+      }
+    }
+  ]
+}

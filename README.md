@@ -14,6 +14,7 @@ docs/interfaces.json     # 接口规范 JSON 源
 v8/configs/dsh_report/   # DSH 历史 session 汇总报告（v7/v8/v9 示例）
 v8/configs/dsh_session_report/ # 指定单个 DSH session 的复盘报告 DAG
 v8/configs/session_doc_judge/ # session + 结论文档的质量评判 DAG
+v8/configs/session_elo/    # 全量 session 质量评分 + ELO 排行
 v6/                      # VEA v6 历史设计备份（参考，不参与运行）
 v8/configs/v7_core/      # “v7 本体 + v8 组织”可运行原型
 dag/                     # 旧 import 路径（兼容 scripts/tests，不再作为新入口）
