@@ -9,6 +9,7 @@ mkdir -p "$ROOT_DIR"
 
 TASKPAD_PORT=$PORT TASKPAD_DATA_DIR="$TMP/data" node server.js > "$TMP/server.log" 2>&1 &
 SRV=$!
+trap 'kill $SRV 2>/dev/null; rm -rf "$TMP"' EXIT
 sleep 2
 
 api() { curl -s -X "$1" "http://127.0.0.1:$PORT$2" -H 'Content-Type: application/json' -d "$3"; }

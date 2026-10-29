@@ -223,6 +223,8 @@ async function main() {
     }
   } finally {
     stop();
+    // 测试自带数据目录，跑完必须自己收干净，别把 tmp 越堆越多
+    try { fs.rmSync(DATA_DIR, { recursive: true, force: true }); } catch (e) { /* ignore */ }
   }
 }
 
