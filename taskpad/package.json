@@ -1,0 +1,13 @@
+{
+  "name": "taskpad",
+  "version": "0.1.0",
+  "private": true,
+  "description": "任务白板：V8/V9 任务管理与定时执行（零依赖 Node.js）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

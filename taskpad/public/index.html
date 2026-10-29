@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskPad · 任务白板（ComfyUI 风格）</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="toolbar">
+    <div class="brand">
+      <span class="brand-logo">🗂️</span>
+      <span class="brand-name">TaskPad <em>ComfyUI 风格任务图</em></span>
+    </div>
+    <div class="tb-group">
+      <button id="btn-run-graph" class="btn primary" title="按依赖顺序依次运行全部任务">▶ 运行图</button>
+      <button id="btn-stop-graph" class="btn ghost" title="停止队列与当前运行">⏹ 停止</button>
+      <button id="btn-clear-runs" class="btn ghost" title="清空全部运行记录">清空记录</button>
+      <button id="btn-traces" class="btn ghost" title="查看历史执行 trace">🧾 Trace 历史</button>
+    </div>
+    <div class="tb-group">
+      <button id="btn-zoom-in" class="btn ghost" title="放大">＋</button>
+      <button id="btn-zoom-out" class="btn ghost" title="缩小">－</button>
+      <button id="btn-reset" class="btn ghost" title="适配全部节点">⌂ 适配</button>
+      <span id="zoom-level" class="zoom-label">100%</span>
+    </div>
+    <div class="tb-right">
+      <span id="workers-label" class="workers-label" title="在线的节点（worker）"></span>
+      <span id="queue-label" class="queue-label" hidden></span>
+      <span id="sse-dot" class="sse-dot" title="实时连接状态"></span>
+      <span id="clock" class="clock"></span>
+    </div>
+  </header>
+
+  <div id="main">
+    <aside id="library">
+      <div class="lib-head">
+        <span>节点库</span>
+        <input id="lib-search" type="text" placeholder="搜索模板…" spellcheck="false">
+      </div>
+      <div id="lib-groups"></div>
+      <div class="lib-foot">
+        <button id="btn-new-custom" class="btn ghost block">＋ 自定义空白节点</button>
+        <div class="hint">点击模板加到画布；拖接口连线=依赖；双击节点看日志。</div>
+      </div>
+    </aside>
+
+    <main id="board">
+      <svg id="wires" width="100%" height="100%"></svg>
+      <div id="world"></div>
+      <div id="empty-hint">
+        拖空白平移 · 滚轮缩放 · 接口拖线连依赖 · 右键菜单 · 双击节点查看日志
+      </div>
+    </main>
+
+    <aside id="panel" class="collapsed">
+      <div class="panel-head">
+        <span id="panel-title">任务详情</span>
+        <button id="btn-close-panel" class="panel-close" title="收起面板">✕</button>
+      </div>
+      <div class="panel-body" id="panel-body"></div>
+    </aside>
+  </div>
+
+  <div id="ctxmenu" hidden></div>
+  <div id="wire-pop" hidden></div>
+  <div id="trace-modal" hidden>
+    <div class="tm-mask" data-close="1"></div>
+    <div class="tm-box">
+      <div class="tm-head">
+        <span>🧾 执行历史 Trace</span>
+        <span class="tm-actions">
+          <button id="tm-refresh" class="btn ghost">刷新</button>
+          <button id="tm-close" class="btn ghost">✕</button>
+        </span>
+      </div>
+      <div class="tm-body" id="tm-body"></div>
+    </div>
+  </div>
+  <div id="toasts"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
