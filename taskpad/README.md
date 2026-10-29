@@ -2,6 +2,26 @@
 
 一个**零依赖**的 Node.js 全栈应用，界面模仿 **ComfyUI** 的节点图。
 
+## 数据模型：图 → 节点 → 内部流程图
+
+```
+图 Graph（2D 画布，绝对坐标）
+ ├─ 节点 Node  ← 定义 agent 的「工作范围 scope」+「工作规范 spec」（作业契约）
+ │    └─ 内部流程图（子图，可继续嵌套）
+ └─ 边 Edge   ← 规定上游输出接口 → 下游输入接口之间的「接口契约 contract」
+      └─ 接口（端口）：每个端口有「规范 spec」+「接口测试 tests」
+```
+
+- **图**：节点和边的绝对位置、拓扑关系全部保存在 server（`data/store.json`）
+- **节点**：`scope` 规定 agent 可操作范围，`spec` 规定作业要求；节点可打开自己的**内部流程图**（子图，递归嵌套），面包屑导航
+- **边**：`contract` 描述这条连线要求满足什么（格式/约束）
+- **接口测试**：每个输入/输出端口可配多条测试（shell 命令，agent 执行，`exit 0` = 通过）
+  - 输入端口被测数据：`$__INPUT`（文本）/ `$__INPUT_FILE`（文件路径）
+  - 输出端口被测数据：`$__RESULT`（文本）/ `$__RESULT_FILE`（文件路径）
+  - **上游成果未通过输出接口测试 → 该运行标记失败，成果不投递给下游**
+  - **下游输入接口测试不通过 → 下游任务不执行，直接报错**
+  - 测试由 agent 执行，结果随 submit 一起上传到 server 落库
+
 > **架构：网站只做「调度 + 存储」，不执行任何命令。**
 > 节点（worker）从网站**拉取**待认领任务、在各自机器上执行，跑完把 stdout/成果文件**上传**回网站。
 > 网站负责：任务/端口/连线、运行队列（待认领 → 执行中 → 完成）、成果存储、定时、trace 历史。
@@ -151,6 +171,14 @@ POST   /api/runs/:id/submit          节点上报结果 {workerId, exitCode, std
 POST   /api/runs/:id/files/<name>    节点上传成果文件（原始字节）
 POST   /api/runs/:id/kill            中止运行（待认领直接中止；执行中通知节点停止）
 GET    /api/templates                节点库模板列表
+GET    /api/state                    状态（graphs / tasks / edges / runs / traces / workers）
+POST   /api/graphs                   新建图 {name, parentNodeId?}（parentNodeId = 节点内部流程图）
+POST   /api/graphs/:id               重命名图 {name}
+DELETE /api/graphs/:id               删除图（含子图与节点）
+POST   /api/edges/:id                更新边契约 {contract}
+# 节点/端口保存：POST /api/tasks/:id { scope, spec, inputs:[{name,spec,tests}], outputs:[{name,spec,tests,capture,glob}] }
+# 认领返回：节点 scope/spec、输入接口 spec/tests/contract、上游数据、输出接口 spec/tests
+# submit 上报：{ exitCode, stdout, stderr, aborted, files, tests:[{portId,side,testId,name,passed,exitCode,output}] }
 POST   /api/edges                    新建数据流连线 {from, fromPort, to, toPort}
 DELETE /api/edges/:id                删除连线
 GET    /api/runs/:id/file?portId=    下载文件型成果

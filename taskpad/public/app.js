@@ -22,17 +22,21 @@ const PALETTE = ['#3b82f6', '#22c55e', '#eab308', '#a855f7', '#06b6d4', '#f43f5e
 const state = {
   tasks: [],
   edges: [],
+  graphs: [],
   schedules: [],
   runs: [],
   engines: [],
   templates: [],
+  workers: [],
+  activeGraphId: null,
   queue: { running: false, remaining: 0, currentTaskId: null }
 };
 const view = { x: 30, y: 30, scale: 1 };
 const sel = { nodeId: null, edgeId: null };
 
-const formData = { name: '', engine: 'v8', color: PALETTE[0], description: '', command: '' };
+const formData = { name: '', engine: 'v8', color: PALETTE[0], description: '', command: '', scope: '', spec: '' };
 const portData = { inputs: [], outputs: [] };   // 端口编辑缓冲
+const expandedPorts = new Set();                // 展开的端口（规范/测试编辑）
 const schedData = { type: 'interval', minutes: 5, time: '08:00', cron: '0 * * * *', enabled: true };
 let selectedTaskId = null;
 let openRunId = null;
@@ -91,6 +95,59 @@ function engineOf(id) {
 }
 function taskOf(id) { return state.tasks.find((t) => t.id === id); }
 function edgeOf(id) { return state.edges.find((e) => e.id === id); }
+function graphById(id) { return (state.graphs || []).find((g) => g.id === id); }
+function rootGraphId() { return (state.graphs && state.graphs[0] && state.graphs[0].id) || null; }
+function currentGraph() { return graphById(state.activeGraphId) || (state.graphs && state.graphs[0]) || null; }
+function currentTasks() {
+  const gid = state.activeGraphId || rootGraphId();
+  return state.tasks.filter((t) => (t.graphId || rootGraphId()) === gid);
+}
+function currentEdges() {
+  const gid = state.activeGraphId || rootGraphId();
+  return state.edges.filter((e) => {
+    const f = taskOf(e.from), t2 = taskOf(e.to);
+    if (!f || !t2) return false;
+    return (f.graphId || rootGraphId()) === gid && (t2.graphId || rootGraphId()) === gid;
+  });
+}
+function graphPathList() {
+  const out = [];
+  let g = currentGraph();
+  const seen = new Set();
+  while (g && !seen.has(g.id)) {
+    seen.add(g.id);
+    out.unshift(g);
+    if (!g.parentNodeId) break;
+    const owner = taskOf(g.parentNodeId);
+    g = owner ? graphById(owner.graphId) : null;
+  }
+  return out;
+}
+function renderGraphBar() {
+  const pathEl = $('#graph-path');
+  if (!pathEl) return;
+  const path = graphPathList();
+  pathEl.innerHTML = path.map((g, i) => `
+    <span class="gp-item ${i === path.length - 1 ? 'current' : ''}" data-goto-graph="${esc(g.id)}">${esc(g.name)}</span>
+    ${i < path.length - 1 ? '<span class="gp-sep">▸</span>' : ''}`).join('');
+  const back = $('#btn-graph-back');
+  if (back) back.disabled = path.length <= 1;
+  const del = $('#btn-graph-del');
+  if (del) del.disabled = path.length <= 1;
+}
+function enterGraph(id) {
+  if (!graphById(id)) return;
+  state.activeGraphId = id;
+  sel.nodeId = null; sel.edgeId = null;
+  renderGraphBar();
+  renderNodes();
+  fitView();
+}
+function goBackGraph() {
+  const path = graphPathList();
+  if (path.length <= 1) return;
+  enterGraph(path[path.length - 2].id);
+}
 function portsIn(t) { return (t.inputs || []).length ? t.inputs : [{ id: 'in', name: 'dep' }]; }
 function portsOut(t) { return (t.outputs || []).length ? t.outputs : [{ id: 'out', name: 'out', capture: 'stdout' }]; }
 
@@ -116,9 +173,10 @@ function zoomBy(factor, cx, cy) {
   applyView();
 }
 function fitView() {
-  if (!state.tasks.length) { view.x = 30; view.y = 30; view.scale = 1; applyView(); return; }
+  const list = currentTasks();
+  if (!list.length) { view.x = 30; view.y = 30; view.scale = 1; applyView(); return; }
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  state.tasks.forEach((t) => {
+  list.forEach((t) => {
     minX = Math.min(minX, t.x); minY = Math.min(minY, t.y);
     maxX = Math.max(maxX, t.x + NODE_W); maxY = Math.max(maxY, t.y + nodeHeight(t));
   });
@@ -162,7 +220,7 @@ function nodeStatusOf(t) {
 }
 function layoutWires() {
   let html = '';
-  for (const e of state.edges) {
+  for (const e of currentEdges()) {
     const from = taskOf(e.from);
     const to = taskOf(e.to);
     if (!from || !to) continue;
@@ -273,7 +331,7 @@ function pollRunOutput(runId) {
 function renderNodes() {
   if (nodeDrag) return;
   world.innerHTML = '';
-  for (const t of state.tasks) {
+  for (const t of currentTasks()) {
     const st = nodeStatusOf(t);
     const eng = engineOf(t.engine);
     const ins = portsIn(t);
@@ -312,6 +370,7 @@ function renderNodes() {
         <div class="node-desc">${esc(t.description || '')}</div>
         <div class="node-command">${esc(t.command || '')}</div>
       </div>
+      ${t.subgraphId ? '<span class="subgraph-badge">⧉ 内部流程</span>' : ''}
       <div class="node-actions">
         <button class="a-run" data-act="run" title="立即启动">▶ 启动</button>
         <button class="a-edit" data-act="edit" title="端口 / 定时 / 日志 / 成果">⚙ 详情</button>
@@ -531,8 +590,18 @@ function openTaskPanel(id) {
     formData.color = t.color || engineOf(t.engine).color || PALETTE[0];
     formData.description = t.description || '';
     formData.command = t.command || '';
-    portData.inputs = portsIn(t).map((p) => ({ id: p.id, name: p.name }));
-    portData.outputs = portsOut(t).map((p) => ({ id: p.id, name: p.name, capture: p.capture || 'stdout', glob: p.glob || '' }));
+    formData.scope = t.scope || '';
+    formData.spec = t.spec || '';
+    expandedPorts.clear();
+    portData.inputs = portsIn(t).map((p) => ({
+      id: p.id, name: p.name, spec: p.spec || '',
+      tests: (p.tests || []).map((x) => ({ id: x.id, name: x.name, command: x.command }))
+    }));
+    portData.outputs = portsOut(t).map((p) => ({
+      id: p.id, name: p.name, spec: p.spec || '',
+      tests: (p.tests || []).map((x) => ({ id: x.id, name: x.name, command: x.command })),
+      capture: p.capture || 'stdout', glob: p.glob || ''
+    }));
   }
   $('#panel-title').textContent = t ? ('任务详情 · ' + t.name) : '任务详情';
   renderPanel();
@@ -591,7 +660,7 @@ $('#btn-close-panel').addEventListener('click', closePanel);
 /* ---------- 运行图 / 队列 / 清空 ---------- */
 $('#btn-run-graph').addEventListener('click', async () => {
   try {
-    const r = await api('/api/graph/run', { method: 'POST' });
+    const r = await api('/api/graph/run', { method: 'POST', body: JSON.stringify({ graphId: state.activeGraphId }) });
     toast('运行图已入队 ' + r.order + ' 个任务' + (r.cycle ? '（存在环，已尽量排序）' : ''), 'ok');
     await refresh();
   } catch (err) { toast('入队失败：' + err.message, 'err'); }
@@ -667,8 +736,10 @@ async function addTaskFromTemplate(tpl, x, y) {
       body: JSON.stringify({
         name, engine: tpl.engine || 'v8', color: tpl.color, description: tpl.description || '',
         command: tpl.command || '', x, y,
-        inputs: [{ id: 'in', name: 'dep' }],
-        outputs: [{ id: 'out', name: 'out', capture: 'stdout' }]
+        graphId: state.activeGraphId,
+        scope: '', spec: '',
+        inputs: [{ id: 'in', name: 'dep', spec: '', tests: [] }],
+        outputs: [{ id: 'out', name: 'out', capture: 'stdout', spec: '', tests: [] }]
       })
     });
     toast('已添加「' + name + '」', 'ok');
@@ -789,8 +860,9 @@ document.addEventListener('keydown', (e) => {
 
 /* ---------- 状态同步 ---------- */
 function applyState(payload) {
-  state.tasks = (payload.tasks || []).map((t) => Object.assign({ inputs: [], outputs: [], deps: [] }, t));
+  state.tasks = (payload.tasks || []).map((t) => Object.assign({ inputs: [], outputs: [], deps: [], scope: '', spec: '', subgraphId: null }, t));
   state.edges = payload.edges || [];
+  state.graphs = payload.graphs || [];
   state.schedules = payload.schedules || [];
   state.runs = payload.runs || [];
   state.engines = payload.engines || state.engines;
@@ -802,8 +874,12 @@ function applyState(payload) {
       { id: 'v9', label: 'V9', color: '#a855f7' }
     ];
   }
+  if (!state.activeGraphId || !graphById(state.activeGraphId)) {
+    state.activeGraphId = rootGraphId();
+  }
   if (!fitDone) { fitDone = true; fitView(); }
   if (state.templates.length && !state.libWithEngines) { state.libWithEngines = true; renderLibrary(); }
+  renderGraphBar();
   renderNodes();
   if (!panel.classList.contains('collapsed')) renderPanel();
   updateQueueLabel();
@@ -875,6 +951,45 @@ function renderPanel() {
   bindPanelEvents();
   relinkOutput(openRunId);
 }
+function testBadge(pr) {
+  if (!pr.tested) return '<span class="test-badge untested">未设测试</span>';
+  return pr.valid ? '<span class="test-badge ok">✓ 测试通过</span>' : '<span class="test-badge bad">✗ 测试未通过</span>';
+}
+function portEditorHTML(list, side) {
+  const isIn = side === 'in';
+  return list.map((p, i) => {
+    const key = side + ':' + p.id;
+    const open = expandedPorts.has(key);
+    const tests = p.tests || [];
+    return `
+      <div class="port-edit">
+        <span class="pe-dot ${isIn ? 'in' : 'out'}"></span>
+        <input type="text" data-${isIn ? 'pin' : 'pout'}="${i}" value="${esc(p.name)}" style="flex:1">
+        ${isIn ? '' : `
+          <select data-pout-cap="${i}">
+            <option value="stdout" ${p.capture === 'stdout' ? 'selected' : ''}>stdout</option>
+            <option value="file" ${p.capture === 'file' ? 'selected' : ''}>文件</option>
+          </select>
+          <input type="text" data-pout-glob="${i}" value="${esc(p.glob || '*')}" placeholder="glob" title="文件匹配模式" style="width:58px;display:${p.capture === 'file' ? '' : 'none'}">`}
+        <button class="pe-tests ${tests.length ? '' : 'warn'}" data-toggle-port="${esc(key)}" title="接口规范与接口测试">测试 ${tests.length}</button>
+        <button class="pe-del" data-del-${isIn ? 'pin' : 'pout'}="${i}" title="删除端口">✕</button>
+      </div>
+      ${open ? `<div class="port-detail">
+        <div class="pd-label">接口规范（这个接口必须满足什么）</div>
+        <textarea data-port-spec="${esc(key)}" rows="2" placeholder="例如：JSON，必须包含 id/title 字段；或 CSV 第一行为表头">${esc(p.spec || '')}</textarea>
+        <div class="pd-label">接口测试（由 agent 执行 shell 命令，exit 0 = 通过）</div>
+        ${tests.map((t, ti) => `
+          <div class="test-row">
+            <input type="text" data-test-name="${esc(key)}:${ti}" value="${esc(t.name || '')}" placeholder="测试名">
+            <input type="text" data-test-cmd="${esc(key)}:${ti}" value="${esc(t.command || '')}" placeholder="shell 命令">
+            <button data-del-test="${esc(key)}:${ti}" title="删除测试">✕</button>
+          </div>`).join('')}
+        <div class="hint">输入端口变量：<code>$__INPUT</code> / <code>$__INPUT_FILE</code>；输出端口变量：<code>$__RESULT</code> / <code>$__RESULT_FILE</code></div>
+        <button class="btn ghost block" data-add-test="${esc(key)}">＋ 添加接口测试</button>
+      </div>` : ''}`;
+  }).join('') || '<div class="no-runs">无</div>';
+}
+
 function renderEditPanel() {
   const t = taskOf(selectedTaskId);
   if (!t) { closePanel(); return; }
@@ -882,10 +997,11 @@ function renderEditPanel() {
   const runs = state.runs.filter((r) => r.taskId === t.id);
   const st = nodeStatusOf(t);
   const eng = engineOf(t.engine);
+  const subGraph = t.subgraphId ? graphById(t.subgraphId) : null;
 
   const inEdges = state.edges.filter((e) => e.to === t.id);
   const outEdges = state.edges.filter((e) => e.from === t.id);
-  const lastOkRun = [...runs].find((r) => r.status === 'success');
+  const lastOkRun = [...runs].find((r) => r.status === 'success' || (r.portResults && r.portResults.length));
 
   panelBody.innerHTML = `
     <div class="section-title">
@@ -893,50 +1009,44 @@ function renderEditPanel() {
       <span class="engine-badge" style="background:${esc(eng.color || '#64748b')};float:right">${esc((t.engine || '').toUpperCase())}</span>
     </div>
 
-    <button class="btn primary block big" data-bigrun="1">▶ 启动任务</button>
+    <button class="btn primary block big" data-bigrun="1">▶ 启动任务（等待节点认领）</button>
 
-    <div class="section-title">↔ 端口（可拖拽连线）</div>
-    <div class="field"><label>输入端口</label>
-      <div id="pin-list">
-        ${portData.inputs.map((p, i) => `
-          <div class="port-edit">
-            <span class="pe-dot in"></span>
-            <input type="text" data-pin="${i}" value="${esc(p.name)}">
-            <button class="pe-del" data-del-pin="${i}" title="删除">✕</button>
-          </div>`).join('') || '<div class="no-runs">无</div>'}
-      </div>
-      <button class="btn ghost block" id="btn-add-pin">＋ 添加输入端口</button>
-    </div>
-    <div class="field"><label>输出端口（成果捕获方式）</label>
-      <div id="pout-list">
-        ${portData.outputs.map((p, i) => `
-          <div class="port-edit">
-            <span class="pe-dot out"></span>
-            <input type="text" data-pout="${i}" value="${esc(p.name)}" style="flex:1">
-            <select data-pout-cap="${i}">
-              <option value="stdout" ${p.capture === 'stdout' ? 'selected' : ''}>stdout</option>
-              <option value="file" ${p.capture === 'file' ? 'selected' : ''}>文件</option>
-            </select>
-            <input type="text" data-pout-glob="${i}" value="${esc(p.glob || '*')}" placeholder="glob" title="文件匹配模式" style="width:64px;display:${p.capture === 'file' ? '' : 'none'}">
-            <button class="pe-del" data-del-pout="${i}" title="删除">✕</button>
-          </div>`).join('') || '<div class="no-runs">无</div>'}
-      </div>
-      <button class="btn ghost block" id="btn-add-pout">＋ 添加输出端口</button>
-      <div class="hint">连线 = 上游输出 → 下游输入；下游命令用 <code>$__IN_端口名</code> 读文本成果、<code>$__IN_端口名_FILE</code> 读文件路径。</div>
-    </div>
-    <button class="btn block" id="f-save-ports">保存端口</button>
+    <div class="section-title">📋 作业契约</div>
+    <div class="field"><label>工作范围（agent 可操作的范围 / 边界）</label>
+      <textarea id="f-scope" placeholder="例如：仅允许读取 v8/ 目录；只运行只读命令；不得修改数据">${esc(formData.scope)}</textarea></div>
+    <div class="field"><label>工作规范（agent 必须遵守的作业要求）</label>
+      <textarea id="f-spec" placeholder="例如：完成后必须输出 JSON 汇总；失败需在 stderr 说明原因">${esc(formData.spec)}</textarea></div>
 
-    <div class="section-title">🔗 连线</div>
-    <div class="hint" style="margin-bottom:6px">运行图时按连线方向（依赖）依次执行。</div>
-    ${inEdges.length ? inEdges.map((e) => `
-      <div class="sched-item"><span class="s-chip">← ${esc(e.fromName)} <b>[${esc(e.fromPortName || e.carryName)}]</b></span>
-        <button class="sched-del" data-edge-del="${esc(e.id)}" title="断开">✕</button></div>`).join('') : ''}
-    ${outEdges.length ? outEdges.map((e) => `
-      <div class="sched-item"><span class="s-chip">→ ${esc(e.toName)} <b>[${esc(e.toPortName)}]</b></span>
-        <button class="sched-del" data-edge-del="${esc(e.id)}" title="断开">✕</button></div>`).join('') : ''}
+    <div class="section-title">🧩 内部流程图</div>
+    ${subGraph
+      ? `<button class="btn block" id="btn-enter-subgraph">进入内部流程图（${esc(subGraph.name)}）</button>`
+      : `<button class="btn ghost block" id="btn-create-subgraph">创建内部流程图</button>
+         <div class="hint">节点内部可以有自己的流程图（子图），用于描述该 agent 的工作步骤。</div>`}
+
+    <div class="section-title">↔ 接口（端口）：规范 + 测试</div>
+    <div class="field"><label>输入接口</label>
+      <div id="pin-list">${portEditorHTML(portData.inputs, 'in')}</div>
+      <button class="btn ghost block" id="btn-add-pin">＋ 添加输入接口</button>
+    </div>
+    <div class="field"><label>输出接口</label>
+      <div id="pout-list">${portEditorHTML(portData.outputs, 'out')}</div>
+      <button class="btn ghost block" id="btn-add-pout">＋ 添加输出接口</button>
+    </div>
+    <button class="btn block" id="f-save-ports">保存接口（规范 + 测试）</button>
+
+    <div class="section-title">🔗 连线与接口契约</div>
+    <div class="hint" style="margin-bottom:6px">edge 规定上游输出接口 → 下游输入接口之间必须满足什么；数据必须通过接口测试才会投递给下游。</div>
+    ${inEdges.map((e) => `
+      <div class="sched-item"><span class="s-chip">← ${esc(e.fromName)} [${esc(e.fromPortName || e.carryName)}] → 本节点 [${esc(e.toPortName)}]</span>
+        <button class="sched-del" data-edge-del="${esc(e.id)}" title="断开">✕</button></div>
+      <input class="edge-contract" data-edge-contract="${esc(e.id)}" value="${esc(e.contract || '')}" placeholder="接口契约：该连线要求满足什么（格式/约束）">`).join('')}
+    ${outEdges.map((e) => `
+      <div class="sched-item"><span class="s-chip">本节点 [${esc(e.fromPortName || e.carryName)}] → ${esc(e.toName)} [${esc(e.toPortName)}]</span>
+        <button class="sched-del" data-edge-del="${esc(e.id)}" title="断开">✕</button></div>
+      <input class="edge-contract" data-edge-contract="${esc(e.id)}" value="${esc(e.contract || '')}" placeholder="接口契约：该连线要求满足什么（格式/约束）">`).join('')}
     ${inEdges.length || outEdges.length ? '' : '<div class="no-runs">暂无连线，拖端口连一条</div>'}
 
-    <div class="section-title">🧾 成果卡片（最近一次成功运行）</div>
+    <div class="section-title">🧾 成果卡片（最近运行）</div>
     <div id="result-cards">
       ${lastOkRun && lastOkRun.portResults && lastOkRun.portResults.length
         ? lastOkRun.portResults.map((pr) => `
@@ -944,14 +1054,16 @@ function renderEditPanel() {
             <div class="rc-head">
               <span class="rc-name">${esc(pr.name)}</span>
               <span class="rc-kind ${esc(pr.kind)}">${pr.kind === 'file' ? '📎 文件' : '📄 文本'}</span>
+              ${testBadge(pr)}
             </div>
             ${pr.kind === 'file'
               ? `<div class="rc-file">${esc(pr.file ? pr.file.name : '')}（${fmtSize(pr.file ? pr.file.size : null)}）
                   <a href="/api/runs/${esc(lastOkRun.id)}/file?portId=${esc(pr.portId)}" download>⬇ 下载</a></div>`
               : `<pre class="rc-text">${esc(pr.preview || '')}${pr.chars > (pr.preview || '').length ? '\n…' : ''}</pre>`}
+            ${(pr.tests || []).length ? `<div class="hint">${(pr.tests || []).map((x) => (x.passed ? '✓ ' : '✗ ') + esc(x.name)).join(' · ')}</div>` : ''}
             <div class="rc-time">${fmtTime(lastOkRun.startedAt)} · exit=${lastOkRun.exitCode}</div>
           </div>`).join('')
-        : '<div class="no-runs">运行成功后这里会出现各输出端口的成果卡</div>'}
+        : '<div class="no-runs">运行成功后这里会出现各输出接口的成果卡（并通过接口测试校验）</div>'}
     </div>
 
     <div class="section-title">编辑信息</div>
@@ -990,6 +1102,7 @@ function renderEditPanel() {
     </div>
   `;
 }
+
 function schedRowHTML(s) {
   return `
     <div class="sched-item ${s.enabled ? 'on' : ''}">
@@ -1064,14 +1177,43 @@ $('#panel-body').addEventListener('click', (e) => {
   if (sToggle) { toggleSchedule(sToggle.dataset.schedToggle); return; }
   const edgeDel = e.target.closest('[data-edge-del]');
   if (edgeDel) { deleteEdge(edgeDel.dataset.edgeDel); return; }
+  const togglePort = e.target.closest('[data-toggle-port]');
+  if (togglePort) {
+    const k = togglePort.dataset.togglePort;
+    if (expandedPorts.has(k)) expandedPorts.delete(k); else expandedPorts.add(k);
+    renderPanel();
+    return;
+  }
+  const addTest = e.target.closest('[data-add-test]');
+  if (addTest) {
+    const key = addTest.dataset.addTest;
+    const [side, pid] = key.split(':');
+    const list = side === 'in' ? portData.inputs : portData.outputs;
+    const port = list.find((x) => x.id === pid);
+    if (port) {
+      port.tests = port.tests || [];
+      port.tests.push({ id: 't' + Math.random().toString(36).slice(2, 8), name: '测试' + (port.tests.length + 1), command: '' });
+      renderPanel();
+    }
+    return;
+  }
+  const delTest = e.target.closest('[data-del-test]');
+  if (delTest) {
+    const [key, idx] = delTest.dataset.delTest.split(':');
+    const [side, pid] = key.split(':');
+    const list = side === 'in' ? portData.inputs : portData.outputs;
+    const port = list.find((x) => x.id === pid);
+    if (port && port.tests) { port.tests.splice(parseInt(idx, 10), 1); renderPanel(); }
+    return;
+  }
   const delPin = e.target.closest('[data-del-pin]');
   if (delPin) { portData.inputs.splice(parseInt(delPin.dataset.delPin, 10), 1); renderPanel(); return; }
   const delPout = e.target.closest('[data-del-pout]');
   if (delPout) { portData.outputs.splice(parseInt(delPout.dataset.delPout, 10), 1); renderPanel(); return; }
   const addPin = e.target.closest('#btn-add-pin');
-  if (addPin) { portData.inputs.push({ id: 'p' + Math.random().toString(36).slice(2, 8), name: 'in' + (portData.inputs.length + 1) }); renderPanel(); return; }
+  if (addPin) { portData.inputs.push({ id: 'p' + Math.random().toString(36).slice(2, 8), name: 'in' + (portData.inputs.length + 1), spec: '', tests: [] }); renderPanel(); return; }
   const addPout = e.target.closest('#btn-add-pout');
-  if (addPout) { portData.outputs.push({ id: 'p' + Math.random().toString(36).slice(2, 8), name: 'out' + (portData.outputs.length + 1), capture: 'stdout', glob: '' }); renderPanel(); return; }
+  if (addPout) { portData.outputs.push({ id: 'p' + Math.random().toString(36).slice(2, 8), name: 'out' + (portData.outputs.length + 1), spec: '', tests: [], capture: 'stdout', glob: '*' }); renderPanel(); return; }
 });
 $('#panel-body').addEventListener('input', (e) => {
   const pin = e.target.closest('[data-pin]');
@@ -1080,6 +1222,32 @@ $('#panel-body').addEventListener('input', (e) => {
   if (pout) { portData.outputs[parseInt(pout.dataset.pout, 10)].name = pout.value; return; }
   const glob = e.target.closest('[data-pout-glob]');
   if (glob) { portData.outputs[parseInt(glob.dataset.poutGlob, 10)].glob = glob.value; return; }
+  const spec = e.target.closest('[data-port-spec]');
+  if (spec) {
+    const [side, pid] = spec.dataset.portSpec.split(':');
+    const list = side === 'in' ? portData.inputs : portData.outputs;
+    const port = list.find((x) => x.id === pid);
+    if (port) port.spec = spec.value;
+    return;
+  }
+  const tName = e.target.closest('[data-test-name]');
+  if (tName) {
+    const [key, idx] = tName.dataset.testName.split(':');
+    const [side, pid] = key.split(':');
+    const list = side === 'in' ? portData.inputs : portData.outputs;
+    const port = list.find((x) => x.id === pid);
+    if (port && port.tests && port.tests[parseInt(idx, 10)]) port.tests[parseInt(idx, 10)].name = tName.value;
+    return;
+  }
+  const tCmd = e.target.closest('[data-test-cmd]');
+  if (tCmd) {
+    const [key, idx] = tCmd.dataset.testCmd.split(':');
+    const [side, pid] = key.split(':');
+    const list = side === 'in' ? portData.inputs : portData.outputs;
+    const port = list.find((x) => x.id === pid);
+    if (port && port.tests && port.tests[parseInt(idx, 10)]) port.tests[parseInt(idx, 10)].command = tCmd.value;
+    return;
+  }
 });
 $('#panel-body').addEventListener('change', (e) => {
   const cap = e.target.closest('[data-pout-cap]');
@@ -1087,8 +1255,16 @@ $('#panel-body').addEventListener('change', (e) => {
     const o = portData.outputs[parseInt(cap.dataset.poutCap, 10)];
     o.capture = cap.value;
     renderPanel();
+    return;
+  }
+  const ec = e.target.closest('[data-edge-contract]');
+  if (ec) {
+    api('/api/edges/' + ec.dataset.edgeContract, { method: 'POST', body: JSON.stringify({ contract: ec.value }) })
+      .then(() => toast('接口契约已保存', 'ok'))
+      .catch((err) => toast('保存契约失败：' + err.message, 'err'));
   }
 });
+
 async function deleteSchedule(id) {
   try {
     await api('/api/schedules/' + id, { method: 'DELETE' });
@@ -1114,8 +1290,10 @@ function bindPanelEvents() {
     if (v('#f-engine') != null) formData.engine = v('#f-engine');
     if (v('#f-desc') != null) formData.description = v('#f-desc');
     if (v('#f-cmd') != null) formData.command = v('#f-cmd');
+    if (v('#f-scope') != null) formData.scope = v('#f-scope');
+    if (v('#f-spec') != null) formData.spec = v('#f-spec');
   };
-  ['#f-name', '#f-engine', '#f-desc', '#f-cmd'].forEach((id) => {
+  ['#f-name', '#f-engine', '#f-desc', '#f-cmd', '#f-scope', '#f-spec'].forEach((id) => {
     const el = body.querySelector(id);
     if (el) el.addEventListener('input', onInput);
   });
@@ -1133,14 +1311,17 @@ function bindPanelEvents() {
       await api('/api/tasks/' + selectedTaskId, {
         method: 'POST',
         body: JSON.stringify({
-          inputs: portData.inputs.map((p) => ({ id: p.id, name: p.name })),
-          outputs: portData.outputs.map((p) => ({ id: p.id, name: p.name, capture: p.capture, glob: p.capture === 'file' ? p.glob : undefined }))
+          inputs: portData.inputs.map((p) => ({ id: p.id, name: p.name, spec: p.spec || '', tests: p.tests || [] })),
+          outputs: portData.outputs.map((p) => ({
+            id: p.id, name: p.name, spec: p.spec || '', tests: p.tests || [],
+            capture: p.capture, glob: p.capture === 'file' ? (p.glob || '*') : undefined
+          }))
         })
       });
-      toast('端口已保存', 'ok');
+      toast('接口已保存（规范 + 测试）', 'ok');
       await refresh();
       openTaskPanel(selectedTaskId);
-    } catch (err) { toast('保存端口失败：' + err.message, 'err'); }
+    } catch (err) { toast('保存接口失败：' + err.message, 'err'); }
   });
   const saveBtn = body.querySelector('#f-save');
   if (saveBtn) saveBtn.addEventListener('click', async () => {
@@ -1150,13 +1331,31 @@ function bindPanelEvents() {
         method: 'POST',
         body: JSON.stringify({
           name: formData.name, engine: formData.engine, color: formData.color,
-          description: formData.description, command: formData.command
+          description: formData.description, command: formData.command,
+          scope: formData.scope, spec: formData.spec
         })
       });
       toast('已保存', 'ok');
       await refresh();
       openTaskPanel(selectedTaskId);
     } catch (err) { toast('保存失败：' + err.message, 'err'); }
+  });
+  const createSub = body.querySelector('#btn-create-subgraph');
+  if (createSub) createSub.addEventListener('click', async () => {
+    try {
+      const { graph } = await api('/api/graphs', {
+        method: 'POST',
+        body: JSON.stringify({ name: (taskOf(selectedTaskId) || {}).name + ' · 内部流程', parentNodeId: selectedTaskId })
+      });
+      toast('已创建内部流程图', 'ok');
+      await refresh();
+      enterGraph(graph.id);
+    } catch (err) { toast('创建失败：' + err.message, 'err'); }
+  });
+  const enterSub = body.querySelector('#btn-enter-subgraph');
+  if (enterSub) enterSub.addEventListener('click', () => {
+    const t = taskOf(selectedTaskId);
+    if (t && t.subgraphId) enterGraph(t.subgraphId);
   });
   const bigRun = body.querySelector('[data-bigrun]');
   if (bigRun) bigRun.addEventListener('click', () => runTask(selectedTaskId));
@@ -1324,6 +1523,46 @@ tickClock();
 setInterval(tickClock, 1000);
 applyView();
 loadTemplates();
+/* ---------- 图栏事件 ---------- */
+$('#btn-graph-back').addEventListener('click', goBackGraph);
+$('#btn-graph-new').addEventListener('click', async () => {
+  const name = prompt('新图名称：', '新图');
+  if (!name || !name.trim()) return;
+  try {
+    const { graph } = await api('/api/graphs', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+    toast('已创建图「' + graph.name + '」', 'ok');
+    await refresh();
+    enterGraph(graph.id);
+  } catch (err) { toast('创建失败：' + err.message, 'err'); }
+});
+$('#btn-graph-rename').addEventListener('click', async () => {
+  const g = currentGraph();
+  if (!g) return;
+  const name = prompt('重命名当前图：', g.name);
+  if (!name || !name.trim()) return;
+  try {
+    await api('/api/graphs/' + g.id, { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+    toast('已重命名', 'ok');
+    await refresh();
+  } catch (err) { toast('重命名失败：' + err.message, 'err'); }
+});
+$('#btn-graph-del').addEventListener('click', async () => {
+  const g = currentGraph();
+  if (!g || g.id === rootGraphId()) return;
+  if (!confirm('删除图「' + g.name + '」及其内部流程图和节点？')) return;
+  try {
+    await api('/api/graphs/' + g.id, { method: 'DELETE' });
+    toast('已删除图', 'ok');
+    state.activeGraphId = rootGraphId();
+    await refresh();
+    enterGraph(rootGraphId());
+  } catch (err) { toast('删除失败：' + err.message, 'err'); }
+});
+$('#graph-path').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-goto-graph]');
+  if (el) enterGraph(el.dataset.gotoGraph);
+});
+
 refresh().then(() => connectSSE());
 // 周期刷新：更新节点在线状态等（SSE 已覆盖大部分变更）
 setInterval(() => { if (!document.hidden) refresh(); }, 20000);

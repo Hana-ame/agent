@@ -50,6 +50,36 @@ def http_bytes(url, timeout=120):
         return r.read()
 
 
+
+def run_iface_tests(tests, cwd, extra_env, port_name, side, port_id):
+    """执行接口测试（shell，exit 0 = 通过），返回上报结构列表。"""
+    results = []
+    for t in tests or []:
+        cmd = (t.get("command") or "").strip()
+        if not cmd:
+            continue
+        env = dict(os.environ)
+        env.update(extra_env or {})
+        try:
+            proc = subprocess.run(cmd, shell=True, cwd=cwd, env=env,
+                                  capture_output=True, timeout=120)
+            out = (proc.stdout + proc.stderr).decode("utf-8", "replace")[:4000]
+            passed = proc.returncode == 0
+            results.append({
+                "portId": port_id, "side": side, "testId": t.get("id", ""),
+                "name": t.get("name") or cmd[:40], "passed": passed,
+                "exitCode": proc.returncode, "output": out
+            })
+            print("  [test %s/%s] %s -> %s" % (side, port_name, cmd, "PASS" if passed else "FAIL"),
+                  flush=True)
+        except Exception as e:  # noqa: BLE001
+            results.append({
+                "portId": port_id, "side": side, "testId": t.get("id", ""),
+                "name": t.get("name") or cmd[:40], "passed": False,
+                "exitCode": None, "output": "[测试执行异常] %s" % e
+            })
+    return results
+
 def read_stream(pipe, arr):
     while True:
         chunk = pipe.read(4096)
@@ -72,10 +102,15 @@ def execute(base, root, worker_id, run, heartbeat_sec):
 
     env = dict(os.environ)
     tmp = tempfile.mkdtemp(prefix="taskpad-in-")
+    iface_tests = []
+    input_data = {}
     for inp in run.get("inputs") or []:
         kind = inp.get("kind")
+        port_id = inp.get("port") or ""
+        port_name = inp.get("portName") or port_id
         if kind == "text":
             env[inp["env"]] = inp.get("value", "")
+            input_data[port_id] = ("text", inp.get("value", ""))
             print("  [in] %s <- 内联文本 %dB" % (inp["env"], len(inp.get("value", ""))), flush=True)
         elif kind == "file":
             url = base + inp.get("fileUrl", "")
@@ -86,9 +121,33 @@ def execute(base, root, worker_id, run, heartbeat_sec):
                 with open(fp, "wb") as f:
                     f.write(data)
                 env[inp["env"]] = fp
+                input_data[port_id] = ("file", fp)
                 print("  [in] %s <- 下载 %s (%dB)" % (inp["env"], fn, len(data)), flush=True)
             except Exception as e:  # noqa: BLE001
                 print("  [in] 下载失败 %s: %s" % (url, e), flush=True)
+        else:
+            print("  [in] %s 不可用: %s" % (port_name, inp.get("reason")), flush=True)
+    # 输入接口测试（数据不达标则不执行任务）
+    for inp in run.get("inputs") or []:
+        tests = inp.get("tests") or []
+        if not tests:
+            continue
+        port_id = inp.get("port") or ""
+        port_name = inp.get("portName") or port_id
+        kind, val = input_data.get(port_id, (None, None))
+        extra = {"__INPUT": val if kind == "text" else "", "__INPUT_FILE": val if kind == "file" else ""}
+        if kind == "text" and val is not None:
+            fn = os.path.join(tmp, "input-%s.txt" % port_id)
+            with open(fn, "w", encoding="utf-8") as f:
+                f.write(val)
+            extra["__INPUT_FILE"] = fn
+        iface_tests.extend(run_iface_tests(tests, cwd, extra, port_name, "in", port_id))
+    in_fail = [t for t in iface_tests if t["side"] == "in" and not t["passed"]]
+    if in_fail:
+        msg = "\n".join("[接口测试未通过] %s: %s\n%s" % (t["name"], t.get("exitCode"), t.get("output", "")) for t in in_fail)
+        print("[run %s] 输入接口测试未通过，跳过执行" % rid[:8], flush=True)
+        submit(base, worker_id, rid, 1, "", msg, False, [], iface_tests)
+        return
 
     try:
         proc = subprocess.Popen(
@@ -100,7 +159,7 @@ def execute(base, root, worker_id, run, heartbeat_sec):
             stderr=subprocess.PIPE,
         )
     except Exception as e:  # noqa: BLE001
-        submit(base, worker_id, rid, None, "", "[节点启动失败] %s\n" % e, True)
+        submit(base, worker_id, rid, None, "", "[节点启动失败] %s\n" % e, True, None, [])
         return
 
     out_chunks, err_chunks = [], []
@@ -149,32 +208,52 @@ def execute(base, root, worker_id, run, heartbeat_sec):
     stdout = b"".join(out_chunks).decode("utf-8", "replace")
     stderr = b"".join(err_chunks).decode("utf-8", "replace")
 
-    # 上传文件型成果
+    # 上传文件型成果 + 收集各端口成果 + 输出接口测试
     uploaded = []
+    out_data = {}
     for o in run.get("outputs") or []:
-        if o.get("capture") != "file":
+        cap = o.get("capture") or "stdout"
+        if cap == "file":
+            pattern = o.get("glob") or "*"
+            try:
+                names = [fn for fn in os.listdir(cwd) if fnmatch.fnmatch(fn, pattern)]
+                names.sort(key=lambda fn: os.path.getmtime(os.path.join(cwd, fn)), reverse=True)
+                if not names:
+                    print("  [out] 端口 %s 未匹配到文件 (%s)" % (o.get("name"), pattern), flush=True)
+                    continue
+                fn = names[0]
+                fp = os.path.join(cwd, fn)
+                with open(fp, "rb") as f:
+                    data = f.read()
+                q = urllib.parse.quote(fn)
+                req = urllib.request.Request(base + "/api/runs/%s/files/%s" % (rid, q), data=data, method="POST")
+                with urllib.request.urlopen(req, timeout=120):
+                    pass
+                uploaded.append({"portId": o["id"], "name": fn})
+                out_data[o["id"]] = ("file", fp)
+                print("  [out] 成果上传: %s (%dB)" % (fn, len(data)), flush=True)
+            except Exception as e:  # noqa: BLE001
+                print("  [out] 上传失败: %s" % e, flush=True)
+        else:
+            out_data[o["id"]] = ("text", stdout)
+    # 输出接口测试（__RESULT 文本 / __RESULT_FILE 文件）
+    for o in run.get("outputs") or []:
+        tests = o.get("tests") or []
+        if not tests:
             continue
-        pattern = o.get("glob") or "*"
-        try:
-            names = [fn for fn in os.listdir(cwd) if fnmatch.fnmatch(fn, pattern)]
-            names.sort(key=lambda fn: os.path.getmtime(os.path.join(cwd, fn)), reverse=True)
-            if not names:
-                print("  [out] 端口 %s 未匹配到文件 (%s)" % (o.get("name"), pattern), flush=True)
-                continue
-            fn = names[0]
-            fp = os.path.join(cwd, fn)
-            with open(fp, "rb") as f:
-                data = f.read()
-            q = urllib.parse.quote(fn)
-            req = urllib.request.Request(base + "/api/runs/%s/files/%s" % (rid, q), data=data, method="POST")
-            with urllib.request.urlopen(req, timeout=120):
-                pass
-            uploaded.append({"portId": o["id"], "name": fn})
-            print("  [out] 成果上传: %s (%dB)" % (fn, len(data)), flush=True)
-        except Exception as e:  # noqa: BLE001
-            print("  [out] 上传失败: %s" % e, flush=True)
+        kind, val = out_data.get(o["id"], (None, None))
+        if kind is None:
+            continue
+        extra = {"__RESULT": val if kind == "text" else "",
+                 "__RESULT_FILE": val if kind == "file" else ""}
+        if kind == "text":
+            fn = os.path.join(tempfile.mkdtemp(prefix="taskpad-out-"), "result.txt")
+            with open(fn, "w", encoding="utf-8") as f:
+                f.write(val)
+            extra["__RESULT_FILE"] = fn
+        iface_tests.extend(run_iface_tests(tests, cwd, extra, o.get("name"), "out", o["id"]))
 
-    submit(base, worker_id, rid, None if aborted else proc.returncode, stdout, stderr, aborted, uploaded)
+    submit(base, worker_id, rid, None if aborted else proc.returncode, stdout, stderr, aborted, uploaded, iface_tests)
     print(
         "[run %s] 完成 exit=%s aborted=%s out=%dB err=%dB"
         % (rid[:8], proc.returncode, aborted, len(stdout), len(stderr)),
@@ -182,7 +261,7 @@ def execute(base, root, worker_id, run, heartbeat_sec):
     )
 
 
-def submit(base, worker_id, rid, exit_code, stdout, stderr, aborted, uploaded=None):
+def submit(base, worker_id, rid, exit_code, stdout, stderr, aborted, uploaded=None, tests=None):
     payload = {
         "workerId": worker_id,
         "exitCode": exit_code,
@@ -190,6 +269,7 @@ def submit(base, worker_id, rid, exit_code, stdout, stderr, aborted, uploaded=No
         "stderr": stderr,
         "aborted": aborted,
         "files": uploaded or [],
+        "tests": tests or [],
     }
     for attempt in range(3):
         try:

@@ -66,6 +66,27 @@ if (storeFileExisted) {
 ['tasks', 'schedules', 'runs', 'traces'].forEach((k) => { if (!Array.isArray(store[k])) store[k] = []; });
 store.tasks.forEach((t) => { if (!Array.isArray(t.deps)) t.deps = []; });
 
+// ---------- 迁移：图结构 + 节点 scope/spec + 端口 spec/tests ----------
+function migrateGraphs() {
+  if (!Array.isArray(store.graphs) || !store.graphs.length) {
+    store.graphs = [{ id: uid(), name: '主图', parentNodeId: null, createdAt: nowIso() }];
+  }
+  const rootId = store.graphs[0].id;
+  for (const t of store.tasks) {
+    if (!t.graphId) t.graphId = rootId;
+    if (typeof t.scope !== 'string') t.scope = '';
+    if (typeof t.spec !== 'string') t.spec = '';
+    if (t.subgraphId === undefined) t.subgraphId = null;
+    t.inputs = normalizePorts(t.inputs || [], false);
+    t.outputs = normalizePorts(t.outputs || [], true);
+    t.deps = [];
+  }
+  for (const e of store.edges) {
+    if (!e.graphId) e.graphId = rootId;
+    if (typeof e.contract !== 'string') e.contract = '';
+  }
+}
+
 // ---------- 迁移旧数据：deps → edges + 默认端口 ----------
 function migrateStore() {
   store.edges = store.edges || [];
@@ -85,6 +106,15 @@ function migrateStore() {
   }
 }
 
+function normalizeTests(list) {
+  const out = [];
+  for (const t of list || []) {
+    const command = String(t.command || '').trim();
+    if (!command) continue;
+    out.push({ id: String(t.id || uid()).slice(0, 12), name: String(t.name || '').trim() || 'test', command });
+  }
+  return out;
+}
 function normalizePorts(list, isOutput) {
   const out = [];
   for (const p of list || []) {
@@ -92,11 +122,16 @@ function normalizePorts(list, isOutput) {
     out.push({
       id: String(p.id || uid()).slice(0, 12),
       name,
+      spec: String(p.spec || ''),
+      tests: normalizeTests(p.tests),
       capture: isOutput ? (p.capture === 'file' ? 'file' : 'stdout') : undefined,
       glob: isOutput && p.capture === 'file' ? String(p.glob || '*') : undefined
     });
   }
-  return out.length ? out : [isOutput ? { id: 'out', name: 'out', capture: 'stdout' } : { id: 'in', name: 'dep' }];
+  if (out.length) return out;
+  return isOutput
+    ? [{ id: 'out', name: 'out', spec: '', tests: [], capture: 'stdout' }]
+    : [{ id: 'in', name: 'dep', spec: '', tests: [] }];
 }
 
 let saveChain = Promise.resolve();
@@ -175,8 +210,11 @@ function briefRun(r) {
       portId: pr.portId, name: pr.name, kind: pr.kind,
       preview: pr.kind === 'text' ? String(pr.preview || '').slice(0, 200) : '',
       chars: pr.chars || 0,
-      file: pr.file ? { name: pr.file.name, size: pr.file.size } : null
-    })) : []
+      file: pr.file ? { name: pr.file.name, size: pr.file.size } : null,
+      valid: pr.valid !== false, tested: !!pr.tested,
+      tests: Array.isArray(pr.tests) ? pr.tests.map((t) => ({ name: t.name, passed: !!t.passed })) : []
+    })) : [],
+    tests: Array.isArray(r.tests) ? r.tests.map((t) => ({ portId: t.portId, side: t.side, name: t.name, passed: !!t.passed })) : []
   };
 }
 
@@ -194,17 +232,21 @@ function captureResults(runId) {
   const task = store.tasks.find((t) => t.id === r.taskId);
   if (!task) return;
   const stdoutText = (r.output || []).map((o) => o.d).join('');
+  const allTests = Array.isArray(r.tests) ? r.tests : [];
   const results = [];
   for (const out of task.outputs || []) {
     const cap = out.capture || 'stdout';
+    const portTests = allTests.filter((t) => t.side === 'out' && t.portId === out.id);
+    const valid = portTests.length ? portTests.every((t) => t.passed) : true;
+    const tests = portTests.map((t) => ({ id: t.testId, name: t.name, passed: !!t.passed, exitCode: t.exitCode, output: String(t.output || '').slice(0, 2000) }));
     if (cap === 'stdout') {
-      results.push({ portId: out.id, name: out.name, kind: 'text', preview: stdoutText.slice(0, 2000), chars: stdoutText.length });
+      results.push({ portId: out.id, name: out.name, kind: 'text', preview: stdoutText.slice(0, 2000), chars: stdoutText.length, valid, tests, tested: portTests.length > 0 });
     } else if (cap === 'file') {
       const names = Object.keys(r.artifacts || {}).filter((fn) => simpleGlobMatch(fn, out.glob || '*'));
       if (names.length) {
         const fn = names[0];
         const art = r.artifacts[fn];
-        results.push({ portId: out.id, name: out.name, kind: 'file', file: { name: fn, path: art.path, size: art.size } });
+        results.push({ portId: out.id, name: out.name, kind: 'file', file: { name: fn, path: art.path, size: art.size }, valid, tests, tested: portTests.length > 0 });
       }
     }
   }
@@ -369,17 +411,27 @@ function claimInputs(task) {
   for (const e of store.edges.filter((x) => x.to === task.id)) {
     const src = store.tasks.find((t) => t.id === e.from);
     if (!src) continue;
-    const lastRun = store.runs.find((r) => r.taskId === src.id && r.status === 'success');
-    if (!lastRun) continue;
     const inPort = (task.inputs || []).find((i) => i.id === e.toPort);
+    const outPort = (src.outputs || []).find((o) => o.id === e.fromPort);
     const key = String((inPort && inPort.name) || e.toPort).replace(/[^\w\u4e00-\u9fa5]+/g, '_');
+    const base = {
+      port: e.toPort, portName: inPort ? inPort.name : e.toPort,
+      spec: inPort ? inPort.spec || '' : '',
+      tests: (inPort && inPort.tests) || [],
+      contract: e.contract || '',
+      srcTaskId: src.id, srcTaskName: src.name, srcPortName: outPort ? outPort.name : e.fromPort,
+      srcPortSpec: outPort ? outPort.spec || '' : ''
+    };
+    const lastRun = store.runs.find((r) => r.taskId === src.id && r.status === 'success');
+    if (!lastRun) { envList.push(Object.assign({}, base, { kind: 'missing', reason: '上游尚未成功运行' })); continue; }
     const res = (lastRun.portResults || []).find((pr) => pr.portId === e.fromPort);
-    if (!res) continue;
+    if (!res) { envList.push(Object.assign({}, base, { kind: 'missing', reason: '上游未产出该端口成果' })); continue; }
+    if (res.valid === false) { envList.push(Object.assign({}, base, { kind: 'invalid', reason: '上游成果未通过接口测试', tests: res.tests || [] })); continue; }
     if (res.kind === 'text') {
       const txt = (lastRun.output || []).map((o) => o.d).join('').slice(0, 100000);
-      envList.push({ env: '__IN_' + key, kind: 'text', value: txt });
+      envList.push(Object.assign({}, base, { env: '__IN_' + key, kind: 'text', value: txt, srcRunId: lastRun.id }));
     } else if (res.kind === 'file' && res.file) {
-      envList.push({ env: '__IN_' + key + '_FILE', kind: 'file', srcRunId: lastRun.id, portId: res.portId, fileName: res.file.name, fileUrl: '/api/runs/' + lastRun.id + '/file?portId=' + encodeURIComponent(res.portId) });
+      envList.push(Object.assign({}, base, { env: '__IN_' + key + '_FILE', kind: 'file', srcRunId: lastRun.id, portId: res.portId, fileName: res.file.name, fileUrl: '/api/runs/' + lastRun.id + '/file?portId=' + encodeURIComponent(res.portId) }));
     }
   }
   return envList;
@@ -402,11 +454,17 @@ function claimRun(workerId) {
   let engineCwd = engine.cwd ? (engine.cwd.split('/').pop() === '' ? '.' : path.relative(PROJECT_ROOT, engine.cwd)) : '.';
   if (engineCwd.startsWith('..')) engineCwd = '.';
   save();
+  const graph = store.graphs.find((g) => g.id === task.graphId);
   return {
     runId: run.id, taskId: task.id, taskName: task.name, command: task.command,
     engine: task.engine, engineLabel: engine.label, engineCwd,
+    graphId: task.graphId || null, graphName: graph ? graph.name : null,
+    scope: task.scope || '', spec: task.spec || '',
     inputs: claimInputs(task),
-    outputs: (task.outputs || []).map((o) => ({ id: o.id, name: o.name, capture: o.capture || 'stdout', glob: o.glob || '*' }))
+    outputs: (task.outputs || []).map((o) => ({
+      id: o.id, name: o.name, capture: o.capture || 'stdout', glob: o.glob || '*',
+      spec: o.spec || '', tests: o.tests || []
+    }))
   };
 }
 
@@ -620,12 +678,14 @@ function statePayload() {
     return Object.assign({}, t, { schedules: sched, lastRun: lastRun ? briefRun(lastRun) : null });
   });
   return {
+    graphs: store.graphs.map((g) => ({ id: g.id, name: g.name, parentNodeId: g.parentNodeId || null, createdAt: g.createdAt })),
     tasks,
     edges: store.edges.map((e) => {
       const from = store.tasks.find((t) => t.id === e.from);
       const to = store.tasks.find((t) => t.id === e.to);
       return {
         id: e.id, from: e.from, fromPort: e.fromPort, to: e.to, toPort: e.toPort, carryName: e.carryName,
+        contract: e.contract || '', graphId: e.graphId || null,
         fromName: from ? from.name : '?', toName: to ? to.name : '?',
         fromPortName: (from && (from.outputs || []).find((o) => o.id === e.fromPort) || {}).name || e.fromPort,
         toPortName: (to && (to.inputs || []).find((i) => i.id === e.toPort) || {}).name || e.toPort
@@ -717,6 +777,8 @@ async function handleApi(req, res, method, p) {
     let ids;
     if (body && Array.isArray(body.taskIds) && body.taskIds.length && body.taskIds.every((id) => store.tasks.some((t) => t.id === id))) {
       ids = body.taskIds;
+    } else if (body && body.graphId && store.graphs.some((g) => g.id === body.graphId)) {
+      ids = store.tasks.filter((t) => t.graphId === body.graphId).map((t) => t.id);
     } else {
       ids = store.tasks.map((t) => t.id);
     }
@@ -830,7 +892,24 @@ async function handleApi(req, res, method, p) {
     if (stdout) run.output.push({ t: Date.now(), s: 'out', d: stdout });
     if (stderr) run.output.push({ t: Date.now(), s: 'err', d: stderr });
     const aborted = !!body.aborted || !!run.abortRequested;
-    const status = aborted ? 'aborted' : (body.exitCode === 0 || body.exitCode === '0' ? 'success' : 'error');
+    // 接口测试结果（由节点执行并上报）：{portId, side:'in'|'out', testId, name, passed, exitCode, output}
+    const testResults = Array.isArray(body.tests) ? body.tests.map((t) => ({
+      portId: String(t.portId || ''), side: t.side === 'in' ? 'in' : 'out',
+      testId: String(t.testId || ''), name: String(t.name || ''),
+      passed: !!t.passed, exitCode: typeof t.exitCode === 'number' ? t.exitCode : null,
+      output: String(t.output || '').slice(0, 4000)
+    })) : [];
+    run.tests = testResults;
+    let status = aborted ? 'aborted' : (body.exitCode === 0 || body.exitCode === '0' ? 'success' : 'error');
+    if (status === 'success') {
+      const outFails = testResults.filter((t) => t.side === 'out' && !t.passed);
+      if (outFails.length) status = 'error';
+      const inFail = testResults.find((t) => t.side === 'in' && !t.passed);
+      if (inFail) {
+        run.output.push({ t: Date.now(), s: 'err', d: '[接口测试未通过] 输入端口 ' + (inFail.name || inFail.portId) + '：\n' + (inFail.output || '').slice(0, 2000) + '\n' });
+        status = 'error';
+      }
+    }
     run.worker = run.worker || String(body.workerId || '');
     if (run.worker) touchWorker(run.worker);
     const w = store.workers.find((x) => x.id === run.worker);
@@ -869,6 +948,61 @@ async function handleApi(req, res, method, p) {
     return json(res, 200, { ok: true, runId });
   }
 
+  // ---------- 图（graph）管理 ----------
+  if (method === 'POST' && p === '/api/graphs') {
+    const body = await readBody(req);
+    const name = String(body.name || '').trim() || ('子图 ' + (store.graphs.length));
+    const parentNodeId = body.parentNodeId ? String(body.parentNodeId) : null;
+    const parentNode = parentNodeId ? store.tasks.find((t) => t.id === parentNodeId) : null;
+    if (parentNodeId && !parentNode) return json(res, 400, { error: '父节点不存在' });
+    const g = { id: uid(), name, parentNodeId, createdAt: nowIso() };
+    store.graphs.push(g);
+    if (parentNode) parentNode.subgraphId = g.id;
+    save();
+    broadcast({ type: 'state', data: statePayload() });
+    return json(res, 200, { graph: g });
+  }
+
+  if ((method === 'POST' || method === 'PUT') && (m = p.match(/^\/api\/graphs\/([\w-]+)$/))) {
+    const g = store.graphs.find((x) => x.id === m[1]);
+    if (!g) return json(res, 404, { error: 'graph not found' });
+    const body = await readBody(req);
+    if (typeof body.name === 'string' && body.name.trim()) g.name = body.name.trim();
+    save();
+    broadcast({ type: 'state', data: statePayload() });
+    return json(res, 200, { graph: g });
+  }
+
+  if (method === 'DELETE' && (m = p.match(/^\/api\/graphs\/([\w-]+)$/))) {
+    const gid = m[1];
+    if (!store.graphs.some((x) => x.id === gid)) return json(res, 404, { error: 'graph not found' });
+    if (store.graphs[0].id === gid) return json(res, 400, { error: '不能删除主图' });
+    // 收集自身 + 所有子孙图
+    const doomed = new Set([gid]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const g of store.graphs) {
+        if (g.parentNodeId && !doomed.has(g.id)) {
+          const owner = store.tasks.find((t) => t.id === g.parentNodeId);
+          if (doomed.has(g.id) || doomed.has(g.parentNodeId) || (owner && doomed.has(owner.graphId))) { doomed.add(g.id); grew = true; }
+        }
+      }
+    }
+    const doomedNodes = store.tasks.filter((t) => doomed.has(t.graphId)).map((t) => t.id);
+    store.tasks = store.tasks.filter((t) => !doomed.has(t.graphId));
+    store.edges = store.edges.filter((e) => !doomedNodes.includes(e.from) && !doomedNodes.includes(e.to));
+    store.graphs = store.graphs.filter((g) => !doomed.has(g.id));
+    store.schedules = store.schedules.filter((sc) => !doomedNodes.includes(sc.taskId));
+    // 清理父节点引用
+    for (const t of store.tasks) {
+      if (t.subgraphId && doomed.has(t.subgraphId)) t.subgraphId = null;
+    }
+    save();
+    broadcast({ type: 'state', data: statePayload() });
+    return json(res, 200, { ok: true, deletedGraphs: doomed.size, deletedNodes: doomedNodes.length });
+  }
+
   if (method === 'POST' && p === '/api/tasks') {
     const body = await readBody(req);
     const name = String(body.name || '').trim();
@@ -882,6 +1016,10 @@ async function handleApi(req, res, method, p) {
       color: String(body.color || config.engines[config.engines.v8 ? 'v8' : Object.keys(config.engines)[0]].color || '#3b82f6'),
       x: typeof body.x === 'number' ? body.x : 0,
       y: typeof body.y === 'number' ? body.y : 0,
+      graphId: store.graphs.some((g) => g.id === body.graphId) ? String(body.graphId) : store.graphs[0].id,
+      scope: String(body.scope || ''),
+      spec: String(body.spec || ''),
+      subgraphId: null,
       createdAt: nowIso()
     };
     if (Array.isArray(body.inputs)) task.inputs = normalizePorts(body.inputs);
@@ -903,6 +1041,9 @@ async function handleApi(req, res, method, p) {
     if (typeof body.engine === 'string' && config.engines[body.engine]) task.engine = body.engine;
     if (typeof body.x === 'number') task.x = body.x;
     if (typeof body.y === 'number') task.y = body.y;
+    if (typeof body.scope === 'string') task.scope = body.scope;
+    if (typeof body.spec === 'string') task.spec = body.spec;
+    if (typeof body.graphId === 'string' && store.graphs.some((g) => g.id === body.graphId)) task.graphId = body.graphId;
     if (Array.isArray(body.inputs)) task.inputs = normalizePorts(body.inputs);
     if (Array.isArray(body.outputs)) task.outputs = normalizePorts(body.outputs, true);
     // 端口被删除时清理相关边
@@ -948,11 +1089,24 @@ async function handleApi(req, res, method, p) {
     if (store.edges.some((e) => e.from === from.id && e.fromPort === outPort.id && e.to === to.id && e.toPort === inPort.id)) {
       return json(res, 400, { error: '该连线已存在' });
     }
-    const edge = { id: uid(), from: from.id, fromPort: outPort.id, to: to.id, toPort: inPort.id, carryName: outPort.name };
+    const edge = {
+      id: uid(), from: from.id, fromPort: outPort.id, to: to.id, toPort: inPort.id,
+      carryName: outPort.name, graphId: to.graphId || from.graphId, contract: String(body.contract || '')
+    };
     store.edges.push(edge);
     save();
     broadcast({ type: 'state', data: statePayload() });
     return json(res, 200, { edge });
+  }
+
+  if ((method === 'POST' || method === 'PUT') && (m = p.match(/^\/api\/edges\/([\w-]+)$/))) {
+    const e = store.edges.find((x) => x.id === m[1]);
+    if (!e) return json(res, 404, { error: 'edge not found' });
+    const body = await readBody(req);
+    if (typeof body.contract === 'string') e.contract = body.contract;
+    save();
+    broadcast({ type: 'state', data: statePayload() });
+    return json(res, 200, { edge: e });
   }
 
   if (method === 'DELETE' && (m = p.match(/^\/api\/edges\/([\w-]+)$/))) {
@@ -1113,8 +1267,12 @@ function seedIfEmpty() {
     ];
     store.tasks = defs.map((d) => Object.assign({ id: uid(), description: '', createdAt: nowIso(), deps: [] }, d));
     for (const t of store.tasks) {
-      t.inputs = [{ id: 'in', name: 'dep' }];
-      t.outputs = [{ id: 'out', name: 'out', capture: 'stdout' }];
+      t.graphId = store.graphs[0].id;
+      t.scope = '示例任务：在 v8/v9 项目内执行只读检查';
+      t.spec = '按任务描述执行命令，输出结果供下游消费。';
+      t.subgraphId = null;
+      t.inputs = [{ id: 'in', name: 'dep', spec: '上游任意成果（可选）', tests: [] }];
+      t.outputs = [{ id: 'out', name: 'out', spec: '命令 stdout 文本', tests: [], capture: 'stdout' }];
     }
     // 示例数据流：lint 的 stdout → 三边流水线 的 dep 输入（运行图时先跑 lint）
     const lintId = (store.tasks.find((t) => t.name.indexOf('lint') >= 0) || {}).id;
@@ -1125,6 +1283,7 @@ function seedIfEmpty() {
     save();
 }
 migrateStore();
+migrateGraphs();
 seedIfEmpty();
 
 server.listen(config.port, () => {
