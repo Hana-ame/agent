@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "title": "某次深度阅读问答",
+    "time": "2026-10-29T10:00:00",
+    "model": "sensenova-6.8-flash-lite",
+    "topic": "分析 B 站视频《强秦为何二世而亡》的结构与事实"
+  },
+  "mainline": [
+    {"role": "user", "content": "帮我总结一下这个视频的框架"},
+    {"role": "assistant", "content": "视频讲了强秦耕战体系、马斯克的 DOGE、以及组织管理上的双支柱。"},
+    {"role": "user", "content": "把《过秦论》和“三苏”那一段讲清楚一点，我完全没听懂"},
+    {"role": "assistant", "content": "贾谊写了《过秦论》，三苏是苏洵、苏轼、苏辙，这里是……"},
+    {"role": "user", "content": "还是不太懂，能不能给我一个具体的例子？"}
+  ],
+  "messages": [
+    {"role": "user", "content": "帮我总结一下这个视频的框架"},
+    {"role": "assistant", "content": "视频讲了强秦耕战体系、马斯克的 DOGE、以及组织管理上的双支柱。"},
+    {"role": "user", "content": "把《过秦论》和“三苏”那一段讲清楚一点，我完全没听懂"},
+    {"role": "assistant", "content": "贾谊写了《过秦论》，三苏是苏洵、苏轼、苏辙，这里是……"},
+    {"role": "tool", "content": "fetch_bili.py stdout：<header>…</header> 转录文本略"},
+    {"role": "user", "content": "还是不太懂，能不能给我一个具体的例子？"}
+  ]
+}

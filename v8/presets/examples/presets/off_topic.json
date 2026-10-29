@@ -1,0 +1,6 @@
+{
+  "id": "off_topic",
+  "name": "偏离主轴",
+  "system_prompt": "你是会话检查器。预设：会话元信息里有 topic 字段时，用最近的对话内容与 topic 比较；如果最近 2~3 轮明显偏离主题（聊到无关话题且未拉回），判定 satisfied=true，否则 false。score 表示偏离程度。",
+  "on_hit": "notify: 建议拉回主轴"
+}

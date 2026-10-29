@@ -21,7 +21,9 @@ if str(V8) not in sys.path:
     sys.path.insert(0, str(V8))
 
 from evolve.genome import Genome
+from evolve.report import render_trials
 from evolve.review import build_review, rate_candidate, render_table, select_candidate
+from evolve.merge import merge_reviews
 from evolve.runner import run_candidate
 from evolve.tasks import Task
 from evolve.from_runs import build_from_runs
@@ -157,6 +159,23 @@ def cmd_rate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_trials(args: argparse.Namespace) -> int:
+    path = render_trials(args.run)
+    print(path)
+    print(path.read_text(encoding="utf-8"))
+    return 0
+
+
+def cmd_merge(args: argparse.Namespace) -> int:
+    runs = [x.strip() for x in args.runs.split(",") if x.strip()]
+    run_dir = Path(args.out)
+    path = merge_reviews(runs, run_dir, title=args.title)
+    print(f"合并评价包：{path}")
+    print(f"评分表：{run_dir / 'ratings.json'}")
+    print("\n" + render_table(run_dir))
+    return 0
+
+
 def cmd_select(args: argparse.Namespace) -> int:
     result = select_candidate(args.run, by=args.by)
     print(f"selection：{Path(args.run) / 'selection.json'}")
@@ -208,6 +227,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     rp2.add_argument("--score", type=int, required=True)
     rp2.add_argument("--note", default="")
     rp2.set_defaults(func=cmd_rate)
+
+    tp = sub.add_parser("trials", help="生成多次试验横向报告")
+    tp.add_argument("--run", required=True)
+    tp.set_defaults(func=cmd_trials)
+
+    mp = sub.add_parser("merge", help="合并多个评价包，一起评估")
+    mp.add_argument("--runs", required=True, help="逗号分隔的 run 目录")
+    mp.add_argument("--out", required=True)
+    mp.add_argument("--title", default="多次试验合并评估")
+    mp.set_defaults(func=cmd_merge)
 
     sp = sub.add_parser("select", help="按人工/自动/混合选候选")
     sp.add_argument("--run", required=True)

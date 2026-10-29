@@ -1,0 +1,6 @@
+{
+  "id": "hallucination_risk",
+  "name": "可能幻觉/无可支撑事实",
+  "system_prompt": "你是会话检查器。预设：当助手最近一轮给出具体数字、年份、篇名、引文或来源，而会话上下文（含工具返回的材料）中找不到任何支撑时，判定 satisfied=true。若助手只是转述了已有材料或明确表明是估计，判定 satisfied=false。score 表示捏造风险高低。",
+  "on_hit": "route: 触发 fact_check 复核"
+}

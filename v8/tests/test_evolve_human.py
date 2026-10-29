@@ -16,6 +16,8 @@ from evolve.review import build_review, rate_candidate, render_table, select_can
 from evolve.runner import run_candidate  # noqa: E402
 from evolve.tasks import Task, check_output  # noqa: E402
 from evolve.from_runs import build_from_runs, load_runs  # noqa: E402
+from evolve.merge import merge_reviews  # noqa: E402
+from evolve.report import render_trials  # noqa: E402
 
 
 class FakeAgent:
@@ -126,6 +128,26 @@ def test_run_candidate_and_review_select(tmp_path):
 
     sel_auto = select_candidate(run_dir, by="auto")
     assert sel_auto["winner"] in {base.id, child.id}
+
+
+def test_merge_reviews(tmp_path):
+    cfg = _config(tmp_path)
+    task = _task(cfg)
+    r1 = run_candidate(Genome.from_config(cfg, name="a"), task, tmp_path / "r1",
+                       agent=FakeAgent(), use_cache=False)
+    r2 = run_candidate(Genome.from_config(cfg, name="b"), task, tmp_path / "r2",
+                       agent=FakeAgent(), use_cache=False)
+    build_review(tmp_path / "r1", task, [r1])
+    build_review(tmp_path / "r2", task, [r2])
+    out = tmp_path / "merged"
+    path = merge_reviews([tmp_path / "r1", tmp_path / "r2"], out)
+    assert path.is_file()
+    data = json.loads((out / "review.json").read_text(encoding="utf-8"))
+    assert len(data["candidates"]) == 2
+    assert "merged" in str(path)
+    trials = render_trials(out)
+    assert trials.is_file()
+    assert "平均两两相似度" in trials.read_text(encoding="utf-8")
 
 
 def test_select_human_requires_scores(tmp_path):

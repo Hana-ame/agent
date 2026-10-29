@@ -78,3 +78,6 @@ v8/**/__pycache__/
 /.probe_cap.py
 /.verify_cap.py
 v9/data/
+
+# ---- 本地截图（不提交）-----------------------------------------------------
+/browser-screenshots/
