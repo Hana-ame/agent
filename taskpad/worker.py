@@ -3,10 +3,11 @@
 
 网站只做调度与存储，不执行任何命令。节点脚本负责：
   1. POST /api/runs/claim        认领一个待认领任务（含上游成果：文本内联 / 文件下载地址）
-  2. 本地执行命令（相对根目录 --root；engineCwd 提示自动映射到 --root 下）
-  3. POST /api/runs/:id/heartbeat 执行期间心跳（同时接收“中止”指令）
-  4. POST /api/runs/:id/files/<名> 上传文件型成果
-  5. POST /api/runs/:id/submit   上传 stdout / stderr / 退出码，网站落库为 trace 与成果卡
+  2. 注入上游成果到 env（__IN_<输入端口名> / __IN_<名>_FILE），先跑输入门禁
+  3. 本地执行命令（相对根目录 --root；engineCwd 提示自动映射到 --root 下）
+  4. POST /api/runs/:id/heartbeat 执行期间心跳（同时接收“中止”指令）
+  5. POST /api/runs/:id/files/<名> 上传文件型成果
+  6. POST /api/runs/:id/submit   上传 stdout / stderr / 退出码与全部测试结果
 
 用法：
   python3 worker.py                                    # 连 http://127.0.0.1:8330
@@ -91,6 +92,63 @@ def read_stream(pipe, arr):
         arr.append(chunk)
 
 
+def prepare_inputs(base, inputs, stage_dir, env):
+    """把上游成果注入 env，并产出输入门禁的测试清单。
+
+    文本：__IN_<名>=全文；文件：__IN_<名>_FILE=本地路径（自动下载）。
+    同时给 __INPUT / __INPUT_FILE 两个别名，方便写通用测试脚本。
+    """
+    results = []
+    for it in inputs or []:
+        name = it.get("env") or ("__IN_" + (it.get("portName") or "in"))
+        kind = it.get("kind")
+        port_id = it.get("port")
+        label = it.get("portName") or name
+
+        if kind == "text":
+            text = it.get("value") or ""
+            env[name] = text
+            env["__INPUT"] = text
+            fp = os.path.join(stage_dir, name.replace("/", "_") + ".txt")
+            try:
+                with open(fp, "w", encoding="utf-8") as f:
+                    f.write(text)
+                env[name + "_FILE"] = fp
+                env["__INPUT_FILE"] = fp
+                print("  [in] %s <- 上游文本 %dB" % (label, len(text)), flush=True)
+            except OSError as e:
+                print("  [in] %s 写入暂存失败: %s" % (label, e), flush=True)
+        elif kind == "file":
+            url = it.get("fileUrl") or ""
+            try:
+                full = base + url if url.startswith("/") else url
+                data = http_bytes(full)
+                fp = os.path.join(stage_dir, os.path.basename(it.get("fileName") or (name + ".bin")))
+                with open(fp, "wb") as f:
+                    f.write(data)
+                env[name + "_FILE"] = fp
+                env["__INPUT_FILE"] = fp
+                print("  [in] %s <- 上游文件 %s (%dB)" % (label, it.get("fileName"), len(data)), flush=True)
+            except Exception as e:  # noqa: BLE001
+                results.append({
+                    "portId": port_id, "side": "in", "testId": "", "name": "输入成果下载",
+                    "passed": False, "exitCode": None, "output": "[下载失败] %s" % e
+                })
+                continue
+        elif kind in ("missing", "invalid"):
+            results.append({
+                "portId": port_id, "side": "in", "testId": "", "name": "输入成果可用性",
+                "passed": False, "exitCode": None,
+                "output": "[%s] %s（来自 %s）" % (kind, it.get("reason") or "", it.get("srcTaskName") or "?")
+            })
+            continue
+
+        tests = it.get("tests") or []
+        if tests:
+            results.extend(run_iface_tests(tests, ".", env, label, "in", port_id))
+    return results
+
+
 def execute(base, root, worker_id, run, heartbeat_sec):
     rid = run["runId"]
     print("[run %s] 认领: %s" % (rid[:8], run.get("taskName")), flush=True)
@@ -104,8 +162,21 @@ def execute(base, root, worker_id, run, heartbeat_sec):
             cwd = cand
 
     env = dict(os.environ)
-    tmp = tempfile.mkdtemp(prefix="taskpad-in-")
+    stage = tempfile.mkdtemp(prefix="taskpad-in-")
     iface_tests = []
+
+    # 上游成果：文本内联 / 文件下载，注入 __IN_* 环境变量
+    inputs = run.get("inputs") or []
+    in_tests = prepare_inputs(base, inputs, stage, env)
+    hard_fail = [t for t in in_tests if not t.get("passed")]
+    if hard_fail:
+        msg = "[输入门禁] %d 项输入检查未通过，未执行主命令\n" % len(hard_fail)
+        for t in hard_fail:
+            msg += "  - %s: %s\n" % (t.get("name"), (t.get("output") or "")[:200])
+        print(msg, flush=True)
+        submit(base, worker_id, rid, 1, "", msg, False, [], in_tests)
+        return
+
     # 模块相关接口（edge = 接口契约，不是 in/out 数据流）
     interfaces = run.get("interfaces") or []
     if interfaces:
@@ -235,7 +306,7 @@ def execute(base, root, worker_id, run, heartbeat_sec):
         }
         iface_tests.extend(run_iface_tests(tests, cwd, extra, it.get("name", ""), "iface", it.get("edgeId", ""), it.get("edgeId", "")))
 
-    submit(base, worker_id, rid, None if aborted else proc.returncode, stdout, stderr, aborted, uploaded, iface_tests)
+    submit(base, worker_id, rid, None if aborted else proc.returncode, stdout, stderr, aborted, uploaded, in_tests + iface_tests)
     print(
         "[run %s] 完成 exit=%s aborted=%s out=%dB err=%dB"
         % (rid[:8], proc.returncode, aborted, len(stdout), len(stderr)),

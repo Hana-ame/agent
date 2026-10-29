@@ -159,6 +159,70 @@ python3 worker.py --server http://127.0.0.1:8330 --worker-id my-node --root /pat
 - 想新增引擎（如 v7、v127）：照抄一段并起个 id 即可，前端会自动出现选项。
 - **Windows 注意**：当前命令用 `python3`（WSL/Linux）。在 Windows 上把命令里的 `python3` 换成 `python` 或 `.venv\Scripts\python.exe`；shell 语法（`&&`、`for` 等）按 cmd/PowerShell 调整。
 
+## 服务端结构（分层与依赖方向）
+
+```
+taskpad/
+├── server.js                  # 入口：只做装配（配置 → store → 总线 → 领域服务 → 路由 → listen）
+├── src/
+│   ├── core/                  # 基础层：不依赖任何业务
+│   │   ├── config.js          #   配置 / 路径 / 所有魔法数字（LIMITS）
+│   │   ├── store.js           #   store.json 唯一持有者：迁移、原子写盘、容量截断、按 id 查找
+│   │   ├── events.js          #   进程内事件总线（emitSafe 保证监听器异常不打断领域层）
+│   │   ├── views.js           #   对外视图投影（briefRun / briefTrace / statePayload）
+│   │   ├── ports.js           #   端口 / 测试归一化（纯函数）
+│   │   ├── cron.js            #   定时表达式 → 下次触发时刻（纯函数）
+│   │   ├── seed.js            #   模板库 + 首次启动示例数据
+│   │   ├── errors.js          #   AppError（业务错误 → HTTP 状态的唯一映射）
+│   │   └── ids.js             #   uid / nowIso / envKey
+│   ├── domain/                # 领域层：只管规则，不知道 HTTP 存在
+│   │   ├── graph-service.js   #   图 / 模块 / 接口的增删改、级联删除、架构导入、拓扑排序
+│   │   ├── run-service.js     #   运行状态机、认领/心跳/提交/失联回收、成果捕获、trace
+│   │   └── scheduler.js       #   定时 tick + 整图拓扑队列
+│   └── http/                  # 传输层：解析请求、调领域、返回 JSON
+│       ├── router.js          #   声明式路由表 + readBody/readRaw/json
+│       ├── sse.js             #   SSE 推送（唯一知道 HTTP 连接存在的地方）
+│       ├── static.js          #   静态文件 + 目录穿越防护
+│       └── routes/            #   meta / graphs / runs / schedules
+└── test/
+    ├── smoke.js               # 服务端冒烟（12 项，node test/smoke.js）
+    └── e2e-worker.sh          # server + worker.py 真实拉取链路（含输入门禁）
+```
+
+**参考的两个真实实现**（都是直接在 Edge 里翻源码核过的）：
+
+- **ComfyUI** `server.py`：用 `web.RouteTableDef()` + `@routes.get/post` 装饰器把路由注册成表，`PromptServer` 只管 HTTP，任务派发/状态全部在 `comfy_execution.jobs`（`get_job` / `JobStatus` / `get_all_jobs`）里，`server.py` 里 28 个 `@routes.*` 没有一个是自己执行任务的。本仓库的 `http/router.js` 路由表 + `domain/run-service.js` 是同一套分工。
+- **n8n** `packages/cli/src/`：不按 `controller/service/util` 横切，而是**按业务域竖切**（`executions/`、`workflows/`、`credentials/`、`events/`、`push/`、`concurrency/`、`wait-tracker/`），域内再分层。所以这里也是 `domain/graph-service.js`、`domain/run-service.js`、`domain/scheduler.js` 三个域，而不是 `services.js` 一个垃圾桶。
+
+**依赖方向严格单向**：`http/routes/* → domain/* → core/*`。core 不认识 domain，domain 不认识 HTTP。
+反向通信一律走事件总线：
+
+| 事件 | 谁发 | 谁听 | 用途 |
+|---|---|---|---|
+| `run:start` / `run:update` / `run:end` | run-service | sse、scheduler | 推前端 / 推进图队列 |
+| `run:output` | run-service | sse | 流式日志 |
+| `run:stale` | run-service（sweep） | scheduler | 心跳超时，跳过该节点继续 |
+| `state:dirty` | 所有改数据的领域方法 | sse（50ms 合并） | 全量状态广播 |
+| `queue:dirty` | scheduler | sse | 队列进度条 |
+
+这一版同时修掉的四个真问题：
+
+1. **接口测试门禁漏判**：`submit` 原来只在 `side==='out'` 上判失败，`side==='iface'` 的失败也会记成功并把脏成果投给下游；现在 in/out/iface 任一失败即 `error`，并写进 `run.gate`。
+2. **上下游断层**：`claimRun` 返回了 `interfaces` 但删掉了 `inputs`，worker 拿不到上游产物；现在两者都返回，`worker.py` 负责注入 `__IN_<端口名>` / `__IN_<端口名>_FILE` 并先跑输入门禁（不过就不执行主命令）。
+3. **图队列 400ms 轮询**：`runAndWait` 的 `setInterval(...,400)` 换成事件唤醒，节点结束立刻推进，空闲零空转。
+4. **死代码与隐式状态**：删掉 `spawn` / `procs` / `killedSet` / `tryKillProc` / `claimInputsLegacy`；`RUN_CAP`、`OUTPUT_BUDGET` 等数字集中到 `config.js` 的 `LIMITS`。
+
+另外顺手修的：新建模块没有默认 `outputs` 导致捕获不到成果；认领从 LIFO（`find` 取到最新）改成 FIFO（取最老的 pending），避免老任务饿死；静态文件与成果下载的路径校验从 `startsWith` 换成 `path.relative`，杜绝 `artifactsX` 前缀绕过。
+
+## 测试
+
+```bash
+node test/smoke.js        # 12 项：冷启动迁移、门禁、成果注入、拓扑、级联删除、越权路径
+bash test/e2e-worker.sh   # 起临时 server + 真跑 worker.py，验证 A→B 注入与输入门禁
+```
+
+两个脚本都用临时数据目录（`TASKPAD_DATA_DIR`）和独立端口，不会动 `data/store.json`。
+
 ## 常见问题
 
 - **任务启动失败 / 找不到 python**：确认命令在你的运行环境（WSL 或 Windows）可用；改任务的「执行命令」即可。

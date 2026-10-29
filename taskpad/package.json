@@ -1,11 +1,13 @@
 {
   "name": "taskpad",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "任务白板：V8/V9 任务管理与定时执行（零依赖 Node.js）",
+  "description": "任务白板：项目→模块→接口→流程图 的可视化调度与存储中枢（零依赖 Node.js）",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/smoke.js",
+    "test:e2e": "bash test/e2e-worker.sh"
   },
   "engines": {
     "node": ">=18"
