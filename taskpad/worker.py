@@ -51,8 +51,11 @@ def http_bytes(url, timeout=120):
 
 
 
-def run_iface_tests(tests, cwd, extra_env, port_name, side, port_id):
-    """执行接口测试（shell，exit 0 = 通过），返回上报结构列表。"""
+def run_iface_tests(tests, cwd, extra_env, port_name, side, port_id, edge_id=""):
+    """执行接口测试（shell，exit 0 = 通过），返回上报结构列表。
+
+    side: 'in' | 'out' | 'iface'；iface 时 port_id 传 edgeId。
+    """
     results = []
     for t in tests or []:
         cmd = (t.get("command") or "").strip()
@@ -66,7 +69,7 @@ def run_iface_tests(tests, cwd, extra_env, port_name, side, port_id):
             out = (proc.stdout + proc.stderr).decode("utf-8", "replace")[:4000]
             passed = proc.returncode == 0
             results.append({
-                "portId": port_id, "side": side, "testId": t.get("id", ""),
+                "portId": port_id, "edgeId": edge_id, "side": side, "testId": t.get("id", ""),
                 "name": t.get("name") or cmd[:40], "passed": passed,
                 "exitCode": proc.returncode, "output": out
             })
@@ -103,51 +106,13 @@ def execute(base, root, worker_id, run, heartbeat_sec):
     env = dict(os.environ)
     tmp = tempfile.mkdtemp(prefix="taskpad-in-")
     iface_tests = []
-    input_data = {}
-    for inp in run.get("inputs") or []:
-        kind = inp.get("kind")
-        port_id = inp.get("port") or ""
-        port_name = inp.get("portName") or port_id
-        if kind == "text":
-            env[inp["env"]] = inp.get("value", "")
-            input_data[port_id] = ("text", inp.get("value", ""))
-            print("  [in] %s <- 内联文本 %dB" % (inp["env"], len(inp.get("value", ""))), flush=True)
-        elif kind == "file":
-            url = base + inp.get("fileUrl", "")
-            try:
-                data = http_bytes(url)
-                fn = os.path.basename(inp.get("fileName") or "input.bin") or "input.bin"
-                fp = os.path.join(tmp, fn)
-                with open(fp, "wb") as f:
-                    f.write(data)
-                env[inp["env"]] = fp
-                input_data[port_id] = ("file", fp)
-                print("  [in] %s <- 下载 %s (%dB)" % (inp["env"], fn, len(data)), flush=True)
-            except Exception as e:  # noqa: BLE001
-                print("  [in] 下载失败 %s: %s" % (url, e), flush=True)
-        else:
-            print("  [in] %s 不可用: %s" % (port_name, inp.get("reason")), flush=True)
-    # 输入接口测试（数据不达标则不执行任务）
-    for inp in run.get("inputs") or []:
-        tests = inp.get("tests") or []
-        if not tests:
-            continue
-        port_id = inp.get("port") or ""
-        port_name = inp.get("portName") or port_id
-        kind, val = input_data.get(port_id, (None, None))
-        extra = {"__INPUT": val if kind == "text" else "", "__INPUT_FILE": val if kind == "file" else ""}
-        if kind == "text" and val is not None:
-            fn = os.path.join(tmp, "input-%s.txt" % port_id)
-            with open(fn, "w", encoding="utf-8") as f:
-                f.write(val)
-            extra["__INPUT_FILE"] = fn
-        iface_tests.extend(run_iface_tests(tests, cwd, extra, port_name, "in", port_id))
-    in_fail = [t for t in iface_tests if t["side"] == "in" and not t["passed"]]
-    if in_fail:
-        msg = "\n".join("[接口测试未通过] %s: %s\n%s" % (t["name"], t.get("exitCode"), t.get("output", "")) for t in in_fail)
-        print("[run %s] 输入接口测试未通过，跳过执行" % rid[:8], flush=True)
-        submit(base, worker_id, rid, 1, "", msg, False, [], iface_tests)
-        return
+    # 模块相关接口（edge = 接口契约，不是 in/out 数据流）
+    interfaces = run.get("interfaces") or []
+    if interfaces:
+        print("  [iface] %d 个接口关系" % len(interfaces), flush=True)
+        for it in interfaces:
+            print("    %s %s %s" % (it.get("direction", ""), it.get("kind", ""), it.get("name", "")),
+                  flush=True)
 
     try:
         proc = subprocess.Popen(
@@ -252,6 +217,23 @@ def execute(base, root, worker_id, run, heartbeat_sec):
                 f.write(val)
             extra["__RESULT_FILE"] = fn
         iface_tests.extend(run_iface_tests(tests, cwd, extra, o.get("name"), "out", o["id"]))
+
+    # 接口测试（side=iface）：模块提交前必须满足其接口契约
+    for it in interfaces:
+        tests = it.get("tests") or []
+        if not tests:
+            continue
+        extra = {
+            "__MODULE_NAME": run.get("taskName", ""),
+            "__MODULE_SCOPE": run.get("scope", ""),
+            "__MODULE_SPEC": run.get("spec", ""),
+            "__IFACE_NAME": it.get("name", ""),
+            "__IFACE_KIND": it.get("kind", ""),
+            "__IFACE_SPEC": it.get("spec", ""),
+            "__IFACE_DIR": it.get("direction", ""),
+            "__IFACE_PEER": it.get("otherTaskName", ""),
+        }
+        iface_tests.extend(run_iface_tests(tests, cwd, extra, it.get("name", ""), "iface", it.get("edgeId", ""), it.get("edgeId", "")))
 
     submit(base, worker_id, rid, None if aborted else proc.returncode, stdout, stderr, aborted, uploaded, iface_tests)
     print(
