@@ -838,3 +838,18 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .wm-submit input[type=number] { width: 90px; background: #14171e; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
 .wm-result { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35); color: #86efac; border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
 .wm-result.err { background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.35); color: #fca5a5; }
+
+/* 模块接口手柄（拖到另一个模块 = 建立接口关系） */
+.iface-handle {
+  position: absolute; right: -9px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #101318; border: 3px solid var(--c, var(--accent));
+  box-shadow: 0 1px 3px rgba(0,0,0,.6); cursor: crosshair; z-index: 6;
+  transition: transform .1s, box-shadow .1s;
+}
+.iface-handle:hover { transform: translateY(-50%) scale(1.3); }
+.node.iface-hit { box-shadow: 0 0 0 3px rgba(255,255,255,.55), var(--shadow); }
+.if-head { display: flex; gap: 6px; align-items: center; font-weight: 600; }
+.if-kind { font-size: 9.5px; color: #9dbbff; background: rgba(79,140,255,.12); padding: 1px 6px; border-radius: 999px; }
+.if-dir { color: var(--muted); font-size: 10.5px; margin-left: auto; }
+.edge-tests { margin-top: 4px; }

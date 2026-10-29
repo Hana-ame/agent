@@ -85,6 +85,8 @@ function migrateGraphs() {
   for (const e of store.edges) {
     if (!e.graphId) e.graphId = rootId;
     if (typeof e.contract !== 'string') e.contract = '';
+    if (!e.name) e.name = e.label || '接口';
+    if (!Array.isArray(e.tests)) e.tests = normalizeTests(e.tests || []);
   }
 }
 
@@ -406,8 +408,30 @@ function touchWorker(id) {
   return w;
 }
 
-// 认领时组装上游输入（文本内联 / 文件给下载地址）
-function claimInputs(task) {
+// 认领时返回与模块相关的接口（edge = 接口关系，含接口测试）
+function claimInterfaces(task) {
+  const list = [];
+  for (const e of store.edges) {
+    if (e.from !== task.id && e.to !== task.id) continue;
+    const other = store.tasks.find((t) => t.id === (e.from === task.id ? e.to : e.from));
+    list.push({
+      edgeId: e.id,
+      name: e.name || e.label || '接口',
+      kind: e.kind || 'code',
+      proto: e.proto || '',
+      auth: e.auth || '',
+      spec: e.spec || '',
+      tests: (e.tests || []).map((t) => ({ id: t.id, name: t.name, command: t.command })),
+      direction: e.from === task.id ? 'provide' : 'use',
+      otherTaskId: other ? other.id : null,
+      otherTaskName: other ? other.name : '?'
+    });
+  }
+  return list;
+}
+
+// 旧数据流注入（保留但不再用于认领）
+function claimInputsLegacy(task) {
   const envList = [];
   for (const e of store.edges.filter((x) => x.to === task.id)) {
     const src = store.tasks.find((t) => t.id === e.from);
@@ -463,7 +487,7 @@ function claimRun(workerId) {
     engine: task.engine, engineLabel: engine.label, engineCwd,
     graphId: task.graphId || null, graphName: graph ? graph.name : null,
     scope: task.scope || '', spec: task.spec || '',
-    inputs: claimInputs(task),
+    interfaces: claimInterfaces(task),
     outputs: (task.outputs || []).map((o) => ({
       id: o.id, name: o.name, capture: o.capture || 'stdout', glob: o.glob || '*',
       spec: o.spec || '', tests: o.tests || []
@@ -688,8 +712,9 @@ function statePayload() {
       const to = store.tasks.find((t) => t.id === e.to);
       return {
         id: e.id, from: e.from, fromPort: e.fromPort, to: e.to, toPort: e.toPort, carryName: e.carryName,
-        contract: e.contract || '', label: e.label || '', kind: e.kind || 'code',
+        contract: e.contract || '', name: e.name || e.label || '', label: e.label || e.name || '', kind: e.kind || 'code',
         proto: e.proto || '', auth: e.auth || '', spec: e.spec || '',
+        tests: (e.tests || []).map((t) => ({ id: t.id, name: t.name, command: t.command })),
         graphId: e.graphId || null,
         fromName: from ? from.name : '?', toName: to ? to.name : '?',
         fromPortName: (from && (from.outputs || []).find((o) => o.id === e.fromPort) || {}).name || e.fromPort,
@@ -931,7 +956,8 @@ async function handleApi(req, res, method, p) {
     const aborted = !!body.aborted || !!run.abortRequested;
     // 接口测试结果（由节点执行并上报）：{portId, side:'in'|'out', testId, name, passed, exitCode, output}
     const testResults = Array.isArray(body.tests) ? body.tests.map((t) => ({
-      portId: String(t.portId || ''), side: t.side === 'in' ? 'in' : 'out',
+      portId: String(t.portId || ''), edgeId: String(t.edgeId || ''),
+      side: t.side === 'in' ? 'in' : t.side === 'iface' ? 'iface' : 'out',
       testId: String(t.testId || ''), name: String(t.name || ''),
       passed: !!t.passed, exitCode: typeof t.exitCode === 'number' ? t.exitCode : null,
       output: String(t.output || '').slice(0, 4000)
@@ -1164,7 +1190,8 @@ async function handleApi(req, res, method, p) {
       store.edges.push({
         id: uid(), from, fromPort: 'out', to, toPort: 'in',
         carryName: 'out', graphId: g.id,
-        label: String(e.label || '接口'),
+        name: String(e.name || e.label || '接口'),
+        label: String(e.label || e.name || '接口'),
         kind,
         proto: String(e.proto || 'http'),
         auth: String(e.auth || 'no'),
@@ -1184,21 +1211,20 @@ async function handleApi(req, res, method, p) {
     const to = store.tasks.find((t) => t.id === body.to);
     if (!from || !to) return json(res, 400, { error: '源或目标任务不存在' });
     if (from.id === to.id) return json(res, 400, { error: '不能连接自身' });
-    const outPort = (from.outputs || []).find((o) => o.id === body.fromPort);
-    const inPort = (to.inputs || []).find((i) => i.id === body.toPort);
-    if (!outPort) return json(res, 400, { error: '源输出端口不存在' });
-    if (!inPort) return json(res, 400, { error: '目标输入端口不存在' });
-    if (store.edges.some((e) => e.from === from.id && e.fromPort === outPort.id && e.to === to.id && e.toPort === inPort.id)) {
-      return json(res, 400, { error: '该连线已存在' });
+    const edgeName = String(body.name || body.label || '接口');
+    if (store.edges.some((e) => e.from === from.id && e.to === to.id && (e.name || e.label) === edgeName)) {
+      return json(res, 400, { error: '该接口关系已存在' });
     }
     const edge = {
-      id: uid(), from: from.id, fromPort: outPort.id, to: to.id, toPort: inPort.id,
-      carryName: outPort.name, graphId: to.graphId || from.graphId,
-      label: String(body.label || outPort.name || '接口'),
+      id: uid(), from: from.id, fromPort: 'out', to: to.id, toPort: 'in',
+      carryName: edgeName, graphId: to.graphId || from.graphId,
+      name: edgeName,
+      label: edgeName,
       kind: ['code', 'data', 'net'].includes(body.kind) ? body.kind : 'code',
       proto: String(body.proto || 'http'),
       auth: String(body.auth || 'no'),
       spec: String(body.spec || ''),
+      tests: normalizeTests(body.tests),
       contract: String(body.contract || '')
     };
     store.edges.push(edge);
@@ -1213,6 +1239,8 @@ async function handleApi(req, res, method, p) {
     const body = await readBody(req);
     if (typeof body.contract === 'string') e.contract = body.contract;
     if (typeof body.label === 'string') e.label = body.label;
+    if (typeof body.name === 'string') e.name = body.name;
+    if (Array.isArray(body.tests)) e.tests = normalizeTests(body.tests);
     if (['code', 'data', 'net'].includes(body.kind)) e.kind = body.kind;
     if (typeof body.proto === 'string') e.proto = body.proto;
     if (typeof body.auth === 'string') e.auth = body.auth;
