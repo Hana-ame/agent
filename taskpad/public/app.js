@@ -34,7 +34,7 @@ const state = {
 const view = { x: 30, y: 30, scale: 1 };
 const sel = { nodeId: null, edgeId: null };
 
-const formData = { name: '', engine: 'v8', color: PALETTE[0], description: '', command: '', scope: '', spec: '' };
+const formData = { name: '', engine: 'v8', color: PALETTE[0], description: '', command: '', scope: '', spec: '', group: '' };
 const portData = { inputs: [], outputs: [] };   // 端口编辑缓冲
 const expandedPorts = new Set();                // 展开的端口（规范/测试编辑）
 const schedData = { type: 'interval', minutes: 5, time: '08:00', cron: '0 * * * *', enabled: true };
@@ -234,13 +234,17 @@ function layoutWires() {
     const a = portPos(from, 'out', e.fromPort);
     const b = portPos(to, 'in', e.toPort);
     const fromStatus = nodeStatusOf(from);
-    const color = fromStatus === 'running' ? '#f59e0b' : (engineOf(from.engine).color || '#4f8cff');
+    const kind = e.kind || 'code';
+    const KIND_COLOR = { code: '#4f8cff', data: '#22c55e', net: '#f59e0b' };
+    const color = fromStatus === 'running' ? '#f59e0b' : (KIND_COLOR[kind] || engineOf(from.engine).color || '#4f8cff');
+    const KIND_DASH = { code: '10 6', data: '3 9', net: '14 8' };
     const extra = sel.edgeId === e.id ? ' selected' : '';
     const d = wirePath(a.x, a.y, b.x, b.y);
-    html += `<path class="wire${extra}" data-edge="${esc(e.id)}" d="${d}" stroke="${esc(color)}" fill="none" stroke-width="2.5"></path>`;
+    html += `<path class="wire${extra}" data-edge="${esc(e.id)}" d="${d}" stroke="${esc(color)}" fill="none" stroke-width="2.5" stroke-dasharray="${KIND_DASH[kind] || '10 6'}"></path>`;
     html += `<path class="wire hit" data-edge="${esc(e.id)}" d="${d}"></path>`;
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 8;
-    html += `<text class="wire-label" x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" pointer-events="none">${esc(e.carryName || e.fromPortName || '')}</text>`;
+    const kindTag = kind === 'net' ? '🌐' : kind === 'data' ? '⇄' : '⌗';
+    html += `<text class="wire-label" x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" pointer-events="none">${kindTag} ${esc(e.label || e.carryName || e.fromPortName || '')}</text>`;
   }
   wiresSvg.innerHTML = html;
 }
@@ -266,8 +270,11 @@ function showWirePop(e, mx, my) {
   const carry = e.carryName || e.fromPortName || '?';
   const run = state.runs.find((r) => r.taskId === e.from && r.status === 'success');
   const res = run && (run.portResults || []).find((pr) => pr.portId === e.fromPort);
+  const KIND_NAME = { code: '代码', data: '数据', net: '网络' };
+  const ifaceMeta = [KIND_NAME[e.kind] || e.kind, e.proto, e.auth].filter(Boolean).join(' · ');
   wirePop.innerHTML = `
-    <div class="wp-title">🧾 成果卡 · ${esc(carry)}</div>
+    <div class="wp-title">🔗 接口 · ${esc(e.label || carry)}</div>
+    <div class="wp-src">${esc(ifaceMeta)}${e.spec ? '<br>规范：' + esc(e.spec) : ''}</div>
     <div class="wp-src">来源：${esc(srcName)}${run ? ' · ' + fmtTime(run.startedAt) : ''}</div>
     ${res ? (res.kind === 'file'
       ? `<div class="wp-file">📎 ${esc(res.file ? res.file.name : '')}（${fmtSize(res.file ? res.file.size : null)}）&nbsp;<a href="/api/runs/${esc(run.id)}/file?portId=${esc(res.portId)}" download>⬇ 下载</a></div>`
@@ -357,6 +364,7 @@ function renderNodes() {
       <div class="node-head">
         <span class="node-status ${esc(st)}"></span>
         <span class="node-title">${esc(t.name)}</span>
+        ${t.group ? `<span class="group-chip">${esc(t.group)}</span>` : ''}
         <span class="engine-badge" style="background:${esc(eng.color || '#64748b')}">${esc((t.engine || '').toUpperCase())}</span>
       </div>
       <div class="node-body" style="height:${bodyH}px">
@@ -599,6 +607,7 @@ function openTaskPanel(id) {
     formData.command = t.command || '';
     formData.scope = t.scope || '';
     formData.spec = t.spec || '';
+    formData.group = t.group || '';
     expandedPorts.clear();
     portData.inputs = portsIn(t).map((p) => ({
       id: p.id, name: p.name, spec: p.spec || '',
@@ -1134,16 +1143,30 @@ function renderEditPanel() {
     </div>
     <button class="btn block" id="f-save-ports">保存接口（规范 + 测试）</button>
 
+    <div class="section-title">📦 模块分组</div>
+    <div class="field"><label>模块分组 / 类别</label>
+      <input type="text" id="f-group" value="${esc(formData.group || '')}" placeholder="如 core / adapter / script / config"></div>
+
     <div class="section-title">🔗 连线与接口契约</div>
     <div class="hint" style="margin-bottom:6px">edge 规定上游输出接口 → 下游输入接口之间必须满足什么；数据必须通过接口测试才会投递给下游。</div>
-    ${inEdges.map((e) => `
-      <div class="sched-item"><span class="s-chip">← ${esc(e.fromName)} [${esc(e.fromPortName || e.carryName)}] → 本节点 [${esc(e.toPortName)}]</span>
+    ${[...inEdges.map((e) => ({ e, dir: 'in' })), ...outEdges.map((e) => ({ e, dir: 'out' }))].map(({ e, dir }) => `
+      <div class="sched-item"><span class="s-chip">${dir === 'in'
+        ? '← ' + esc(e.fromName) + ' [' + esc(e.fromPortName || e.carryName) + '] → 本节点 [' + esc(e.toPortName) + ']'
+        : '本节点 [' + esc(e.fromPortName || e.carryName) + '] → ' + esc(e.toName) + ' [' + esc(e.toPortName) + ']'}</span>
         <button class="sched-del" data-edge-del="${esc(e.id)}" title="断开">✕</button></div>
-      <input class="edge-contract" data-edge-contract="${esc(e.id)}" value="${esc(e.contract || '')}" placeholder="接口契约：该连线要求满足什么（格式/约束）">`).join('')}
-    ${outEdges.map((e) => `
-      <div class="sched-item"><span class="s-chip">本节点 [${esc(e.fromPortName || e.carryName)}] → ${esc(e.toName)} [${esc(e.toPortName)}]</span>
-        <button class="sched-del" data-edge-del="${esc(e.id)}" title="断开">✕</button></div>
-      <input class="edge-contract" data-edge-contract="${esc(e.id)}" value="${esc(e.contract || '')}" placeholder="接口契约：该连线要求满足什么（格式/约束）">`).join('')}
+      <div class="edge-editor" data-edge-editor="${esc(e.id)}">
+        <div class="ee-row">
+          <input data-edge-label value="${esc(e.label || '')}" placeholder="接口名">
+          <select data-edge-kind>
+            <option value="code" ${e.kind === 'code' ? 'selected' : ''}>代码</option>
+            <option value="data" ${e.kind === 'data' ? 'selected' : ''}>数据</option>
+            <option value="net" ${e.kind === 'net' ? 'selected' : ''}>网络</option>
+          </select>
+          <input data-edge-proto value="${esc(e.proto || '')}" placeholder="协议" style="display:${e.kind === 'net' ? '' : 'none'}">
+          <input data-edge-auth value="${esc(e.auth || '')}" placeholder="鉴权" style="display:${e.kind === 'net' ? '' : 'none'}">
+        </div>
+        <textarea data-edge-spec rows="2" placeholder="接口规范：这个接口必须满足什么（格式/约束/测试条件）">${esc(e.spec || '')}</textarea>
+      </div>`).join('')}
     ${inEdges.length || outEdges.length ? '' : '<div class="no-runs">暂无连线，拖端口连一条</div>'}
 
     <div class="section-title">🧾 成果卡片（最近运行）</div>
@@ -1357,11 +1380,25 @@ $('#panel-body').addEventListener('change', (e) => {
     renderPanel();
     return;
   }
-  const ec = e.target.closest('[data-edge-contract]');
-  if (ec) {
-    api('/api/edges/' + ec.dataset.edgeContract, { method: 'POST', body: JSON.stringify({ contract: ec.value }) })
-      .then(() => toast('接口契约已保存', 'ok'))
-      .catch((err) => toast('保存契约失败：' + err.message, 'err'));
+  const ed = e.target.closest('[data-edge-editor]');
+  if (ed) {
+    const val = (sel) => { const el = ed.querySelector(sel); return el ? el.value : ''; };
+    const kind = val('[data-edge-kind]') || 'code';
+    api('/api/edges/' + ed.dataset.edgeEditor, {
+      method: 'POST',
+      body: JSON.stringify({
+        label: val('[data-edge-label]'),
+        kind,
+        proto: kind === 'net' ? val('[data-edge-proto]') : '',
+        auth: kind === 'net' ? val('[data-edge-auth]') : '',
+        spec: val('[data-edge-spec]')
+      })
+    }).then(() => toast('接口定义已保存', 'ok')).catch((err) => toast('保存接口失败：' + err.message, 'err'));
+    // 切换为网络类型时显示协议/鉴权输入
+    const protoEl = ed.querySelector('[data-edge-proto]');
+    const authEl = ed.querySelector('[data-edge-auth]');
+    if (protoEl) protoEl.style.display = kind === 'net' ? '' : 'none';
+    if (authEl) authEl.style.display = kind === 'net' ? '' : 'none';
   }
 });
 
@@ -1392,8 +1429,9 @@ function bindPanelEvents() {
     if (v('#f-cmd') != null) formData.command = v('#f-cmd');
     if (v('#f-scope') != null) formData.scope = v('#f-scope');
     if (v('#f-spec') != null) formData.spec = v('#f-spec');
+    if (v('#f-group') != null) formData.group = v('#f-group');
   };
-  ['#f-name', '#f-engine', '#f-desc', '#f-cmd', '#f-scope', '#f-spec'].forEach((id) => {
+  ['#f-name', '#f-engine', '#f-desc', '#f-cmd', '#f-scope', '#f-spec', '#f-group'].forEach((id) => {
     const el = body.querySelector(id);
     if (el) el.addEventListener('input', onInput);
   });
@@ -1432,7 +1470,7 @@ function bindPanelEvents() {
         body: JSON.stringify({
           name: formData.name, engine: formData.engine, color: formData.color,
           description: formData.description, command: formData.command,
-          scope: formData.scope, spec: formData.spec
+          scope: formData.scope, spec: formData.spec, group: formData.group
         })
       });
       toast('已保存', 'ok');

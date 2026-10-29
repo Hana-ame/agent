@@ -788,3 +788,18 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   font-size: 11.5px;
   max-width: 220px;
 }
+
+.group-chip {
+  font-size: 9px; color: #c3cbdb; background: rgba(255,255,255,.08);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 4px;
+  margin-left: auto; margin-right: 4px; white-space: nowrap;
+}
+.edge-editor { background: rgba(0,0,0,.18); border: 1px dashed var(--border); border-radius: 7px; padding: 6px 8px; margin: -2px 0 8px 0; }
+.edge-editor .ee-row { display: flex; gap: 5px; margin-bottom: 5px; }
+.edge-editor input, .edge-editor select, .edge-editor textarea {
+  background: #14171e; border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 3px 6px; font-size: 11px;
+}
+.edge-editor input[data-edge-label] { flex: 1; }
+.edge-editor input[data-edge-proto], .edge-editor input[data-edge-auth] { width: 64px; }
+.edge-editor textarea { width: 100%; resize: vertical; }

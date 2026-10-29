@@ -76,6 +76,7 @@ function migrateGraphs() {
     if (!t.graphId) t.graphId = rootId;
     if (typeof t.scope !== 'string') t.scope = '';
     if (typeof t.spec !== 'string') t.spec = '';
+    if (typeof t.group !== 'string') t.group = '';
     if (t.subgraphId === undefined) t.subgraphId = null;
     t.inputs = normalizePorts(t.inputs || [], false);
     t.outputs = normalizePorts(t.outputs || [], true);
@@ -419,6 +420,8 @@ function claimInputs(task) {
       spec: inPort ? inPort.spec || '' : '',
       tests: (inPort && inPort.tests) || [],
       contract: e.contract || '',
+      edgeId: e.id, label: e.label || '', kind: e.kind || 'code',
+      proto: e.proto || '', auth: e.auth || '', spec: e.spec || '',
       srcTaskId: src.id, srcTaskName: src.name, srcPortName: outPort ? outPort.name : e.fromPort,
       srcPortSpec: outPort ? outPort.spec || '' : ''
     };
@@ -685,7 +688,9 @@ function statePayload() {
       const to = store.tasks.find((t) => t.id === e.to);
       return {
         id: e.id, from: e.from, fromPort: e.fromPort, to: e.to, toPort: e.toPort, carryName: e.carryName,
-        contract: e.contract || '', graphId: e.graphId || null,
+        contract: e.contract || '', label: e.label || '', kind: e.kind || 'code',
+        proto: e.proto || '', auth: e.auth || '', spec: e.spec || '',
+        graphId: e.graphId || null,
         fromName: from ? from.name : '?', toName: to ? to.name : '?',
         fromPortName: (from && (from.outputs || []).find((o) => o.id === e.fromPort) || {}).name || e.fromPort,
         toPortName: (to && (to.inputs || []).find((i) => i.id === e.toPort) || {}).name || e.toPort
@@ -768,6 +773,38 @@ async function handleApi(req, res, method, p) {
   }
 
   if (method === 'GET' && p === '/api/health') return json(res, 200, { ok: true, time: nowIso() });
+
+  // ---------- Agent 发现/指南：curl 或 web_fetch 直接读取 ----------
+  if (method === 'GET' && p === '/api/agent-guide') {
+    const host = req.headers.host || ('127.0.0.1:' + config.port);
+    const base = 'http://' + host;
+    return json(res, 200, {
+      server: base,
+      protocol: 'taskpad-pull-v1',
+      summary: '项目 → 模块（节点）→ 接口（边）→ 流程图（节点内部子图）。agent 用 HTTP/curl 认领任务、执行、上传结果。',
+      steps: [
+        '1) curl ' + base + '/api/state    # 读取图/模块/接口定义（nodes、edges、inputs/outputs、spec、tests）',
+        '2) curl -X POST ' + base + '/api/runs/claim -H "Content-Type: application/json" -d \'{"workerId":"<你的节点名>"}\'   # 认领（无任务返回 {"run":null}）',
+        '3) 按 run.command 本地执行；命令环境含 __IN_<输入端口名>（上游文本）/ __IN_<输入端口名>_FILE（上游文件路径）',
+        '4) 执行中每 5s：curl -X POST ' + base + '/api/runs/<runId>/heartbeat -d \'{"workerId":"<你的节点名>"}\'；响应 abort=true 时终止',
+        '5) 文件成果：curl -X POST ' + base + '/api/runs/<runId>/files/<文件名> --data-binary @<本地文件>',
+        '6) 提交：curl -X POST ' + base + '/api/runs/<runId>/submit -H "Content-Type: application/json" -d \'{"workerId":"<你的节点名>","exitCode":0,"stdout":"...","stderr":"","tests":[{"portId":"out","side":"out","testId":"t1","name":"接口测试","passed":true,"exitCode":0,"output":""}]}\''
+      ],
+      endpoints: {
+        state: 'GET /api/state',
+        claim: 'POST /api/runs/claim',
+        heartbeat: 'POST /api/runs/:id/heartbeat',
+        upload: 'POST /api/runs/:id/files/:name',
+        submit: 'POST /api/runs/:id/submit',
+        discovery: 'GET /api/agent-guide',
+        human_guide: 'GET /agent.md'
+      },
+      worker_script: 'taskpad/worker.py（纯 stdlib，可直接 --server ' + base + ' 运行）',
+      note: '接口测试由 agent 执行并随 submit 上报；未通过测试的成都不会投递给下游。'
+    });
+  }
+
+
   if (method === 'GET' && p === '/api/state') return json(res, 200, statePayload());
 
   if (method === 'GET' && p === '/api/templates') return json(res, 200, { templates: TEMPLATES });
@@ -1019,6 +1056,7 @@ async function handleApi(req, res, method, p) {
       graphId: store.graphs.some((g) => g.id === body.graphId) ? String(body.graphId) : store.graphs[0].id,
       scope: String(body.scope || ''),
       spec: String(body.spec || ''),
+      group: String(body.group || ''),
       subgraphId: null,
       createdAt: nowIso()
     };
@@ -1043,6 +1081,7 @@ async function handleApi(req, res, method, p) {
     if (typeof body.y === 'number') task.y = body.y;
     if (typeof body.scope === 'string') task.scope = body.scope;
     if (typeof body.spec === 'string') task.spec = body.spec;
+    if (typeof body.group === 'string') task.group = body.group;
     if (typeof body.graphId === 'string' && store.graphs.some((g) => g.id === body.graphId)) task.graphId = body.graphId;
     if (Array.isArray(body.inputs)) task.inputs = normalizePorts(body.inputs);
     if (Array.isArray(body.outputs)) task.outputs = normalizePorts(body.outputs, true);
@@ -1097,6 +1136,7 @@ async function handleApi(req, res, method, p) {
         id: uid(),
         name: String(n.label || n.id || '节点').slice(0, 80),
         description: n.group ? ('[' + n.group + ']') : '',
+        group: String(n.group || ''),
         command: 'echo "[TaskPad] ' + String(n.label || n.id || '节点').replace(/"/g, '').slice(0, 60) + ' 无命令"',
         engine: 'v8',
         color: colorOf(n.group),
@@ -1120,15 +1160,16 @@ async function handleApi(req, res, method, p) {
       const from = idMap.get(String(e.s));
       const to = idMap.get(String(e.t));
       if (!from || !to) { skipped++; continue; }
-      const kind = KIND_NAME[e.kind] || e.kind || '依赖';
-      let contract = '[' + kind + ']';
-      if (e.label) contract += ' ' + e.label;
-      if (e.kind === 'net' && e.proto) contract += ' · proto=' + e.proto;
-      if (e.kind === 'net' && e.auth) contract += ' · auth=' + e.auth;
-      if (e.spec) contract += ' · ' + e.spec;
+      const kind = ['code', 'data', 'net'].includes(e.kind) ? e.kind : 'code';
       store.edges.push({
         id: uid(), from, fromPort: 'out', to, toPort: 'in',
-        carryName: 'out', graphId: g.id, contract
+        carryName: 'out', graphId: g.id,
+        label: String(e.label || '接口'),
+        kind,
+        proto: String(e.proto || 'http'),
+        auth: String(e.auth || 'no'),
+        spec: String(e.spec || ''),
+        contract: ''
       });
       edgeCount++;
     }
@@ -1152,7 +1193,13 @@ async function handleApi(req, res, method, p) {
     }
     const edge = {
       id: uid(), from: from.id, fromPort: outPort.id, to: to.id, toPort: inPort.id,
-      carryName: outPort.name, graphId: to.graphId || from.graphId, contract: String(body.contract || '')
+      carryName: outPort.name, graphId: to.graphId || from.graphId,
+      label: String(body.label || outPort.name || '接口'),
+      kind: ['code', 'data', 'net'].includes(body.kind) ? body.kind : 'code',
+      proto: String(body.proto || 'http'),
+      auth: String(body.auth || 'no'),
+      spec: String(body.spec || ''),
+      contract: String(body.contract || '')
     };
     store.edges.push(edge);
     save();
@@ -1165,6 +1212,11 @@ async function handleApi(req, res, method, p) {
     if (!e) return json(res, 404, { error: 'edge not found' });
     const body = await readBody(req);
     if (typeof body.contract === 'string') e.contract = body.contract;
+    if (typeof body.label === 'string') e.label = body.label;
+    if (['code', 'data', 'net'].includes(body.kind)) e.kind = body.kind;
+    if (typeof body.proto === 'string') e.proto = body.proto;
+    if (typeof body.auth === 'string') e.auth = body.auth;
+    if (typeof body.spec === 'string') e.spec = body.spec;
     save();
     broadcast({ type: 'state', data: statePayload() });
     return json(res, 200, { edge: e });
@@ -1225,6 +1277,38 @@ async function handleApi(req, res, method, p) {
   return json(res, 404, { error: 'not found', path: p });
 }
 
+function agentGuideMd(req, res) {
+  const host = req.headers.host || ('127.0.0.1:' + config.port);
+  const text = [
+    '# TaskPad Agent 接入指南（HTTP / curl）',
+    '',
+    'Server: http://' + host,
+    '',
+    '## 模型',
+    '项目(Project) → 模块(Node) → 接口(Edge, code/data/net + proto/auth/spec) → 流程图(Node 内部子图)。',
+    '',
+    '## 最小接入（curl）',
+    '```bash',
+    '# 1. 看状态',
+    'curl -s http://' + host + '/api/state',
+    '# 2. 认领',
+    'curl -s -X POST http://' + host + '/api/runs/claim -H "Content-Type: application/json" -d \'{"workerId":"my-agent"}\'',
+    '# 3. 执行（run.command；env: __IN_* / __IN_*_FILE）',
+    '# 4. 心跳',
+    'curl -s -X POST http://' + host + '/api/runs/<runId>/heartbeat -H "Content-Type: application/json" -d \'{"workerId":"my-agent"}\'',
+    '# 5. 提交',
+    'curl -s -X POST http://' + host + '/api/runs/<runId>/submit -H "Content-Type: application/json" -d \'{"workerId":"my-agent","exitCode":0,"stdout":"ok","tests":[]}\'',
+    '```',
+    '',
+    '## 或直接跑内置 worker',
+    '```bash',
+    'python3 worker.py --server http://' + host + ' --worker-id my-agent --root /path/to/project',
+    '```'
+  ].join('\n');
+  res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(text);
+}
+
 function serveStatic(req, res, urlPath) {
   if (urlPath === '/favicon.ico') { res.writeHead(204); res.end(); return; }
   let rel = decodeURIComponent(urlPath);
@@ -1245,6 +1329,7 @@ function serveStatic(req, res, urlPath) {
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://localhost');
   const p = u.pathname.replace(/\/+$/, '') || '/';
+  if (p === '/agent.md') { agentGuideMd(req, res); return; }
   if (p.startsWith('/api/') || p === '/api') {
     handleApi(req, res, req.method, p).catch((err) => {
       try { json(res, 500, { error: String(err && err.message || err) }); } catch (e) { /* ignore */ }
@@ -1334,6 +1419,7 @@ function seedIfEmpty() {
       t.graphId = store.graphs[0].id;
       t.scope = '示例任务：在 v8/v9 项目内执行只读检查';
       t.spec = '按任务描述执行命令，输出结果供下游消费。';
+      t.group = t.engine === 'v9' ? 'knowledge' : 'core';
       t.subgraphId = null;
       t.inputs = [{ id: 'in', name: 'dep', spec: '上游任意成果（可选）', tests: [] }];
       t.outputs = [{ id: 'out', name: 'out', spec: '命令 stdout 文本', tests: [], capture: 'stdout' }];
