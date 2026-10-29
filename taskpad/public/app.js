@@ -1650,6 +1650,205 @@ async function toggleTraceRun(rowEl) {
   }
 }
 
+/* ---------- Agent 工位：认领 / 上传成果 / 提交 ---------- */
+const workerModal = $('#worker-modal');
+const wm = {
+  id: (function () { try { return localStorage.getItem('taskpad:workerId') || ''; } catch (e) { return ''; } })() || ('agent-' + Math.random().toString(36).slice(2, 6)),
+  run: null,
+  timer: null,
+  uploads:[]
+};
+function wmSaveId() { try { localStorage.setItem('taskpad:workerId', wm.id); } catch (e) { /* ignore */ } }
+function wmOpen() {
+  workerModal.hidden = false;
+  wmRender();
+}
+function wmRenderIdle() {
+  $('#wm-body').innerHTML = `
+    <div class="wm-row">
+      <label style="color:var(--muted);font-size:11.5px">节点名</label>
+      <input id="wm-id" value="${esc(wm.id)}" placeholder="你的 agent 名称">
+      <button class="btn primary" id="wm-claim">🤝 认领任务</button>
+    </div>
+    <div class="hint">网站只做调度与存储，不执行命令。认领后：本地执行 run.command → 上传成果文件 → 勾选接口测试 → 提交结果。<br>
+    同样的流程也可以直接用 curl / worker.py 完成（见右上「🤖 Agent 指南」）。</div>`;
+  $('#wm-claim').addEventListener('click', wmClaim);
+}
+function wmRender() {
+  if (wm.run) wmRenderTask();
+  else wmRenderIdle();
+}
+async function wmClaim() {
+  const idEl = $('#wm-id');
+  if (idEl) { wm.id = idEl.value.trim() || wm.id; wmSaveId(); }
+  try {
+    const { run } = await api('/api/runs/claim', { method: 'POST', body: JSON.stringify({ workerId: wm.id }) });
+    if (!run) { toast('暂无待认领任务（点击节点 ▶ 启动后任务会进入待认领）', 'warn'); return; }
+    wm.run = run;
+    wm.uploads = [];
+    wmStartHeartbeat();
+    wmRenderTask();
+    await refresh();
+  } catch (err) { toast('认领失败：' + err.message, 'err'); }
+}
+function wmStartHeartbeat() {
+  wmStopHeartbeat();
+  wm.timer = setInterval(async () => {
+    if (!wm.run) return;
+    try {
+      const r = await api('/api/runs/' + wm.run.runId + '/heartbeat', { method: 'POST', body: JSON.stringify({ workerId: wm.id }) });
+      const hb = $('#wm-hb');
+      if (hb) { hb.textContent = '♥ 心跳 ' + fmtTime(new Date().toISOString()); hb.className = 'wm-hb on'; }
+      if (r.abort) {
+        if (hb) { hb.textContent = '⏹ 已被停止'; hb.className = 'wm-hb abort'; }
+        wmStopHeartbeat();
+        toast('该任务已被停止，可勾选「中止」提交', 'warn');
+      }
+    } catch (e) {
+      const hb = $('#wm-hb');
+      if (hb) { hb.textContent = '心跳失败：' + e.message; hb.className = 'wm-hb abort'; }
+    }
+  }, 5000);
+  setTimeout(() => wmHeartbeatOnce(), 300);
+}
+function wmStopHeartbeat() { if (wm.timer) { clearInterval(wm.timer); wm.timer = null; } }
+async function wmHeartbeatOnce() {
+  if (!wm.run) return;
+  try {
+    await api('/api/runs/' + wm.run.runId + '/heartbeat', { method: 'POST', body: JSON.stringify({ workerId: wm.id }) });
+    const hb = $('#wm-hb');
+    if (hb) { hb.textContent = '♥ 已认领'; hb.className = 'wm-hb on'; }
+  } catch (e) { /* ignore */ }
+}
+function wmRenderTask() {
+  const r = wm.run;
+  const g = graphById(r.graphId);
+  const ins = r.inputs || [];
+  const outs = r.outputs || [];
+  const inputHTML = ins.length ? ins.map((i, idx) => {
+    const kindName = { text: '文本', file: '文件', missing: '缺失', invalid: '未通过测试' }[i.kind] || i.kind;
+    let data = '';
+    if (i.kind === 'text') data = '<pre class="if-data">' + esc(String(i.value || '').slice(0, 1500)) + '</pre>';
+    else if (i.kind === 'file') data = '<div class="wm-uploaded">📎 <a href="' + esc(i.fileUrl || '#') + '" target="_blank" rel="noopener">' + esc(i.fileName || '') + '</a>（下载后用 $__IN_' + esc((i.portName || '').replace(/[^\w\u4e00-\u9fa5]+/g, '_')) + '_FILE 指向本地文件）</div>';
+    else if (i.reason) data = '<div class="wm-uploaded" style="color:var(--warn)">' + esc(i.reason) + '</div>';
+    const tests = (i.tests || []).map((t) => `
+      <label class="wm-test"><input type="checkbox" data-wm-test="${esc(i.port || '')}:in:${esc(t.id || t.name || '')}" data-test-name="${esc(t.name || '')}"> 输入接口测试：${esc(t.name || t.command)}</label>`).join('');
+    return `<div class="wm-iface">
+      <div class="if-head"><span class="port input" style="position:static;width:10px;height:10px"></span> ${esc(i.portName || i.port || ('in' + idx))} <span class="test-badge untested">${esc(kindName || '')}</span>
+        <span style="color:#8b93a5;font-size:10.5px">${esc(i.kind === 'net' ? 'net' : '')}${esc(i.label ? ' · ' + i.label : '')}</span></div>
+      ${i.spec ? '<div class="if-spec">规范：' + esc(i.spec) + '</div>' : ''}
+      ${i.contract ? '<div class="if-spec">契约：' + esc(i.contract) + '</div>' : ''}
+      ${i.srcTaskName ? '<div class="if-spec">来自：' + esc(i.srcTaskName) + ' [' + esc(i.srcPortName || '') + ']</div>' : ''}
+      ${data}${tests}
+    </div>`;
+  }).join('') : '<div class="no-runs">没有输入接口</div>';
+  const outputHTML = outs.map((o) => {
+    const tests = (o.tests || []).map((t) => `
+      <label class="wm-test"><input type="checkbox" data-wm-test="${esc(o.id)}:out:${esc(t.id || t.name || '')}" data-test-name="${esc(t.name || '')}"> 接口测试：${esc(t.name || t.command)}</label>`).join('');
+    const upload = o.capture === 'file' ? `
+      <div class="wm-file">
+        <input type="file" data-wm-file="${esc(o.id)}">
+        <button class="btn ghost" data-wm-upload="${esc(o.id)}">⬆ 上传成果</button>
+      </div>
+      <div class="wm-uploaded" data-wm-uploaded="${esc(o.id)}"></div>` : '';
+    return `<div class="wm-iface">
+      <div class="if-head"><span class="port output" style="position:static;width:10px;height:10px"></span> ${esc(o.name)} <span class="test-badge untested">${o.capture === 'file' ? '文件' : 'stdout'}</span></div>
+      ${o.spec ? '<div class="if-spec">规范：' + esc(o.spec) + '</div>' : ''}
+      ${upload}${tests}
+    </div>`;
+  }).join('');
+  $('#wm-body').innerHTML = `
+    <div class="wm-task-head">${esc(r.taskName)} <span class="engine-badge" style="background:${esc(engineOf(r.engine).color || '#64748b')}">${esc((r.engine || '').toUpperCase())}</span></div>
+    <div class="wm-meta">项目：${esc(g ? g.name : '—')}${r.scope ? ' · 工作范围：' + esc(r.scope) : ''}${r.spec ? '<br>工作规范：' + esc(r.spec) : ''}</div>
+    <div class="wm-cmd">${esc(r.command)}</div>
+    <div class="wm-sec">输入接口（上游投递）</div>
+    ${inputHTML}
+    <div class="wm-sec">输出接口（要上传的成果，文件型需上传）</div>
+    ${outputHTML}
+    <div class="wm-sec">提交结果</div>
+    <div class="wm-submit">
+      <textarea id="wm-stdout" rows="4" placeholder="stdout（文本成果会作为输出接口成果）"></textarea>
+      <textarea id="wm-stderr" rows="2" placeholder="stderr"></textarea>
+      <div class="wm-row" style="margin-top:6px">
+        <label style="color:var(--muted);font-size:11.5px">exitCode</label>
+        <input type="number" id="wm-exit" value="0" style="width:90px;flex:0 0 auto">
+        <button class="btn primary" id="wm-submit">提交任务（含接口测试结果）</button>
+        <button class="btn ghost" id="wm-next">继续接任务</button>
+        <button class="btn ghost" id="wm-abort">放弃任务</button>
+      </div>
+      <div id="wm-result"></div>
+    </div>`;
+  $('#wm-submit').addEventListener('click', wmSubmit);
+  $('#wm-next').addEventListener('click', () => { wm.run = null; wm.uploads = []; wmRenderIdle(); });
+  $('#wm-abort').addEventListener('click', wmAbort);
+  document.querySelectorAll('[data-wm-upload]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const portId = btn.dataset.wmUpload;
+      const input = document.querySelector('[data-wm-file="' + portId + '"]');
+      if (!input || !input.files || !input.files[0]) { toast('先选择要上传的成果文件', 'warn'); return; }
+      wmUpload(portId, input.files[0]);
+    });
+  });
+}
+async function wmUpload(portId, file) {
+  if (!wm.run) return;
+  try {
+    const res = await fetch('/api/runs/' + wm.run.runId + '/files/' + encodeURIComponent(file.name), { method: 'POST', body: file });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    wm.uploads.push({ portId, name: data.name, size: data.size });
+    const el = document.querySelector('[data-wm-uploaded="' + portId + '"]');
+    if (el) el.textContent = '✓ 已上传：' + data.name + '（' + fmtSize(data.size) + '）';
+    toast('成果已上传：' + data.name, 'ok');
+  } catch (err) { toast('上传失败：' + err.message, 'err'); }
+}
+async function wmSubmit() {
+  if (!wm.run) return;
+  const tests = [...document.querySelectorAll('[data-wm-test]')].map((cb) => {
+    const [portId, side, testId] = cb.dataset.wmTest.split(':');
+    return { portId, side, testId, name: cb.dataset.testName || '', passed: cb.checked, exitCode: cb.checked ? 0 : 1, output: '' };
+  });
+  const exitCode = parseInt(($('#wm-exit') || {}).value, 10);
+  const stdout = ($('#wm-stdout') || {}).value || '';
+  const stderr = ($('#wm-stderr') || {}).value || '';
+  try {
+    const res = await api('/api/runs/' + wm.run.runId + '/submit', {
+      method: 'POST',
+      body: JSON.stringify({ workerId: wm.id, exitCode: isNaN(exitCode) ? 0 : exitCode, stdout, stderr, tests })
+    });
+    wmStopHeartbeat();
+    const ok = res.run.status === 'success';
+    const box = $('#wm-result');
+    if (box) {
+      box.innerHTML = '<div class="wm-result ' + (ok ? '' : 'err') + '">已提交：' + esc(statusText(res.run.status)) +
+        ' · exit=' + esc(String(res.run.exitCode)) + ' · 成果 ' + (res.run.portResults || []).length + ' 个</div>';
+    }
+    toast('任务已提交：' + statusText(res.run.status), ok ? 'ok' : 'warn');
+    const sub = $('#wm-submit');
+    if (sub) { sub.disabled = true; sub.textContent = '已提交 ✓'; }
+    const ab = $('#wm-abort');
+    if (ab) ab.style.display = 'none';
+    await refresh();
+  } catch (err) { toast('提交失败：' + err.message, 'err'); }
+}
+async function wmAbort() {
+  if (!wm.run) return;
+  if (!confirm('放弃当前任务？（会回到待认领，其它 agent 可接）')) return;
+  try {
+    await api('/api/runs/' + wm.run.runId + '/kill', { method: 'POST' });
+    wmStopHeartbeat();
+    wm.run = null;
+    toast('已放弃任务', 'ok');
+    await refresh();
+    wmRender();
+  } catch (err) { toast('放弃失败：' + err.message, 'err'); }
+}
+$('#btn-worker').addEventListener('click', wmOpen);
+$('#wm-close').addEventListener('click', () => { workerModal.hidden = true; });
+$('#wm-refresh').addEventListener('click', () => wmRender());
+workerModal.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) workerModal.hidden = true; });
+workerModal.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'wm-id') { e.preventDefault(); wmClaim(); } });
+
 /* ---------- 时钟 / 启动 ---------- */
 function tickClock() {
   const now = new Date();

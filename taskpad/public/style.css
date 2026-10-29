@@ -803,3 +803,38 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .edge-editor input[data-edge-label] { flex: 1; }
 .edge-editor input[data-edge-proto], .edge-editor input[data-edge-auth] { width: 64px; }
 .edge-editor textarea { width: 100%; resize: vertical; }
+
+/* ---------- Agent 工位 ---------- */
+#worker-modal { position: fixed; inset: 0; z-index: 92; display: flex; align-items: center; justify-content: center; }
+#worker-modal[hidden] { display: none; }
+.wm-mask { position: absolute; inset: 0; background: rgba(10,12,16,.66); backdrop-filter: blur(2px); }
+.wm-box {
+  position: relative; width: 760px; max-width: calc(100vw - 60px); max-height: 84vh;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden;
+}
+.wm-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; }
+.wm-actions { display: flex; gap: 6px; align-items: center; }
+.wm-hb { font-size: 11px; color: var(--muted); }
+.wm-hb.on { color: var(--ok); }
+.wm-hb.abort { color: var(--err); }
+.wm-body { flex: 1; overflow-y: auto; padding: 12px 14px; font-size: 12.5px; }
+.wm-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.wm-row input { flex: 1; background: #14171e; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+.wm-task-head { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.wm-meta { color: var(--muted); font-size: 11.5px; line-height: 1.6; margin-bottom: 8px; }
+.wm-cmd { background: #0d0f13; border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; font-family: "Cascadia Code", Consolas, monospace; font-size: 11.5px; color: #c9d2e0; white-space: pre-wrap; word-break: break-all; margin-bottom: 10px; }
+.wm-sec { color: #9dbbff; font-weight: 700; font-size: 12px; margin: 12px 0 6px; }
+.wm-iface { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; margin-bottom: 6px; }
+.wm-iface .if-head { display: flex; gap: 6px; align-items: center; font-weight: 600; }
+.wm-iface .if-spec { color: var(--muted); font-size: 11px; margin-top: 3px; }
+.wm-iface .if-data { margin-top: 4px; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; color: #c9d2e0; white-space: pre-wrap; max-height: 90px; overflow: auto; background: #0d0f13; border-radius: 6px; padding: 5px 6px; }
+.wm-test { display: flex; gap: 6px; align-items: center; font-size: 11.5px; margin-top: 4px; }
+.wm-test input { accent-color: var(--accent); margin: 0; }
+.wm-file { display: flex; gap: 6px; align-items: center; margin-top: 5px; }
+.wm-file input[type=file] { font-size: 11px; color: var(--muted); }
+.wm-uploaded { font-size: 11px; color: var(--ok); margin-top: 4px; }
+.wm-submit textarea { width: 100%; background: #0d0f13; border: 1px solid var(--border); color: #c9d2e0; border-radius: 7px; padding: 6px 8px; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; resize: vertical; margin-bottom: 6px; }
+.wm-submit input[type=number] { width: 90px; background: #14171e; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
+.wm-result { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35); color: #86efac; border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+.wm-result.err { background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.35); color: #fca5a5; }

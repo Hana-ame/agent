@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TaskPad · 任务白板（ComfyUI 风格）</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <div id="app">
@@ -21,6 +21,7 @@
       <button id="btn-traces" class="btn ghost" title="查看历史执行 trace">🧾 Trace 历史</button>
       <button id="btn-toggle-lib" class="btn ghost" title="显示 / 隐藏节点库 (Ctrl+B)">📚 节点库</button>
       <button id="btn-import-arch" class="btn ghost" title="导入架构编辑器导出的 JSON（nodes/edges）">📥 导入架构</button>
+      <button id="btn-worker" class="btn ghost" title="Agent 工位：认领任务 / 上传成果 / 提交结果">🤝 接任务</button>
       <a id="btn-agent-guide" class="btn ghost" href="/agent.md" target="_blank" rel="noopener" title="curl 可读的 Agent 接入指南">🤖 Agent 指南</a>
       <input id="import-arch-input" type="file" accept=".json,application/json" hidden>
     </div>
@@ -81,6 +82,20 @@
 
   <div id="ctxmenu" hidden></div>
   <div id="wire-pop" hidden></div>
+  <div id="worker-modal" hidden>
+    <div class="wm-mask" data-close="1"></div>
+    <div class="wm-box">
+      <div class="wm-head">
+        <span>🤝 Agent 工位 · 认领 / 上传 / 提交</span>
+        <span class="wm-actions">
+          <span id="wm-hb" class="wm-hb">—</span>
+          <button id="wm-refresh" class="btn ghost">刷新</button>
+          <button id="wm-close" class="btn ghost">✕</button>
+        </span>
+      </div>
+      <div class="wm-body" id="wm-body"></div>
+    </div>
+  </div>
   <div id="trace-modal" hidden>
     <div class="tm-mask" data-close="1"></div>
     <div class="tm-box">
@@ -96,6 +111,6 @@
   </div>
   <div id="toasts"></div>
 </div>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
