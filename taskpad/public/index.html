@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TaskPad · 任务白板（ComfyUI 风格）</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <div id="app">
@@ -20,6 +20,8 @@
       <button id="btn-clear-runs" class="btn ghost" title="清空全部运行记录">清空记录</button>
       <button id="btn-traces" class="btn ghost" title="查看历史执行 trace">🧾 Trace 历史</button>
       <button id="btn-toggle-lib" class="btn ghost" title="显示 / 隐藏节点库 (Ctrl+B)">📚 节点库</button>
+      <button id="btn-import-arch" class="btn ghost" title="导入架构编辑器导出的 JSON（nodes/edges）">📥 导入架构</button>
+      <input id="import-arch-input" type="file" accept=".json,application/json" hidden>
     </div>
     <div class="tb-group">
       <button id="btn-zoom-in" class="btn ghost" title="放大">＋</button>
@@ -36,6 +38,7 @@
   </header>
 
   <div id="graphbar">
+    <select id="graph-select" class="graph-select" title="切换顶层图"></select>
     <span id="graph-path" class="graph-path"></span>
     <span class="gb-sep"></span>
     <button id="btn-graph-back" class="btn ghost gb-btn" title="返回上级图">← 返回</button>
@@ -92,6 +95,6 @@
   </div>
   <div id="toasts"></div>
 </div>
-<script src="app.js?v=5"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

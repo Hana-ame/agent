@@ -1076,6 +1076,67 @@ async function handleApi(req, res, method, p) {
     return json(res, 200, { runId: res2.run.id });
   }
 
+  // ---------- 导入架构编辑器导出的 JSON ----------
+  if (method === 'POST' && p === '/api/import/architecture') {
+    const body = await readBody(req);
+    const nodesIn = Array.isArray(body.nodes) ? body.nodes : [];
+    if (!nodesIn.length) return json(res, 400, { error: 'JSON 中没有 nodes 数组' });
+    const name = String(body.project || '导入的架构').slice(0, 60);
+    const g = { id: uid(), name, parentNodeId: null, createdAt: nowIso() };
+    store.graphs.push(g);
+    const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#a855f7', '#06b6d4', '#f43f5e', '#f97316', '#8b5cf6'];
+    const colorOf = (group) => {
+      let h = 0; const gs = String(group || '');
+      for (let i = 0; i < gs.length; i++) h = (h * 31 + gs.charCodeAt(i)) >>> 0;
+      return COLORS[h % COLORS.length];
+    };
+    const idMap = new Map();
+    const graphNodeIds = [];
+    for (const n of nodesIn) {
+      const task = {
+        id: uid(),
+        name: String(n.label || n.id || '节点').slice(0, 80),
+        description: n.group ? ('[' + n.group + ']') : '',
+        command: 'echo "[TaskPad] ' + String(n.label || n.id || '节点').replace(/"/g, '').slice(0, 60) + ' 无命令"',
+        engine: 'v8',
+        color: colorOf(n.group),
+        x: Math.round((Number(n.x) || 0) * 1.7),
+        y: Math.round((Number(n.y) || 0) * 1.7),
+        graphId: g.id,
+        scope: '来自架构图：' + name,
+        spec: String(n.desc || ''),
+        subgraphId: null,
+        createdAt: nowIso(),
+        inputs: [{ id: 'in', name: 'dep', spec: '', tests: [] }],
+        outputs: [{ id: 'out', name: 'out', capture: 'stdout', spec: '', tests: [] }]
+      };
+      store.tasks.push(task);
+      idMap.set(String(n.id), task.id);
+      graphNodeIds.push(task.id);
+    }
+    const KIND_NAME = { code: '代码', data: '数据', net: '网络' };
+    let edgeCount = 0, skipped = 0;
+    for (const e of (body.edges || [])) {
+      const from = idMap.get(String(e.s));
+      const to = idMap.get(String(e.t));
+      if (!from || !to) { skipped++; continue; }
+      const kind = KIND_NAME[e.kind] || e.kind || '依赖';
+      let contract = '[' + kind + ']';
+      if (e.label) contract += ' ' + e.label;
+      if (e.kind === 'net' && e.proto) contract += ' · proto=' + e.proto;
+      if (e.kind === 'net' && e.auth) contract += ' · auth=' + e.auth;
+      if (e.spec) contract += ' · ' + e.spec;
+      store.edges.push({
+        id: uid(), from, fromPort: 'out', to, toPort: 'in',
+        carryName: 'out', graphId: g.id, contract
+      });
+      edgeCount++;
+    }
+    save();
+    broadcast({ type: 'state', data: statePayload() });
+    return json(res, 200, { graph: g, nodes: graphNodeIds.length, edges: edgeCount, skipped });
+  }
+
   if (method === 'POST' && p === '/api/edges') {
     const body = await readBody(req);
     const from = store.tasks.find((t) => t.id === body.from);

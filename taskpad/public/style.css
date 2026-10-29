@@ -778,3 +778,13 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 /* 节点库隐藏 */
 #library.hidden { display: none; }
 #btn-toggle-lib.off { opacity: .55; }
+
+.graph-select {
+  background: #14171e;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 11.5px;
+  max-width: 220px;
+}

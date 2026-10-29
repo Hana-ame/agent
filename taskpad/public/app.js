@@ -134,7 +134,14 @@ function renderGraphBar() {
   if (back) back.disabled = path.length <= 1;
   const del = $('#btn-graph-del');
   if (del) del.disabled = path.length <= 1;
+  const sel = $('#graph-select');
+  if (sel) {
+    const roots = (state.graphs || []).filter((g) => !g.parentNodeId);
+    sel.innerHTML = roots.map((g) => `<option value="${esc(g.id)}" ${g.id === state.activeGraphId ? 'selected' : ''}>${esc(g.name)}</option>`).join('');
+    sel.value = state.activeGraphId;
+  }
 }
+$('#graph-select').addEventListener('change', (e) => enterGraph(e.target.value));
 function enterGraph(id) {
   if (!graphById(id)) return;
   state.activeGraphId = id;
@@ -714,6 +721,31 @@ function toggleLibrary() {
   setLibraryVisible(!hidden);
 })();
 $('#btn-toggle-lib').addEventListener('click', toggleLibrary);
+
+/* ---------- 导入架构编辑器 JSON ---------- */
+async function importArchitecture(data) {
+  const nodes = Array.isArray(data && data.nodes) ? data.nodes : [];
+  if (!nodes.length) throw new Error('JSON 中没有 nodes 数组');
+  const res = await api('/api/import/architecture', {
+    method: 'POST',
+    body: JSON.stringify({ project: data.project, nodes: data.nodes, edges: data.edges || [] })
+  });
+  toast('已导入「' + res.graph.name + '」：' + res.nodes + ' 节点 / ' + res.edges + ' 连线' + (res.skipped ? '（跳过 ' + res.skipped + '）' : ''), 'ok');
+  await refresh();
+  enterGraph(res.graph.id);
+}
+$('#btn-import-arch').addEventListener('click', () => $('#import-arch-input').click());
+$('#import-arch-input').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    await importArchitecture(data);
+  } catch (err) {
+    toast('导入失败：' + err.message, 'err');
+  }
+  e.target.value = '';
+});
 
 $('#btn-zoom-in').addEventListener('click', () => zoomBy(1.25, innerWidth / 2, innerHeight / 2));
 $('#btn-zoom-out').addEventListener('click', () => zoomBy(1 / 1.25, innerWidth / 2, innerHeight / 2));
