@@ -617,6 +617,7 @@ function closePanel() {
 let pan = null;
 board.addEventListener('pointerdown', (e) => {
   if (e.target.closest('.node') || e.target.closest('.port') || e.target.closest('#panel') || e.target.closest('#wires path')) return;
+  if (pinch) return;
   if (e.button !== 0 && e.button !== 1) return;
   e.preventDefault();
   pan = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
@@ -639,6 +640,46 @@ board.addEventListener('wheel', (e) => {
   e.preventDefault();
   zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY);
 }, { passive: false });
+
+/* 触摸：单指拖动 = 平移（Pointer Events 已覆盖），双指 = 缩放 + 平移 */
+let pinch = null;
+function touchMid(t1, t2) {
+  return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+}
+function touchDist(t1, t2) {
+  const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+  return Math.hypot(dx, dy);
+}
+board.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    pan = null;
+    board.classList.remove('panning');
+    const mid = touchMid(e.touches[0], e.touches[1]);
+    pinch = { dist: touchDist(e.touches[0], e.touches[1]), mx: mid.x, my: mid.y };
+  }
+}, { passive: false });
+board.addEventListener('touchmove', (e) => {
+  if (!pinch || e.touches.length < 2) return;
+  e.preventDefault();
+  const mid = touchMid(e.touches[0], e.touches[1]);
+  const dist = touchDist(e.touches[0], e.touches[1]);
+  const [wx, wy] = screenToWorld(pinch.mx, pinch.my);
+  const f = pinch.dist > 0 && dist > 0 ? dist / pinch.dist : 1;
+  view.x += mid.x - pinch.mx;
+  view.y += mid.y - pinch.my;
+  view.scale = Math.min(3.5, Math.max(0.15, view.scale * f));
+  view.x = mid.x - wx * view.scale;
+  view.y = mid.y - wy * view.scale;
+  pinch.dist = dist;
+  pinch.mx = mid.x;
+  pinch.my = mid.y;
+  applyView();
+}, { passive: false });
+board.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) pinch = null;
+});
+board.addEventListener('touchcancel', () => { pinch = null; });
 board.addEventListener('click', (e) => {
   hideWirePop();
   if (e.target.closest('.node') || e.target.closest('#wires path')) return;

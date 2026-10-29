@@ -193,6 +193,10 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   display: flex;
   flex-direction: column;
   z-index: 2;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: grab;
 }
 .node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(79, 140, 255, .35), var(--shadow); z-index: 4; }
 .node.focused { z-index: 5; }
@@ -761,3 +765,11 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .test-badge.bad { color: var(--err); background: rgba(239,68,68,.15); }
 .test-badge.untested { color: var(--muted); background: rgba(255,255,255,.06); }
 .rc-valid { margin-left: 6px; }
+
+
+/* 触摸拖拽：节点/端口/连线层不允许浏览器手势抢占 */
+.node, .node-head, .port { touch-action: none; }
+.node { cursor: grab; }
+.node.dragging { cursor: grabbing; }
+.node.dragging .node-head { cursor: grabbing; }
+#wires { touch-action: none; }
