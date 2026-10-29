@@ -693,6 +693,28 @@ board.addEventListener('dblclick', (e) => {
   showCtxMenu(e.clientX, e.clientY, 'canvas');
 });
 
+/* ---------- 节点库显示/隐藏 ---------- */
+function setLibraryVisible(visible) {
+  const lib = $('#library');
+  const btn = $('#btn-toggle-lib');
+  if (!lib || !btn) return;
+  lib.classList.toggle('hidden', !visible);
+  btn.classList.toggle('off', !visible);
+  btn.title = visible ? '隐藏节点库 (Ctrl+B)' : '显示节点库 (Ctrl+B)';
+  try { localStorage.setItem('taskpad:libHidden', visible ? '0' : '1'); } catch (e) { /* ignore */ }
+}
+function toggleLibrary() {
+  const lib = $('#library');
+  if (!lib) return;
+  setLibraryVisible(lib.classList.contains('hidden'));
+}
+(function initLibraryVisible() {
+  let hidden = false;
+  try { hidden = localStorage.getItem('taskpad:libHidden') === '1'; } catch (e) { /* ignore */ }
+  setLibraryVisible(!hidden);
+})();
+$('#btn-toggle-lib').addEventListener('click', toggleLibrary);
+
 $('#btn-zoom-in').addEventListener('click', () => zoomBy(1.25, innerWidth / 2, innerHeight / 2));
 $('#btn-zoom-out').addEventListener('click', () => zoomBy(1 / 1.25, innerWidth / 2, innerHeight / 2));
 $('#btn-reset').addEventListener('click', fitView);
@@ -889,6 +911,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') {
     if (sel.edgeId) deleteEdge(sel.edgeId);
     else if (sel.nodeId) deleteTask(sel.nodeId);
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+    e.preventDefault();
+    toggleLibrary();
     return;
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {

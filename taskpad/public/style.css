@@ -773,3 +773,8 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .node.dragging { cursor: grabbing; }
 .node.dragging .node-head { cursor: grabbing; }
 #wires { touch-action: none; }
+
+
+/* 节点库隐藏 */
+#library.hidden { display: none; }
+#btn-toggle-lib.off { opacity: .55; }
