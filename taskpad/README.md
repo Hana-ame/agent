@@ -44,6 +44,27 @@
 | 新建节点 | 左侧节点库 或 右键画布 |
 | 历史 Trace | 工具栏「🧾 Trace 历史」 |
 
+## 部署（server 与 agent 分离）
+
+**server**（调度 + 存储）不执行任何命令，部署在任意有 Node.js 的机器（VPS / 树莓派 / Termux 手机）：
+
+```bash
+git clone https://github.com/Hana-ame/agent.git
+cd agent/taskpad
+node server.js
+# 生产守护：
+#   Linux      → systemd / pm2 / nohup
+#   Termux     → termux-services（runsv 守护，sv-enable taskpad），可参考下方脚本
+```
+
+**agent**（真正执行任务的节点）跑在其它机器上，可多台并行抢任务：
+
+```bash
+python3 worker.py --server http://<server>:8330 --worker-id <节点名> --root <项目路径>
+```
+
+> `data/` 不进 git；首次启动自动 seed 演示任务。节点通过 `--server` 指向网站地址即可，与 server 无需共享文件系统。
+
 ## 快速开始
 
 ```bash
