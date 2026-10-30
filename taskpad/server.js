@@ -88,12 +88,52 @@ function createApp(rootDir) {
   return { cfg, db, store, bus, ctx, server, scheduler, shutdown };
 }
 
+/**
+ * 命令行参数（优先级高于 config.json / 环境变量）：
+ *   --port 8335          监听端口
+ *   --data-dir <dir>     数据目录（默认 taskpad/data）
+ *   --host 0.0.0.0       绑定地址（默认监听全部网卡）
+ *   --log <file>         把 stdout/stderr 追加写入文件（后台启动时用）
+ */
+function parseArgs(argv) {
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--port' && argv[i + 1]) out.port = argv[++i];
+    else if (a === '--data-dir' && argv[i + 1]) out.dataDir = argv[++i];
+    else if (a === '--host' && argv[i + 1]) out.host = argv[++i];
+    else if (a === '--log' && argv[i + 1]) out.log = argv[++i];
+  }
+  return out;
+}
+
+/** 后台运行时没有控制台，把 console 同时写进日志文件 */
+function teeTo(file) {
+  const fs = require('fs');
+  const util = require('util');
+  const stream = fs.createWriteStream(file, { flags: 'a' });
+  const wrap = (fn) => function () {
+    fn.apply(console, arguments);
+    try {
+      stream.write(Array.prototype.map.call(arguments, (x) => (typeof x === 'string' ? x : util.inspect(x))).join(' ') + '\n');
+    } catch (e) { /* 日志写不进不影响服务 */ }
+  };
+  console.log = wrap(console.log);
+  console.error = wrap(console.error);
+  console.warn = wrap(console.warn);
+}
+
 if (require.main === module) {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.port) process.env.TASKPAD_PORT = String(args.port);
+  if (args.dataDir) process.env.TASKPAD_DATA_DIR = args.dataDir;
+  if (args.log) teeTo(args.log);
+
   const app = createApp(__dirname);
   const { cfg } = app;
   app.scheduler.start();
 
-  app.server.listen(cfg.port, () => {
+  app.server.listen(cfg.port, args.host, () => {
     const addr = app.server.address();
     console.log('[taskpad] listening on http://127.0.0.1:' + addr.port);
     console.log('  UI:     http://127.0.0.1:' + addr.port);
