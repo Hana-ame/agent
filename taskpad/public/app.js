@@ -791,7 +791,7 @@ function renderLibrary() {
     return `
       <div class="lib-group-title"><span class="gdot" style="background:${esc(eng.color)}"></span>${esc(gk)}</div>
       ${groups[gk].map((t) => `
-        <div class="lib-item" data-tpl="${esc(t.name)}" style="--c:${esc(t.color || eng.color)}">
+        <div class="lib-item" draggable="true" data-tpl="${esc(t.name)}" style="--c:${esc(t.color || eng.color)}">
           <span class="li-tag engine-badge" style="background:${esc(eng.color)}">${esc((t.engine || '').toUpperCase())}</span>
           <div class="li-name">${esc(t.name)}</div>
           <div class="li-cmd">${esc(t.command || '')}</div>
@@ -836,6 +836,79 @@ $('#lib-groups').addEventListener('click', (e) => {
   addTaskFromTemplate(tpl, ...centerPos());
 });
 $('#btn-new-custom').addEventListener('click', addCustomNode);
+
+/* ---------- 从节点库拖到画布 ---------- */
+const DND_TPL = 'application/x-taskpad-tpl';
+let draggingTpl = null;
+let dropHint = null;
+
+function showDropHint(cx, cy) {
+  if (!dropHint) {
+    dropHint = document.createElement('div');
+    dropHint.className = 'drop-hint';
+    document.body.appendChild(dropHint);
+  }
+  const tpl = state.templates.find((t) => t.name === draggingTpl);
+  dropHint.innerHTML = '<span class="dh-plus">＋</span>' + esc(draggingTpl || '')
+    + (tpl && tpl.engine ? ' <em>' + esc(tpl.engine.toUpperCase()) + '</em>' : '');
+  dropHint.style.transform = 'translate(' + (cx + 16) + 'px,' + (cy + 10) + 'px)';
+  dropHint.hidden = false;
+}
+
+function hideDropHint() {
+  if (dropHint) dropHint.hidden = true;
+  board.classList.remove('drop-active');
+  document.body.classList.remove('dnd-lib');
+}
+
+$('#lib-groups').addEventListener('dragstart', (e) => {
+  const item = e.target.closest('.lib-item');
+  if (!item) return;
+  draggingTpl = item.dataset.tpl;
+  try {
+    e.dataTransfer.setData(DND_TPL, draggingTpl);
+    e.dataTransfer.setData('text/plain', draggingTpl); // 兜底：跨浏览器/跨窗口
+    e.dataTransfer.effectAllowed = 'copy';
+  } catch (err) { /* ignore */ }
+  item.classList.add('dragging');
+  document.body.classList.add('dnd-lib');
+});
+
+$('#lib-groups').addEventListener('dragend', () => {
+  const d = $('#lib-groups').querySelector('.lib-item.dragging');
+  if (d) d.classList.remove('dragging');
+  draggingTpl = null;
+  hideDropHint();
+});
+
+// 只在「从节点库拖出来」时接管画布的拖放
+board.addEventListener('dragover', (e) => {
+  if (!draggingTpl) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  board.classList.add('drop-active');
+  showDropHint(e.clientX, e.clientY);
+});
+
+board.addEventListener('dragleave', (e) => {
+  if (!draggingTpl) return;
+  if (!e.relatedTarget || !board.contains(e.relatedTarget)) hideDropHint();
+});
+
+board.addEventListener('drop', async (e) => {
+  if (!draggingTpl) return;
+  e.preventDefault();
+  const name = (e.dataTransfer.getData(DND_TPL) || draggingTpl || '');
+  const tpl = state.templates.find((t) => t.name === name);
+  const cx = e.clientX;
+  const cy = e.clientY;
+  hideDropHint();
+  draggingTpl = null;
+  if (!tpl) return;
+  // 落点换算成画布世界坐标；节点宽 300px，按「鼠标落在节点中心」摆放
+  const [wx, wy] = screenToWorld(cx, cy);
+  await addTaskFromTemplate(tpl, Math.round(wx) - 150, Math.round(wy) - 45);
+});
 
 /* ---------- 右键菜单 ---------- */
 const ctx = $('#ctxmenu');

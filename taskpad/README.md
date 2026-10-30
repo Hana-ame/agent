@@ -66,7 +66,7 @@
 | 模块内部流程 | 双击节点 → “内部流程图”（子图） |
 | 查看详情 | 双击节点（端口、成果卡、定时、日志、编辑） |
 | 复制节点 | 选中后 Ctrl+D 或右键 |
-| 新建节点 | 左侧节点库 或 右键画布 |
+| 新建节点 | 从左侧节点库**拖到画布任意位置**（落点=鼠标位置），或点击模板加到视图中心，或右键画布 |
 | 历史 Trace | 工具栏「🧾 Trace 历史」 |
 
 ## 部署（server 与 agent 分离）
@@ -219,6 +219,7 @@ taskpad/
 ```bash
 node test/smoke.js        # 12 项：冷启动迁移、门禁、成果注入、拓扑、级联删除、越权路径
 bash test/e2e-worker.sh   # 起临时 server + 真跑 worker.py，验证 A→B 注入与输入门禁
+node test/dnd-check.js    # 无头 Edge + CDP：节点库拖到画布是否真的落点正确（自带清理）
 ```
 
 两个脚本都用临时数据目录（`TASKPAD_DATA_DIR`）和独立端口，不会动 `data/store.json`。
