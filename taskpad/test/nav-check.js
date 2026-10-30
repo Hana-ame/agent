@@ -15,9 +15,10 @@
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : d; };
-const BASE = arg('--url', 'http://127.0.0.1:8335');
+let BASE = arg('--url', '');
 
 const { launch, sleep } = require('./cdp');
+const { startServer } = require('./server');
 
 async function api(method, path, body) {
   const r = await fetch(BASE + path, {
@@ -34,8 +35,14 @@ const ok = (n) => console.log('  ok   ' + n);
 const bad = (n, m) => { failed++; console.log('  FAIL ' + n + ' :: ' + m); };
 
 async function main() {
+  let srv = null;
+  if (!BASE) { srv = await startServer(); BASE = srv.base; }
   const cdp = await launch(BASE);
-  if (cdp.edgeMissing) { console.log('跳过：本机没找到 Edge'); return; }
+  if (cdp.edgeMissing) {
+    console.log('跳过：本机没找到 Edge');
+    if (srv) await srv.stop();
+    return;
+  }
 
   let taskId = null;
   let graphId = null;
@@ -114,6 +121,7 @@ async function main() {
     try { if (taskId) await api('DELETE', '/api/tasks/' + taskId); } catch (e) { /* ignore */ }
     const err = await cdp.close();
     if (failed && err) console.log('\n[edge stderr]\n' + err.split('\n').slice(0, 5).join('\n'));
+    if (srv) { try { await srv.stop(); } catch (e) { /* ignore */ } }
   }
 
   console.log(failed ? '\n失败 ' + failed + ' 项' : '\n全部通过');

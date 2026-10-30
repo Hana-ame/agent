@@ -228,19 +228,36 @@ function zoomBy(factor, clientX, clientY) {
 function fitView() {
   const list = currentTasks();
   if (!list.length) { view.x = 30; view.y = 30; view.scale = 1; applyView(); return; }
+  const vw = board.clientWidth, vh = board.clientHeight;
+  // 画布被侧栏/面板挤成一条缝时不要排版：按最小缩放硬缩出去等于把图毁掉，
+  // 等窗口恢复再说（resize 里有补偿）。
+  if (vw < 320 || vh < 240) return;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   list.forEach((t) => {
     minX = Math.min(minX, t.x); minY = Math.min(minY, t.y);
     maxX = Math.max(maxX, t.x + NODE_W); maxY = Math.max(maxY, t.y + nodeHeight(t));
   });
-  const vw = board.clientWidth, vh = board.clientHeight;
   const bw = Math.max(maxX - minX, 400), bh = Math.max(maxY - minY, 300);
-  const scale = Math.min(1.1, Math.max(0.15, Math.min((vw - 120) / bw, (vh - 120) / bh)));
+  // 自动适配的下限抬到 0.3：再小字就看不清了，不如让用户自己滚
+  const scale = Math.min(1.1, Math.max(0.3, Math.min((vw - 120) / bw, (vh - 120) / bh)));
   view.scale = scale;
   view.x = (vw - bw * scale) / 2 - minX * scale;
   view.y = (vh - bh * scale) / 2 - minY * scale;
   applyView();
 }
+
+// 窗口/侧栏变化把视图挤扁后，恢复宽度时自动补一次适配
+(function watchResize() {
+  let timer = null;
+  addEventListener('resize', () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      if (document.hidden) return;
+      if (view.scale <= 0.31) fitView();
+    }, 250);
+  });
+})();
 
 /* ---------- 节点几何（模块，无 in/out 端口） ---------- */
 const BODY_H = 76;

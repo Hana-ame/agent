@@ -89,6 +89,7 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 /* ---------- 节点库 ---------- */
 #library {
   flex: 0 0 236px;
+  min-width: 0;          /* 关键：否则长模板名会把 min-content 撑到 500px+，画布被挤成一条缝 */
   background: var(--bg2);
   border-right: 1px solid var(--border);
   display: flex;
@@ -119,6 +120,7 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 }
 .lib-group-title .gdot { width: 8px; height: 8px; border-radius: 50%; }
 .lib-item {
+  min-width: 0;
   background: var(--node);
   border: 1px solid var(--border);
   border-left: 3px solid var(--c, var(--accent));
@@ -140,6 +142,8 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   white-space: nowrap;
 }
 .lib-item .li-tag { float: right; }
+.lib-item .li-name, .lib-item .li-cmd { min-width: 0; max-width: 100%; }
+#library #lib-groups { min-width: 0; overflow-x: hidden; }
 .engine-badge {
   font-size: 10px;
   font-weight: 700;

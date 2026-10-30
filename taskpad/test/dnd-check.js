@@ -4,7 +4,8 @@
 /**
  * 节点库拖放验证（无头 Edge + CDP，零依赖）。
  *
- *   node test/dnd-check.js [--url http://127.0.0.1:8335]
+ *   node test/dnd-check.js                 # 自起隔离实例（推荐）
+ *   node test/dnd-check.js --url http://127.0.0.1:8335   # 打已有实例（会在人家画布上建节点）
  *
  * 做三件事：
  *   1. 确认节点库真的渲染出了 .lib-item（渲染崩了会直接报出来）
@@ -24,7 +25,8 @@ function arg(name, def) {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : def;
 }
-const BASE = arg('--url', 'http://127.0.0.1:8335');
+let BASE = arg('--url', '');
+const { startServer } = require('./server');
 const EDGE = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
@@ -93,6 +95,8 @@ async function main() {
     console.log('跳过：本机没找到 Edge');
     return;
   }
+  let srv = null;
+  if (!BASE) { srv = await startServer(); BASE = srv.base; }
 
   const before = (await (await fetch(BASE + '/api/state')).json());
   const beforeCount = before.tasks.length;
@@ -200,6 +204,7 @@ async function main() {
     }
   } finally {
     try { if (ws) ws.close(); } catch (e) { /* ignore */ }
+    if (srv) { try { await srv.stop(); } catch (e) { /* ignore */ } }
     try { child.kill(); } catch (e) { /* ignore */ }
     await sleep(300);
     try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* ignore */ }
