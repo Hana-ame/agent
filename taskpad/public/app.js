@@ -127,18 +127,40 @@ function renderGraphBar() {
   const pathEl = $('#graph-path');
   if (!pathEl) return;
   const path = graphPathList();
-  pathEl.innerHTML = path.map((g, i) => `
-    <span class="gp-item ${i === path.length - 1 ? 'current' : ''}" data-goto-graph="${esc(g.id)}">${esc(g.name)}</span>
-    ${i < path.length - 1 ? '<span class="gp-sep">▸</span>' : ''}`).join('');
+
+  // 面包屑：主图 › 模块内部流程 › … 当前不可点，其他点一下跳过去
+  pathEl.innerHTML = path.map((g, i) => {
+    const last = i === path.length - 1;
+    const isRoot = !g.parentNodeId;
+    const owner = g.parentNodeId ? taskOf(g.parentNodeId) : null;
+    const title = owner
+      ? '内部流程图：' + g.name + '（所属模块：' + owner.name + '）'
+      : '顶层图：' + g.name;
+    const cls = 'gp-item' + (last ? ' current' : '') + (isRoot ? ' root' : '');
+    const goto = last ? '' : ` data-goto-graph="${esc(g.id)}"`;
+    const icon = isRoot ? '<span class="gp-ico">⌂</span>' : '<span class="gp-ico">◫</span>';
+    return `<span class="${cls}"${goto} title="${esc(title)}">${icon}<span class="gp-txt">${esc(g.name)}</span></span>`
+      + (last ? '' : '<span class="gp-sep">›</span>');
+  }).join('') || '<span class="gp-item current"><span class="gp-txt">（无图）</span></span>';
+
+  // 层级深/名字长时滚到当前项，别让当前图被挤出视野
+  const cur = pathEl.querySelector('.gp-item.current');
+  if (cur && cur.scrollIntoView) {
+    try { cur.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* ignore */ }
+  }
+
   const back = $('#btn-graph-back');
   if (back) back.disabled = path.length <= 1;
   const del = $('#btn-graph-del');
   if (del) del.disabled = path.length <= 1;
+
   const sel = $('#graph-select');
   if (sel) {
     const roots = (state.graphs || []).filter((g) => !g.parentNodeId);
-    sel.innerHTML = roots.map((g) => `<option value="${esc(g.id)}" ${g.id === state.activeGraphId ? 'selected' : ''}>${esc(g.name)}</option>`).join('');
-    sel.value = state.activeGraphId;
+    sel.innerHTML = roots.map((g) => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('');
+    // 在子图里时，下拉框跟随该子图所属的顶层图
+    const rootOf = path.length ? path[0].id : state.activeGraphId;
+    sel.value = rootOf;
   }
 }
 $('#graph-select').addEventListener('change', (e) => enterGraph(e.target.value));
