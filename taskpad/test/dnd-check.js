@@ -161,8 +161,30 @@ async function main() {
 
       const newest = after.tasks[after.tasks.length - 1];
       if (newest && Number.isFinite(newest.x) && Number.isFinite(newest.y)) {
-        ok('新节点坐标 x=' + newest.x + ' y=' + newest.y + '（鼠标在 ' + info.clientX + ',' + info.clientY + '）');
+        ok('新节点世界坐标 x=' + newest.x + ' y=' + newest.y);
       } else bad('新节点坐标', JSON.stringify(newest && { x: newest.x, y: newest.y }));
+
+      // 关键断言：节点在屏幕上的位置必须就是鼠标松开的位置
+      const geom = JSON.parse(await evalJs(`(() => {
+        const el = document.querySelector('.node[data-id="${newest.id}"]');
+        if (!el) return JSON.stringify({ found: false });
+        const r = el.getBoundingClientRect();
+        return JSON.stringify({
+          found: true, left: r.left, top: r.top, width: r.width, height: r.height,
+          cx: r.left + r.width / 2, cy: r.top + r.height / 2, scale: view.scale
+        });
+      })()`));
+
+      if (!geom.found) bad('节点渲染', '画布上找不到刚创建的节点');
+      else {
+        // 节点左上角应当正好落在松开鼠标的那一点
+        const dx = Math.abs(geom.left - info.clientX);
+        const dy = Math.abs(geom.top - info.clientY);
+        if (dx <= 2) ok('水平落点误差 ' + dx.toFixed(1) + 'px（鼠标 ' + info.clientX + ' / 节点左边 ' + Math.round(geom.left) + '）');
+        else bad('水平落点', '鼠标 ' + info.clientX + '，节点左边 ' + Math.round(geom.left) + '，偏差 ' + dx.toFixed(1) + 'px');
+        if (dy <= 2) ok('垂直落点误差 ' + dy.toFixed(1) + 'px（鼠标 ' + info.clientY + ' / 节点顶部 ' + Math.round(geom.top) + '）');
+        else bad('垂直落点', '鼠标 ' + info.clientY + '，节点顶部 ' + Math.round(geom.top) + '，偏差 ' + dy.toFixed(1) + 'px');
+      }
 
       // 3. 拖影提示元素应该被创建过且已隐藏
       const hint = await evalJs("(() => { const h = document.querySelector('.drop-hint'); return h ? (h.hidden ? 'hidden' : 'visible') : 'none'; })()");

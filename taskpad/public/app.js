@@ -194,11 +194,29 @@ function applyView() {
 function screenToWorld(cx, cy) {
   return [(cx - view.x) / view.scale, (cy - view.y) / view.scale];
 }
-function zoomBy(factor, cx, cy) {
-  const [wx, wy] = screenToWorld(cx, cy);
+/**
+ * 视口坐标 → 画布世界坐标。
+ * view.x/y 是相对 #board 左上角的偏移（fitView 用的是 board.clientWidth），
+ * 而鼠标事件给的是视口坐标，中间隔着 header/导航栏/左侧节点库的宽度，
+ * 所以必须先减掉画布自身的 rect，否则落点会整体偏移几百像素。
+ */
+function boardRect() { return board.getBoundingClientRect(); }
+function clientToBoard(cx, cy) { const r = boardRect(); return [cx - r.left, cy - r.top]; }
+function clientToWorld(cx, cy) {
+  const [bx, by] = clientToBoard(cx, cy);
+  return screenToWorld(bx, by);
+}
+function boardCenterClient() {
+  const r = boardRect();
+  return [r.left + r.width / 2, r.top + r.height / 2];
+}
+/** 以视口坐标 (clientX, clientY) 为锚点缩放 */
+function zoomBy(factor, clientX, clientY) {
+  const [bx, by] = clientToBoard(clientX, clientY);
+  const [wx, wy] = screenToWorld(bx, by);
   view.scale = Math.min(3.5, Math.max(0.15, view.scale * factor));
-  view.x = cx - wx * view.scale;
-  view.y = cy - wy * view.scale;
+  view.x = bx - wx * view.scale;
+  view.y = by - wy * view.scale;
   applyView();
 }
 function fitView() {
@@ -653,7 +671,9 @@ board.addEventListener('wheel', (e) => {
 /* 触摸：单指拖动 = 平移（Pointer Events 已覆盖），双指 = 缩放 + 平移 */
 let pinch = null;
 function touchMid(t1, t2) {
-  return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+  // 统一转成画布内坐标，缩小/平移用的是同一套坐标系
+  const r = boardRect();
+  return { x: (t1.clientX + t2.clientX) / 2 - r.left, y: (t1.clientY + t2.clientY) / 2 - r.top };
 }
 function touchDist(t1, t2) {
   const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
@@ -749,8 +769,8 @@ $('#import-arch-input').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
-$('#btn-zoom-in').addEventListener('click', () => zoomBy(1.25, innerWidth / 2, innerHeight / 2));
-$('#btn-zoom-out').addEventListener('click', () => zoomBy(1 / 1.25, innerWidth / 2, innerHeight / 2));
+$('#btn-zoom-in').addEventListener('click', () => zoomBy(1.25, ...boardCenterClient()));
+$('#btn-zoom-out').addEventListener('click', () => zoomBy(1 / 1.25, ...boardCenterClient()));
 $('#btn-reset').addEventListener('click', fitView);
 $('#btn-close-panel').addEventListener('click', closePanel);
 
@@ -844,8 +864,9 @@ async function addTaskFromTemplate(tpl, x, y) {
   } catch (err) { toast('添加失败：' + err.message, 'err'); }
 }
 function centerPos() {
-  const [wx, wy] = screenToWorld(innerWidth / 2 - 150, innerHeight / 2 - 60);
-  return [Math.round(wx) + Math.round(Math.random() * 80), Math.round(wy) + Math.round(Math.random() * 50)];
+  // 点击模板：放到画布可视区中心，稍微错开一点避免重叠
+  const [wx, wy] = clientToWorld(...boardCenterClient());
+  return [Math.round(wx - NODE_W / 2), Math.round(wy - 60) + Math.round(Math.random() * 40)];
 }
 function addCustomNode() {
   addTaskFromTemplate({ name: '自定义节点', engine: 'v8', color: PALETTE[0], description: '输入要执行的命令', command: 'echo "hello"' }, ...centerPos());
@@ -927,9 +948,9 @@ board.addEventListener('drop', async (e) => {
   hideDropHint();
   draggingTpl = null;
   if (!tpl) return;
-  // 落点换算成画布世界坐标；节点宽 300px，按「鼠标落在节点中心」摆放
-  const [wx, wy] = screenToWorld(cx, cy);
-  await addTaskFromTemplate(tpl, Math.round(wx) - 150, Math.round(wy) - 45);
+  // 落点 = 鼠标位置：视口 → 画布内 → 世界坐标，节点左上角就落在松开鼠标的那一点
+  const [wx, wy] = clientToWorld(cx, cy);
+  await addTaskFromTemplate(tpl, Math.round(wx), Math.round(wy));
 });
 
 /* ---------- 右键菜单 ---------- */
