@@ -1,12 +1,10 @@
 'use strict';
 
 const { json, text } = require('../router');
-const { TEMPLATES } = require('../../core/seed');
-const { labelOf } = require('../../core/cron');
 
 /** 元信息 / 状态 / Agent 发现入口 / SSE */
 function registerMeta(router, ctx) {
-  const { cfg, db, sse, scheduler } = ctx;
+  const { cfg, db, sse, scheduler, runtimeInfo } = ctx;
 
   router.get('/api/health', ({ res }) => {
     json(res, 200, {
@@ -27,7 +25,11 @@ function registerMeta(router, ctx) {
 
   router.get('/api/state', ({ res }) => json(res, 200, ctx.statePayload()));
 
-  router.get('/api/templates', ({ res }) => json(res, 200, { templates: TEMPLATES }));
+  // 节点库：按 runtime × action 展开，数据来自 core/runtimes.js（真实能力表）
+  router.get('/api/templates', ({ res }) => json(res, 200, { templates: runtimeInfo.templates }));
+
+  // 运行时能力表：v8 有 CLI、v9 只有库、v7 纯库，各自能做什么
+  router.get('/api/runtimes', ({ res }) => json(res, 200, { runtimes: runtimeInfo.runtimes }));
 
   router.get('/api/events', ({ req, res }) => sse.attach(req, res));
 
@@ -98,4 +100,4 @@ function registerMeta(router, ctx) {
   });
 }
 
-module.exports = { registerMeta, labelOf };
+module.exports = { registerMeta };

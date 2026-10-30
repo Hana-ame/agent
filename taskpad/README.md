@@ -159,6 +159,36 @@ python3 worker.py --server http://127.0.0.1:8330 --worker-id my-node --root /pat
 - 想新增引擎（如 v7、v127）：照抄一段并起个 id 即可，前端会自动出现选项。
 - **Windows 注意**：当前命令用 `python3`（WSL/Linux）。在 Windows 上把命令里的 `python3` 换成 `python` 或 `.venv\Scripts\python.exe`；shell 语法（`&&`、`for` 等）按 cmd/PowerShell 调整。
 
+## 运行时：V7 / V8 / V9 到底是什么
+
+这一节是纠错记录。之前 taskpad 把 `engine` 当成「在哪个目录跑命令」，导入架构时还统一
+硬编码成 `v8`，结果 66 个节点里有 50 个挂着 `echo "[TaskPad] xxx 无命令"` 的假命令，
+标签全是 V8——跟节点实际是什么毫无关系。
+
+按代码事实重新对齐（2026-10-30 逐条核对过）：
+
+| 层 | 是什么 | 有 CLI 吗 | 执行单位 | 产物 |
+|---|---|---|---|---|
+| **v7** | 标签 DAG 本体：`v7.load / v7.step / v7.set` | **没有**，纯库 | 一张图 | 无持久化 |
+| **v8 / dag8** | 唯一有命令行的一层：`python -m dag8`，18 个子命令 | **有** | 一个 **config 文件**（`v8/configs/*.json`） | `v8/data/dag8.sqlite3` |
+| **v9** | 知识推理：复用 v8 做调度，自己只管实体/关系/来源 | **没有**，只有 `v9.demo` 和 Python API（`Knowledge` / `InferenceEngine` / `CycleEngine`） | 一个推理周期 | `v9/data/knowledge.sqlite3` |
+
+由此定下四条规则：
+
+1. **层属于图，不属于节点**。`graph.layer` ∈ `v7|v8|v9|other|null`，子图继承父图，节点继承图。
+   图名以 `V7/V8/V9` 开头的会自动认领（`V9 · 知识推理层` → `v9`）。
+2. **节点的 `engine` 只回答「这个模块靠什么被执行」**：`dag8` / `v9` / `v7` / `shell` / `none`。
+   徽章上 `dag8` 显示为 `V8`，`none` 显示为 `—`。
+3. **没有命令 = 纯架构模块**（`engine: none`）。不再伪造 `echo` 占位；这类节点点「启动」直接 400，
+   定时到了也不会假装跑一次。
+4. **节点库不再写死**。`/api/templates` 由 `src/core/runtimes.js` 现扫生成：
+   `v8/configs/` 下真实存在的 config × (run / lint)、dag8 的其余子命令（doctor/stats/cost/route/scaffold…）、
+   v9 与 v7 的库入口、以及一条 shell 自检。能力表见 `GET /api/runtimes`。
+
+首次升级会做一次性迁移：假命令清空并归到 `none`，真命令按实际调用的层归类
+（`-m dag8` → dag8、`-m v9.demo` / `pytest v9/` → v9 …），节点数一个不少。
+验证脚本：`node test/migrate-check.js`（拿 `data/store.json` 的副本跑，不动线上数据）。
+
 ## 服务端结构（分层与依赖方向）
 
 ```

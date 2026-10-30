@@ -64,6 +64,19 @@ function loadConfig(rootDir) {
     ? JSON.parse(JSON.stringify(config.engines))
     : JSON.parse(JSON.stringify(DEFAULT_ENGINES));
 
+  // 运行时补齐：节点上的 engine 现在指的是「这层怎么被执行」，
+  // 只有 dag8 有 CLI，v7/v9 是库，shell 是兜底，none 表示纯架构模块（不执行）。
+  const RUNTIME_DEFAULTS = {
+    dag8: { label: 'V8 · dag8', cwd: 'v8', color: '#3b82f6' },
+    v7: { label: 'V7 · 本体', cwd: '.', color: '#22c55e' },
+    v9: { label: 'V9 · 知识推理', cwd: '.', color: '#a855f7' },
+    shell: { label: 'Shell', cwd: '.', color: '#64748b' },
+    none: { label: '未接线', cwd: '.', color: '#4b5563' }
+  };
+  for (const [id, def] of Object.entries(RUNTIME_DEFAULTS)) {
+    if (!engines[id]) engines[id] = { label: def.label, cwd: def.cwd, env: {}, timeoutMs: 1800000, color: def.color };
+  }
+
   for (const key of Object.keys(engines)) {
     const e = engines[key];
     e.label = e.label || key.toUpperCase();
@@ -82,6 +95,9 @@ function loadConfig(rootDir) {
     artifactDir: path.join(dataDir, 'artifacts'),
     projectRoot,
     port,
+    // 任务命令里的 Python 入口。仓库文档写的是 python3（WSL），Windows 上是 python，
+    // 所以不写死，交给 config.json / 环境变量决定。
+    python: process.env.TASKPAD_PYTHON || config.python || 'python',
     engines,
     limits: LIMITS,
     engineIds: Object.keys(engines),

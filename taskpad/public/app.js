@@ -34,7 +34,7 @@ const state = {
 const view = { x: 30, y: 30, scale: 1 };
 const sel = { nodeId: null, edgeId: null };
 
-const formData = { name: '', engine: 'v8', color: PALETTE[0], description: '', command: '', scope: '', spec: '', group: '' };
+const formData = { name: '', engine: 'shell', color: PALETTE[0], description: '', command: '', scope: '', spec: '', group: '' };
 const portData = { inputs: [], outputs: [] };   // 端口编辑缓冲
 const expandedPorts = new Set();                // 展开的端口（规范/测试编辑）
 const schedData = { type: 'interval', minutes: 5, time: '08:00', cron: '0 * * * *', enabled: true };
@@ -92,6 +92,12 @@ function statusText(s) {
 }
 function engineOf(id) {
   return state.engines.find((e) => e.id === id) || { id, label: id, color: '#64748b' };
+}
+/** none = 纯架构模块，没有执行入口；dag8 对外就叫 V8，别显示成 "DAG8" */
+const ENGINE_SHORT = { dag8: 'V8', v8: 'V8', v9: 'V9', v7: 'V7', shell: 'SH', none: '—' };
+function engineText(id) {
+  if (!id) return '—';
+  return ENGINE_SHORT[id] || String(id).toUpperCase();
 }
 function taskOf(id) { return state.tasks.find((t) => t.id === id); }
 function edgeOf(id) { return state.edges.find((e) => e.id === id); }
@@ -405,7 +411,7 @@ function renderNodes() {
         <span class="node-status ${esc(st)}"></span>
         <span class="node-title">${esc(t.name)}</span>
         ${t.group ? `<span class="group-chip">${esc(t.group)}</span>` : ''}
-        <span class="engine-badge" style="background:${esc(eng.color || '#64748b')}">${esc((t.engine || '').toUpperCase())}</span>
+        <span class="engine-badge" style="background:${esc(eng.color || '#64748b')}">${esc(engineText(t.engine))}</span>
       </div>
       <div class="node-body" style="height:${BODY_H}px">
         <div class="node-desc">${esc(t.description || '')}</div>
@@ -612,7 +618,7 @@ function openTaskPanel(id) {
   const t = taskOf(id);
   if (t) {
     formData.name = t.name;
-    formData.engine = t.engine || 'v8';
+    formData.engine = t.engine || (String(t.command || '').trim() ? 'shell' : 'none');
     formData.color = t.color || engineOf(t.engine).color || PALETTE[0];
     formData.description = t.description || '';
     formData.command = t.command || '';
@@ -834,7 +840,7 @@ function renderLibrary() {
       <div class="lib-group-title"><span class="gdot" style="background:${esc(eng.color)}"></span>${esc(gk)}</div>
       ${groups[gk].map((t) => `
         <div class="lib-item" draggable="true" data-tpl="${esc(t.name)}" style="--c:${esc(t.color || eng.color)}">
-          <span class="li-tag engine-badge" style="background:${esc(eng.color)}">${esc((t.engine || '').toUpperCase())}</span>
+          <span class="li-tag engine-badge" style="background:${esc(eng.color)}">${esc(engineText(t.engine))}</span>
           <div class="li-name">${esc(t.name)}</div>
           <div class="li-cmd">${esc(t.command || '')}</div>
         </div>`).join('')}`;
@@ -851,7 +857,7 @@ async function addTaskFromTemplate(tpl, x, y) {
     await api('/api/tasks', {
       method: 'POST',
       body: JSON.stringify({
-        name, engine: tpl.engine || 'v8', color: tpl.color, description: tpl.description || '',
+        name, engine: tpl.engine || 'shell', color: tpl.color, description: tpl.description || '',
         command: tpl.command || '', x, y,
         graphId: state.activeGraphId,
         scope: '', spec: '',
@@ -869,7 +875,7 @@ function centerPos() {
   return [Math.round(wx - NODE_W / 2), Math.round(wy - 60) + Math.round(Math.random() * 40)];
 }
 function addCustomNode() {
-  addTaskFromTemplate({ name: '自定义节点', engine: 'v8', color: PALETTE[0], description: '输入要执行的命令', command: 'echo "hello"' }, ...centerPos());
+  addTaskFromTemplate({ name: '自定义节点', engine: 'shell', color: PALETTE[0], description: '输入要执行的命令', command: 'echo "hello"' }, ...centerPos());
 }
 $('#lib-groups').addEventListener('click', (e) => {
   const item = e.target.closest('.lib-item');
@@ -959,9 +965,9 @@ function showCtxMenu(x, y, kind, payload) {
   let html = '';
   if (kind === 'canvas') {
     html = `
-      <div class="cm-item" data-ctx="add-v8">＋ 新建 V8 节点</div>
-      <div class="cm-item" data-ctx="add-v9">＋ 新建 V9 节点</div>
-      <div class="cm-item" data-ctx="add-custom">＋ 自定义空白节点</div>
+      <div class="cm-item" data-ctx="add-v8">＋ 新建 V8 模块（dag8，未接命令）</div>
+      <div class="cm-item" data-ctx="add-v9">＋ 新建 V9 模块（未接命令）</div>
+      <div class="cm-item" data-ctx="add-custom">＋ 自定义可执行节点</div>
       <div class="cm-sep"></div>
       <div class="cm-item" data-ctx="fit">⌂ 适配全部节点</div>
       <div class="cm-item" data-ctx="clear-runs">清空运行记录</div>`;
@@ -994,8 +1000,8 @@ ctx.addEventListener('click', (e) => {
   ctx.hidden = true;
   if (!item) return;
   const act = item.dataset.ctx;
-  if (act === 'add-v8') addTaskFromTemplate({ name: 'V8 空白任务', engine: 'v8', color: '#3b82f6', description: '', command: '' }, ...centerPos());
-  else if (act === 'add-v9') addTaskFromTemplate({ name: 'V9 空白任务', engine: 'v9', color: '#a855f7', description: '', command: '' }, ...centerPos());
+  if (act === 'add-v8') addTaskFromTemplate({ name: 'V8 模块', engine: 'dag8', color: '#3b82f6', description: '', command: '' }, ...centerPos());
+  else if (act === 'add-v9') addTaskFromTemplate({ name: 'V9 模块', engine: 'v9', color: '#a855f7', description: '', command: '' }, ...centerPos());
   else if (act === 'add-custom') addCustomNode();
   else if (act === 'fit') fitView();
   else if (act === 'clear-runs') $('#btn-clear-runs').click();
@@ -1179,7 +1185,7 @@ function renderEditPanel() {
   panelBody.innerHTML = `
     <div class="section-title">
       <span class="node-status ${esc(st)}" style="display:inline-block"></span> ${esc(t.name)}
-      <span class="engine-badge" style="background:${esc(eng.color || '#64748b')};float:right">${esc((t.engine || '').toUpperCase())}</span>
+      <span class="engine-badge" style="background:${esc(eng.color || '#64748b')};float:right">${esc(engineText(t.engine))}</span>
     </div>
 
     <button class="btn primary block big" data-bigrun="1">▶ 启动模块任务（等待节点认领）</button>

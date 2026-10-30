@@ -96,7 +96,7 @@ function statePayload(db, surface) {
 
   return {
     graphs: db.graphs.map((g) => ({
-      id: g.id, name: g.name, parentNodeId: g.parentNodeId || null, createdAt: g.createdAt
+      id: g.id, name: g.name, parentNodeId: g.parentNodeId || null, layer: g.layer || null, createdAt: g.createdAt
     })),
     tasks,
     edges: db.edges.map((e) => {

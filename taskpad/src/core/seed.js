@@ -1,78 +1,53 @@
 'use strict';
 
 const { uid, nowIso } = require('./ids');
-const { normalizePorts, normalizeTests } = require('./ports');
+const { normalizePorts } = require('./ports');
 
-/** 节点库：前端「模板」下拉用 */
-const TEMPLATES = [
-  {
-    name: 'v8 离线 demo', engine: 'v8', color: '#3b82f6',
-    command: 'python3 -m dag8 demo',
-    description: '离线 demo：command 节点多波次并行，不调模型。'
-  },
-  {
-    name: 'v8 lint + dry-run', engine: 'v8', color: '#22c55e',
-    command: 'python3 -m dag8 lint configs/demo.json && python3 -m dag8 run configs/demo.json --dry-run',
-    description: '静态检查配置 + dry-run 验证占位符渲染。'
-  },
-  {
-    name: 'v8 三边流水线', engine: 'v8', color: '#eab308',
-    command: 'python3 -m dag8 run configs/demo.json --workers 2 --rpm 3',
-    description: '起草 → 挑错 → 定稿；波次并行 + 限速。'
-  },
-  {
-    name: 'v9 知识推理 demo', engine: 'v9', color: '#a855f7',
-    command: 'python3 -m v9.demo',
-    description: '抓 Wikipedia 三实体 → 判定关系 → 写知识库。'
-  },
-  {
-    name: 'v9 测试套件', engine: 'v9', color: '#06b6d4',
-    command: 'python3 -m pytest v9/tests -q',
-    description: '运行 v9 全部测试（20 个用例）。'
-  },
-  {
-    name: '自检 echo', engine: 'v8', color: '#f43f5e',
-    command: 'echo "TaskPad 自检 OK" && date',
-    description: '最小示例，什么都不依赖。'
-  }
-];
+/**
+ * 首次启动的示例数据。
+ *
+ * 注意：节点库的模板**不在这里**——模板由 core/runtimes.js 按 v8/v9 的真实能力
+ * （dag8 的 18 个子命令、v8/configs 下真实存在的 config、v9 只有 demo）动态生成，
+ * 写死一份 demo 清单只会和真实能力越走越远。
+ */
 
+/** 示例模块：每条的 command 都是**真能跑通**的，不放占位 echo */
 const SEED_DEFS = [
   {
-    name: 'v8 离线 demo（最快验证）', engine: 'v8', color: '#3b82f6',
-    command: 'python3 -m dag8 demo',
-    description: '离线 demo：command 节点多波次并行，不调模型。用于确认服务链路正常。',
-    x: 80, y: 60
+    name: 'dag8 demo（离线，不调模型）', engine: 'dag8', color: '#3b82f6',
+    command: 'python -m dag8 demo',
+    description: 'command 节点多波次并行，验证 v8 调度链路，不花 token。',
+    group: 'v8', x: 80, y: 60
   },
   {
-    name: 'v8 lint + dry-run', engine: 'v8', color: '#22c55e',
-    command: 'python3 -m dag8 lint configs/demo.json && python3 -m dag8 run configs/demo.json --dry-run',
-    description: '先静态检查配置，再 dry-run 验证占位符渲染（不调 pi）。',
-    x: 520, y: 60
+    name: 'dag8 lint · demo.json', engine: 'dag8', color: '#0ea5e9',
+    command: 'python -m dag8 lint configs/demo.json',
+    description: '静态检查：环 / 不可达输入 / 子图路径。',
+    group: 'v8', x: 520, y: 60
   },
   {
-    name: 'v8 三边流水线', engine: 'v8', color: '#eab308',
-    command: 'python3 -m dag8 run configs/demo.json --workers 2 --rpm 3',
-    description: '起草 → 挑错 → 定稿；依赖 lint 通过后再跑。',
-    x: 120, y: 420
+    name: 'dag8 run · demo.json', engine: 'dag8', color: '#eab308',
+    command: 'python -m dag8 run configs/demo.json --workers 2 --rpm 3',
+    description: '起草 → 挑错 → 定稿；免费网关建议 ≤2 并发 + RPM 限速。',
+    group: 'v8', x: 120, y: 420
   },
   {
-    name: 'v9 知识推理 demo', engine: 'v9', color: '#a855f7',
-    command: 'python3 -m v9.demo',
-    description: 'v9 开放世界推理：抓 Wikipedia 三实体 → 判定关系 → 写知识库。需要外网。',
-    x: 560, y: 420
+    name: 'v9 demo（一个推理周期）', engine: 'v9', color: '#a855f7',
+    command: 'python -m v9.demo',
+    description: '抓 Wikipedia → 判关系 → 写 knowledge.sqlite3。需要外网。',
+    group: 'v9', x: 560, y: 420
   },
   {
     name: 'v9 测试套件', engine: 'v9', color: '#06b6d4',
-    command: 'python3 -m pytest v9/tests -q',
-    description: '运行 v9 全部测试（20 个用例，约 1s）。',
-    x: 980, y: 60
+    command: 'python -m pytest v9/tests -q',
+    description: 'v9 全部用例。',
+    group: 'v9', x: 980, y: 60
   },
   {
-    name: '自检：echo 任务', engine: 'v8', color: '#f43f5e',
+    name: '自检 echo', engine: 'shell', color: '#f43f5e',
     command: 'echo "TaskPad 自检 OK" && date',
-    description: '最小示例：输出一句话和当前时间，什么都不依赖。',
-    x: 980, y: 420
+    description: '最小示例：什么都不依赖。',
+    group: '', x: 980, y: 420
   }
 ];
 
@@ -82,21 +57,22 @@ function seedIfEmpty(db, cfg) {
 
   const rootId = db.graphs[0].id;
   db.tasks = SEED_DEFS.map((d) => Object.assign({
-    id: uid(), createdAt: nowIso(), graphId: rootId,
-    group: d.engine === 'v9' ? 'knowledge' : 'core',
+    id: uid(),
+    createdAt: nowIso(),
+    graphId: rootId,
     subgraphId: null,
-    scope: '示例任务：在 v8/v9 项目内执行只读检查',
-    spec: '按任务描述执行命令，输出结果供下游消费。',
+    scope: '示例模块：在对应层目录内执行只读检查',
+    spec: '按模块描述执行命令，输出结果供下游消费。',
     inputs: normalizePorts([{ id: 'in', name: 'dep', spec: '上游任意成果（可选）', tests: [] }], false),
     outputs: normalizePorts([{ id: 'out', name: 'out', spec: '命令 stdout 文本', capture: 'stdout', tests: [] }], true)
   }, d));
 
-  // 示例接口关系：lint 的产出 → 三边流水线的输入
+  // 示例接口关系：lint 通过 → 才跑整图
   const lint = db.tasks.find((t) => t.name.indexOf('lint') >= 0);
-  const pipe = db.tasks.find((t) => t.name.indexOf('三边') >= 0);
-  if (lint && pipe) {
+  const run = db.tasks.find((t) => t.name.indexOf('run ·') >= 0);
+  if (lint && run) {
     db.edges.push({
-      id: uid(), from: lint.id, fromPort: 'out', to: pipe.id, toPort: 'in',
+      id: uid(), from: lint.id, fromPort: 'out', to: run.id, toPort: 'in',
       carryName: 'out', name: 'lint 结果', label: 'lint 结果',
       kind: 'data', proto: '', auth: '', spec: 'lint 通过的 stdout', contract: '',
       graphId: rootId, tests: []
@@ -105,4 +81,4 @@ function seedIfEmpty(db, cfg) {
   return true;
 }
 
-module.exports = { TEMPLATES, SEED_DEFS, seedIfEmpty, normalizePorts, normalizeTests };
+module.exports = { SEED_DEFS, seedIfEmpty };

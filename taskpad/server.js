@@ -21,6 +21,7 @@ const { statePayload } = require('./src/core/views');
 const { createGraphService } = require('./src/domain/graph-service');
 const { createRunService } = require('./src/domain/run-service');
 const { createScheduler } = require('./src/domain/scheduler');
+const { buildRuntimes } = require('./src/core/runtimes');
 
 const { createRouter } = require('./src/http/router');
 const { createSseHub } = require('./src/http/sse');
@@ -37,14 +38,21 @@ function createApp(rootDir) {
   const db = store.init();
 
   const bus = createBus();
+
+  // v7 / v8 / v9 的真实能力表：只有 dag8 有 CLI，v9/v7 是库，config 从磁盘上现扫
+  const runtimeInfo = buildRuntimes(cfg);
+
   const graphService = createGraphService({ db, store, bus, cfg });
-  const runService = createRunService({ db, store, bus, cfg });
+  const runService = createRunService({ db, store, bus, cfg, runtimeInfo });
   const scheduler = createScheduler({ db, store, bus, cfg, runService, graphService });
 
   const ctx = {
     cfg, db, store, bus,
-    graphService, runService, scheduler,
-    statePayload: () => statePayload(db, { engines: cfg.enginesView, queue: scheduler.queueSnapshot() })
+    graphService, runService, scheduler, runtimeInfo,
+    statePayload: () => statePayload(db, {
+      engines: runtimeInfo.runtimes.map((r) => ({ id: r.id, label: r.label, color: r.color })),
+      queue: scheduler.queueSnapshot()
+    })
   };
 
   const sse = createSseHub({

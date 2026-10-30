@@ -46,6 +46,7 @@ function registerGraphs(router, ctx) {
     const task = store.findTask(params.id);
     if (!task) throw notFound('task not found');
     const r = runService.startRun(task, 'manual', '手动');
+    if (r.blocked) return json(res, 400, { error: r.reason });
     if (r.skipped) return json(res, 409, { error: '该任务已在运行中' });
     runService.ensureTrace('manual', '手动', r.run);
     store.save();

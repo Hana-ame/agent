@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { uid, nowIso } = require('./ids');
 const { normalizePorts, normalizeTests } = require('./ports');
+const { guessRuntime } = require('./runtimes');
 const { seedIfEmpty } = require('./seed');
 
 const ARRAYS = ['graphs', 'tasks', 'edges', 'schedules', 'runs', 'traces', 'workers'];
@@ -60,7 +61,26 @@ function createStore(cfg, deps) {
 
   function migrateGraphs() {
     if (!db.graphs.length) {
-      db.graphs = [{ id: uid(), name: '主图', parentNodeId: null, createdAt: nowIso() }];
+      db.graphs = [{ id: uid(), name: '主图', parentNodeId: null, layer: null, createdAt: nowIso() }];
+    }
+    for (const g of db.graphs) {
+      if (g.layer === undefined) g.layer = null;
+      // 图名以 V7/V8/V9 开头的，直接认领对应层（"V9 · 知识推理层" 这种）
+      if (!g.layer) {
+        const m = String(g.name || '').match(/^\s*v([789])\b/i);
+        if (m) g.layer = 'v' + m[1];
+      }
+    }
+    // 子图继承所属父图/父模块的层（不动点，够处理任意层嵌套）
+    for (let pass = 0; pass < 8; pass++) {
+      let changed = false;
+      for (const g of db.graphs) {
+        if (g.layer || !g.parentNodeId) continue;
+        const owner = db.tasks.find((t) => t.id === g.parentNodeId);
+        const ownerGraph = owner ? db.graphs.find((x) => x.id === owner.graphId) : null;
+        if (ownerGraph && ownerGraph.layer) { g.layer = ownerGraph.layer; changed = true; }
+      }
+      if (!changed) break;
     }
     const rootId = db.graphs[0].id;
     for (const t of db.tasks) {
@@ -72,6 +92,26 @@ function createStore(cfg, deps) {
       t.inputs = normalizePorts(t.inputs || [], false);
       t.outputs = normalizePorts(t.outputs || [], true);
       t.deps = [];
+
+      // 旧数据里 engine 是导入时硬编码的 'v8'，跟节点实际是什么毫无关系；
+      // 那份 echo "[TaskPad] … 无命令" 也是伪造的执行入口。这里一次性纠正：
+      //   假命令 → 清空 + engine=none（纯架构模块）
+      //   真命令 → 按命令实际调用的层归类
+      const legacy = String(t.engine || '');
+      if (legacy === 'v8' || legacy === 'v9' || legacy === '' || legacy === undefined) {
+        const cmd = String(t.command || '').trim();
+        const fake = !cmd || /^echo "\[TaskPad\][^"]*无命令/.test(cmd);
+        if (fake) {
+          if (cmd) t.command = '';
+          t.engine = 'none';
+        } else {
+          t.engine = guessRuntime(cmd);
+        }
+      }
+      if (!t.layer) {
+        const g = db.graphs.find((x) => x.id === t.graphId);
+        t.layer = (g && g.layer) || null;
+      }
     }
     for (const e of db.edges) {
       if (!e.graphId) e.graphId = rootId;

@@ -33,6 +33,7 @@ function createScheduler({ db, store, bus, cfg, runService, graphService }) {
     if (!task) return;
     const label = labelOf(s);
     const res = runService.startRun(task, 'scheduled', label);
+    if (res.blocked) return;                       // 纯架构模块，定时到了也没东西可跑
     if (res.skipped) {
       const skipped = runService.addSkippedRun(task, label);
       runService.ensureTrace('scheduled', label, skipped);
@@ -113,6 +114,10 @@ function createScheduler({ db, store, bus, cfg, runService, graphService }) {
         if (!task) continue;
 
         const res = runService.startRun(task, 'graph', '运行图');
+        if (res.blocked) {
+          console.warn('[scheduler] 跳过未接执行入口的模块：' + task.name);
+          continue;
+        }
         if (res.skipped) {
           // 已有活动运行：记一条 skipped 并归入同一 trace，然后推进下一个
           const skipped = runService.addSkippedRun(task, '运行图');

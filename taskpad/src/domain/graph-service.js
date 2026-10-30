@@ -7,6 +7,9 @@ const { badRequest, notFound } = require('../core/errors');
 
 const KINDS = ['code', 'data', 'net'];
 const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#a855f7', '#06b6d4', '#f43f5e', '#f97316', '#8b5cf6'];
+const LAYERS = ['v7', 'v8', 'v9', 'other'];
+/** 层 → 默认可执行运行时。纯架构模块（other/null）不挂执行入口 */
+const LAYER_RUNTIME = { v7: 'v7', v8: 'dag8', v9: 'v9' };
 
 /**
  * 图 / 模块 / 接口 的领域服务。
@@ -14,6 +17,10 @@ const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#a855f7', '#06b6d4', '#f43f5e'
  * 数据模型：Graph（项目或子图）→ Task（模块）→ Edge（模块间接口契约）→ 子图（Task 内部流程）。
  * 本模块只管「结构正确性 + 引用完整性」，不碰运行状态（那是 run-service 的事）。
  * 所有改结构的入口都在这里，保证级联清理只有一份实现。
+ *
+ * 关于 V7/V8/V9：它们是**层**，挂在图上（graph.layer），节点默认继承；
+ * 节点自己的 engine 只表示「这个模块靠什么被执行」。没有命令的架构型模块
+ * engine 就是 none —— 绝不再自动塞一条 echo 占位命令冒充可执行。
  */
 function createGraphService({ db, store, bus, cfg }) {
   function touch() {
@@ -35,7 +42,12 @@ function createGraphService({ db, store, bus, cfg }) {
     const parentNode = parentNodeId ? db.tasks.find((t) => t.id === parentNodeId) : null;
     if (parentNodeId && !parentNode) throw badRequest('父节点不存在');
 
-    const g = { id: uid(), name, parentNodeId, createdAt: nowIso() };
+    // 子图默认继承父图所属的层
+    const parentGraph = parentNode ? db.graphs.find((g) => g.id === parentNode.graphId) : null;
+    let layer = LAYERS.includes(body.layer) ? body.layer : null;
+    if (!layer && parentGraph) layer = parentGraph.layer || null;
+
+    const g = { id: uid(), name, parentNodeId, layer: layer || null, createdAt: nowIso() };
     db.graphs.push(g);
     // 双向绑定：父节点的 subgraphId 指回子图
     if (parentNode) parentNode.subgraphId = g.id;
@@ -47,6 +59,8 @@ function createGraphService({ db, store, bus, cfg }) {
     const g = db.graphs.find((x) => x.id === id);
     if (!g) throw notFound('graph not found');
     if (typeof body.name === 'string' && body.name.trim()) g.name = body.name.trim();
+    if (body.layer === null) g.layer = null;
+    else if (LAYERS.includes(body.layer)) g.layer = body.layer;
     touch();
     return g;
   }
@@ -93,17 +107,30 @@ function createGraphService({ db, store, bus, cfg }) {
     const name = String(body.name || '').trim();
     if (!name) throw badRequest('任务名不能为空');
 
-    const engine = cfg.engines[body.engine] ? String(body.engine) : (cfg.engines.v8 ? 'v8' : cfg.engineIds[0]);
+    const graphId = db.graphs.some((g) => g.id === body.graphId) ? String(body.graphId) : db.graphs[0].id;
+    const graph = db.graphs.find((g) => g.id === graphId);
+
+    // engine 不再瞎猜：显式给了就用，否则继承图所属的层；
+    // 既没有层也没有命令 → none（纯架构模块，不可执行）
+    const command = String(body.command || '').trim();
+    let engine;
+    if (body.engine && cfg.engines[body.engine]) engine = String(body.engine);
+    else if (command) engine = 'shell';
+    else if (graph && LAYER_RUNTIME[graph.layer]) engine = LAYER_RUNTIME[graph.layer];
+    else engine = 'none';
+
     const task = {
       id: uid(),
       name,
       description: String(body.description || '').trim(),
-      command: String(body.command || '').trim() || ('echo "[TaskPad] ' + name.replace(/"/g, '') + ' 无命令，仅自检"'),
+      // 没有命令就是没有命令，不再伪造一条 echo 冒充可执行
+      command,
       engine,
-      color: String(body.color || (cfg.engines[engine] && cfg.engines[engine].color) || '#3b82f6'),
+      layer: (graph && graph.layer) || null,
+      color: String(body.color || (cfg.engines[engine] && cfg.engines[engine].color) || '#64748b'),
       x: typeof body.x === 'number' ? body.x : 0,
       y: typeof body.y === 'number' ? body.y : 0,
-      graphId: db.graphs.some((g) => g.id === body.graphId) ? String(body.graphId) : db.graphs[0].id,
+      graphId,
       scope: String(body.scope || ''),
       spec: String(body.spec || ''),
       group: String(body.group || ''),
@@ -218,7 +245,8 @@ function createGraphService({ db, store, bus, cfg }) {
     if (!nodesIn.length) throw badRequest('JSON 中没有 nodes 数组');
 
     const name = String(body.project || '导入的架构').slice(0, 60);
-    const g = { id: uid(), name, parentNodeId: null, createdAt: nowIso() };
+    const layer = LAYERS.includes(body.layer) ? body.layer : null;
+    const g = { id: uid(), name, parentNodeId: null, layer, createdAt: nowIso() };
     db.graphs.push(g);
 
     const idMap = new Map();
@@ -229,8 +257,10 @@ function createGraphService({ db, store, bus, cfg }) {
         name: label.slice(0, 80),
         description: n.group ? ('[' + n.group + ']') : '',
         group: String(n.group || ''),
-        command: 'echo "[TaskPad] ' + label.replace(/"/g, '').slice(0, 60) + ' 无命令"',
-        engine: 'v8',
+        // 架构图描述的是模块，不是可执行任务：命令留空，engine 用层推导
+        command: '',
+        engine: LAYER_RUNTIME[layer] || 'none',
+        layer,
         color: colorOf(n.group),
         x: Math.round((Number(n.x) || 0) * 1.7),
         y: Math.round((Number(n.y) || 0) * 1.7),

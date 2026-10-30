@@ -19,7 +19,7 @@ const TERMINAL = ['success', 'error', 'killed', 'aborted', 'skipped'];
  *   3. 提交时做门禁：任何一条测试失败（in / out / iface）都判 error，成果不向下游投递；
  *   4. 状态流转只能按 pending → running → terminal 走，terminal 不可覆盖。
  */
-function createRunService({ db, store, bus, cfg, graphService }) {
+function createRunService({ db, store, bus, cfg, runtimeInfo }) {
   const L = cfg.limits;
 
   function touch() {
@@ -146,6 +146,10 @@ function createRunService({ db, store, bus, cfg, graphService }) {
   }
 
   function startRun(task, trigger, triggerLabel) {
+    // 没有命令的节点是「纯架构模块」，不是「跑一条空命令」
+    if (!String(task.command || '').trim()) {
+      return { blocked: true, run: null, reason: '该模块没有执行入口（纯架构节点，需要先在详情里接一条命令）' };
+    }
     const active = activeRunFor(task.id);
     if (active) return { skipped: true, run: null, active };
 
@@ -227,6 +231,7 @@ function createRunService({ db, store, bus, cfg, graphService }) {
     emitRun('run:update', run);
 
     const graph = db.graphs.find((g) => g.id === task.graphId);
+    const rt = runtimeInfo ? (runtimeInfo.runtimes || []).find((r) => r.id === task.engine) : null;
     return {
       runId: run.id,
       taskId: task.id,
@@ -238,6 +243,11 @@ function createRunService({ db, store, bus, cfg, graphService }) {
       timeoutMs: engine.timeoutMs || 1800000,
       graphId: task.graphId || null,
       graphName: graph ? graph.name : null,
+      // 这个模块属于哪一层、这层的唯一入口和产物库在哪 —— 别再让 agent 自己猜
+      layer: task.layer || (graph && graph.layer) || null,
+      runtime: rt ? {
+        id: rt.id, kind: rt.kind, entry: rt.entry, unit: rt.unit, db: rt.db, note: rt.note
+      } : null,
       scope: task.scope || '',
       spec: task.spec || '',
       interfaces: claimInterfaces(task),
