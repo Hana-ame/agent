@@ -1,0 +1,16 @@
+# 允许的仓库，一行一条，# 开头是注释。
+#
+#   owner/repo        读写
+#   owner/repo:ro     只读（能 clone，不能 push）
+#   owner/*           该 owner 下所有仓库（含以后新建的）
+#   owner/*:ro        该 owner 下所有仓库只读
+#   *                 全部仓库（危险，等于没有白名单）
+#
+# 匹配规则：最具体的胜出。exact > owner/* > *。
+# 大小写不敏感；末尾的 .git 可写可不写。
+# 不在表里的仓库一律返回 404（默认），因为它在这台机器上就不该存在。
+
+acme/widget
+acme/secret:ro
+Hana-ame/agent
+Hana-ame/*:ro

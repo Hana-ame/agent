@@ -41,104 +41,119 @@ func TestGlobToRegexp(t *testing.T) {
 	}
 }
 
-func TestBranchPolicyIsProtected(t *testing.T) {
-	bp, err := loadBranchPolicy(nil, []string{"main", "release/*", "release/**"}, "")
+func TestBranchPolicyPerRepo(t *testing.T) {
+	bp, err := loadBranchPolicy(nil, []string{
+		"Hana-ame/agent/main",
+		"Hana-ame/agent/release/*",
+		"Hana-ame/agent/release/**",
+		"acme/other/master",
+		"!Hana-ame/agent/release/hotfix-*",
+	}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bp.isProtected("feat/x") {
-		t.Error("feat/x should not be protected")
+	cases := []struct {
+		owner, repo, branch string
+		want                bool
+	}{
+		{"Hana-ame", "agent", "main", true},
+		{"Hana-ame", "agent", "release/v1", true},
+		{"Hana-ame", "agent", "release/v1/x", true},
+		{"Hana-ame", "agent", "release/hotfix-1", false},
+		{"Hana-ame", "agent", "feat/x", false},
+		{"acme", "other", "master", true},
+		{"acme", "other", "main", false},
+		{"Hana-ame", "agent", "master", false},
+		{"Hana-ame", "other", "main", false},
 	}
-	// allow overrides protect
-	bp2 := &branchPolicy{}
-	for _, p := range []string{"release/*", "release/**"} {
-		re, _ := globToRegexp(p)
-		bp2.protect = append(bp2.protect, re)
-	}
-	re, _ := globToRegexp("release/hotfix-*")
-	bp2.allow = append(bp2.allow, re)
-	if !bp2.isProtected("release/v1") {
-		t.Error("release/v1 should be protected")
-	}
-	if bp2.isProtected("release/hotfix-1") {
-		t.Error("release/hotfix-1 should be allowed (allow overrides protect)")
+	for _, c := range cases {
+		if got := bp.isProtected(c.owner, c.repo, c.branch); got != c.want {
+			t.Errorf("isProtected(%s/%s,%s) = %v, want %v", c.owner, c.repo, c.branch, got, c.want)
+		}
 	}
 	var nilPol *branchPolicy
-	if nilPol.isProtected("main") {
+	if nilPol.isProtected("o", "r", "main") {
 		t.Error("nil policy should protect nothing")
+	}
+}
+
+func TestBranchPolicyWildcards(t *testing.T) {
+	bp, err := loadBranchPolicy(nil, []string{"*/*/main", "Hana-*/*/release/**"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		owner, repo, branch string
+		want                bool
+	}{
+		{"any", "repo", "main", true},
+		{"any", "repo", "dev", false},
+		{"Hana-ame", "agent", "release/v1", true},
+		{"Hana-ame", "agent", "main", true},
+		{"other", "agent", "release/v1", false},
+	}
+	for _, c := range cases {
+		if got := bp.isProtected(c.owner, c.repo, c.branch); got != c.want {
+			t.Errorf("isProtected(%s/%s,%s) = %v, want %v", c.owner, c.repo, c.branch, got, c.want)
+		}
+	}
+}
+
+func TestParseBranchRule(t *testing.T) {
+	if _, err := parseBranchRule("Hana-ame/agent/main"); err != nil {
+		t.Fatalf("valid rule rejected: %v", err)
+	}
+	if _, err := parseBranchRule("!Hana-ame/agent/release/*"); err != nil {
+		t.Fatalf("valid allow rule rejected: %v", err)
+	}
+	for _, bad := range []string{"main", "Hana-ame/agent", "Hana-ame/agent/", "/agent/main", "Hana-ame//main"} {
+		if _, err := parseBranchRule(bad); err == nil {
+			t.Errorf("expected error for %q", bad)
+		}
+	}
+	r, _ := parseBranchRule("Hana-ame/agent/release/*")
+	if !r.matches("Hana-ame", "agent", "release/v1") || r.matches("Hana-ame", "agent", "main") {
+		t.Error("rule matching wrong")
+	}
+	r2, _ := parseBranchRule("!Hana-ame/agent/main")
+	if !r2.allow {
+		t.Error("expected allow rule")
 	}
 }
 
 func TestParseBranchPolicyFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "branches.txt")
-	content := `# comment line
-[protect]
-main
-release/*
-release/**
-
-[allow]
-release/hotfix-*
-inline-allow-x
-`
-	// NOTE: 'inline-allow-x' sits in the [allow] section -> allow entry
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	protect, allow, err := parseBranchPolicyFile(path)
+	content := "# per-repo rules\nHana-ame/agent/main\n\nHana-ame/agent/release/*\n!Hana-ame/agent/release/hotfix-*\n"
+	_ = os.WriteFile(path, []byte(content), 0o644)
+	lines, err := parseBranchPolicyFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(protect, ",") != "main,release/*,release/**" {
-		t.Errorf("protect = %v", protect)
+	want := "Hana-ame/agent/main,Hana-ame/agent/release/*,!Hana-ame/agent/release/hotfix-*"
+	if strings.Join(lines, ",") != want {
+		t.Errorf("lines = %v", lines)
 	}
-	if strings.Join(allow, ",") != "release/hotfix-*,inline-allow-x" {
-		t.Errorf("allow = %v", allow)
-	}
-
-	// invalid section
-	bad := filepath.Join(dir, "bad.txt")
-	_ = os.WriteFile(bad, []byte("[nope]\nmain\n"), 0o644)
-	if _, _, err := parseBranchPolicyFile(bad); err == nil {
-		t.Error("expected error for unknown section")
-	}
-
-	// missing file
-	if _, _, err := parseBranchPolicyFile(filepath.Join(dir, "nope.txt")); err == nil {
+	if _, err := parseBranchPolicyFile(filepath.Join(dir, "nope.txt")); err == nil {
 		t.Error("expected error for missing file")
 	}
 }
 
 func TestLoadBranchPolicyDefaults(t *testing.T) {
-	// no files, no inline -> protect the base branch
 	bp, err := loadBranchPolicy(nil, nil, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bp.isProtected("main") {
-		t.Error("default should protect base branch")
+	if !bp.isProtected("any", "repo", "main") || bp.isProtected("any", "repo", "feat") {
+		t.Error("default should protect main for any repo only")
 	}
-	if bp.isProtected("feat/x") {
-		t.Error("default should not protect feat/x")
-	}
-
-	// "none" disables all protection
-	bp, err = loadBranchPolicy(nil, []string{"none"}, "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bp.isProtected("main") {
+	bp, _ = loadBranchPolicy(nil, []string{"none"}, "main")
+	if bp.isProtected("any", "repo", "main") {
 		t.Error("none should disable protection")
 	}
-
-	// inline globs
-	bp, err = loadBranchPolicy(nil, []string{"release/*"}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bp.isProtected("release/v1") || bp.isProtected("release/v1/x") {
-		t.Error("inline release/* should protect one segment only")
+	bp, _ = loadBranchPolicy(nil, []string{"Hana-ame/agent/main"}, "")
+	if !bp.isProtected("Hana-ame", "agent", "main") || bp.isProtected("Hana-ame", "agent", "feat") {
+		t.Error("inline per-repo rule wrong")
 	}
 }
 

@@ -373,34 +373,50 @@ func httputilReverseProxy(target *url.URL, auth, owner, repo string) *httputil.R
 // pack into the managed clone and run `git merge-base --is-ancestor old new`.
 // Fast-forwards, new-branch creates and deletes are allowed; the original body
 // is forwarded unchanged. Returns true if a 403 response was written.
-type branchPolicy struct {
-	protect []*regexp.Regexp
-	allow   []*regexp.Regexp
+// branchRule 是一行策略：owner/repo/branch-glob；前缀 '!' 表示 allow（例外放行）。
+// owner/repo 支持 '*' 通配（单段），branch 支持 * / ** / ?。
+type branchRule struct {
+	ownerRe  *regexp.Regexp
+	repoRe   *regexp.Regexp
+	branchRe *regexp.Regexp
+	allow    bool
 }
 
-// isProtected: allow patterns override protect; unmatched branches are allowed.
-func (bp *branchPolicy) isProtected(branch string) bool {
+func (r *branchRule) matches(owner, repo, branch string) bool {
+	if !r.ownerRe.MatchString(owner) || !r.repoRe.MatchString(repo) {
+		return false
+	}
+	return r.branchRe.MatchString(branch)
+}
+
+type branchPolicy struct {
+	rules []branchRule
+}
+
+// isProtected(owner, repo, branch)：allow 命中 → 不保护；否则 protect 命中 → 保护；都不命中 → 不保护。
+// 每个仓库可以有完全不同的规则。
+func (bp *branchPolicy) isProtected(owner, repo, branch string) bool {
 	if bp == nil {
 		return false
 	}
-	for _, re := range bp.allow {
-		if re.MatchString(branch) {
+	for i := range bp.rules {
+		if bp.rules[i].allow && bp.rules[i].matches(owner, repo, branch) {
 			return false
 		}
 	}
-	for _, re := range bp.protect {
-		if re.MatchString(branch) {
+	for i := range bp.rules {
+		if !bp.rules[i].allow && bp.rules[i].matches(owner, repo, branch) {
 			return true
 		}
 	}
 	return false
 }
 
-func (a *App) isProtected(refOrBranch string) bool {
+func (a *App) isProtected(owner, repo, refOrBranch string) bool {
 	if a.policy == nil {
 		return false
 	}
-	return a.policy.isProtected(strings.TrimPrefix(refOrBranch, "refs/heads/"))
+	return a.policy.isProtected(owner, repo, strings.TrimPrefix(refOrBranch, "refs/heads/"))
 }
 
 // globToRegexp: '*' = one path segment ([^/]*), '**' = across '/' (.*), '?' = one non-'/' char.
@@ -427,82 +443,89 @@ func globToRegexp(pat string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
-// parseBranchPolicyFile reads [protect]/[allow] sections (or "protect x"/"allow x" lines).
-func parseBranchPolicyFile(path string) (protect, allow []string, err error) {
+// parseBranchRule 解析一行： owner/repo/branch-glob  或  !owner/repo/branch-glob（allow）
+func parseBranchRule(line string) (branchRule, error) {
+	allow := false
+	s := strings.TrimSpace(line)
+	if strings.HasPrefix(s, "!") {
+		allow = true
+		s = strings.TrimSpace(s[1:])
+	}
+	i1 := strings.IndexByte(s, '/')
+	if i1 <= 0 {
+		return branchRule{}, fmt.Errorf("bad rule %q: expect owner/repo/branch", line)
+	}
+	rest := s[i1+1:]
+	i2 := strings.IndexByte(rest, '/')
+	if i2 <= 0 {
+		return branchRule{}, fmt.Errorf("bad rule %q: expect owner/repo/branch", line)
+	}
+	owner, repo, branch := s[:i1], rest[:i2], rest[i2+1:]
+	if branch == "" {
+		return branchRule{}, fmt.Errorf("bad rule %q: empty branch pattern", line)
+	}
+	ownerRe, err := globToRegexp(owner)
+	if err != nil {
+		return branchRule{}, fmt.Errorf("bad owner %q in %q: %v", owner, line, err)
+	}
+	repoRe, err := globToRegexp(repo)
+	if err != nil {
+		return branchRule{}, fmt.Errorf("bad repo %q in %q: %v", repo, line, err)
+	}
+	branchRe, err := globToRegexp(branch)
+	if err != nil {
+		return branchRule{}, fmt.Errorf("bad branch %q in %q: %v", branch, line, err)
+	}
+	return branchRule{ownerRe: ownerRe, repoRe: repoRe, branchRe: branchRe, allow: allow}, nil
+}
+
+// parseBranchPolicyFile 读取策略文件：一行一条 owner/repo/branch-glob，'#' 注释、空行忽略。
+func parseBranchPolicyFile(path string) ([]string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	section := "protect"
+	var out []string
 	for _, line := range strings.Split(string(b), "\n") {
 		if i := strings.IndexByte(line, '#'); i >= 0 {
 			line = line[:i]
 		}
-		line = strings.TrimSpace(line)
-		if line == "" {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			switch strings.ToLower(strings.Trim(line, "[] ")) {
-			case "protect", "protected":
-				section = "protect"
-			case "allow", "allowed":
-				section = "allow"
-			default:
-				return nil, nil, fmt.Errorf("unknown section %q in %s", line, path)
-			}
-			continue
-		}
-		low := strings.ToLower(line)
-		switch {
-		case strings.HasPrefix(low, "protect "):
-			protect = append(protect, strings.TrimSpace(line[len("protect "):]))
-		case strings.HasPrefix(low, "allow "):
-			allow = append(allow, strings.TrimSpace(line[len("allow "):]))
-		case section == "allow":
-			allow = append(allow, line)
-		default:
-			protect = append(protect, line)
-		}
+		out = append(out, strings.TrimSpace(line))
 	}
-	return protect, allow, nil
+	return out, nil
 }
 
-// loadBranchPolicy builds the policy from files + inline --protect globs.
-// No files and no inline patterns -> protect the base branch; inline "none" disables all.
+// loadBranchPolicy 从文件 + 内联 --protect 构建策略。
+// 行格式：owner/repo/branch-glob（! 前缀=allow）。
+// 没有任何配置时，默认对所有仓库保护 --base 分支；--protect none 关闭全部保护。
 func loadBranchPolicy(files, inline []string, base string) (*branchPolicy, error) {
 	for _, v := range inline {
 		if strings.EqualFold(v, "none") {
 			return &branchPolicy{}, nil
 		}
 	}
-	var protectPats, allowPats []string
+	var lines []string
 	for _, f := range files {
-		pr, al, err := parseBranchPolicyFile(f)
+		ls, err := parseBranchPolicyFile(f)
 		if err != nil {
 			return nil, err
 		}
-		protectPats = append(protectPats, pr...)
-		allowPats = append(allowPats, al...)
+		lines = append(lines, ls...)
 	}
-	protectPats = append(protectPats, inline...)
-	if len(protectPats) == 0 && len(files) == 0 {
-		protectPats = []string{base}
+	lines = append(lines, inline...)
+	if len(lines) == 0 {
+		lines = []string{"*/*/" + base}
 	}
 	bp := &branchPolicy{}
-	for _, p := range protectPats {
-		re, err := globToRegexp(p)
+	for _, ln := range lines {
+		r, err := parseBranchRule(ln)
 		if err != nil {
-			return nil, fmt.Errorf("protect pattern %q: %v", p, err)
+			return nil, err
 		}
-		bp.protect = append(bp.protect, re)
-	}
-	for _, p := range allowPats {
-		re, err := globToRegexp(p)
-		if err != nil {
-			return nil, fmt.Errorf("allow pattern %q: %v", p, err)
-		}
-		bp.allow = append(bp.allow, re)
+		bp.rules = append(bp.rules, r)
 	}
 	return bp, nil
 }
@@ -527,7 +550,7 @@ func (a *App) enforceForce(w http.ResponseWriter, r *http.Request, owner, repo s
 	}
 	// pushes to protected branches are NOT allowed (no anonymous merge into main)
 	for _, c := range cmds {
-		if a.isProtected(c.ref) {
+		if a.isProtected(owner, repo, c.ref) {
 			logf("BLOCK push to protected branch %s", c.ref)
 			writeJSON(w, 403, map[string]any{"ok": false, "error": "push to protected branch is forbidden: " + c.ref + " (open a PR instead)"})
 			return true
@@ -765,7 +788,7 @@ func (a *App) handleCommit(w http.ResponseWriter, r *http.Request, owner, repo s
 }
 
 func (a *App) applyPatchCommit(owner, repo, branch, message, base, prSpec string, patch []byte) commitResult {
-	if a.isProtected(branch) {
+	if a.isProtected(owner, repo, branch) {
 		return commitResult{OK: false, Status: "failed", Error: "protected branch", Detail: "commit/push to protected branch '" + branch + "' is not allowed; use a feature branch and open a PR", Branch: branch}
 	}
 	a.cloneMu.Lock()
@@ -1525,18 +1548,19 @@ var helpTopics = map[string]helpTopic{
 	},
 	"policy": {
 		Topic:   "policy",
-		Title:   "policy — 分支保护策略（txt）",
-		Summary: "用 txt 配置受保护分支/放行分支；受保护分支禁止匿名 push/commit。",
-		Usage:   []string{"--protect-file ./branches.txt", "--protect 'main' --protect 'release/*'", "--protect none   # 关闭保护"},
+		Title:   "policy — 分支保护策略（按仓库，owner/repo/branch）",
+		Summary: "每个仓库可以有不同的受保护分支；一行一条 owner/repo/branch-glob，! 前缀表示 allow 例外。",
+		Usage:   []string{"--protect-file ./branches.txt", "--protect 'Hana-ame/agent/main' --protect 'acme/other/master'", "--protect none   # 关闭保护"},
 		Examples: []string{
-			"# branches.txt\n[protect]\nmain\nrelease/*\nrelease/**\n\n[allow]\nrelease/hotfix-*",
+			"# branches.txt（每行 owner/repo/branch-glob）\nHana-ame/agent/main\nHana-ame/agent/release/*\nHana-ame/agent/release/**\nacme/other/master\n!Hana-ame/agent/release/hotfix-*",
 		},
 		Notes: []string{
-			"段：[protect] / [allow]；也支持行内 `protect <glob>` / `allow <glob>`。",
-			"通配：* 单段（不跨 /），** 跨 /，? 单个非 / 字符。",
-			"语义：先看 [allow]，命中则不保护；否则命中 [protect] 即保护；都没命中默认放行。",
-			"默认只保护 --base 分支（main）；--protect none 关闭。",
-			"被保护分支：git push / POST /commits 一律 403。注意 git 不能同时存在 main 和 main/xxx。",
+			"格式：owner/repo/branch-glob；owner/repo 支持 * 通配。",
+			"branch 通配：* 单段（不跨 /），** 跨 /，? 单个非 / 字符。",
+			"! 前缀 = allow：命中则不保护（例外放行）。否则 protect 命中即保护；都不命中默认放行。",
+			"不同仓库互不影响：给 acme/other 配 master，不会改 Hana-ame/agent 的规则。",
+			"无任何配置时默认保护每个仓库的 --base 分支（main）；--protect none 关闭。",
+			"被保护分支：git push / POST /commits 一律 403。",
 		},
 		Related: []string{"push", "commits", "delete"},
 	},
@@ -1566,8 +1590,8 @@ var paramSpecs = []paramSpec{
 	{Flag: "--base", Type: "string", Default: "main", Desc: "POST /commits 新建分支的默认起点；也是 PR 的默认 base 分支。", Example: []string{"main", "master", "develop"}},
 	{Flag: "--allow", Type: "string（可重复）", Default: "Hana-ame/agent", Desc: "仓库白名单，支持 owner/* 通配；值以 @ 开头时从文件读取。非白名单仓库 clone/push/POST/查询一律 403。", Example: []string{"Hana-ame/agent", "Hana-ame/*", "@allow.txt"}},
 	{Flag: "--allow-file", Type: "string（可重复）", Default: "（空）", Desc: "从文本文件读取白名单，一行一个（空行与 # 注释忽略）。", Example: []string{"./allow.txt"}},
-	{Flag: "--protect", Type: "string（可重复）", Default: "= --base（main）", Desc: "受保护分支 glob：push/commit 一律 403（只能走 PR）。* = 单段，** = 跨 /；传 none 关闭。", Example: []string{"main", "main/*", "release/**", "none"}},
-	{Flag: "--protect-file", Type: "string（可重复）", Default: "（空）", Desc: "分支策略文件：有 [protect] / [allow] 两段，一行一个 glob；allow 命中则即使 protect 命中也不保护。", Example: []string{"./branches.txt"}},
+	{Flag: "--protect", Type: "string（可重复）", Default: "= --base（每个仓库的该分支）", Desc: "受保护分支规则，格式 owner/repo/branch-glob；owner/repo 支持 *，branch 支持 * ** ?；! 前缀=allow 例外；none 关闭。", Example: []string{"Hana-ame/agent/main", "Hana-ame/agent/release/*", "!Hana-ame/agent/release/hotfix-*", "none"}},
+	{Flag: "--protect-file", Type: "string（可重复）", Default: "（空）", Desc: "分支策略文件：一行一条 owner/repo/branch-glob（每个仓库可不同），! 前缀为 allow 例外。", Example: []string{"./branches.txt"}},
 	{Flag: "--api-token", Type: "string", Default: "（空）", Desc: "设置后 POST /commits 需要 Authorization: Bearer <token>；git clone/push 路径不受此限制。", Example: []string{"s3cr3t"}},
 }
 

@@ -1,5 +1,6 @@
 # v7 / v8 / v9 使用指南与自评指标
 
+> 本页只讲 **Python 框架 v7/v8/v9**。仓库总览见 [README.md](README.md)；动手改代码看 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；可视化任务图应用（当前主线）见 [taskpad/README.md](taskpad/README.md)。
 > 架构与去重决策见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；接口表见 [docs/interfaces.html](docs/interfaces.html)。
 
 ## 1. 先选层

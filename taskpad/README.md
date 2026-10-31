@@ -1,5 +1,7 @@
 # TaskPad · 任务白板（ComfyUI 风格节点图）
 
+> 仓库其他部分（Python DAG 框架 v7/v8/v9、scripts、reports）见根目录 [README.md](../README.md)。
+
 一个**零依赖**的 Node.js 全栈应用，界面模仿 **ComfyUI** 的节点图。
 
 ## Agent 工位（网页互动接任务）

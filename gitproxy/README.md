@@ -111,25 +111,28 @@ curl -sS "$B/issues/1"                 # {"issue":{number,title,state,body,label
 - `details_url` 指到 GitHub Actions 具体 job。
 - 坏 sha / 坏编号 → 400；不存在的 PR/issue → 502；非白名单 → 403。
 
-## 分支保护策略（protect / allow txt）
+## 分支保护策略（按仓库：owner/repo/branch）
 
-`--protect-file branches.txt`（可重复）或内联 `--protect` 配置哪些分支禁止匿名 push/commit。
+**每个仓库可以有不同的受保护分支**。`--protect-file branches.txt`（可重复）或内联 `--protect`，
+一行一条规则：`owner/repo/branch-glob`，`!` 前缀表示 allow 例外。
 
 ```txt
-# branches.txt
-# * = 单段，** = 跨 '/'
-[protect]
-main
-release/*
-release/**
+# branches.txt —— 每行 owner/repo/branch-glob
+Hana-ame/agent/main
+Hana-ame/agent/release/*
+Hana-ame/agent/release/**
+acme/other/master          # 不同仓库，规则不同
+acme/other/release/**
 
-[allow]
-release/hotfix-*
+# allow 例外（命中则即使 protect 命中也不保护）
+!Hana-ame/agent/release/hotfix-*
 ```
 
-- 语义：**先看 `[allow]`，命中则不保护；否则命中 `[protect]` 即保护；都没命中默认放行。**
-- 通配：`*` 单段（不跨 `/`）、`**` 跨 `/`、`?` 单字符；也支持行内 `protect <glob>` / `allow <glob>`。
-- 默认（不给参数）只保护 `--base` 分支（`main`）；`--protect none` 关闭。
+- 格式：`owner/repo/branch-glob`；owner/repo 支持 `*` 通配。
+- branch 通配：`*` 单段（不跨 `/`）、`**` 跨 `/`、`?` 单字符。
+- 语义：`!`(allow) 命中 → 不保护；否则 protect 命中 → 保护；都不命中 → 放行。
+- 不同仓库互不影响。
+- 默认（不给参数）保护**每个仓库**的 `--base` 分支（`main`）；`--protect none` 关闭。
 - 被保护分支上 `git push` / `POST /commits` 一律 **403**（只能开 PR 由人合并）。
 - 注意 git 限制：不能同时存在 `main` 和 `main/xxx` 这种同名空间，所以 `main/*` 只对真有该命名空间的仓库有意义。
 
@@ -166,6 +169,31 @@ receive-pack 请求体里**没有** force 标志（实测 git 2.43），所以�
 - GitHub Actions：`gitproxy/.github/workflows/ci.yml`（vet / test / build / 交叉编译）。
   - **gitproxy 作为独立仓库**：把该文件放到仓库根的 `.github/workflows/ci.yml` 即可。
   - **嵌在别的仓库的子目录**：移到仓库根 `.github/workflows/gitproxy-ci.yml`，加 `defaults.run.working-directory: gitproxy`，并把 `gitproxy/` 提交进该仓库。
+
+## 部署为 systemd 服务（本机已配置）
+
+| 项 | 路径 |
+|----|------|
+| 二进制 | `/usr/local/bin/gitproxy` |
+| 配置 | `/home/lumin/.config/gitproxy/repos.txt`、`branches.txt` |
+| 数据（托管 clone） | `/home/lumin/.local/share/gitproxy/data` |
+| unit | `/etc/systemd/system/gitproxy.service`（`User=lumin`，`Restart=on-failure`） |
+
+```bash
+sudo systemctl status gitproxy        # 状态
+sudo systemctl restart gitproxy       # 重启（改配置后）
+sudo systemctl stop|start gitproxy
+journalctl -u gitproxy -f             # 跟日志
+```
+
+- 开机自启：已 `enable`（`multi-user.target.wants`）。
+- **更新二进制**：
+  ```bash
+  cd /mnt/c/Users/lumin/Downloads/agent/gitproxy
+  go build -o gitproxy . && sudo cp gitproxy /usr/local/bin/gitproxy
+  sudo systemctl restart gitproxy
+  ```
+- **改配置**：编辑 `/home/lumin/.config/gitproxy/*.txt` → `sudo systemctl restart gitproxy`。
 
 ## 运维 / 已知限制
 - clone 过代理偶发 `invalid index-pack output` 已通过**强制后端 HTTP/1.1** 解决；仍偶有网络抖动，重试即可。

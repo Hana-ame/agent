@@ -1,5 +1,6 @@
 # v7 / v8 / v9 当前架构与边界
 
+> **范围**：只覆盖 Python 框架 v7/v8/v9。仓库总览见 [../README.md](../README.md)；开发指南见 [DEVELOPMENT.md](DEVELOPMENT.md)；taskpad（可视化任务图应用）见 [../taskpad/README.md](../taskpad/README.md)。
 > 版本：`abdd351`　更新：2026-10-27  
 > 接口表：[interfaces.json](interfaces.json)　可拖拽图：[interfaces.html](interfaces.html)
 

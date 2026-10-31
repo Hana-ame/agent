@@ -1,0 +1,77 @@
+# git-relay 放在 nginx 后面的最小可用配置。
+#
+# 每一条都是实测出来的，不是抄模板：
+#   不改 client_max_body_size → 2MB 的 push 直接 413，上游收不到任何东西
+#   不改 proxy_buffering      → clone 的首字节要等到整个 packfile 收完
+#   不改 proxy_read_timeout   → 上游卡住超过 60s 就断（注意：这是空闲超时，
+#                               不是总时长，只要数据一直在流就不会触发）
+#
+# 用法：cp 到 /etc/nginx/conf.d/git.conf，改掉 server_name / 证书路径 / 上游端口，
+#       nginx -t && nginx -s reload
+
+server {
+    listen 443 ssl;
+    # nginx >= 1.25.1 用下面这行开 HTTP/2；更老的版本把它写进 listen：listen 443 ssl http2;
+    http2 on;
+
+    server_name git.example.com;
+
+    ssl_certificate     /etc/ssl/git.example.com.pem;
+    ssl_certificate_key /etc/ssl/git.example.com.key;
+
+    # 访问日志里带上耗时和字节数，出问题能一眼看出卡在哪一段
+    access_log /var/log/nginx/git-relay.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:8848;
+
+        # ---- 协议层 ----
+        proxy_http_version 1.1;          # 默认 1.0，到上游不能 keep-alive，每个请求都要重连
+        proxy_set_header Connection "";  # 清掉 close，让上游连接复用
+
+        # ---- 请求头透传 ----
+        # Host 用客户端原始值；relay 会自己改写成 upstream 的 host，这里只是为了日志
+        proxy_set_header Host              $http_host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # 改动后 relay 的台账会记真实客户端 IP 而不是 127.0.0.1
+
+        # ---- 大头 ----
+        # push 的 packfile 可以上 GB。默认 1m，超过就 413，而且 relay 完全看不到
+        # 这个请求（nginx 在转发前就拒了），所以客户端只会看到一句没有上下文的 413
+        client_max_body_size 0;
+
+        # 默认 on：整个 push body 先落到临时文件再转发。占磁盘、加延迟，
+        # 大 push 时 /var/lib/nginx 撑爆会变成 500
+        proxy_request_buffering off;
+
+        # 默认 on：整个 clone 响应先缓存在 nginx 里再发给客户端。
+        # relay 会带 X-Accel-Buffering: no，正常情况 nginx 会照做；
+        # 这里显式关掉是给 proxy_ignore_headers 配过的人兜底
+        proxy_buffering off;
+
+        # 默认 60s，是两次读之间的空闲超时。数据持续流动时不会触发，
+        # 但上游（GitHub）在开始打包前的思考时间可能超过它
+        proxy_read_timeout  3600s;
+        proxy_send_timeout  3600s;
+        proxy_connect_timeout 15s;
+
+        # git 的响应绝不能进缓存，尤其是 info/refs
+        proxy_cache off;
+        # packfile 本身已压缩，gzip 只会浪费 CPU 并可能破坏 content-length
+        gzip off;
+    }
+}
+
+# 如果你把 relay 挂在子路径下（https://host/git/owner/repo.git），
+# 必须同时改写路径，否则 relay 会把 "git" 当成 owner：
+#
+#   location /git/ {
+#       proxy_pass http://127.0.0.1:8848/;   # 结尾的斜杠负责剥掉 /git
+#       ... 同上
+#   }
+#
+# 注意 proxy_pass 结尾有没有斜杠，行为完全不同：
+#   带斜杠 → /git/acme/widget.git/... → /acme/widget.git/...   ✓
+#   不带   → /git/acme/widget.git/... → /git/acme/widget.git/...  ✗ 会被当成 owner=git

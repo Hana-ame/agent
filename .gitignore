@@ -1,4 +1,10 @@
-# ---- Python 通用产物 ----------------------------------------------------
+# =====================================================================
+# 本仓库的忽略规则
+#   本地垃圾清理：scripts/clean-local.sh（默认只列不删）
+#   仓库结构导航：README.md
+# =====================================================================
+
+# ---- Python 通用产物（全部可再生）-----------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -24,7 +30,7 @@ MANIFEST
 .coverage
 htmlcov/
 
-# ---- 环境与密钥配置 ------------------------------------------------------
+# ---- 环境与密钥 ------------------------------------------------------
 .env
 .env.local
 *.env
@@ -33,51 +39,46 @@ env/
 venv/
 ENV/
 
-# 含真实 API Key 的模型配置与备份不入库（仅保留模板与免 Key 配置）
+# 含真实 key 的模型配置不入库；只保留模板与 scripts/cf 的免 Key 网关配置
 models.json
 models.json*.bak
 !models.json.example
 !scripts/cf/models.json
 
-# ---- DAG 脚本运行产物 (Outputs & Reports) -------------------------------
-# S1 帖子抓取与情报摘要产物
+# ---- 脚本运行产物 ----------------------------------------------------
+# S1 帖子抓取与情报摘要
 scripts/s1/out/
 stage1st_ai_*.md
 stability_run*.md
-
-# CF 流量统计与校验报告产物
+# CF 流量统计与校验
 scripts/cf/cf_report.md
-scripts/cf/out/
 cf_report.md
+# 各 DAG 运行报告（reports/ 下少数结论文件显式保留）
 *_report.md
 !reports/session_*_report.md
-
-# 其他运行输出、临时文件与日志产物
+# 其他临时输出与日志
 out/
-*/out/
-*/*/out/
 report.html
 *.report.html
 *.log
 *.db
 scratch/
-.workbuddy/
 
-# ---- v6 自举历史产物（本仓库已不含 vea_v6，产物留档但不入库）-------------
-bootstrap_runs/
-
-# ---- v8 运行数据库与缓存 ---------------------------------------------------
+# ---- 各层运行数据（本地可再生成，不入库）-----------------------------
+# dag8 SQLite 轨迹
 v8/data/
-v8/**/__pycache__/
-.pytest_cache/
+# v9 知识库
+v9/data/
+# v6 自举历史产物（留档，不跟踪）
+bootstrap_runs/
+# 本地工作记忆/决策记录（尚未入库，见 README 第 9 节）
+.workbuddy/
+# 本地截图
+/browser-screenshots/
 
-# ---- 本地临时脚本与模型快照（2026-10-24 清理）---------------------------
+# ---- 本地一次性脚本与模型快照（可删；见 scripts/clean-local.sh）-----
 /.fix_example.py
 /.gen_models.py
 /.models_new.*
 /.probe_cap.py
 /.verify_cap.py
-v9/data/
-
-# ---- 本地截图（不提交）-----------------------------------------------------
-/browser-screenshots/

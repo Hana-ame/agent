@@ -1,0 +1,17 @@
+{
+  "name": "git-bridge",
+  "version": "1.0.0",
+  "description": "local HTTP server: POST a patch + branch -> commit + push (gh auth), queue-based, with a push ledger for status/CI",
+  "main": "server.js",
+  "type": "commonjs",
+  "bin": {
+    "git-bridge": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "bash test_e2e.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

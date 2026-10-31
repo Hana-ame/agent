@@ -1,0 +1,7 @@
+node_modules/
+*.log
+repo/
+repo.worktrees/
+repo.ledger.jsonl
+agent-repo/
+dist/
