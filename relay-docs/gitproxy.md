@@ -26,6 +26,16 @@
 - 返回：`{ok, status: pushed|noop|failed, sha, short, pr?, elapsedMs}`。
 - 错误码：缺参/空 patch/patch 失败 → **400**；受保护分支 → **403**；push 失败 → **502**。
 
+### 分支 API
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/<owner>/<repo>/branches?limit=N` | 分支列表 |
+| GET | `/<owner>/<repo>/branches/<name>` | 分支详情（指向的 commit） |
+| POST | `/<owner>/<repo>/branches` | 创建分支：`name=`、`from=`（分支/commit sha/tag，默认 base）；支持 JSON |
+
+- 已存在 → 409；`from` 解析不到 → 400；上游失败 → 502。
+- `git push` 新分支、`POST /commits` 到不存在分支也会建分支。
+
 ### 只读元数据（服务端 `gh` 拉取，agent 无需凭据）
 | 方法 | 路径 |
 |------|------|
@@ -81,22 +91,22 @@
 ### 删除
 - 经代理删除分支 / tag（`git push --delete` / `:refs/tags/x`）→ **403**。
 
-### 受保护分支（`[protect]` / `[allow]`）
-```txt
-# branches.txt
-[protect]
-main
-release/*
-release/**
+### 受保护分支（gitignore 风格，按 owner/repo/branch）
 
-[allow]
-release/hotfix-*
+一行一条 `owner/repo/branch-glob`，`!` 前缀=反选（放行），**后匹配覆盖先匹配**。
+没规则匹配→不保护；完全没配置时默认保护每个仓库的 `--base` 分支；`--protect none` 关闭。
+
+```txt
+*/*/main
+Hana-ame/agent/release/*
+Hana-ame/agent/release/**
+acme/other/master
+!Hana-ame/agent/release/hotfix-*
 ```
-- 通配：`*` 单段（不跨 `/`）、`**` 跨 `/`、`?` 单字符。
-- 语义：**先看 `[allow]`，命中→不保护；否则命中 `[protect]`→保护；都没命中→放行**。
+
+- owner/repo 支持 `*`/`?`；branch 支持 `*` 单段、`**` 跨 `/`、`?` 单字符。
+- 顺序生效（gitignore 语义），非法行按 file:line 报错。
 - 被保护分支：git push / POST /commits → **403**。
-- 注意 git 限制：不能同时存在 `main` 和 `main/xxx` 这类 ref 空间。
-- 要 100% 兜底，可再叠加 GitHub 分支保护「Restrict force pushes」。
 
 ## 仓库白名单
 

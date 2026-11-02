@@ -41,14 +41,28 @@ func TestGlobToRegexp(t *testing.T) {
 	}
 }
 
-func TestBranchPolicyPerRepo(t *testing.T) {
-	bp, err := loadBranchPolicy(nil, []string{
-		"Hana-ame/agent/main",
-		"Hana-ame/agent/release/*",
-		"Hana-ame/agent/release/**",
-		"acme/other/master",
-		"!Hana-ame/agent/release/hotfix-*",
-	}, "")
+func writePolicy(t *testing.T, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "branches.txt")
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func writePolicyFile(t *testing.T, content string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "branches.txt")
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestBranchPolicyGitignore(t *testing.T) {
+	path := writePolicyFile(t, "# gitignore-style\n*/*/main\nHana-ame/agent/release/*\nHana-ame/agent/release/**\n!Hana-ame/agent/release/hotfix-*\nacme/other/master\n")
+	bp, err := loadBranchPolicy([]string{path}, nil, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,41 +70,15 @@ func TestBranchPolicyPerRepo(t *testing.T) {
 		owner, repo, branch string
 		want                bool
 	}{
-		{"Hana-ame", "agent", "main", true},
+		{"Hana-ame", "agent", "main", true}, // */*/main
+		{"any", "repo", "main", true},       // */*/main
 		{"Hana-ame", "agent", "release/v1", true},
-		{"Hana-ame", "agent", "release/v1/x", true},
-		{"Hana-ame", "agent", "release/hotfix-1", false},
+		{"Hana-ame", "agent", "release/v1/x", true},      // ** 跨 /
+		{"Hana-ame", "agent", "release/hotfix-1", false}, // ! 反选
 		{"Hana-ame", "agent", "feat/x", false},
 		{"acme", "other", "master", true},
-		{"acme", "other", "main", false},
-		{"Hana-ame", "agent", "master", false},
-		{"Hana-ame", "other", "main", false},
-	}
-	for _, c := range cases {
-		if got := bp.isProtected(c.owner, c.repo, c.branch); got != c.want {
-			t.Errorf("isProtected(%s/%s,%s) = %v, want %v", c.owner, c.repo, c.branch, got, c.want)
-		}
-	}
-	var nilPol *branchPolicy
-	if nilPol.isProtected("o", "r", "main") {
-		t.Error("nil policy should protect nothing")
-	}
-}
-
-func TestBranchPolicyWildcards(t *testing.T) {
-	bp, err := loadBranchPolicy(nil, []string{"*/*/main", "Hana-*/*/release/**"}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cases := []struct {
-		owner, repo, branch string
-		want                bool
-	}{
-		{"any", "repo", "main", true},
-		{"any", "repo", "dev", false},
-		{"Hana-ame", "agent", "release/v1", true},
-		{"Hana-ame", "agent", "main", true},
-		{"other", "agent", "release/v1", false},
+		{"acme", "other", "main", true}, // */*/main 也命中
+		{"acme", "other", "dev", false},
 	}
 	for _, c := range cases {
 		if got := bp.isProtected(c.owner, c.repo, c.branch); got != c.want {
@@ -99,61 +87,83 @@ func TestBranchPolicyWildcards(t *testing.T) {
 	}
 }
 
-func TestParseBranchRule(t *testing.T) {
-	if _, err := parseBranchRule("Hana-ame/agent/main"); err != nil {
-		t.Fatalf("valid rule rejected: %v", err)
-	}
-	if _, err := parseBranchRule("!Hana-ame/agent/release/*"); err != nil {
-		t.Fatalf("valid allow rule rejected: %v", err)
-	}
-	for _, bad := range []string{"main", "Hana-ame/agent", "Hana-ame/agent/", "/agent/main", "Hana-ame//main"} {
-		if _, err := parseBranchRule(bad); err == nil {
-			t.Errorf("expected error for %q", bad)
-		}
-	}
-	r, _ := parseBranchRule("Hana-ame/agent/release/*")
-	if !r.matches("Hana-ame", "agent", "release/v1") || r.matches("Hana-ame", "agent", "main") {
-		t.Error("rule matching wrong")
-	}
-	r2, _ := parseBranchRule("!Hana-ame/agent/main")
-	if !r2.allow {
-		t.Error("expected allow rule")
-	}
-}
-
-func TestParseBranchPolicyFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "branches.txt")
-	content := "# per-repo rules\nHana-ame/agent/main\n\nHana-ame/agent/release/*\n!Hana-ame/agent/release/hotfix-*\n"
-	_ = os.WriteFile(path, []byte(content), 0o644)
-	lines, err := parseBranchPolicyFile(path)
+// gitignore 关键语义：后匹配的规则覆盖前面的。
+func TestBranchPolicyLastMatchWins(t *testing.T) {
+	// 反选在后 -> 放行
+	bp, err := loadBranchPolicy(nil, []string{"Hana-ame/agent/**", "!Hana-ame/agent/release/**"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "Hana-ame/agent/main,Hana-ame/agent/release/*,!Hana-ame/agent/release/hotfix-*"
-	if strings.Join(lines, ",") != want {
-		t.Errorf("lines = %v", lines)
+	if bp.isProtected("Hana-ame", "agent", "release/v1") {
+		t.Error("later !rule should unprotect release/v1")
 	}
-	if _, err := parseBranchPolicyFile(filepath.Join(dir, "nope.txt")); err == nil {
-		t.Error("expected error for missing file")
+	if !bp.isProtected("Hana-ame", "agent", "main") {
+		t.Error("main should still be protected by **")
+	}
+	// 反选在前，保护在后 -> 保护
+	bp, _ = loadBranchPolicy(nil, []string{"!Hana-ame/agent/release/**", "Hana-ame/agent/**"}, "")
+	if !bp.isProtected("Hana-ame", "agent", "release/v1") {
+		t.Error("later protect should re-protect release/v1")
 	}
 }
 
-func TestLoadBranchPolicyDefaults(t *testing.T) {
+func TestBranchPolicyDefaultAndNone(t *testing.T) {
 	bp, err := loadBranchPolicy(nil, nil, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bp.isProtected("any", "repo", "main") || bp.isProtected("any", "repo", "feat") {
-		t.Error("default should protect main for any repo only")
+		t.Error("default should protect main on every repo only")
 	}
 	bp, _ = loadBranchPolicy(nil, []string{"none"}, "main")
 	if bp.isProtected("any", "repo", "main") {
-		t.Error("none should disable protection")
+		t.Error("none should disable all protection")
 	}
-	bp, _ = loadBranchPolicy(nil, []string{"Hana-ame/agent/main"}, "")
-	if !bp.isProtected("Hana-ame", "agent", "main") || bp.isProtected("Hana-ame", "agent", "feat") {
-		t.Error("inline per-repo rule wrong")
+	// 有配置时没有隐式默认
+	bp, _ = loadBranchPolicy(nil, []string{"acme/other/master"}, "main")
+	if bp.isProtected("any", "repo", "main") {
+		t.Error("no implicit default once rules are configured")
+	}
+}
+
+func TestBranchPolicyInline(t *testing.T) {
+	bp, err := loadBranchPolicy(nil, []string{"Hana-ame/agent/main", "acme/other/release/**"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bp.isProtected("Hana-ame", "agent", "main") || !bp.isProtected("acme", "other", "release/v1") {
+		t.Error("inline rules not applied")
+	}
+	if bp.isProtected("Hana-ame", "agent", "release/v1") {
+		t.Error("unrelated repo rule must not apply")
+	}
+}
+
+func TestBranchPolicyWildcards(t *testing.T) {
+	bp, err := loadBranchPolicy(nil, []string{"*/agent/main", "Hana-*/other/**"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bp.isProtected("any", "agent", "main") {
+		t.Error("owner * wildcard")
+	}
+	if !bp.isProtected("Hana-ame", "other", "release/v1") {
+		t.Error("owner glob Hana-* should match")
+	}
+	if bp.isProtected("other", "other", "release/v1") {
+		t.Error("Hana-* must not match other")
+	}
+}
+
+func TestBranchPolicyInvalidRules(t *testing.T) {
+	for _, bad := range []string{"main", "Hana-ame/agent", "Hana-ame/agent/", "/agent/main", "Hana-ame//main"} {
+		if _, err := parseBranchRule(bad, "test:1"); err == nil {
+			t.Errorf("expected error for %q", bad)
+		}
+	}
+	path := writePolicyFile(t, "main\n")
+	if _, err := loadBranchPolicy([]string{path}, nil, "main"); err == nil {
+		t.Error("expected error for bad policy file line")
 	}
 }
 

@@ -87,18 +87,16 @@ Hana-ame/*
 other-org/*
 ```
 
-### 分支策略 `branches.txt`
-```txt
-# * 单段，** 跨 /
-[protect]
-main
-release/*
-release/**
+### 分支策略 `branches.txt`（gitignore 风格）
 
-[allow]
-release/hotfix-*
+```txt
+# 一行一条 owner/repo/branch-glob；! = 反选(放行)；后匹配覆盖先匹配
+*/*/main
+Hana-ame/agent/release/**
+acme/other/master
+!Hana-ame/agent/release/hotfix-*
 ```
-- 语义：allow 命中→不保护；否则 protect 命中→保护；都没中→放行。
+- 没有规则匹配→不保护；完全没配置时默认保护每个仓库的 `--base` 分支。
 - 受保护分支：git push / POST /commits → 403。
 
 ## 测试矩阵（已做）

@@ -49,6 +49,20 @@ go build -o gitproxy .
 |------|------|------|
 | `POST` | `/<owner>/<repo>/commits` | body=unified diff，`?branch=&message=&base=&pr=` |
 
+### 分支 API
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/<owner>/<repo>/branches?limit=N` | 分支列表 |
+| GET | `/<owner>/<repo>/branches/<name>` | 分支详情 |
+| POST | `/<owner>/<repo>/branches` | 创建分支：`name=`（必填）、`from=`（分支 / commit sha / tag，默认 `--base`）；也支持 JSON |
+
+```bash
+curl -sS -X POST "https://wsl-8000.moonchan.xyz/Hana-ame/agent/branches?name=feat/new&from=main"
+# JSON: {"name":"feat/x","from":"<commit-sha>"}
+```
+- 已存在的分支 → **409**；`from` 解析不到 → **400**；上游失败 → **502**。
+- 另外 `git push` 新分支、`POST /commits` 指向不存在分支，也都会创建分支。
+
 ### 只读元数据（服务端 gh 拉取，agent 无需凭据）
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -111,30 +125,26 @@ curl -sS "$B/issues/1"                 # {"issue":{number,title,state,body,label
 - `details_url` 指到 GitHub Actions 具体 job。
 - 坏 sha / 坏编号 → 400；不存在的 PR/issue → 502；非白名单 → 403。
 
-## 分支保护策略（按仓库：owner/repo/branch）
+## 分支保护策略（gitignore 风格，按 owner/repo/branch）
 
-**每个仓库可以有不同的受保护分支**。`--protect-file branches.txt`（可重复）或内联 `--protect`，
-一行一条规则：`owner/repo/branch-glob`，`!` 前缀表示 allow 例外。
+**一行一条规则**，`!` 前缀表示反选（放行），**后匹配覆盖先匹配**（gitignore 语义）。
+没规则匹配 → 不保护；**完全没配置时默认保护每个仓库的 `--base` 分支**；`--protect none` 关闭。
 
 ```txt
-# branches.txt —— 每行 owner/repo/branch-glob
-Hana-ame/agent/main
-Hana-ame/agent/release/*
-Hana-ame/agent/release/**
-acme/other/master          # 不同仓库，规则不同
-acme/other/release/**
-
-# allow 例外（命中则即使 protect 命中也不保护）
-!Hana-ame/agent/release/hotfix-*
+# branches.txt —— 一行一条 owner/repo/branch-glob
+*/*/main                    # 所有仓库的 main 都保护
+Hana-ame/agent/release/*    # 单段
+Hana-ame/agent/release/**   # 跨 /
+acme/other/master           # 不同仓库，规则不同
+!Hana-ame/agent/release/hotfix-*   # 反选：放行（在后面的规则里）
 ```
 
-- 格式：`owner/repo/branch-glob`；owner/repo 支持 `*` 通配。
-- branch 通配：`*` 单段（不跨 `/`）、`**` 跨 `/`、`?` 单字符。
-- 语义：`!`(allow) 命中 → 不保护；否则 protect 命中 → 保护；都不命中 → 放行。
-- 不同仓库互不影响。
-- 默认（不给参数）保护**每个仓库**的 `--base` 分支（`main`）；`--protect none` 关闭。
-- 被保护分支上 `git push` / `POST /commits` 一律 **403**（只能开 PR 由人合并）。
-- 注意 git 限制：不能同时存在 `main` 和 `main/xxx` 这种同名空间，所以 `main/*` 只对真有该命名空间的仓库有意义。
+- 每行格式：`owner/repo/branch-glob`；owner/repo 支持 `*` / `?`。
+- 分支通配：`*` 单段（不跨 `/`）、`**` 跨 `/`、`?` 单字符。
+- 顺序生效：后面的规则覆盖前面的；`!` = 不保护。
+- 不同仓库互不影响；非法行会按 `file:line` 报错并拒绝启动。
+- 被保护分支：`git push` / `POST /commits` → **403**（只能开 PR 由人合并）。
+- 内联：`--protect 'owner/repo/branch-glob'`（可重复、可 `!`）。
 
 ## force 保护规则
 

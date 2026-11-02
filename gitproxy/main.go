@@ -197,6 +197,27 @@ func (a *App) router(w http.ResponseWriter, r *http.Request) {
 			a.handleCommit(w, r, owner, repo)
 			return
 		}
+		// write: POST /<owner>/<repo>/branches  （创建分支）
+		if ow, rp, ok := parseBranchesPath(p); ok {
+			owner, repo := ow, rp
+			if owner == "" {
+				for _, pat := range a.allow {
+					if !strings.Contains(pat, "*") {
+						seg := strings.SplitN(pat, "/", 2)
+						if len(seg) == 2 {
+							owner, repo = seg[0], seg[1]
+							break
+						}
+					}
+				}
+			}
+			if owner == "" {
+				writeJSON(w, 400, errObj("specify repo via POST /<owner>/<repo>/branches"))
+				return
+			}
+			a.handleBranchCreate(w, r, owner, repo)
+			return
+		}
 	}
 
 	// read-only metadata endpoints (PRs / CI checks / runs), queried via gh
@@ -207,6 +228,12 @@ func (a *App) router(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			switch {
+			case rest == "branches":
+				a.handleBranchList(w, r, mo, mr)
+				return
+			case strings.HasPrefix(rest, "branches/"):
+				a.handleBranchView(w, r, mo, mr, strings.TrimPrefix(rest, "branches/"))
+				return
 			case rest == "pulls":
 				a.handlePRList(w, r, mo, mr)
 				return
@@ -373,43 +400,41 @@ func httputilReverseProxy(target *url.URL, auth, owner, repo string) *httputil.R
 // pack into the managed clone and run `git merge-base --is-ancestor old new`.
 // Fast-forwards, new-branch creates and deletes are allowed; the original body
 // is forwarded unchanged. Returns true if a 403 response was written.
-// branchRule 是一行策略：owner/repo/branch-glob；前缀 '!' 表示 allow（例外放行）。
-// owner/repo 支持 '*' 通配（单段），branch 支持 * / ** / ?。
+// 分支保护策略：gitignore 风格。
+//
+//	每行：owner/repo/branch-glob        -> 保护
+//	      !owner/repo/branch-glob       -> 反选（放行）
+//
+// 通配：owner/repo 支持 * ?；branch 额外支持 **（跨 /）。
+// 语义：按顺序匹配，后匹配的规则覆盖前面的；没有规则匹配 -> 不保护。
+// 无任何配置时默认保护每个仓库的 --base 分支；--protect none 关闭。
 type branchRule struct {
 	ownerRe  *regexp.Regexp
 	repoRe   *regexp.Regexp
 	branchRe *regexp.Regexp
-	allow    bool
+	negate   bool
 }
 
 func (r *branchRule) matches(owner, repo, branch string) bool {
-	if !r.ownerRe.MatchString(owner) || !r.repoRe.MatchString(repo) {
-		return false
-	}
-	return r.branchRe.MatchString(branch)
+	return r.ownerRe.MatchString(owner) && r.repoRe.MatchString(repo) && r.branchRe.MatchString(branch)
 }
 
 type branchPolicy struct {
 	rules []branchRule
 }
 
-// isProtected(owner, repo, branch)：allow 命中 → 不保护；否则 protect 命中 → 保护；都不命中 → 不保护。
-// 每个仓库可以有完全不同的规则。
+// isProtected：gitignore 语义——顺序匹配，最后一条命中的规则决定结果（! = 不保护）。
 func (bp *branchPolicy) isProtected(owner, repo, branch string) bool {
 	if bp == nil {
 		return false
 	}
+	protected := false
 	for i := range bp.rules {
-		if bp.rules[i].allow && bp.rules[i].matches(owner, repo, branch) {
-			return false
+		if bp.rules[i].matches(owner, repo, branch) {
+			protected = !bp.rules[i].negate
 		}
 	}
-	for i := range bp.rules {
-		if !bp.rules[i].allow && bp.rules[i].matches(owner, repo, branch) {
-			return true
-		}
-	}
-	return false
+	return protected
 }
 
 func (a *App) isProtected(owner, repo, refOrBranch string) bool {
@@ -419,7 +444,7 @@ func (a *App) isProtected(owner, repo, refOrBranch string) bool {
 	return a.policy.isProtected(owner, repo, strings.TrimPrefix(refOrBranch, "refs/heads/"))
 }
 
-// globToRegexp: '*' = one path segment ([^/]*), '**' = across '/' (.*), '?' = one non-'/' char.
+// globToRegexp: '*' = 单段 ([^/]*), '**' = 跨 '/' (.*), '?' = 单个非 '/' 字符。
 func globToRegexp(pat string) (*regexp.Regexp, error) {
 	r := []rune(pat)
 	var b strings.Builder
@@ -443,85 +468,94 @@ func globToRegexp(pat string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
-// parseBranchRule 解析一行： owner/repo/branch-glob  或  !owner/repo/branch-glob（allow）
-func parseBranchRule(line string) (branchRule, error) {
-	allow := false
+type policyLine struct {
+	text  string
+	where string
+}
+
+func parseBranchRule(line, where string) (branchRule, error) {
 	s := strings.TrimSpace(line)
+	neg := false
 	if strings.HasPrefix(s, "!") {
-		allow = true
+		neg = true
 		s = strings.TrimSpace(s[1:])
 	}
 	i1 := strings.IndexByte(s, '/')
 	if i1 <= 0 {
-		return branchRule{}, fmt.Errorf("bad rule %q: expect owner/repo/branch", line)
+		return branchRule{}, fmt.Errorf("%s: bad rule %q: expect owner/repo/branch-glob", where, line)
 	}
 	rest := s[i1+1:]
 	i2 := strings.IndexByte(rest, '/')
 	if i2 <= 0 {
-		return branchRule{}, fmt.Errorf("bad rule %q: expect owner/repo/branch", line)
+		return branchRule{}, fmt.Errorf("%s: bad rule %q: expect owner/repo/branch-glob", where, line)
 	}
 	owner, repo, branch := s[:i1], rest[:i2], rest[i2+1:]
 	if branch == "" {
-		return branchRule{}, fmt.Errorf("bad rule %q: empty branch pattern", line)
+		return branchRule{}, fmt.Errorf("%s: bad rule %q: empty branch glob", where, line)
 	}
 	ownerRe, err := globToRegexp(owner)
 	if err != nil {
-		return branchRule{}, fmt.Errorf("bad owner %q in %q: %v", owner, line, err)
+		return branchRule{}, fmt.Errorf("%s: bad owner %q: %v", where, owner, err)
 	}
 	repoRe, err := globToRegexp(repo)
 	if err != nil {
-		return branchRule{}, fmt.Errorf("bad repo %q in %q: %v", repo, line, err)
+		return branchRule{}, fmt.Errorf("%s: bad repo %q: %v", where, repo, err)
 	}
 	branchRe, err := globToRegexp(branch)
 	if err != nil {
-		return branchRule{}, fmt.Errorf("bad branch %q in %q: %v", branch, line, err)
+		return branchRule{}, fmt.Errorf("%s: bad branch %q: %v", where, branch, err)
 	}
-	return branchRule{ownerRe: ownerRe, repoRe: repoRe, branchRe: branchRe, allow: allow}, nil
+	return branchRule{ownerRe: ownerRe, repoRe: repoRe, branchRe: branchRe, negate: neg}, nil
 }
 
-// parseBranchPolicyFile 读取策略文件：一行一条 owner/repo/branch-glob，'#' 注释、空行忽略。
-func parseBranchPolicyFile(path string) ([]string, error) {
+// parsePolicyFile 读取 gitignore 风格策略文件：一行一条，'#' 注释、空行忽略。
+func parsePolicyFile(path string) ([]policyLine, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var out []string
-	for _, line := range strings.Split(string(b), "\n") {
-		if i := strings.IndexByte(line, '#'); i >= 0 {
-			line = line[:i]
+	var out []policyLine
+	for i, line := range strings.Split(string(b), "\n") {
+		if j := strings.IndexByte(line, '#'); j >= 0 {
+			line = line[:j]
 		}
-		if strings.TrimSpace(line) == "" {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-		out = append(out, strings.TrimSpace(line))
+		out = append(out, policyLine{text: line, where: fmt.Sprintf("%s:%d", path, i+1)})
 	}
 	return out, nil
 }
 
-// loadBranchPolicy 从文件 + 内联 --protect 构建策略。
-// 行格式：owner/repo/branch-glob（! 前缀=allow）。
-// 没有任何配置时，默认对所有仓库保护 --base 分支；--protect none 关闭全部保护。
+// loadBranchPolicy 构建策略：文件行在前，内联 --protect 行在后（所以内联可覆盖文件）。
 func loadBranchPolicy(files, inline []string, base string) (*branchPolicy, error) {
 	for _, v := range inline {
-		if strings.EqualFold(v, "none") {
+		if strings.EqualFold(strings.TrimSpace(v), "none") {
 			return &branchPolicy{}, nil
 		}
 	}
-	var lines []string
+	var lines []policyLine
 	for _, f := range files {
-		ls, err := parseBranchPolicyFile(f)
+		ls, err := parsePolicyFile(f)
 		if err != nil {
 			return nil, err
 		}
 		lines = append(lines, ls...)
 	}
-	lines = append(lines, inline...)
+	for i, v := range inline {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		lines = append(lines, policyLine{text: v, where: fmt.Sprintf("--protect[%d]", i)})
+	}
 	if len(lines) == 0 {
-		lines = []string{"*/*/" + base}
+		lines = []policyLine{{text: "*/*/" + base, where: "default"}}
 	}
 	bp := &branchPolicy{}
 	for _, ln := range lines {
-		r, err := parseBranchRule(ln)
+		r, err := parseBranchRule(ln.text, ln.where)
 		if err != nil {
 			return nil, err
 		}
@@ -1092,6 +1126,9 @@ func infoObj(a *App) map[string]any {
 		"usage":   "git clone https://<host>/<owner>/<repo>   |   POST /<owner>/<repo>/commits?branch=&message=&pr=",
 		"endpoints": map[string]any{
 			"POST /<owner>/<repo>/commits":                             "提交 patch(diff) → commit → push；?branch=&message=&base=&pr=",
+			"GET /<owner>/<repo>/branches":                             "分支列表；?limit=N",
+			"GET /<owner>/<repo>/branches/<name>":                      "分支详情（指向的 commit）",
+			"POST /<owner>/<repo>/branches":                            "创建分支；body/query: name=&from=（分支/commit sha/tag，默认 --base）",
 			"GET /<owner>/<repo>/pulls":                                "PR 列表；?state=open|closed|merged|all&limit=N",
 			"GET /<owner>/<repo>/pulls/<n>":                            "PR 详情 + statusCheckRollup(CI)",
 			"GET /<owner>/<repo>/pulls/<n>/checks":                     "PR 头提交的 CI check-runs",
@@ -1546,20 +1583,43 @@ var helpTopics = map[string]helpTopic{
 		},
 		Related: []string{"auth"},
 	},
-	"policy": {
-		Topic:   "policy",
-		Title:   "policy — 分支保护策略（按仓库，owner/repo/branch）",
-		Summary: "每个仓库可以有不同的受保护分支；一行一条 owner/repo/branch-glob，! 前缀表示 allow 例外。",
-		Usage:   []string{"--protect-file ./branches.txt", "--protect 'Hana-ame/agent/main' --protect 'acme/other/master'", "--protect none   # 关闭保护"},
+	"branches": {
+		Topic:   "branches",
+		Title:   "branches — 分支列表 / 详情 / 创建",
+		Summary: "查询分支，或直接创建分支（从分支、commit sha 或 tag 起）。git push 新分支与 POST /commits 也会创建分支。",
+		Usage: []string{
+			"GET  <BASE>/<owner>/<repo>/branches?limit=N",
+			"GET  <BASE>/<owner>/<repo>/branches/<name>",
+			"POST <BASE>/<owner>/<repo>/branches?name=<new>&from=<branch|sha|tag>",
+			`POST <BASE>/<owner>/<repo>/branches  JSON {"name":"new","from":"main"}`,
+		},
 		Examples: []string{
-			"# branches.txt（每行 owner/repo/branch-glob）\nHana-ame/agent/main\nHana-ame/agent/release/*\nHana-ame/agent/release/**\nacme/other/master\n!Hana-ame/agent/release/hotfix-*",
+			"curl -sS 'https://wsl-8000.moonchan.xyz/Hana-ame/agent/branches'",
+			"curl -sS -X POST 'https://wsl-8000.moonchan.xyz/Hana-ame/agent/branches?name=feat/new&from=main'",
+			`curl -sS -X POST 'https://wsl-8000.moonchan.xyz/Hana-ame/agent/branches' -H 'Content-Type: application/json' -d '{"name":"feat/x","from":"<commit-sha>"}'`,
 		},
 		Notes: []string{
-			"格式：owner/repo/branch-glob；owner/repo 支持 * 通配。",
-			"branch 通配：* 单段（不跨 /），** 跨 /，? 单个非 / 字符。",
-			"! 前缀 = allow：命中则不保护（例外放行）。否则 protect 命中即保护；都不命中默认放行。",
-			"不同仓库互不影响：给 acme/other 配 master，不会改 Hana-ame/agent 的规则。",
-			"无任何配置时默认保护每个仓库的 --base 分支（main）；--protect none 关闭。",
+			"from 可省略，默认 --base（main）。",
+			"from 支持分支名 / commit sha / tag。",
+			"已存在的分支 -> 409；from 解析不到 -> 400；上游失败 -> 502。",
+			"创建动作本身不做保护检查（保护只限制 push/commit 到该分支）。",
+		},
+		Related: []string{"commits", "push", "clone"},
+	},
+	"policy": {
+		Topic:   "policy",
+		Title:   "policy — 分支保护策略（gitignore 风格，按 owner/repo/branch）",
+		Summary: "一行一条 owner/repo/branch-glob；! 前缀=反选(放行)；后匹配覆盖先匹配（gitignore 语义）。",
+		Usage:   []string{"--protect-file ./branches.txt", "--protect 'Hana-ame/agent/main' --protect '!Hana-ame/agent/release/hotfix-*'", "--protect none   # 全部关闭"},
+		Examples: []string{
+			"# branches.txt\n*/*/main\nHana-ame/agent/release/*\nHana-ame/agent/release/**\n!Hana-ame/agent/release/hotfix-*\nacme/other/master",
+		},
+		Notes: []string{
+			"每行 owner/repo/branch-glob：前面按 owner/repo 匹配（支持 * ?），后面是分支 glob。",
+			"分支通配：* 单段（不跨 /），** 跨 /，? 单个非 / 字符。",
+			"! 前缀 = 反选（放行）；顺序生效：后面的规则覆盖前面的（gitignore 风格）。",
+			"没有规则匹配 -> 不保护；完全没配置时默认保护每个仓库的 --base 分支；--protect none 关闭。",
+			"不同仓库互不影响；非法行启动时按 file:line 报错退出。",
 			"被保护分支：git push / POST /commits 一律 403。",
 		},
 		Related: []string{"push", "commits", "delete"},
@@ -1590,8 +1650,8 @@ var paramSpecs = []paramSpec{
 	{Flag: "--base", Type: "string", Default: "main", Desc: "POST /commits 新建分支的默认起点；也是 PR 的默认 base 分支。", Example: []string{"main", "master", "develop"}},
 	{Flag: "--allow", Type: "string（可重复）", Default: "Hana-ame/agent", Desc: "仓库白名单，支持 owner/* 通配；值以 @ 开头时从文件读取。非白名单仓库 clone/push/POST/查询一律 403。", Example: []string{"Hana-ame/agent", "Hana-ame/*", "@allow.txt"}},
 	{Flag: "--allow-file", Type: "string（可重复）", Default: "（空）", Desc: "从文本文件读取白名单，一行一个（空行与 # 注释忽略）。", Example: []string{"./allow.txt"}},
-	{Flag: "--protect", Type: "string（可重复）", Default: "= --base（每个仓库的该分支）", Desc: "受保护分支规则，格式 owner/repo/branch-glob；owner/repo 支持 *，branch 支持 * ** ?；! 前缀=allow 例外；none 关闭。", Example: []string{"Hana-ame/agent/main", "Hana-ame/agent/release/*", "!Hana-ame/agent/release/hotfix-*", "none"}},
-	{Flag: "--protect-file", Type: "string（可重复）", Default: "（空）", Desc: "分支策略文件：一行一条 owner/repo/branch-glob（每个仓库可不同），! 前缀为 allow 例外。", Example: []string{"./branches.txt"}},
+	{Flag: "--protect", Type: "string（可重复）", Default: "= --base（每个仓库的该分支）", Desc: "gitignore 风格一条规则：owner/repo/branch-glob；! 前缀=反选(放行)；后匹配覆盖先匹配；none 关闭。", Example: []string{"*/*/main", "Hana-ame/agent/release/**", "!Hana-ame/agent/release/hotfix-*", "none"}},
+	{Flag: "--protect-file", Type: "string（可重复）", Default: "（空）", Desc: "gitignore 风格策略文件：一行一条 owner/repo/branch-glob，! 前缀=反选，后匹配覆盖先匹配。", Example: []string{"./branches.txt"}},
 	{Flag: "--api-token", Type: "string", Default: "（空）", Desc: "设置后 POST /commits 需要 Authorization: Bearer <token>；git clone/push 路径不受此限制。", Example: []string{"s3cr3t"}},
 }
 
@@ -1624,6 +1684,9 @@ func helpOverview(a *App) map[string]any {
 		"topics":  topics,
 		"endpoints": []map[string]any{
 			{"method": "POST", "path": "/<owner>/<repo>/commits", "desc": "提交 patch(diff) → commit → push，可选开 PR", "help": "/help/commits"},
+			{"method": "GET", "path": "/<owner>/<repo>/branches", "desc": "分支列表", "help": "/help/branches"},
+			{"method": "GET", "path": "/<owner>/<repo>/branches/<name>", "desc": "分支详情", "help": "/help/branches"},
+			{"method": "POST", "path": "/<owner>/<repo>/branches", "desc": "创建分支（name, from=分支/commit/tag）", "help": "/help/branches"},
 			{"method": "GET", "path": "/<owner>/<repo>/pulls", "desc": "PR 列表", "help": "/help/pulls"},
 			{"method": "GET", "path": "/<owner>/<repo>/pulls/<n>", "desc": "PR 详情 + CI 汇总", "help": "/help/pulls"},
 			{"method": "GET", "path": "/<owner>/<repo>/pulls/<n>/checks", "desc": "PR 头提交 check-runs", "help": "/help/checks"},
@@ -1639,4 +1702,107 @@ func helpOverview(a *App) map[string]any {
 		"param_topics": paramNames(),
 		"howto":        "GET /help/<topic> 查看端点/操作说明；GET /help/<param> 查看单个启动参数（如 /help/allow、/help/ --data 去掉横线）。",
 	}
+}
+
+// --------------------------------------------------------------------------- //
+//
+//	branches API
+//
+// --------------------------------------------------------------------------- //
+func parseBranchesPath(p string) (owner, repo string, ok bool) {
+	rel := strings.TrimPrefix(p, "/")
+	if !strings.HasSuffix(rel, "/branches") {
+		return "", "", false
+	}
+	rel = strings.TrimSuffix(rel, "/branches")
+	segs := strings.Split(rel, "/")
+	if len(segs) != 2 || segs[0] == "" || segs[1] == "" {
+		return "", "", false
+	}
+	return segs[0], strings.TrimSuffix(segs[1], ".git"), true
+}
+
+func (a *App) handleBranchList(w http.ResponseWriter, r *http.Request, owner, repo string) {
+	perPage := clampInt(r.URL.Query().Get("limit"), 1, 100, 30)
+	out, err := ghOut("api", fmt.Sprintf("repos/%s/%s/branches?per_page=%d", owner, repo, perPage))
+	if err != nil {
+		writeJSON(w, 502, errObj("gh api branches: "+err.Error()))
+		return
+	}
+	writeRawJSON(w, `{"branches":`+strings.TrimSpace(out)+`}`)
+}
+
+func (a *App) handleBranchView(w http.ResponseWriter, r *http.Request, owner, repo, name string) {
+	if name == "" {
+		writeJSON(w, 400, errObj("missing branch name"))
+		return
+	}
+	out, err := ghOut("api", fmt.Sprintf("repos/%s/%s/branches/%s", owner, repo, name))
+	if err != nil {
+		writeJSON(w, 502, errObj("gh api branch: "+err.Error()))
+		return
+	}
+	writeRawJSON(w, `{"branch":`+strings.TrimSpace(out)+`}`)
+}
+
+// handleBranchCreate: 创建分支。body/query: name(必填), from(可选：分支名/commit sha/tag，默认 --base)
+func (a *App) handleBranchCreate(w http.ResponseWriter, r *http.Request, owner, repo string) {
+	name, from := "", ""
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		var j struct {
+			Name string `json:"name"`
+			From string `json:"from"`
+		}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&j)
+		name, from = j.Name, j.From
+	} else {
+		name = r.URL.Query().Get("name")
+		from = r.URL.Query().Get("from")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		writeJSON(w, 400, errObj("missing 'name'"))
+		return
+	}
+	if from == "" {
+		from = a.base
+	}
+	// resolve from -> sha（分支 -> commit -> tag 都走 /commits/{ref} 兜底）
+	sha := ""
+	if out, err := ghOut("api", fmt.Sprintf("repos/%s/%s/git/ref/heads/%s", owner, repo, from)); err == nil {
+		var ref struct {
+			Object struct {
+				Sha string `json:"sha"`
+			} `json:"object"`
+		}
+		if json.Unmarshal([]byte(out), &ref) == nil {
+			sha = ref.Object.Sha
+		}
+	}
+	if sha == "" {
+		if out, err := ghOut("api", fmt.Sprintf("repos/%s/%s/commits/%s", owner, repo, from)); err == nil {
+			var c struct {
+				Sha string `json:"sha"`
+			}
+			if json.Unmarshal([]byte(out), &c) == nil {
+				sha = c.Sha
+			}
+		}
+	}
+	if sha == "" {
+		writeJSON(w, 400, errObj("cannot resolve 'from' (branch/commit/tag): "+from))
+		return
+	}
+	payload := fmt.Sprintf(`{"ref":"refs/heads/%s","sha":"%s"}`, name, sha)
+	code, out := runCmdStdin("gh", []string{"api", "-X", "POST", fmt.Sprintf("repos/%s/%s/git/refs", owner, repo), "--input", "-"}, "", []byte(payload), 30*time.Second)
+	if code != 0 {
+		msg := strings.TrimSpace(out)
+		status := 502
+		if strings.Contains(msg, "already exists") || strings.Contains(msg, "Reference already exists") || strings.Contains(msg, "422") {
+			status = 409
+		}
+		writeJSON(w, status, errObj("create branch: "+msg))
+		return
+	}
+	writeRawJSON(w, `{"ok":true,"branch":{"name":`+jsonStr(name)+`,"sha":`+jsonStr(sha)+`},"created":`+strings.TrimSpace(out)+`}`)
 }
