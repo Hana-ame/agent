@@ -151,6 +151,10 @@ func (a *App) router(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": err == nil, "token": err == nil, "allow": a.allow})
 		return
 	}
+	if p == "/allow" || p == "/allow/" {
+		a.handleAllow(w)
+		return
+	}
 	if p == "/help" || p == "/help/" {
 		writeJSON(w, 200, helpOverview(a))
 		return
@@ -295,6 +299,37 @@ func matchRepo(pat, full string) bool {
 	return strings.HasPrefix(full, pre)
 }
 
+// handleAllow lists the repo whitelist and the branch policy globs.
+// Read-only, unauthenticated (like /health), no query parameters.
+func (a *App) handleAllow(w http.ResponseWriter) {
+	resp := map[string]any{
+		"ok":    true,
+		"repos": a.allow,
+		"branch_policy": map[string]any{
+			"protect":   a.branchPatterns(true),
+			"allow":     a.branchPatterns(false),
+			"semantics": "allow overrides protect; unmatched branches are allowed (not protected)",
+		},
+		"base": a.base,
+		"notes": []string{
+			"repos = --allow whitelist (owner/repo, * glob supported)",
+			"branch_policy.protect/allow = --protect / --protect-file globs (rules, not actual branches)",
+		},
+	}
+	writeJSON(w, 200, resp)
+}
+
+func (a *App) branchPatterns(protect bool) []string {
+	out := []string{}
+	if a.policy == nil {
+		return out
+	}
+	if protect {
+		return append(out, a.policy.protectPatterns...)
+	}
+	return append(out, a.policy.allowPatterns...)
+}
+
 // --------------------------------------------------------------------------- //
 //
 //	smart-HTTP reverse proxy
@@ -376,6 +411,10 @@ func httputilReverseProxy(target *url.URL, auth, owner, repo string) *httputil.R
 type branchPolicy struct {
 	protect []*regexp.Regexp
 	allow   []*regexp.Regexp
+
+	// raw glob patterns (compiled regexps above are for matching; these are for GET /allow)
+	protectPatterns []string
+	allowPatterns   []string
 }
 
 // isProtected: allow patterns override protect; unmatched branches are allowed.
@@ -489,7 +528,10 @@ func loadBranchPolicy(files, inline []string, base string) (*branchPolicy, error
 	if len(protectPats) == 0 && len(files) == 0 {
 		protectPats = []string{base}
 	}
-	bp := &branchPolicy{}
+	bp := &branchPolicy{
+		protectPatterns: dedupeStrings(protectPats),
+		allowPatterns:   dedupeStrings(allowPats),
+	}
 	for _, p := range protectPats {
 		re, err := globToRegexp(p)
 		if err != nil {
@@ -1065,8 +1107,9 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 func errObj(msg string) map[string]any { return map[string]any{"ok": false, "error": msg} }
 func infoObj(a *App) map[string]any {
 	return map[string]any{
-		"service": "gitproxy",
-		"usage":   "git clone https://<host>/<owner>/<repo>   |   POST /<owner>/<repo>/commits?branch=&message=&pr=",
+		"service":    "gitproxy",
+		"usage":      "git clone https://<host>/<owner>/<repo>   |   POST /<owner>/<repo>/commits?branch=&message=&pr=",
+		"usage_hint": "无特殊说明，使用 --depth 1 --single-branch",
 		"endpoints": map[string]any{
 			"POST /<owner>/<repo>/commits":                             "提交 patch(diff) → commit → push；?branch=&message=&base=&pr=",
 			"GET /<owner>/<repo>/pulls":                                "PR 列表；?state=open|closed|merged|all&limit=N",
@@ -1076,6 +1119,7 @@ func infoObj(a *App) map[string]any {
 			"GET /<owner>/<repo>/actions/runs?branch=&limit=N":         "最近 GitHub Actions 运行",
 			"GET /<owner>/<repo>/issues?state=open|closed|all&limit=N": "issue 列表",
 			"GET /<owner>/<repo>/issues/<n>":                           "issue 详情 + comments",
+			"GET /allow":                                               "白名单 repos + 分支策略（纯配置，无 query）",
 			"GET /health":                                              "健康检查",
 			"GET /help[/<topic>]":                                      "总览 / 分主题帮助（clone/push/commits/pulls/issues/checks/runs/force/delete/auth/whitelist/errors）",
 		},
@@ -1333,15 +1377,16 @@ var helpTopics = map[string]helpTopic{
 		Topic:   "clone",
 		Title:   "clone — 经代理拉取仓库",
 		Summary: "用标准 git clone 指向中转 URL 即可；代理把 smart-HTTP 转发到 GitHub 并注入鉴权，agent 无需任何凭据。",
-		Usage:   []string{"git clone <BASE>/<owner>/<repo>", "git clone --depth 1 --branch <branch> <BASE>/<owner>/<repo>"},
+		Usage:   []string{"git clone --depth 1 --single-branch <BASE>/<owner>/<repo>", "git clone <BASE>/<owner>/<repo>   # 需要完整历史时"},
 		Examples: []string{
-			"git clone https://wsl-8000.moonchan.xyz/Hana-ame/agent",
+			"git clone --depth 1 --single-branch https://wsl-8000.moonchan.xyz/Hana-ame/agent",
 			"git clone --depth 1 --branch main https://wsl-8000.moonchan.xyz/Hana-ame/agent",
 			"git clone --shallow-since=2026-10-01 --branch main https://wsl-8000.moonchan.xyz/Hana-ame/agent",
 		},
 		Notes: []string{
+			"无特殊说明，使用 --depth 1 --single-branch（只拉默认分支的 1 层历史，更快更省；需要完整历史/多分支时再去掉）。",
 			"仓库必须在白名单内，否则 403。",
-			"支持 --branch / --depth N / --shallow-since / --unshallow / --deepen。",
+			"支持 --branch / --depth N / --single-branch / --shallow-since / --unshallow / --deepen。",
 			"偶发 invalid index-pack output 时重试即可（后端已强制 HTTP/1.1 降低概率）。",
 		},
 		Related: []string{"push", "pull", "whitelist"},
@@ -1523,6 +1568,20 @@ var helpTopics = map[string]helpTopic{
 		},
 		Related: []string{"auth"},
 	},
+	"allow": {
+		Topic:    "allow",
+		Title:    "allow — 白名单与分支策略清单",
+		Summary:  "列出所有允许的仓库和 protect/allow 分支通配规则（纯配置，无 query）。",
+		Usage:    []string{"GET <BASE>/allow"},
+		Examples: []string{"curl -sS 'https://wsl-8000.moonchan.xyz/allow'"},
+		Notes: []string{
+			"repos = --allow 白名单（owner/repo，支持 * 通配）。",
+			"branch_policy.protect = 受保护分支 glob；branch_policy.allow = 放行覆盖 glob。",
+			"语义：allow 命中则不保护；否则 protect 命中即保护；都没命中默认放行。",
+			"只读、免鉴权，与 /health 一致；返回配置规则，不是实际分支列表。",
+		},
+		Related: []string{"whitelist", "policy"},
+	},
 	"policy": {
 		Topic:   "policy",
 		Title:   "policy — 分支保护策略（txt）",
@@ -1597,6 +1656,7 @@ func helpOverview(a *App) map[string]any {
 		"service": "gitproxy",
 		"base":    "https://wsl-8000.moonchan.xyz",
 		"summary": "把 GitHub 仓库经 HTTPS smart-HTTP 反代给多个 agent：支持标准 git clone/push/pull/merge、POST patch→commit→push→PR，以及 PR/CI/issue 查询。agent 侧零凭据，鉴权由代理侧注入 gh token。",
+		"hint":    "无特殊说明，使用 --depth 1 --single-branch",
 		"topics":  topics,
 		"endpoints": []map[string]any{
 			{"method": "POST", "path": "/<owner>/<repo>/commits", "desc": "提交 patch(diff) → commit → push，可选开 PR", "help": "/help/commits"},
@@ -1607,6 +1667,7 @@ func helpOverview(a *App) map[string]any {
 			{"method": "GET", "path": "/<owner>/<repo>/actions/runs", "desc": "最近 Actions 运行", "help": "/help/runs"},
 			{"method": "GET", "path": "/<owner>/<repo>/issues", "desc": "issue 列表", "help": "/help/issues"},
 			{"method": "GET", "path": "/<owner>/<repo>/issues/<n>", "desc": "issue 详情 + comments", "help": "/help/issues"},
+			{"method": "GET", "path": "/allow", "desc": "白名单 repos + 分支策略（纯配置，无 query）", "help": "/help/allow"},
 			{"method": "GET", "path": "/health", "desc": "健康检查", "help": "/help/health"},
 			{"method": "GET", "path": "/help[/<topic>]", "desc": "本帮助", "help": "/help"},
 			{"method": "GET/POST", "path": "/<owner>/<repo>[.git]/{info/refs,git-upload-pack,git-receive-pack}", "desc": "git smart-HTTP（clone/fetch/push）", "help": "/help/clone, /help/push"},

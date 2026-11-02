@@ -10,6 +10,10 @@ agent ── GET pulls/checks/issues ─┘        (tunnel 对外 wsl-8000.moonc
 
 agent 端**零凭据**：不需要 gh、不需要 SSH key，鉴权全在代理侧注入。
 
+> **提示：无特殊说明，使用 `--depth 1 --single-branch`**
+> 例如 `git clone --depth 1 --single-branch https://wsl-8000.moonchan.xyz/Hana-ame/agent`。
+> 只拉默认分支的 1 层历史，clone 更快、更省流量；需要完整历史 / 其他分支时再去掉这两个参数。
+
 ## 前置条件
 - 本机 `gh auth login`（token 需有 `repo` scope；读私有库也需要）。
 - `git`、`go`（编译用）。
@@ -64,10 +68,39 @@ go build -o gitproxy .
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/` | 服务自述 + 端点 |
+| `GET` | `/allow` | 白名单 repos + 分支策略（纯配置，无 query） |
 | `GET` | `/health` | `{ok, token, allow}` |
 | `GET` | `/help` | 总览：全部 endpoint + 操作说明 + **每个参数的 describe** |
-| `GET` | `/help/<topic>` | 端点/操作详细帮助（clone/push/pull/merge/commits/pulls/issues/checks/runs/health/force/delete/auth/whitelist/errors） |
+| `GET` | `/help/<topic>` | 端点/操作详细帮助（clone/push/pull/merge/commits/pulls/issues/checks/runs/allow/health/force/delete/auth/whitelist/errors） |
 | `GET` | `/help/<param>` | 单个启动参数 describe（addr/data/tmp-dir/base/allow/allow-file/api-token，可带或不带 `--`） |
+
+## GET /allow（白名单 / 分支策略清单）
+
+一次列出所有允许的仓库和分支策略，纯配置、**无 query 参数**：
+
+```bash
+B=https://wsl-8000.moonchan.xyz/Hana-ame/agent
+curl -sS "$B/allow"
+```
+
+```json
+{
+  "ok": true,
+  "repos": ["Hana-ame/agent"],
+  "branch_policy": {
+    "protect": ["main", "release/*"],
+    "allow": [],
+    "semantics": "allow overrides protect; unmatched branches are allowed (not protected)"
+  },
+  "base": "main",
+  "notes": ["..."]
+}
+```
+
+- `repos` = `--allow` 白名单（`owner/repo`，支持 `*` 通配）；
+- `branch_policy.protect` / `.allow` = `--protect` / `--protect-file` 的分支 glob 规则；
+- 返回的是**配置规则**，不是仓库实际分支列表；
+- 只读、免鉴权（与 `/health` 一致）。
 
 ## POST /commits 细节
 

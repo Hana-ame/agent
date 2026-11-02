@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -328,5 +331,99 @@ func TestReadAllowFile(t *testing.T) {
 	}
 	if _, err := readAllowFile(filepath.Join(dir, "missing.txt")); err == nil {
 		t.Error("expected error for missing allow file")
+	}
+}
+
+// --------------------------------------------------------------------------- //
+//
+//	GET /allow + clone hint
+//
+// --------------------------------------------------------------------------- //
+func TestBranchPolicyPatterns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "branches.txt")
+	content := "# comment\n[protect]\nmain\nrelease/*\n\n[allow]\nrelease/hotfix-*\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pol, err := loadBranchPolicy([]string{path}, []string{"main"}, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(pol.protectPatterns, ","); got != "main,release/*" {
+		t.Errorf("protectPatterns = %q", got)
+	}
+	if got := strings.Join(pol.allowPatterns, ","); got != "release/hotfix-*" {
+		t.Errorf("allowPatterns = %q", got)
+	}
+
+	def, err := loadBranchPolicy(nil, nil, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(def.protectPatterns, ","); got != "main" {
+		t.Errorf("default protectPatterns = %q", got)
+	}
+
+	none, err := loadBranchPolicy(nil, []string{"none"}, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(none.protectPatterns) != 0 || len(none.allowPatterns) != 0 {
+		t.Errorf("none policy should have no patterns")
+	}
+}
+
+type allowResponse struct {
+	OK           bool     `json:"ok"`
+	Repos        []string `json:"repos"`
+	Base         string   `json:"base"`
+	BranchPolicy struct {
+		Protect []string `json:"protect"`
+		Allow   []string `json:"allow"`
+	} `json:"branch_policy"`
+}
+
+func TestHandleAllow(t *testing.T) {
+	pol, err := loadBranchPolicy(nil, []string{"main", "release/*"}, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{base: "main", allow: []string{"Hana-ame/agent", "owner/*"}, policy: pol}
+
+	rec := httptest.NewRecorder()
+	a.router(rec, httptest.NewRequest(http.MethodGet, "/allow", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var got allowResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || strings.Join(got.Repos, ",") != "Hana-ame/agent,owner/*" {
+		t.Errorf("got %+v", got)
+	}
+	if strings.Join(got.BranchPolicy.Protect, ",") != "main,release/*" {
+		t.Errorf("protect = %v", got.BranchPolicy.Protect)
+	}
+	if got.Base != "main" {
+		t.Errorf("base = %q", got.Base)
+	}
+}
+
+func TestCloneDepthHint(t *testing.T) {
+	const hint = "无特殊说明，使用 --depth 1 --single-branch"
+	clone := helpTopics["clone"]
+	if !strings.Contains(strings.Join(clone.Notes, "\n"), hint) {
+		t.Errorf("clone help missing hint")
+	}
+	if !strings.Contains(strings.Join(clone.Usage, "\n"), "--single-branch") {
+		t.Errorf("clone usage missing --single-branch")
+	}
+	if got := infoObj(&App{})["usage_hint"]; got != hint {
+		t.Errorf("infoObj usage_hint = %v", got)
+	}
+	if got := helpOverview(&App{})["hint"]; got != hint {
+		t.Errorf("helpOverview hint = %v", got)
 	}
 }
