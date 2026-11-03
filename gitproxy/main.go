@@ -1111,6 +1111,7 @@ func infoObj(a *App) map[string]any {
 		"usage":      "git clone https://<host>/<owner>/<repo>   |   POST /<owner>/<repo>/commits?branch=&message=&pr=",
 		"usage_hint": "无特殊说明，使用 --depth 1 --single-branch",
 		"hint":       "所有改动都要 push",
+		"ci_hint":    "不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）",
 		"endpoints": map[string]any{
 			"POST /<owner>/<repo>/commits":                             "提交 patch(diff) → commit → push；?branch=&message=&base=&pr=",
 			"GET /<owner>/<repo>/pulls":                                "PR 列表；?state=open|closed|merged|all&limit=N",
@@ -1502,6 +1503,7 @@ var helpTopics = map[string]helpTopic{
 			"curl -sS 'https://wsl-8000.moonchan.xyz/Hana-ame/agent/pulls/7/checks'",
 		},
 		Notes: []string{
+			"不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）",
 			"主要看 check_runs（conclusion=success/failure/skipped），combined_status 是旧 API 常为空。",
 			"details_url 指向 GitHub Actions 具体 job。",
 			"坏 sha → 400。",
@@ -1514,8 +1516,11 @@ var helpTopics = map[string]helpTopic{
 		Summary:  "查询最近 GitHub Actions runs，可按分支过滤。",
 		Usage:    []string{"GET <BASE>/<owner>/<repo>/actions/runs?branch=<b>&limit=N"},
 		Examples: []string{"curl -sS 'https://wsl-8000.moonchan.xyz/Hana-ame/agent/actions/runs?limit=5&branch=main'"},
-		Notes:    []string{"响应 {runs:[{databaseId,name,status,conclusion,headBranch,headSha,url}]}"},
-		Related:  []string{"checks"},
+		Notes: []string{
+			"不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）",
+			"响应 {runs:[{databaseId,name,status,conclusion,headBranch,headSha,url}]}",
+		},
+		Related: []string{"checks"},
 	},
 	"health": {
 		Topic:    "health",
@@ -1661,6 +1666,7 @@ func helpOverview(a *App) map[string]any {
 		"summary":   "把 GitHub 仓库经 HTTPS smart-HTTP 反代给多个 agent：支持标准 git clone/push/pull/merge、POST patch→commit→push→PR，以及 PR/CI/issue 查询。agent 侧零凭据，鉴权由代理侧注入 gh token。",
 		"hint":      "无特殊说明，使用 --depth 1 --single-branch",
 		"push_hint": "所有改动都要 push",
+		"ci_hint":   "不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）",
 		"topics":    topics,
 		"endpoints": []map[string]any{
 			{"method": "POST", "path": "/<owner>/<repo>/commits", "desc": "提交 patch(diff) → commit → push，可选开 PR", "help": "/help/commits"},

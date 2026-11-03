@@ -443,3 +443,19 @@ func TestPushHint(t *testing.T) {
 		t.Errorf("commits help missing hint")
 	}
 }
+
+func TestCIHint(t *testing.T) {
+	want := "不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）"
+	if got := infoObj(&App{})["ci_hint"]; got != want {
+		t.Errorf("infoObj ci_hint = %v", got)
+	}
+	if !strings.Contains(helpOverview(&App{})["ci_hint"].(string), "不要本地编译测试") {
+		t.Errorf("helpOverview ci_hint missing")
+	}
+	if !strings.Contains(strings.Join(helpTopics["checks"].Notes, "\n"), "不要本地编译测试") {
+		t.Errorf("checks help missing")
+	}
+	if !strings.Contains(strings.Join(helpTopics["runs"].Notes, "\n"), "不要本地编译测试") {
+		t.Errorf("runs help missing")
+	}
+}
