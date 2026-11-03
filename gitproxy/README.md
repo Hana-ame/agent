@@ -17,7 +17,7 @@ agent 端**零凭据**：不需要 gh、不需要 SSH key，鉴权全在代理�
 > **提示：所有改动都要 push。**
 >
 > **不要本地编译测试**：全部 push 之后查看 CI。
-> CI 查看方式：`GET /<owner>/<repo>/commits/<sha>/checks`、`GET /<owner>/<repo>/pulls/<n>/checks`、`GET /<owner>/<repo>/actions/runs?branch=<b>&limit=N`
+> CI 查看方式：`GET /<owner>/<repo>/ci/<sha-or-branch>`、`GET /<owner>/<repo>/ci/pr/<n>`、`GET /<owner>/<repo>/actions/runs?branch=<b>&limit=N`
 
 ## 前置条件
 - 本机 `gh auth login`（token 需有 `repo` scope；读私有库也需要）。

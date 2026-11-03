@@ -211,6 +211,12 @@ func (a *App) router(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			switch {
+			case strings.HasPrefix(rest, "ci/pr/"):
+				a.handlePRChecks(w, r, mo, mr, strings.TrimPrefix(rest, "ci/pr/"))
+				return
+			case strings.HasPrefix(rest, "ci/"):
+				a.handleCIRef(w, r, mo, mr, strings.TrimPrefix(rest, "ci/"))
+				return
 			case rest == "pulls":
 				a.handlePRList(w, r, mo, mr)
 				return
@@ -1111,7 +1117,7 @@ func infoObj(a *App) map[string]any {
 		"usage":      "git clone https://<host>/<owner>/<repo>   |   POST /<owner>/<repo>/commits?branch=&message=&pr=",
 		"usage_hint": "无特殊说明，使用 --depth 1 --single-branch",
 		"hint":       "所有改动都要 push",
-		"ci_hint":    "不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）",
+		"ci_hint":    "不要本地编译测试；全部 push 后查看 CI（ci/<sha-or-branch> · ci/pr/<n> · actions/runs?branch=<b>&limit=N）",
 		"endpoints": map[string]any{
 			"POST /<owner>/<repo>/commits":                             "提交 patch(diff) → commit → push；?branch=&message=&base=&pr=",
 			"GET /<owner>/<repo>/pulls":                                "PR 列表；?state=open|closed|merged|all&limit=N",
@@ -1270,6 +1276,31 @@ func (a *App) handleChecks(w http.ResponseWriter, r *http.Request, owner, repo, 
 		st = strings.TrimSpace(s)
 	}
 	writeRawJSON(w, `{"check_runs":`+strings.TrimSpace(out)+`,"combined_status":`+st+`}`)
+}
+
+// handleCIRef: GET /<owner>/<repo>/ci/<sha-or-branch>
+// 分支名先解析 tip sha；branch 里的 / 直接放在路径里即可（splitMetaPath 会保留）。
+func (a *App) handleCIRef(w http.ResponseWriter, r *http.Request, owner, repo, ref string) {
+	ref = strings.TrimPrefix(ref, "refs/heads/")
+	if shaLikeRe.MatchString(ref) {
+		a.handleChecks(w, r, owner, repo, ref)
+		return
+	}
+	out, err := ghOut("api", "repos/"+owner+"/"+repo+"/git/ref/heads/"+ref)
+	if err != nil {
+		writeJSON(w, 404, errObj("branch not found: "+ref+" ("+strings.TrimSpace(err.Error())+")"))
+		return
+	}
+	var rr struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := json.Unmarshal([]byte(out), &rr); err != nil || rr.Object.SHA == "" {
+		writeJSON(w, 502, errObj("cannot resolve branch head: "+ref))
+		return
+	}
+	a.handleChecks(w, r, owner, repo, rr.Object.SHA)
 }
 
 func (a *App) handleRuns(w http.ResponseWriter, r *http.Request, owner, repo string) {
@@ -1495,15 +1526,17 @@ var helpTopics = map[string]helpTopic{
 		Title:   "checks — 某 commit 的 CI",
 		Summary: "查询某 commit 的 GitHub check-runs 与 combined status。",
 		Usage: []string{
-			"GET <BASE>/<owner>/<repo>/commits/<sha>/checks",
-			"GET <BASE>/<owner>/<repo>/pulls/<n>/checks",
+			"GET <BASE>/<owner>/<repo>/ci/<sha-or-branch>",
+			"GET <BASE>/<owner>/<repo>/ci/pr/<n>",
+			"GET <BASE>/<owner>/<repo>/commits/<sha>/checks   # 兼容别名",
+			"GET <BASE>/<owner>/<repo>/pulls/<n>/checks      # 兼容别名",
 		},
 		Examples: []string{
 			"curl -sS 'https://wsl-8000.moonchan.xyz/Hana-ame/agent/commits/<sha>/checks'",
 			"curl -sS 'https://wsl-8000.moonchan.xyz/Hana-ame/agent/pulls/7/checks'",
 		},
 		Notes: []string{
-			"不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）",
+			"不要本地编译测试；全部 push 后查看 CI（ci/<sha-or-branch> · ci/pr/<n> · actions/runs?branch=<b>&limit=N）",
 			"主要看 check_runs（conclusion=success/failure/skipped），combined_status 是旧 API 常为空。",
 			"details_url 指向 GitHub Actions 具体 job。",
 			"坏 sha → 400。",
@@ -1517,7 +1550,7 @@ var helpTopics = map[string]helpTopic{
 		Usage:    []string{"GET <BASE>/<owner>/<repo>/actions/runs?branch=<b>&limit=N"},
 		Examples: []string{"curl -sS 'https://wsl-8000.moonchan.xyz/Hana-ame/agent/actions/runs?limit=5&branch=main'"},
 		Notes: []string{
-			"不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）",
+			"不要本地编译测试；全部 push 后查看 CI（ci/<sha-or-branch> · ci/pr/<n> · actions/runs?branch=<b>&limit=N）",
 			"响应 {runs:[{databaseId,name,status,conclusion,headBranch,headSha,url}]}",
 		},
 		Related: []string{"checks"},
@@ -1666,7 +1699,7 @@ func helpOverview(a *App) map[string]any {
 		"summary":   "把 GitHub 仓库经 HTTPS smart-HTTP 反代给多个 agent：支持标准 git clone/push/pull/merge、POST patch→commit→push→PR，以及 PR/CI/issue 查询。agent 侧零凭据，鉴权由代理侧注入 gh token。",
 		"hint":      "无特殊说明，使用 --depth 1 --single-branch",
 		"push_hint": "所有改动都要 push",
-		"ci_hint":   "不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）",
+		"ci_hint":   "不要本地编译测试；全部 push 后查看 CI（ci/<sha-or-branch> · ci/pr/<n> · actions/runs?branch=<b>&limit=N）",
 		"topics":    topics,
 		"endpoints": []map[string]any{
 			{"method": "POST", "path": "/<owner>/<repo>/commits", "desc": "提交 patch(diff) → commit → push，可选开 PR", "help": "/help/commits"},
