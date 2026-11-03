@@ -445,7 +445,7 @@ func TestPushHint(t *testing.T) {
 }
 
 func TestCIHint(t *testing.T) {
-	want := "不要本地编译测试；全部 push 后查看 CI（commits/<sha>/checks · pulls/<n>/checks · actions/runs?branch=<b>&limit=N）"
+	want := "不要本地编译测试；全部 push 后查看 CI（ci/<sha-or-branch> · ci/pr/<n> · actions/runs?branch=<b>&limit=N）"
 	if got := infoObj(&App{})["ci_hint"]; got != want {
 		t.Errorf("infoObj ci_hint = %v", got)
 	}
