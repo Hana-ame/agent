@@ -1110,6 +1110,7 @@ func infoObj(a *App) map[string]any {
 		"service":    "gitproxy",
 		"usage":      "git clone https://<host>/<owner>/<repo>   |   POST /<owner>/<repo>/commits?branch=&message=&pr=",
 		"usage_hint": "无特殊说明，使用 --depth 1 --single-branch",
+		"hint":       "所有改动都要 push",
 		"endpoints": map[string]any{
 			"POST /<owner>/<repo>/commits":                             "提交 patch(diff) → commit → push；?branch=&message=&base=&pr=",
 			"GET /<owner>/<repo>/pulls":                                "PR 列表；?state=open|closed|merged|all&limit=N",
@@ -1401,6 +1402,7 @@ var helpTopics = map[string]helpTopic{
 			"git push -u origin feat-x",
 		},
 		Notes: []string{
+			"所有改动都要 push。",
 			"新建分支 / fast-forward 允许。",
 			"non-fast-forward 改写已有分支（-f / --force-with-lease）→ 403。",
 			"删除分支 / tag（git push --delete / :refs/tags/x）→ 403。",
@@ -1443,6 +1445,7 @@ var helpTopics = map[string]helpTopic{
 			`curl -X POST 'https://wsl-8000.moonchan.xyz/Hana-ame/agent/commits' -H 'Content-Type: application/json' -d '{"branch":"feat","message":"msg","patch":"--- /dev/null\n+++ b/f\n@@ -0,0 +1 @@\n+hi\n"}'`,
 		},
 		Notes: []string{
+			"所有改动都要 push。",
 			"branch 不存在会从 base（默认 main）新建；base 可传分支名或 commit sha。",
 			"pr=1 标题取自 message；pr=<title>::<body> 可自定义 PR 标题/正文。",
 			"patch 必须是 git diff 的 unified diff，不要发 format-patch 的 mbox。",
@@ -1653,11 +1656,12 @@ func helpOverview(a *App) map[string]any {
 	}
 	sort.Strings(topics)
 	return map[string]any{
-		"service": "gitproxy",
-		"base":    "https://wsl-8000.moonchan.xyz",
-		"summary": "把 GitHub 仓库经 HTTPS smart-HTTP 反代给多个 agent：支持标准 git clone/push/pull/merge、POST patch→commit→push→PR，以及 PR/CI/issue 查询。agent 侧零凭据，鉴权由代理侧注入 gh token。",
-		"hint":    "无特殊说明，使用 --depth 1 --single-branch",
-		"topics":  topics,
+		"service":   "gitproxy",
+		"base":      "https://wsl-8000.moonchan.xyz",
+		"summary":   "把 GitHub 仓库经 HTTPS smart-HTTP 反代给多个 agent：支持标准 git clone/push/pull/merge、POST patch→commit→push→PR，以及 PR/CI/issue 查询。agent 侧零凭据，鉴权由代理侧注入 gh token。",
+		"hint":      "无特殊说明，使用 --depth 1 --single-branch",
+		"push_hint": "所有改动都要 push",
+		"topics":    topics,
 		"endpoints": []map[string]any{
 			{"method": "POST", "path": "/<owner>/<repo>/commits", "desc": "提交 patch(diff) → commit → push，可选开 PR", "help": "/help/commits"},
 			{"method": "GET", "path": "/<owner>/<repo>/pulls", "desc": "PR 列表", "help": "/help/pulls"},

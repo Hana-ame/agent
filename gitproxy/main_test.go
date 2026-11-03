@@ -427,3 +427,19 @@ func TestCloneDepthHint(t *testing.T) {
 		t.Errorf("helpOverview hint = %v", got)
 	}
 }
+
+func TestPushHint(t *testing.T) {
+	const hint = "所有改动都要 push"
+	if got := infoObj(&App{})["hint"]; got != hint {
+		t.Errorf("infoObj hint = %v", got)
+	}
+	if got := helpOverview(&App{})["push_hint"]; got != hint {
+		t.Errorf("helpOverview push_hint = %v", got)
+	}
+	if !strings.Contains(strings.Join(helpTopics["push"].Notes, "\n"), hint) {
+		t.Errorf("push help missing hint")
+	}
+	if !strings.Contains(strings.Join(helpTopics["commits"].Notes, "\n"), hint) {
+		t.Errorf("commits help missing hint")
+	}
+}
