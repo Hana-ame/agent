@@ -70,7 +70,7 @@ module tb_axi_apb;
         .PREADY(PREADY), .PRDATA(PRDATA), .PSLVERR(PSLVERR)
     );
 
-    // ---- 协议合法性 monitor ----
+    // ---- 协议合法性 monitor（规则来自 apb_defs_pkg，单一事实来源） ----
     integer mon_err = 0;
     // 上一拍 APB 状态（替代 $past）
     reg prev_access;
@@ -85,27 +85,32 @@ module tb_axi_apb;
         end
     end
 
-    // APB 检查
+    // APB 检查（调用定义层规则函数）
     always @(posedge ACLK) begin
-        // PENABLE 只能在 PSEL=1 时拉高
-        if (PENABLE && !PSEL) begin
+        // R1: PENABLE 只能在 PSEL=1 时拉高
+        if (!apb_defs_pkg::penable_ok(PSEL, PENABLE)) begin
             $display("MON FAIL: PENABLE while PSEL=0 @%0t", $time);
             mon_err++;
         end
-        // APB ACCESS 阶段若上拍在 ACCESS 且 PREADY=0，本拍不能退出 ACCESS
-        if (prev_access && !prev_ready && !(PSEL && PENABLE)) begin
+        // R2: APB ACCESS 阶段若上拍在 ACCESS 且 PREADY=0，本拍不能退出 ACCESS
+        if (!apb_defs_pkg::phase_transition_ok(prev_access, prev_ready,
+                                               (PSEL && PENABLE))) begin
             $display("MON FAIL: APB ACCESS terminated before PREADY @%0t", $time);
             mon_err++;
         end
-        // SETUP 阶段从机不允许 PREADY=1
+        // R3: SETUP 阶段从机不允许 PREADY=1
         if (PSEL && !PENABLE && PREADY) begin
             $display("MON FAIL: PREADY during SETUP @%0t", $time);
             mon_err++;
         end
+        // R4(log): 传输完成拍打印（便于核对 wait states 慢速时序）
+        if (apb_defs_pkg::transfer_done(PSEL, PENABLE, PREADY))
+            $display("    APB xfer done: addr=%02h %s", PADDR,
+                     PWRITE ? "WR" : "RD");
     end
 
-    // B 通道：桥只能在完成拍给一次响应（BVALID 与 state==W_RESP 对应）
-    // 简化：检查 BVALID 拉高时 bridge 处于 W_RESP 状态（可以从波形看，不自动）
+    // B/R 响应名打印辅助（用定义层 resp_name）
+    // 在响应握手时打印
 
     // ---- 主流程：数据一致性 + 慢速 + 越界 ----
     reg [31:0] ref_mem [0:NREG-1];   // 参考模型镜像
@@ -130,7 +135,7 @@ module tb_axi_apb;
         for (i = 0; i < NREG; i++) begin
             ref_mem[i] = $random;
             master.write_split(i[AW-1:0] * 4, ref_mem[i], resp);
-            if (resp !== 2'b00) begin
+            if (resp !== axi_defs_pkg::RESP_OKAY) begin
                 $display("WRITE FAIL: addr=%0d resp=%b", i, resp);
                 err++;
             end else pass++;
@@ -140,7 +145,7 @@ module tb_axi_apb;
         $display("-- phase 2: read back %0d regs --", NREG);
         for (i = 0; i < NREG; i++) begin
             master.read(i[AW-1:0] * 4, rdata, resp);
-            if (resp !== 2'b00) begin
+            if (resp !== axi_defs_pkg::RESP_OKAY) begin
                 $display("READ FAIL: addr=%0d resp=%b", i, resp);
                 err++;
             end else if (rdata !== ref_mem[i]) begin
@@ -153,18 +158,20 @@ module tb_axi_apb;
         $display("-- phase 3: same-cycle AW+W write --");
         ref_mem[0] = 32'hDEAD_BEEF;
         master.write_same(8'h00, ref_mem[0], resp);
-        if (resp !== 2'b00) begin $display("WRITE_SAME FAIL"); err++; end
+        if (resp !== axi_defs_pkg::RESP_OKAY) begin $display("WRITE_SAME FAIL"); err++; end
         master.read(8'h00, rdata, resp);
         if (rdata !== ref_mem[0]) begin $display("READ_SAME FAIL"); err++; end
         else pass++;
 
-        // ---- 4. 越界读/写（SLVERR 响应）----
+        // ---- 4. 越界读/写（SLVERR 响应，用定义层 resp_name 确认）----
         $display("-- phase 4: out-of-range access (ref_mem SLVERR) --");
         master.write_split(8'h40, 32'h0000_1234, resp);   // 0x40 = reg16，越界
-        if (resp !== 2'b10) begin $display("OOB WRITE: expected SLVERR got %b", resp); err++; end
+        $display("    OOB write resp=%b (%s)", resp, axi_defs_pkg::resp_name(resp));
+        if (resp !== axi_defs_pkg::RESP_SLVERR) begin $display("OOB WRITE: expected SLVERR got %b", resp); err++; end
         else pass++;
         master.read(8'h40, rdata, resp);
-        if (resp !== 2'b10) begin $display("OOB READ: expected SLVERR got %b", resp); err++; end
+        $display("    OOB read  resp=%b (%s)", resp, axi_defs_pkg::resp_name(resp));
+        if (resp !== axi_defs_pkg::RESP_SLVERR) begin $display("OOB READ: expected SLVERR got %b", resp); err++; end
         else pass++;
 
         // ---- 5. monitor 错误汇总 ----

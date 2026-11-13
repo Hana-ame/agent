@@ -59,6 +59,10 @@ module axi_apb_bridge #(
     input  wire          PSLVERR
 );
 
+    // ---- 引入协议定义层（AXI 响应常量 / APB 阶段类型） ----
+    import axi_defs_pkg::*;
+    import apb_defs_pkg::*;
+
     // ---- 状态编码 ----
     localparam IDLE     = 4'd0;
     localparam AW_HELD  = 4'd1;  // 收到地址，等写数据
@@ -83,7 +87,7 @@ module axi_apb_bridge #(
         // 默认
         AWREADY = 1'b0; WREADY = 1'b0; ARREADY = 1'b0;
         BVALID  = 1'b0; RVALID  = 1'b0;
-        BRESP   = 2'b00; RRESP   = 2'b00;
+        BRESP   = RESP_OKAY; RRESP   = RESP_OKAY;
         PSEL    = 1'b0;  PENABLE = 1'b0; PWRITE  = 1'b0;
         PADDR   = paddr_q;  // 默认输出锁存地址（仅 APB 阶段有意义）
         PWDATA  = pwdata_q; // 默认输出锁存数据
@@ -105,11 +109,11 @@ module axi_apb_bridge #(
             W_HELD:  AWREADY = 1'b1;
             W_SETUP:  begin PSEL = 1'b1; PENABLE = 1'b0; PWRITE = 1'b1; end
             W_ACCESS: begin PSEL = 1'b1; PENABLE = 1'b1; PWRITE = 1'b1; end
-            W_RESP:   begin BVALID = 1'b1; BRESP = slv_err ? 2'b10 : 2'b00; end
+            W_RESP:   begin BVALID = 1'b1; BRESP = slv_err ? RESP_SLVERR : RESP_OKAY; end
             R_SETUP:  begin PSEL = 1'b1; PENABLE = 1'b0; end
             R_ACCESS: begin PSEL = 1'b1; PENABLE = 1'b1; end
             R_RESP:   begin RVALID = 1'b1;
-                             RRESP = slv_err ? 2'b10 : 2'b00;
+                             RRESP = slv_err ? RESP_SLVERR : RESP_OKAY;
                              RDATA = rdata_q;
                        end
             default: ;
