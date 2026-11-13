@@ -1,0 +1,44 @@
+# 示例：CI 定时 / push 触发的模块同步工作流
+# 放到本仓库的 .github/workflows/sync-modules.yml 即可使用。
+#
+# 关键点：把 sync.py 放到 CI 里跑，就能做到「单一功能分支一更新，
+# 集成分支上的模块自动跟着更新」——不需要人工 merge。
+name: sync-modules
+
+on:
+  push:
+    branches:
+      - "feat/**"
+  schedule:
+    - cron: "*/15 * * * *" # 兜底轮询，防止漏掉分支更新
+  workflow_dispatch: {}
+
+concurrency:
+  group: sync-modules
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: 配置 git 身份（CI 机器人提交 lock / merge）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: 合并 feature 分支为模块（main 上）
+        run: python3 sync.py once
+
+      - name: 推送集成分支
+        run: git push origin main

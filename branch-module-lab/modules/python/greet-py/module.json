@@ -1,0 +1,7 @@
+{
+  "name": "greet-py",
+  "language": "python",
+  "interface": "bml/module-v1",
+  "version": "3.0.0",
+  "entry": "impl.py"
+}

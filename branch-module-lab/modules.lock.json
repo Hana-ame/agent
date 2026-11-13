@@ -1,0 +1,31 @@
+{
+  "interface": "bml/module-v1",
+  "generated_at": "2026-11-02T19:53:21+00:00",
+  "remote": "origin",
+  "modules": [
+    {
+      "name": "greet-go",
+      "language": "go",
+      "branch": "feat/greet-go",
+      "commit": "e834dc488d3e07d183c957c0f0f09fcb516997fb",
+      "version": "3.0.0",
+      "artifact": "modules/go/greet-go"
+    },
+    {
+      "name": "greet-js",
+      "language": "js",
+      "branch": "feat/greet-js",
+      "commit": "5c75d2c7c798cb7f5441f328eaf8f380a9a9c3ff",
+      "version": "3.0.0",
+      "artifact": "modules/js/greet-js"
+    },
+    {
+      "name": "greet-py",
+      "language": "python",
+      "branch": "feat/greet-py",
+      "commit": "3e56a61fb0861ab77a2d47ac09c12da0be012d91",
+      "version": "3.0.0",
+      "artifact": "modules/python/greet-py"
+    }
+  ]
+}

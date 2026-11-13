@@ -1,0 +1,7 @@
+{
+  "name": "greet-js",
+  "language": "js",
+  "interface": "bml/module-v1",
+  "version": "3.0.0",
+  "entry": "index.mjs"
+}

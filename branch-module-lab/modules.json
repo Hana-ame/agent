@@ -1,0 +1,9 @@
+{
+  "interface": "bml/module-v1",
+  "remote": "origin",
+  "modules": [
+    { "name": "greet-go", "language": "go", "branch": "feat/greet-go" },
+    { "name": "greet-js", "language": "js", "branch": "feat/greet-js" },
+    { "name": "greet-py", "language": "python", "branch": "feat/greet-py" }
+  ]
+}
