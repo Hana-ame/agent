@@ -89,13 +89,54 @@ module tb_counter8;
     int cycles = 0;
     int errors = 0;
 
+    // ---- 起始激励：上电复位序列 (SV 风格，经 clocking 驱动) ----
+    task startup();
+        $display("== STARTUP: power-on reset sequence ==");
+        uif.cb.rst_n <= 1'b0;   // 上电默认复位
+        uif.cb.en    <= 1'b0;
+        repeat (2) @(posedge clk);
+        // SVA 断言 ap_reset 会验证复位后 count==0；此处显式确认
+        if (uif.count !== 0) begin $display("STARTUP FAIL"); errors++; end
+        $display("-- releasing reset --");
+        uif.cb.rst_n <= 1'b1;
+        repeat (2) @(posedge clk);
+        if (uif.count !== 0) begin $display("STARTUP FAIL"); errors++; end
+    endtask
+
+    // ---- 结束激励 1：drain（收尾冲洗 + 最后保持断言） ----
+    task drain();
+        logic [WIDTH-1:0] hold;
+        $display("== END OF STIMULUS: drain ==");
+        uif.cb.rst_n <= 1'b1;
+        uif.cb.en    <= 1'b0;
+        repeat (3) @(posedge clk);
+        hold = uif.count;
+        @(posedge clk);                    // en=0 下应保持
+        if (uif.count !== hold) begin
+            $display("DRAIN FAIL: count changed %h -> %h", hold, uif.count);
+            errors++;
+        end
+    endtask
+
+    // ---- 结束激励 2：finalize（统计 + 退出形式） ----
+    //   通过 -> $finish（退出码 0）
+    //   失败 -> $fatal(1)（退出码 1，CI/脚本可捕获）
+    task finalize();
+        $display("-- SUMMARY: %0d error(s) over %0d random cycles --", errors, cycles);
+        if (errors == 0) begin
+            $display("PASS: counter8 SV, all checks passed");
+            $finish;
+        end else begin
+            $display("FAIL: %0d errors", errors);
+            $fatal(1, "test bench failed");
+        end
+    endtask
+
     initial begin
         $display("== SV test bench: counter8 v2 (SVA + coverage + reference model) ==");
 
-        // 复位
-        uif.rst_n <= 1'b0; uif.en <= 1'b0;
-        repeat (2) @(posedge clk);
-        uif.rst_n <= 1'b1;
+        // ---- 起始激励：上电复位序列 ----
+        startup();
 
         // 随机激励循环（2000 周期），每拍驱动 + 参考模型比对
         Stimulus stim = new();
@@ -144,10 +185,8 @@ module tb_counter8;
         $display("Coverage: rst=%.1f%% en=%.1f%%", cg_inst.cp_rst.get_coverage(), cg_inst.cp_en.get_coverage());
         $display("Coverage count bins: %.1f%%", cg_inst.cp_count.get_coverage());
 
-        if (errors == 0)
-            $display("PASS: counter8 SV v2, %0d random cycles, 0 errors", cycles);
-        else
-            $display("FAIL: %0d errors in %0d cycles", errors, cycles);
-        $finish;
+        // ---- 结束激励：drain + finalize ----
+        drain();
+        finalize();
     end
 endmodule
