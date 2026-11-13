@@ -1,15 +1,16 @@
-// 完整 SystemVerilog test bench：counter8
-// 现代验证方法学写法 —— 需 irun / VCS 等支持完整 SV 的工具运行。
-// 本机 iverilog 12 编译不过（不支持 clocking / SVA / covergroup / class 随机）。
+// 完整 SystemVerilog test bench：counter8（v2，标准现代验证结构）
+// 需 irun / VCS 等完整 SV 工具运行；本机 iverilog 12 编译不过（无 SVA/covergroup/class）。
 //
-// 包含：
-//   interface + clocking (可在 SV 环境中同步驱动)
-//   SVA 并发断言（assert property）
-//   covergroup 功能覆盖率
-//   class + 随机约束激励（rand / constraint / dist）
+// 结构：
+//   1) interface + clocking: 汇总 DUT 端口 + 同步驱动通道
+//   2) class 随机激励: rand en / rand rst，constraint 控制概率
+//   3) 参考模型: scoreboard 用沿前 count 预测下一拍 count/carry，与 DUT 比对
+//   4) SVA: 5 条并发断言（复位/递增/回绕/保持/carry）
+//   5) covergroup: 功能覆盖率（含 cross）
+//   6) 显式回绕 + 复位清零检查
 `timescale 1ns / 1ps
 
-// ---- interface：封装 DUT 端口 ----
+// ---- interface：封装 DUT 端口 + 断言 + 采样 ----
 interface counter_if #(parameter WIDTH = 8) (input logic clk);
     logic        rst_n;
     logic        en;
@@ -23,22 +24,19 @@ interface counter_if #(parameter WIDTH = 8) (input logic clk);
     endclocking
 
     // ---- SVA 并发断言 ----
-    // 复位后 count==0
-    ap_reset: assert property (@(posedge clk) !rst_n |=> count == 0);
-    // 非满值时使能则递增
-    ap_incr: assert property (@(posedge clk) rst_n && en && (count != '1) |=> count == $past(count) + 1);
-    // 满值时使能则回绕到 0
-    ap_wrap: assert property (@(posedge clk) rst_n && en && (count == '1) |=> count == 0);
-    // 使能关闭保持
-    ap_hold: assert property (@(posedge clk) rst_n && !en |=> count == $past(count));
-    // 回绕时 carry 高一拍
-    ap_carry: assert property (@(posedge clk) rst_n && (count == '1) |=> carry == 1);
+    ap_reset:  assert property (@(posedge clk) !rst_n |=> count == 0);
+    ap_incr:   assert property (@(posedge clk) rst_n && en && (count != '1) |=> count == $past(count) + 1);
+    ap_wrap:   assert property (@(posedge clk) rst_n && en && (count == '1) |=> count == 0);
+    ap_hold:   assert property (@(posedge clk) rst_n && !en |=> count == $past(count));
+    ap_carry:  assert property (@(posedge clk) rst_n && (count == '1) |=> carry == 1);
 endinterface
 
-// ---- class + 随机约束：80% 使能 ----
+// ---- 随机激励类 ----
 class Stimulus;
+    rand bit rst;   // 低有效复位（1=释放）
     rand bit en;
-    constraint en_prob { en dist {1 := 80, 0 := 20}; }
+    constraint rst_prob { rst dist {1 := 97, 0 := 3}; }  // 3% 周期复位
+    constraint en_prob  { en  dist {1 := 70, 0 := 30}; } // 70% 使能
 endclass
 
 // ---- test bench ----
@@ -55,7 +53,7 @@ module tb_counter8;
         .carry (uif.carry)
     );
 
-    // ---- 功能覆盖率 ----
+    // ---- 覆盖率 ----
     covergroup cg @(posedge clk);
         cp_rst: coverpoint uif.rst_n;
         cp_en:  coverpoint uif.en;
@@ -72,59 +70,84 @@ module tb_counter8;
     // ---- 时钟 ----
     always #5 clk = ~clk;
 
-    // ---- 主流程：复位 + 随机激励 + 显式回绕/复位检查 ----
-    int cycles;
+    // ---- 参考模型：预测下一拍 ----
+    function void predict(input logic r, input logic e,
+                          input logic [WIDTH-1:0] cur,
+                          output logic [WIDTH-1:0] nx,
+                          output logic nx_carry);
+        if (!r) begin
+            nx = 0; nx_carry = 0;
+        end else if (e) begin
+            nx = cur + 1'b1;
+            nx_carry = (cur == '1);
+        end else begin
+            nx = cur; nx_carry = 0;
+        end
+    endfunction
+
+    // ---- 统计 ----
+    int cycles = 0;
     int errors = 0;
-    Stimulus stim = new();
 
     initial begin
-        $display("== SV test bench: counter8 (SVA + coverage + random) ==");
+        $display("== SV test bench: counter8 v2 (SVA + coverage + reference model) ==");
 
         // 复位
         uif.rst_n <= 1'b0; uif.en <= 1'b0;
         repeat (2) @(posedge clk);
         uif.rst_n <= 1'b1;
 
-        // 512 周期随机激励
-        for (cycles = 0; cycles < 512; cycles++) begin
+        // 随机激励循环（2000 周期），每拍驱动 + 参考模型比对
+        Stimulus stim = new();
+        logic [WIDTH-1:0] nxt; logic nxt_carry;
+        for (cycles = 0; cycles < 2000; cycles++) begin
             if (!stim.randomize())
-                $error("randomize failed");
-            uif.en <= stim.en;
+                $error("randomize failed at %0d", cycles);
+            uif.rst_n <= stim.rst;
+            uif.en    <= stim.en;
+            // 参考模型预测（基于沿前值）
+            predict(stim.rst, stim.en, uif.count, nxt, nxt_carry);
             @(posedge clk);
+            if (uif.count !== nxt) begin
+                $display("SCOREBOARD FAIL: cycle=%0d exp count=%h got=%h", cycles, nxt, uif.count);
+                errors++;
+            end
+            if (uif.carry !== nxt_carry) begin
+                $display("SCOREBOARD FAIL: cycle=%0d exp carry=%b got=%b", cycles, nxt_carry, uif.carry);
+                errors++;
+            end
             cg_inst.sample();
         end
 
         // 显式回绕检查
-        uif.en <= 1'b1;
-        for (cycles = 0; cycles < 260; cycles++) begin
-            if (uif.count == 8'hFF) begin
-                @(posedge clk);
-                if (uif.count !== 8'h00 || uif.carry !== 1'b1) begin
-                    $display("WRAP FAIL: count=%h carry=%b", uif.count, uif.carry);
-                    errors++;
-                end
-                break;
-            end
-            @(posedge clk);
+        $display("-- deterministic wrap check --");
+        uif.en <= 1'b1; uif.rst_n <= 1'b1;
+        while (uif.count != 8'hFF) @(posedge clk);
+        @(posedge clk);
+        if (uif.count !== 8'h00 || uif.carry !== 1'b1) begin
+            $display("WRAP FAIL: count=%h carry=%b", uif.count, uif.carry);
+            errors++;
         end
 
-        // 复位清零检查
+        // 显式复位清零检查
+        $display("-- deterministic reset check --");
         uif.en <= 1'b1;
         @(posedge clk);
-        if (uif.count == 8'h02) begin
-            uif.rst_n <= 1'b0;
-            @(posedge clk);
-            if (uif.count !== 8'h00) begin
-                $display("RST FAIL");
-                errors++;
-            end
-            uif.rst_n <= 1'b1;
+        uif.rst_n <= 1'b0;
+        @(posedge clk);
+        if (uif.count !== 8'h00) begin
+            $display("RST FAIL: count=%h", uif.count);
+            errors++;
         end
+        uif.rst_n <= 1'b1;
+
+        $display("Coverage: rst=%.1f%% en=%.1f%%", cg_inst.cp_rst.get_coverage(), cg_inst.cp_en.get_coverage());
+        $display("Coverage count bins: %.1f%%", cg_inst.cp_count.get_coverage());
 
         if (errors == 0)
-            $display("PASS: counter8 SV test bench, %0d cycles random, SVA/coverage active", cycles);
+            $display("PASS: counter8 SV v2, %0d random cycles, 0 errors", cycles);
         else
-            $display("FAIL: %0d errors", errors);
+            $display("FAIL: %0d errors in %0d cycles", errors, cycles);
         $finish;
     end
 endmodule
