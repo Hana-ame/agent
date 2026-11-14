@@ -148,9 +148,14 @@ case "${1:-all}" in
           cp -r "$COVDIR"/*/cov_*.dat "$COVDIR/" 2>/dev/null || true
         )
         echo "== coverage: 合并报告 =="
-        # 数据在 axi/$COVDIR 下（脚本在 axi 子目录内编译运行）
+        # 注解需在源码所在目录生成（文件名相对路径），故 cd axi
         if [ -n "$VLT_COV" ]; then
-            "$VLT_COV" --annotate "axi/$COVDIR/annotated" axi/"$COVDIR"/cov_*.dat 2>&1 | head -12
+            ( cd axi && "$VLT_COV" --annotate "run/cov/annotated" run/cov/cov_*.dat 2>&1 | head -12 )
+            # 自动生成 HTML 覆盖率报告
+            if [ -f axi/gen_coverage_html.py ]; then
+                echo "== coverage: 生成 HTML 报告 =="
+                ( cd axi && python3 gen_coverage_html.py 2>&1 | tail -4 )
+            fi
         else
             echo "WARN: 未找到 verilator_coverage" >&2
         fi
