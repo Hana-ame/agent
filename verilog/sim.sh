@@ -151,6 +151,10 @@ case "${1:-all}" in
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
             sv/apb_slave_regs_sv.sv sv/tb_cov_gaps.sv
+          run_cov tb_dual_stress \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/tb_dual_stress.sv
           cp -r "$COVDIR"/*/cov_*.dat "$COVDIR/" 2>/dev/null || true
         )
         echo "== coverage: 合并报告 =="
