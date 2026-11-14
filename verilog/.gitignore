@@ -1,4 +1,4 @@
 # 仿真产物（不入库）
 run/
 *.vcd
-*.vvp
+*.vvpcoverage.dat
