@@ -21,6 +21,10 @@ import sys
 import html
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import field_gen     # 位域 RTL 生成辅助（列表构建）
+import field_tb_gen  # 位域测试生成辅助
+
 HERE = Path(__file__).resolve().parent      # verilog/axi
 SV = HERE / "sv"
 DEFAULT_SPEC = HERE / "regfile_spec.json"
@@ -119,6 +123,17 @@ def gen_rtl(spec):
     # 按 offset 排序生成 case 项
     sorted_regs = sorted(regs, key=lambda r: int(str(r["offset"]), 0))
 
+    # ---- 位域寄存器：收集并生成 RTL 片段（列表构建）----
+    def _bfields(r):
+        return r.get("fields") or r.get("bitfields") or []
+
+    field_regs = [r for r in sorted_regs if _bfields(r)]
+    fld_lines = []
+    for r in field_regs:
+        fld_lines.extend(field_gen.build_field_write_func(r["name"], _bfields(r), dw))
+    fld_lines.extend(field_gen.build_field_dispatch(field_regs, dw))
+    fld_code = "\n".join(fld_lines)
+
     attr_cases = []
     for r in sorted_regs:
         idx = int(str(r["offset"]), 0) // (dw // 8)
@@ -202,8 +217,10 @@ module {mod} #(
     assign idx = apb.PADDR >> 2;
     assign in_range = (idx < NREG);
 
-    // ---- 写数据按属性变换 ----
-    function automatic logic [DW-1:0] write_transform(
+{fld_code}
+
+    // ---- 写数据按属性变换（整字寄存器）----
+    function automatic logic [DW-1:0] write_transform_word(
         input logic [DW-1:0] old_v,
         input logic [DW-1:0] wr_v,
         input int            attr
@@ -257,7 +274,7 @@ module {mod} #(
                         apb.PREADY  <= 1'b1;
                         apb.PSLVERR <= in_range ? 1'b0 : 1'b1;
                         if (in_range && apb.PWRITE)
-                            mem[idx] <= write_transform(mem[idx], apb.PWDATA, attr_of(idx));
+                            mem[idx] <= write_dispatch(idx, mem[idx], apb.PWDATA);
                         if (!apb.PWRITE)
                             apb.PRDATA <= in_range ? read_transform(mem[idx], attr_of(idx)) : '0;
                         phase <= APB_IDLE;
@@ -290,10 +307,22 @@ def gen_tb(spec):
     mod = spec.get("module", "apb_slave_regfile_gen")
 
     # 按属性分组生成测试调用
-    ro_regs = [r for r in regs if r["attr"] == "RO"]
-    w1c_regs = [r for r in regs if r["attr"] == "W1C"]
-    rsvd_regs = [r for r in regs if r["attr"] == "RSVD"]
-    rw_regs = [r for r in regs if r["attr"] == "RW"]
+    def _bf(r):
+        return r.get("fields") or r.get("bitfields") or []
+
+    # 位域寄存器单独测试，排除出整字测试
+    field_regs = [r for r in regs if _bf(r)]
+    ro_regs = [r for r in regs if r["attr"] == "RO" and not _bf(r)]
+    w1c_regs = [r for r in regs if r["attr"] == "W1C" and not _bf(r)]
+    rsvd_regs = [r for r in regs if r["attr"] == "RSVD" and not _bf(r)]
+    rw_regs = [r for r in regs if r["attr"] == "RW" and not _bf(r)]
+
+    # 位域测试代码（列表构建）
+    fld_tb_lines = []
+    for r in field_regs:
+        fld_tb_lines.extend(field_tb_gen.build_field_test(r, aw, dw))
+    fld_tb_body = "\n".join(fld_tb_lines) if fld_tb_lines else \
+        "        // （规格中无位域寄存器）"
 
     def off(r):
         return int(str(r["offset"]), 0)
@@ -438,7 +467,7 @@ module tb_regfile_gen #(
         end
     endtask
 
-    logic [DW-1:0] d, wv;
+    logic [DW-1:0] d, wv, base;
 
     initial begin
         $display("======================================================");
@@ -457,6 +486,9 @@ module tb_regfile_gen #(
 
         $display("== RW 寄存器（读写）==");
 {rw_body}
+
+        $display("== 位域寄存器（逐位属性验证）==");
+{fld_tb_body}
 
         $display("------------------------------------------------------");
         $display(" regfile-gen result: %0d checks, %0d errors", checks, errors);

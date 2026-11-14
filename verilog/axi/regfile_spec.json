@@ -35,8 +35,8 @@
       "offset": "0x0C",
       "attr": "RW",
       "reset": "0x00000000",
-      "description": "控制寄存器（含位域定义）（位域布局见手册）",
-      "bitfields": [
+      "description": "控制寄存器（含位域定义）（位域属性见 fields）",
+      "fields": [
         {
           "name": "ENABLE",
           "bits": "0",

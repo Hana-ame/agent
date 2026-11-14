@@ -82,7 +82,7 @@ border-radius:4px;color:#79c0ff}
 <td class="name">CTRL</td>
 <td><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span></td>
 <td class="mono">0x00000000</td>
-<td class="desc">控制寄存器（含位域定义）（位域布局见手册）</td>
+<td class="desc">控制寄存器（含位域定义）（位域属性见 fields）</td>
 </tr><tr>
 <td class="mono">0x10</td>
 <td class="mono">[4]</td>
@@ -137,41 +137,7 @@ border-radius:4px;color:#79c0ff}
 <p class="note">注：位域布局为<strong>文档特性</strong>，RTL 按整字属性实现。
 如需按位域独立属性（同一寄存器内 RW/RO/W1C 混合），需扩展生成器的
 RTL 变换逻辑。</p>
-
-<h3 class="rf">CTRL 位域布局 <span class="rmono">@0x0C</span></h3>
-<table><thead><tr><th style="width:80px">位范围</th><th style="width:80px">索引</th>
-<th style="width:150px">位域名</th><th style="width:80px">属性</th><th>说明</th></tr></thead>
-<tbody><tr>
-<td class="mono">31:24</td>
-<td class="mono">[31:24]</td>
-<td class="name">FLAGS</td>
-<td><span class="attr" style="color:#d29922;border-color:#d2992244">W1C</span></td>
-<td class="desc">事件标志（写 1 清除）</td></tr><tr>
-<td class="mono">23:16</td>
-<td class="mono">[23:16]</td>
-<td class="name">STATUS_CODE</td>
-<td><span class="attr" style="color:#58a6ff;border-color:#58a6ff44">RO</span></td>
-<td class="desc">状态码（只读）</td></tr><tr>
-<td class="mono">15:4</td>
-<td class="mono">[15:4]</td>
-<td class="name">RESERVED</td>
-<td><span class="attr" style="color:#8b949e;border-color:#8b949e44">RSVD</span></td>
-<td class="desc">保留位</td></tr><tr>
-<td class="mono">3:3</td>
-<td class="mono">[3:3]</td>
-<td class="name">IRQ_EN</td>
-<td><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span></td>
-<td class="desc">中断使能</td></tr><tr>
-<td class="mono">2:1</td>
-<td class="mono">[2:1]</td>
-<td class="name">MODE</td>
-<td><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span></td>
-<td class="desc">工作模式选择</td></tr><tr>
-<td class="mono">0:0</td>
-<td class="mono">[0:0]</td>
-<td class="name">ENABLE</td>
-<td><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span></td>
-<td class="desc">模块使能</td></tr></tbody></table>
+<p class="empty">本规格未定义位域布局。</p>
 
 <h2>验证覆盖</h2>
 <pre><span style="color:#5b7186"># 生成 RTL + TB + 本手册</span>

@@ -84,7 +84,7 @@ module tb_regfile_gen #(
         end
     endtask
 
-    logic [DW-1:0] d, wv;
+    logic [DW-1:0] d, wv, base;
 
     initial begin
         $display("======================================================");
@@ -151,15 +151,6 @@ module tb_regfile_gen #(
         end
 
         $display("== RW 寄存器（读写）==");
-        // CTRL: 写随机值读回一致
-        wv = $urandom;
-        write_reg(8'h0C, wv);
-        read_reg(8'h0C, d);
-        checks++;
-        if (d !== wv) begin
-            $display("  [RW] FAIL: CTRL 写=%h 读=%h", wv, d);
-            errors++;
-        end
         // INT_ENABLE: 写随机值读回一致
         wv = $urandom;
         write_reg(8'h14, wv);
@@ -196,6 +187,71 @@ module tb_regfile_gen #(
             $display("  [RW] FAIL: SCRATCH 写=%h 读=%h", wv, d);
             errors++;
         end
+
+        $display("== 位域寄存器（逐位属性验证）==");
+        // ===== CTRL 位域测试 @0x0C =====
+        // CTRL.ENABLE [0:0] RW: 写满该域应可读回
+        write_reg(8'h0C, 32'h00000001);
+        read_reg(8'h0C, d);
+        checks++;
+        if ((d & 32'h00000001) !== 32'h00000001) begin
+            $display("  [FLD] FAIL: CTRL.ENABLE RW 写满回读 d=%h mask=%h", d, 32'h00000001);
+            errors++;
+        end
+        write_reg(8'h0C, '0);
+        // CTRL.MODE [2:1] RW: 写满该域应可读回
+        write_reg(8'h0C, 32'h00000006);
+        read_reg(8'h0C, d);
+        checks++;
+        if ((d & 32'h00000006) !== 32'h00000006) begin
+            $display("  [FLD] FAIL: CTRL.MODE RW 写满回读 d=%h mask=%h", d, 32'h00000006);
+            errors++;
+        end
+        write_reg(8'h0C, '0);
+        // CTRL.IRQ_EN [3:3] RW: 写满该域应可读回
+        write_reg(8'h0C, 32'h00000008);
+        read_reg(8'h0C, d);
+        checks++;
+        if ((d & 32'h00000008) !== 32'h00000008) begin
+            $display("  [FLD] FAIL: CTRL.IRQ_EN RW 写满回读 d=%h mask=%h", d, 32'h00000008);
+            errors++;
+        end
+        write_reg(8'h0C, '0);
+        // CTRL.RESERVED [15:4] RSVD: 写忽略、读 0
+        write_reg(8'h0C, 32'h0000FFF0);
+        read_reg(8'h0C, d);
+        checks++;
+        if ((d & 32'h0000FFF0) !== '0) begin
+            $display("  [FLD] FAIL: CTRL.RESERVED RSVD 非 0 d=%h", d);
+            errors++;
+        end
+        // CTRL.STATUS_CODE [23:16] RO: 写应被忽略
+        read_reg(8'h0C, d);
+        base = d & 32'h00FF0000;
+        write_reg(8'h0C, 32'h00FF0000);
+        read_reg(8'h0C, d);
+        checks++;
+        if ((d & 32'h00FF0000) !== base) begin
+            $display("  [FLD] FAIL: CTRL.STATUS_CODE RO 被写改动 base=%h now=%h", base, d);
+            errors++;
+        end
+        // CTRL.FLAGS [31:24] W1C: 写 1 应清零
+        write_reg(8'h0C, 32'hFF000000);
+        read_reg(8'h0C, d);
+        checks++;
+        if ((d & 32'hFF000000) !== '0) begin
+            $display("  [FLD] FAIL: CTRL.FLAGS W1C 写 1 未清零 d=%h", d);
+            errors++;
+        end
+        // CTRL 多 RW 域同时写满，验证互不干扰
+        write_reg(8'h0C, 32'h0000000F);
+        read_reg(8'h0C, d);
+        checks++;
+        if ((d & 32'h0000000F) !== 32'h0000000F) begin
+            $display("  [FLD] FAIL: CTRL 多域写满 d=%h mask=%h", d, 32'h0000000F);
+            errors++;
+        end
+        write_reg(8'h0C, '0);
 
         $display("------------------------------------------------------");
         $display(" regfile-gen result: %0d checks, %0d errors", checks, errors);

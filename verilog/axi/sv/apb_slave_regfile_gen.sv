@@ -7,7 +7,7 @@
     //   [ 0] 0x00  VERSION      RO    reset=0x00010203   IP 版本号（只读，整字属性）
     //   [ 1] 0x04  INT_STATUS   W1C   reset=0x00000000   中断状态（整字 W1C）
     //   [ 2] 0x08  RESERVED0    RSVD  reset=0x00000000   保留（整字保留）
-    //   [ 3] 0x0C  CTRL         RW    reset=0x00000000   控制寄存器（含位域定义）（位域布局见手册）
+    //   [ 3] 0x0C  CTRL         RW    reset=0x00000000   控制寄存器（含位域定义）（位域属性见 fields）
     //   [ 4] 0x10  STATUS       RO    reset=0x00000011   状态寄存器（整字只读）
     //   [ 5] 0x14  INT_ENABLE   RW    reset=0x00000000   中断使能（整字读写）
     //   [ 6] 0x18  DATA_IN      RW    reset=0x00000000   数据输入
@@ -99,8 +99,43 @@ module apb_slave_regfile_gen #(
     assign idx = apb.PADDR >> 2;
     assign in_range = (idx < NREG);
 
-    // ---- 写数据按属性变换 ----
-    function automatic logic [DW-1:0] write_transform(
+    // CTRL 位域写变换（逐位域按属性合并）
+    function automatic logic [DW-1:0] field_write_CTRL(
+        input logic [DW-1:0] old_v,
+        input logic [DW-1:0] wr_v
+    );
+        logic [DW-1:0] nv;
+        nv = old_v;
+        // ENABLE bits[0:0] RW
+        nv = (nv & ~32'h00000001) | (wr_v & 32'h00000001);
+        // MODE bits[2:1] RW
+        nv = (nv & ~32'h00000006) | (wr_v & 32'h00000006);
+        // IRQ_EN bits[3:3] RW
+        nv = (nv & ~32'h00000008) | (wr_v & 32'h00000008);
+        // RESERVED bits[15:4] RSVD
+        nv = (nv & ~32'h0000FFF0) | (old_v & 32'h0000FFF0);
+        // STATUS_CODE bits[23:16] RO
+        nv = (nv & ~32'h00FF0000) | (old_v & 32'h00FF0000);
+        // FLAGS bits[31:24] W1C
+        nv = (nv & ~32'hFF000000) | (old_v & ~wr_v & 32'hFF000000);
+        return nv;
+    endfunction
+
+    // ---- 位域寄存器写分派（按索引）----
+    function automatic logic [DW-1:0] write_dispatch(
+        input int            idx,
+        input logic [DW-1:0] old_v,
+        input logic [DW-1:0] wr_v
+    );
+        case (idx)
+            3: return field_write_CTRL(old_v, wr_v);
+            default: return write_transform_word(old_v, wr_v, attr_of(idx));
+        endcase
+    endfunction
+
+
+    // ---- 写数据按属性变换（整字寄存器）----
+    function automatic logic [DW-1:0] write_transform_word(
         input logic [DW-1:0] old_v,
         input logic [DW-1:0] wr_v,
         input int            attr
@@ -154,7 +189,7 @@ module apb_slave_regfile_gen #(
                         apb.PREADY  <= 1'b1;
                         apb.PSLVERR <= in_range ? 1'b0 : 1'b1;
                         if (in_range && apb.PWRITE)
-                            mem[idx] <= write_transform(mem[idx], apb.PWDATA, attr_of(idx));
+                            mem[idx] <= write_dispatch(idx, mem[idx], apb.PWDATA);
                         if (!apb.PWRITE)
                             apb.PRDATA <= in_range ? read_transform(mem[idx], attr_of(idx)) : '0;
                         phase <= APB_IDLE;
