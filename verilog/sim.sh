@@ -178,11 +178,15 @@ case "${1:-all}" in
         ( cd axi && python3 gen_interface_map.py 2>&1 | tail -3 )
         echo "== docs: 测试方案与覆盖缺口 =="
         ( cd axi && python3 gen_test_plan.py 2>&1 | tail -3 )
+        echo "== docs: 门户索引 =="
+        ( cd axi && python3 gen_portal.py 2>&1 | tail -8 )
         echo "== docs: 完成 =="
-        echo "  axi/FSM.html"
-        echo "  axi/INTERFACE_MAP.html"
-        echo "  axi/TEST_PLAN.html"
-        echo "  axi/DESIGN.html（手写，非生成）"
+        echo "  axi/INDEX.html            ← 门户（从这里开始）"
+        echo "  axi/DESIGN.html           设计文档（手写）"
+        echo "  axi/FSM.html              FSM 状态转移图"
+        echo "  axi/INTERFACE_MAP.html    接口逻辑映射"
+        echo "  axi/TEST_PLAN.html        测试方案与覆盖缺口"
+        echo "  axi/COVERAGE.html         覆盖率可视化（需先跑 sim.sh coverage）"
         ;;
     wave)
         ( cd axi && build_run wave tb_axi_apb_sv "-I./sv -I. --trace" \
