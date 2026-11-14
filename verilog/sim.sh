@@ -107,6 +107,12 @@ case "${1:-all}" in
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
             sv/apb_slave_regs_sv.sv sv/tb_dual_sv.sv )
         ;;
+    stress)
+        ( cd axi && build_run stress tb_dual_stress "-I./sv -I." \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/tb_dual_stress.sv )
+        ;;
     covgaps)
         ( cd axi && build_run covgaps tb_cov_gaps "--coverage -I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -176,11 +182,14 @@ case "${1:-all}" in
         bash "$0" gaps
         bash "$0" dual
         bash "$0" covgaps
+        bash "$0" stress
         bash "$0" vip
         echo "################ 全部完成 ################"
         ;;
     *)
-        echo "未知目标: $1"; echo "可用: counter counter8 axi sv gaps dual vip wave all"
+        echo "未知目标: $1"
+        echo "可用: counter counter8 axi sv gaps dual stress covgaps vip"
+        echo "      coverage wave all"
         exit 1
         ;;
 esac
