@@ -209,6 +209,14 @@ TEST_PLAN = [
 # ----------------------------------------------------------------------
 # 自动判定覆盖状态
 # ----------------------------------------------------------------------
+def parse_dual_suite(path: Path):
+    """解析 tb_dual_sv.sv 是否实现了并发场景（P-06 等）"""
+    if not path.exists():
+        return set()
+    txt = path.read_text(encoding="utf-8")
+    return set(re.findall(r'task automatic (t_[a-z0-9_]+)', txt))
+
+
 def parse_gaps_suite(path: Path):
     """解析 tb_gaps_sv.sv 是否实现了各缺口场景（按 task 名）"""
     if not path.exists():
@@ -244,6 +252,7 @@ def evaluate(plan, tb, asserts, bridge, slave, gap_tasks=None):
             "S-02": "t_s02_backtoback","S-03": "t_s03_long_pause",
             "R-01": "t_r01_reset_clear","R-02": "t_r02_mid_reset",
             "T-02": "t_t02_long_random",
+            "P-06": "t_p06_aw_ar_same_cycle",
         }
         if gap_tasks and item["id"] in gap_map and gap_map[item["id"]] in gap_tasks:
             covered = True
@@ -447,6 +456,9 @@ def main():
     print(f"解析断言       : {len(asserts)} 条")
 
     gap_tasks = parse_gaps_suite(SV / "tb_gaps_sv.sv")
+    dual_tasks = parse_dual_suite(SV / "tb_dual_sv.sv")
+    gap_tasks = gap_tasks | dual_tasks
+    print(f"解析 dual 套件 : {len(dual_tasks)} 个并发场景")
     plan = evaluate(TEST_PLAN, tb, asserts, bridge, slave, gap_tasks)
     print(f"解析 gaps 套件 : {len(gap_tasks)} 个场景 task")
     covered = sum(1 for p in plan if p["covered"])

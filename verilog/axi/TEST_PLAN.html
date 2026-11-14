@@ -63,9 +63,9 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <small>由 gen_test_plan.py 解析真实源码与 TB 生成 · 覆盖状态经自动判定 + 人工确认</small></h1>
 <div class="stats">
 <div class="stat"><div class="v" style="color:var(--blue)">29</div><div class="l">测试项总数</div></div>
-<div class="stat"><div class="v" style="color:var(--green)">28</div><div class="l">已覆盖</div></div>
-<div class="stat"><div class="v" style="color:var(--red)">1</div><div class="l">覆盖缺口</div></div>
-<div class="stat"><div class="v" style="color:var(--amber)">97%</div><div class="l">覆盖率</div></div>
+<div class="stat"><div class="v" style="color:var(--green)">29</div><div class="l">已覆盖</div></div>
+<div class="stat"><div class="v" style="color:var(--red)">0</div><div class="l">覆盖缺口</div></div>
+<div class="stat"><div class="v" style="color:var(--amber)">100%</div><div class="l">覆盖率</div></div>
 </div>
 </header>
 
@@ -75,8 +75,8 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
 <div class="bl"><span>慢速</span><span class="mono">4/4</span></div>
 <div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
-<div class="bl"><span>协议</span><span class="mono">5/6</span></div>
-<div class="bt"><div class="bf" style="width:83%;background:#d29922"></div></div></div><div class="bar">
+<div class="bl"><span>协议</span><span class="mono">6/6</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
 <div class="bl"><span>错误</span><span class="mono">4/4</span></div>
 <div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
 <div class="bl"><span>暂停</span><span class="mono">3/3</span></div>
@@ -89,8 +89,8 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <h2><span class="n">02</span>测试项清单（可筛选）</h2>
 <div class="filters">
 <div class="f on" data-f="all">全部 29</div>
-<div class="f" data-f="gap">只看缺口 1</div>
-<div class="f" data-f="cov">只看已覆盖 28</div>
+<div class="f" data-f="gap">只看缺口 0</div>
+<div class="f" data-f="cov">只看已覆盖 29</div>
 </div>
 <table><thead><tr>
 <th style="width:70px">ID</th><th style="width:200px">测试项</th>
@@ -140,10 +140,10 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="协议" data-cov="1">
 <td class="mono">P-05</td><td><b>APB 完成后退出 ACCESS</b></td>
 <td class="dim">SVA ap_xfer_done_exits</td><td class="expect">完成拍下一拍 PENABLE=0</td>
-<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr class="gaprow" data-dim="协议" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="协议" data-cov="1">
 <td class="mono">P-06</td><td><b>AW 与 AR 同时请求（仲裁）</b></td>
 <td class="dim">构造 txn_t 序列使 AWVALID 与 ARVALID 同拍有效</td><td class="expect">桥按优先级选择一个，另一事务不丢（需确认桥是否支持）</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr data-dim="错误" data-cov="1">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="错误" data-cov="1">
 <td class="mono">E-01</td><td><b>越界写 → SLVERR</b></td>
 <td class="dim">txn_t{write=1, addr=NREG*4} 期望 BRESP=2'b10</td><td class="expect">BRESP=SLVERR；从机不写入</td>
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="错误" data-cov="1">
@@ -184,12 +184,9 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <td class="dim">不同 $urandom 种子重复运行</td><td class="expect">每个 seed 都通过（发现 seed 敏感 bug）</td>
 <td><span class="tag ok">✔ 已覆盖</span></td></tr></tbody></table>
 
-<h2><span class="n">03</span>覆盖缺口详情（1 项）</h2>
+<h2><span class="n">03</span>覆盖缺口详情（0 项）</h2>
 <p>以下测试项在当前 TB 中<strong>尚未实现</strong>，按优先级列出方法与会判据。</p>
-<div class="gaps"><div class="gapcard">
-<div class="gh"><span class="mono">P-06</span> AW 与 AR 同时请求（仲裁）</div>
-<div class="gd"><b>方法</b>：构造 txn_t 序列使 AWVALID 与 ARVALID 同拍有效</div>
-<div class="gd"><b>判据</b>：桥按优先级选择一个，另一事务不丢（需确认桥是否支持）</div></div></div>
+<div class="gaps"><p>无缺口</p></div>
 
 <h2><span class="n">04</span>现有 TB 资产</h2>
 <p><b>已实现的向量类别</b>：</p><ul><li>回环基本集：写满 → 读回（每笔写后 pause 1 拍）</li><li>随机向量：写/读混合，随机 pause(0~3) 与 same</li><li>边界向量：越界读写（exp_err=1，期望 SLVERR）</li></ul>
