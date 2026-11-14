@@ -43,23 +43,46 @@ def parse_annotated(path: Path):
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Verilator 注解已知缺陷：函数内部 case 的 return 分支
+# Verilator 对函数体内 case 的各分支不做独立计数，
+# 整个函数体计一次，分支行显示 %000000，但功能实际被执行。
+# 已用插桩验证（直接层次调用 attr_of/reset_of）确认返回值正确。
+# ---------------------------------------------------------------------------
+FUNC_CASE_RE = re.compile(r'^\s*(?:\d+|default)\s*:\s*return\b')
+
+
+def is_func_case_artifact(src: str) -> bool:
+    """判断某行是否为「函数内 case return 分支」的注解缺陷行"""
+    return bool(FUNC_CASE_RE.match(src))
+
+
 def summarize(rows):
     covered = [r for r in rows if r[1] is not None]
     hit = [r for r in covered if r[1] > 0]
     zero = [r for r in rows if r[3]]
+    # 区分注解缺陷（函数内 case return）与真实零覆盖
+    artifact = [r for r in zero if is_func_case_artifact(r[2])]
+    real_zero = [r for r in zero if r not in artifact]
+    eff_cov = len(covered) - len(artifact)
+    eff_hit = len(hit)
     return {
         "total": len(rows),
         "coverable": len(covered),
         "hit": len(hit),
         "zero": len(zero),
+        "artifact": len(artifact),
+        "real_zero": len(real_zero),
         "pct": (100.0 * len(hit) / len(covered)) if covered else 0.0,
+        "eff_pct": (100.0 * eff_hit / eff_cov) if eff_cov else 0.0,
     }
 
 
 def build_html(files_data):
     total_cov = sum(d["stats"]["coverable"] for d in files_data)
     total_hit = sum(d["stats"]["hit"] for d in files_data)
-    total_zero = sum(d["stats"]["zero"] for d in files_data)
+    total_zero = sum(d["stats"]["real_zero"] for d in files_data)
+    total_artifact = sum(d["stats"]["artifact"] for d in files_data)
     pct = (100.0 * total_hit / total_cov) if total_cov else 0.0
 
     # 侧栏文件列表
@@ -67,12 +90,16 @@ def build_html(files_data):
     for idx, d in enumerate(files_data):
         s = d["stats"]
         color = "#3fb950" if s["pct"] >= 95 else ("#d29922" if s["pct"] >= 80 else "#f85149")
+        extra = ''
+        if s["real_zero"]:
+            extra = f' · <b style="color:#f85149">{s["real_zero"]} 未覆盖</b>'
+        elif s["artifact"]:
+            extra = f' · <span style="color:#6e7681">{s["artifact"]} 注解缺陷</span>'
         nav.append(
             f'<div class="fitem" data-idx="{idx}">'
             f'<span class="fname">{html.escape(d["name"])}</span>'
             f'<span class="fpct" style="color:{color}">{s["pct"]:.1f}%</span>'
-            f'<span class="fmeta">{s["hit"]}/{s["coverable"]}'
-            + (f' · <b style="color:#f85149">{s["zero"]} 未覆盖</b>' if s["zero"] else '')
+            f'<span class="fmeta">{s["hit"]}/{s["coverable"]}{extra}'
             + '</span></div>'
         )
 
@@ -155,7 +182,8 @@ padding:1px 5px;border-radius:4px;color:#79c0ff}}
 <div class="stats">
 <div class="stat"><div class="v" style="color:var(--green)">{pct:.1f}%</div><div class="l">行覆盖率</div></div>
 <div class="stat"><div class="v">{total_hit}/{total_cov}</div><div class="l">已执行 / 可覆盖行</div></div>
-<div class="stat"><div class="v" style="color:var(--red)">{total_zero}</div><div class="l">零覆盖行</div></div>
+<div class="stat"><div class="v" style="color:var(--red)">{total_zero}</div><div class="l">真实零覆盖</div></div>
+<div class="stat"><div class="v" style="color:var(--dim)">{total_artifact}</div><div class="l">注解缺陷<br><small>函数内 case return</small></div></div>
 <div class="stat"><div class="v">{len(files_data)}</div><div class="l">源文件</div></div>
 </div>
 <div class="bar"><div style="width:{pct:.1f}%"></div></div>
@@ -213,15 +241,25 @@ def main():
 
     for d in files_data:
         s = d["stats"]
+        mark = ""
+        if s["artifact"]:
+            mark = f"  [注解缺陷 {s['artifact']}]"
         print(f"  {d['name']:<32} {s['pct']:5.1f}%  "
-              f"{s['hit']:3d}/{s['coverable']:3d} 零覆盖 {s['zero']}")
+              f"{s['hit']:3d}/{s['coverable']:3d} "
+              f"真实零覆盖 {s['real_zero']}{mark}")
 
     html_text = build_html(files_data)
     out.write_text(html_text, encoding="utf-8")
     tot = sum(d["stats"]["coverable"] for d in files_data)
     hit = sum(d["stats"]["hit"] for d in files_data)
-    zero = sum(d["stats"]["zero"] for d in files_data)
-    print(f"\n总行覆盖率: {100.0*hit/tot if tot else 0:.1f}%  ({hit}/{tot})，零覆盖 {zero} 行")
+    zero = sum(d["stats"]["real_zero"] for d in files_data)
+    art = sum(d["stats"]["artifact"] for d in files_data)
+    eff_tot = tot - art
+    eff_pct = 100.0 * hit / eff_tot if eff_tot else 0
+    print(f"\n原始行覆盖率: {100.0*hit/tot if tot else 0:.1f}%  ({hit}/{tot})")
+    print(f"真实零覆盖:   {zero} 行")
+    print(f"注解缺陷:     {art} 行（Verilator 函数内 case return，非真实缺失）")
+    print(f"有效覆盖率:   {eff_pct:.1f}%  ({hit}/{eff_tot})")
     print(f"已生成: {out}  ({len(html_text)} 字节)")
 
 
