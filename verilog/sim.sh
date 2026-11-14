@@ -121,28 +121,38 @@ case "${1:-all}" in
             vip/tb_vip_demo.sv )
         ;;
     coverage)
-        # 覆盖率收集：编译时加 --coverage，运行后用 verilator_coverage 出报告
+        # 覆盖率收集：编译两套件（--coverage），分别运行，合并报告
         COVDIR="run/cov"
         rm -rf "$COVDIR"; mkdir -p "$COVDIR"
-        echo "== coverage: 编译 tb_axi_apb_sv（--coverage）=="
-        ( cd axi && "$VLT" --binary --assert --timing --coverage \
-            --top-module tb_axi_apb_sv --Mdir "$COVDIR/obj" $NOWARN -I./sv -I. \
+        run_cov() {
+            local top="$1"; shift
+            local d="$COVDIR/$top"
+            mkdir -p "$d"
+            echo "== coverage: 编译 $top =="
+            # shellcheck disable=SC2086
+            "$VLT" --binary --assert --timing --coverage \
+                --top-module "$top" --Mdir "$d/obj" $NOWARN \
+                -I./sv -I. "$@" -o "$(pwd)/$d/tb" 2>&1 | grep -E '^%Error' && return 1
+            echo "== coverage: 运行 $top =="
+            ( cd "$d" && ./tb >/dev/null 2>&1; cp coverage.dat "cov_$top.dat" )
+        }
+        ( cd axi
+          run_cov tb_axi_apb_sv \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
-            sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv \
-            -o "$(pwd)/$COVDIR/tb" 2>&1 | grep -E '^%Error' && exit 1
-          cd ..
-          echo "== coverage: 运行主 TB =="
-          ( cd axi/sv && "../../$COVDIR/tb" >/dev/null 2>&1 || true )
-          # 覆盖率数据落在运行目录，收集起来
-          find . -name 'coverage.dat' -newer "$COVDIR/obj" -o -name 'coverage.dat' | head -1
+            sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv
+          run_cov tb_cov_gaps \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/tb_cov_gaps.sv
+          cp -r "$COVDIR"/*/cov_*.dat "$COVDIR/" 2>/dev/null || true
         )
-        echo "== coverage: 报告 =="
-        COV_DAT="$(find . -name 'coverage.dat' -newermt '-10 minutes' | head -1)"
-        if [ -n "$COV_DAT" ]; then
-            "$VLT_COV" --annotate "$COVDIR/annotated" "$COV_DAT" 2>&1 | head -12
+        echo "== coverage: 合并报告 =="
+        # 数据在 axi/$COVDIR 下（脚本在 axi 子目录内编译运行）
+        if [ -n "$VLT_COV" ]; then
+            "$VLT_COV" --annotate "axi/$COVDIR/annotated" axi/"$COVDIR"/cov_*.dat 2>&1 | head -12
         else
-            echo "WARN: 未找到 coverage.dat" >&2
+            echo "WARN: 未找到 verilator_coverage" >&2
         fi
         ;;
     wave)

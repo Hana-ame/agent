@@ -133,6 +133,86 @@ module tb_cov_gaps #(
         @(posedge ACLK);
     endtask
 
+
+    // ==================================================================
+    // 缺口 4：AW 先发、W 后发（走 S_AW_H 状态）
+    // ==================================================================
+    // 与 COV-01 互为镜像。上一轮只测了 W 先行，S_AW_H 仍零覆盖。
+    task automatic t_aw_before_w();
+        bit aw_done = 0, w_done = 0;
+        $display("== COV-04: AW 先发、W 后发（S_AW_H 路径）==");
+
+        // 第 1 步：只发 AWVALID（WVALID 保持 0）
+        @(posedge ACLK); #1;
+        axi.AWVALID = 1'b1; axi.AWADDR = 8'h24;
+        for (int cyc = 0; cyc < 20 && !aw_done; cyc++) begin
+            @(posedge ACLK); #1;
+            if (axi.AWREADY) aw_done = 1;
+        end
+        checks++;
+        if (!aw_done) begin
+            $display("  [COV-04] FAIL: 单发 AWVALID 未获 AWREADY");
+            errors++;
+        end else
+            $display("  [COV-04] 单发 AWVALID 被接受（进入 S_AW_H）✓");
+        axi.AWVALID = 1'b0;
+
+        // 第 2 步：现在发 WVALID（桥在 S_AW_H 应保持 WREADY）
+        @(posedge ACLK); #1;
+        axi.WVALID = 1'b1; axi.WDATA = 32'h1234_ABCD;
+        for (int cyc = 0; cyc < 20 && !w_done; cyc++) begin
+            @(posedge ACLK); #1;
+            if (axi.WREADY) w_done = 1;
+        end
+        checks++;
+        if (!w_done) begin
+            $display("  [COV-04] FAIL: AW 先行场景下 W 未被接受");
+            errors++;
+        end else
+            $display("  [COV-04] AW→W 顺序握手成功 ✓");
+        axi.WVALID = 1'b0;
+
+        // 等写响应
+        axi.BREADY = 1'b1;
+        do @(posedge ACLK); while (!axi.BVALID);
+        checks++;
+        if (axi.BRESP !== RESP_OKAY) begin
+            $display("  [COV-04] FAIL: BRESP=%s", resp_name(axi.BRESP));
+            errors++;
+        end
+        #1; axi.BREADY = 1'b0;
+        @(posedge ACLK);
+
+        // 读回验证数据
+        @(posedge ACLK); #1;
+        axi.ARVALID = 1'b1; axi.ARADDR = 8'h24;
+        while (!axi.ARREADY) @(posedge ACLK);
+        #1; axi.ARVALID = 1'b0;
+        axi.RREADY = 1'b1;
+        do @(posedge ACLK); while (!axi.RVALID);
+        checks++;
+        if (axi.RDATA !== 32'h1234_ABCD) begin
+            $display("  [COV-04] FAIL: 读回=%h expect 1234ABCD", axi.RDATA);
+            errors++;
+        end else
+            $display("  [COV-04] AW→W 数据落盘正确 ✓");
+        #1; axi.RREADY = 1'b0;
+        @(posedge ACLK);
+    endtask
+
+    // ==================================================================
+    // 缺口 5：从机非法状态兜底（apb_slave_regs 的 default 分支）
+    // ==================================================================
+    // default 分支只在 phase 取非法枚举值时触发（正常流程不会进入）。
+    // 该分支的实际价值是防御性代码——无法从外部激励触发，属设计冗余。
+    // 这里记录该事实，不做强制覆盖（避免为覆盖率而制造非法状态）。
+    task automatic t_slave_default_note();
+        $display("== COV-05: 从机 default 分支（不可达，设计冗余）==");
+        $display("  [COV-05] 说明：default 分支需 phase 取非法枚举值才能触发，");
+        $display("            正常 AXI/APB 激励无法到达。保留为防御性代码，");
+        $display("            不计入覆盖目标。");
+    endtask
+
     // ==================================================================
     // 缺口 2：错误响应后的 slv_err 清除路径
     // ==================================================================
@@ -219,6 +299,8 @@ module tb_cov_gaps #(
         do_reset();
 
         t_w_before_aw();
+        t_aw_before_w();
+        t_slave_default_note();
         t_err_clear();
         t_reset_paths();
 
