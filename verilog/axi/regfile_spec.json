@@ -1,6 +1,6 @@
 {
-  "$schema": "apb-regfile-spec/v1",
-  "description": "APB 寄存器从机规格 —— 由 gen_regfile.py 生成 RTL 与文档",
+  "$schema": "apb-regfile-spec/v2",
+  "description": "APB 寄存器从机规格 v2 —— 支持位域（fields）定义，由 gen_regfile.py 生成 RTL/测试/手册",
   "module": "apb_slave_regfile_gen",
   "bus": {
     "protocol": "APB",
@@ -14,42 +14,86 @@
       "offset": "0x00",
       "attr": "RO",
       "reset": "0x00010203",
-      "description": "IP 版本号（只读）"
+      "description": "IP 版本号（只读，整字属性）"
     },
     {
       "name": "INT_STATUS",
       "offset": "0x04",
       "attr": "W1C",
       "reset": "0x00000000",
-      "description": "中断状态，写 1 清除"
+      "description": "中断状态（整字 W1C）"
     },
     {
       "name": "RESERVED0",
       "offset": "0x08",
       "attr": "RSVD",
       "reset": "0x00000000",
-      "description": "保留（读 0，写忽略）"
+      "description": "保留（整字保留）"
     },
     {
       "name": "CTRL",
       "offset": "0x0C",
       "attr": "RW",
       "reset": "0x00000000",
-      "description": "控制寄存器"
+      "description": "控制寄存器（含位域定义）（位域布局见手册）",
+      "bitfields": [
+        {
+          "name": "ENABLE",
+          "bits": "0",
+          "attr": "RW",
+          "reset": 0,
+          "description": "模块使能"
+        },
+        {
+          "name": "MODE",
+          "bits": "2:1",
+          "attr": "RW",
+          "reset": 0,
+          "description": "工作模式选择"
+        },
+        {
+          "name": "IRQ_EN",
+          "bits": "3",
+          "attr": "RW",
+          "reset": 0,
+          "description": "中断使能"
+        },
+        {
+          "name": "RESERVED",
+          "bits": "15:4",
+          "attr": "RSVD",
+          "reset": 0,
+          "description": "保留位"
+        },
+        {
+          "name": "STATUS_CODE",
+          "bits": "23:16",
+          "attr": "RO",
+          "reset": 0,
+          "description": "状态码（只读）"
+        },
+        {
+          "name": "FLAGS",
+          "bits": "31:24",
+          "attr": "W1C",
+          "reset": 0,
+          "description": "事件标志（写 1 清除）"
+        }
+      ]
     },
     {
       "name": "STATUS",
       "offset": "0x10",
       "attr": "RO",
       "reset": "0x00000011",
-      "description": "状态寄存器（只读）"
+      "description": "状态寄存器（整字只读）"
     },
     {
       "name": "INT_ENABLE",
       "offset": "0x14",
       "attr": "RW",
       "reset": "0x00000000",
-      "description": "中断使能"
+      "description": "中断使能（整字读写）"
     },
     {
       "name": "DATA_IN",
@@ -77,7 +121,7 @@
       "offset": "0x24",
       "attr": "W1C",
       "reset": "0x00000000",
-      "description": "中断清除（写 1 清）"
+      "description": "中断清除（整字 W1C）"
     }
   ]
 }

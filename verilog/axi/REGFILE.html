@@ -29,6 +29,11 @@ border-radius:5px;margin-right:8px;background:var(--panel)}
 .atip{font-size:12.5px;color:#8b949e}
 pre{background:#0b1017;border:1px solid #222c37;border-radius:8px;padding:14px 16px;
 font-family:var(--mono);font-size:12px;color:#b8c8d8;overflow-x:auto}
+h3.rf{font-size:14px;margin:22px 0 10px;color:#eaf2fa}
+.rmono{font-family:var(--mono);font-size:12px;color:var(--blue);font-weight:400}
+.note{font-size:12.5px;color:#8b949e;background:#11151b;border-left:3px solid var(--blue);
+padding:10px 14px;border-radius:5px;margin-bottom:14px}
+.empty{color:#6e7681;font-size:12.5px;padding:10px 0}
 footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--bd);color:#6e7681;font-size:11.5px}
 code{font-family:var(--mono);background:#0d1117;border:1px solid #21262d;padding:1px 5px;
 border-radius:4px;color:#79c0ff}
@@ -56,42 +61,42 @@ border-radius:4px;color:#79c0ff}
 <td class="name">VERSION</td>
 <td><span class="attr" style="color:#58a6ff;border-color:#58a6ff44">RO</span></td>
 <td class="mono">0x00010203</td>
-<td class="desc">IP 版本号（只读）</td>
+<td class="desc">IP 版本号（只读，整字属性）</td>
 </tr><tr>
 <td class="mono">0x04</td>
 <td class="mono">[1]</td>
 <td class="name">INT_STATUS</td>
 <td><span class="attr" style="color:#d29922;border-color:#d2992244">W1C</span></td>
 <td class="mono">0x00000000</td>
-<td class="desc">中断状态，写 1 清除</td>
+<td class="desc">中断状态（整字 W1C）</td>
 </tr><tr>
 <td class="mono">0x08</td>
 <td class="mono">[2]</td>
 <td class="name">RESERVED0</td>
 <td><span class="attr" style="color:#8b949e;border-color:#8b949e44">RSVD</span></td>
 <td class="mono">0x00000000</td>
-<td class="desc">保留（读 0，写忽略）</td>
+<td class="desc">保留（整字保留）</td>
 </tr><tr>
 <td class="mono">0x0C</td>
 <td class="mono">[3]</td>
 <td class="name">CTRL</td>
 <td><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span></td>
 <td class="mono">0x00000000</td>
-<td class="desc">控制寄存器</td>
+<td class="desc">控制寄存器（含位域定义）（位域布局见手册）</td>
 </tr><tr>
 <td class="mono">0x10</td>
 <td class="mono">[4]</td>
 <td class="name">STATUS</td>
 <td><span class="attr" style="color:#58a6ff;border-color:#58a6ff44">RO</span></td>
 <td class="mono">0x00000011</td>
-<td class="desc">状态寄存器（只读）</td>
+<td class="desc">状态寄存器（整字只读）</td>
 </tr><tr>
 <td class="mono">0x14</td>
 <td class="mono">[5]</td>
 <td class="name">INT_ENABLE</td>
 <td><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span></td>
 <td class="mono">0x00000000</td>
-<td class="desc">中断使能</td>
+<td class="desc">中断使能（整字读写）</td>
 </tr><tr>
 <td class="mono">0x18</td>
 <td class="mono">[6]</td>
@@ -119,7 +124,7 @@ border-radius:4px;color:#79c0ff}
 <td class="name">IRQ_CLEAR</td>
 <td><span class="attr" style="color:#d29922;border-color:#d2992244">W1C</span></td>
 <td class="mono">0x00000000</td>
-<td class="desc">中断清除（写 1 清）</td>
+<td class="desc">中断清除（整字 W1C）</td>
 </tr></tbody></table>
 
 <h2>寄存器属性语义</h2>
@@ -127,6 +132,46 @@ border-radius:4px;color:#79c0ff}
 <div class="attrrow"><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span><span class="atip">读写：写什么读什么</span></div>
 <div class="attrrow"><span class="attr" style="color:#d29922;border-color:#d2992244">W1C</span><span class="atip">写 1 清零：写 1 的位清 0，写 0 保持</span></div>
 <div class="attrrow"><span class="attr" style="color:#8b949e;border-color:#8b949e44">RSVD</span><span class="atip">保留：读 0，写忽略</span></div>
+
+<h2>位域布局</h2>
+<p class="note">注：位域布局为<strong>文档特性</strong>，RTL 按整字属性实现。
+如需按位域独立属性（同一寄存器内 RW/RO/W1C 混合），需扩展生成器的
+RTL 变换逻辑。</p>
+
+<h3 class="rf">CTRL 位域布局 <span class="rmono">@0x0C</span></h3>
+<table><thead><tr><th style="width:80px">位范围</th><th style="width:80px">索引</th>
+<th style="width:150px">位域名</th><th style="width:80px">属性</th><th>说明</th></tr></thead>
+<tbody><tr>
+<td class="mono">31:24</td>
+<td class="mono">[31:24]</td>
+<td class="name">FLAGS</td>
+<td><span class="attr" style="color:#d29922;border-color:#d2992244">W1C</span></td>
+<td class="desc">事件标志（写 1 清除）</td></tr><tr>
+<td class="mono">23:16</td>
+<td class="mono">[23:16]</td>
+<td class="name">STATUS_CODE</td>
+<td><span class="attr" style="color:#58a6ff;border-color:#58a6ff44">RO</span></td>
+<td class="desc">状态码（只读）</td></tr><tr>
+<td class="mono">15:4</td>
+<td class="mono">[15:4]</td>
+<td class="name">RESERVED</td>
+<td><span class="attr" style="color:#8b949e;border-color:#8b949e44">RSVD</span></td>
+<td class="desc">保留位</td></tr><tr>
+<td class="mono">3:3</td>
+<td class="mono">[3:3]</td>
+<td class="name">IRQ_EN</td>
+<td><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span></td>
+<td class="desc">中断使能</td></tr><tr>
+<td class="mono">2:1</td>
+<td class="mono">[2:1]</td>
+<td class="name">MODE</td>
+<td><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span></td>
+<td class="desc">工作模式选择</td></tr><tr>
+<td class="mono">0:0</td>
+<td class="mono">[0:0]</td>
+<td class="name">ENABLE</td>
+<td><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span></td>
+<td class="desc">模块使能</td></tr></tbody></table>
 
 <h2>验证覆盖</h2>
 <pre><span style="color:#5b7186"># 生成 RTL + TB + 本手册</span>

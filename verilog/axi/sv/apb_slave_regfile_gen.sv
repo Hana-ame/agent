@@ -4,16 +4,16 @@
 // ⚠️ 本文件为自动生成，请勿手工编辑。修改 regfile_spec.json 后重新生成。
 //
 // 寄存器映射：
-    //   [ 0] 0x00  VERSION      RO    reset=0x00010203   IP 版本号（只读）
-    //   [ 1] 0x04  INT_STATUS   W1C   reset=0x00000000   中断状态，写 1 清除
-    //   [ 2] 0x08  RESERVED0    RSVD  reset=0x00000000   保留（读 0，写忽略）
-    //   [ 3] 0x0C  CTRL         RW    reset=0x00000000   控制寄存器
-    //   [ 4] 0x10  STATUS       RO    reset=0x00000011   状态寄存器（只读）
-    //   [ 5] 0x14  INT_ENABLE   RW    reset=0x00000000   中断使能
+    //   [ 0] 0x00  VERSION      RO    reset=0x00010203   IP 版本号（只读，整字属性）
+    //   [ 1] 0x04  INT_STATUS   W1C   reset=0x00000000   中断状态（整字 W1C）
+    //   [ 2] 0x08  RESERVED0    RSVD  reset=0x00000000   保留（整字保留）
+    //   [ 3] 0x0C  CTRL         RW    reset=0x00000000   控制寄存器（含位域定义）（位域布局见手册）
+    //   [ 4] 0x10  STATUS       RO    reset=0x00000011   状态寄存器（整字只读）
+    //   [ 5] 0x14  INT_ENABLE   RW    reset=0x00000000   中断使能（整字读写）
     //   [ 6] 0x18  DATA_IN      RW    reset=0x00000000   数据输入
     //   [ 7] 0x1C  DATA_OUT     RW    reset=0x00000000   数据输出
     //   [ 8] 0x20  SCRATCH      RW    reset=0x00000000   暂存寄存器
-    //   [ 9] 0x24  IRQ_CLEAR    W1C   reset=0x00000000   中断清除（写 1 清）
+    //   [ 9] 0x24  IRQ_CLEAR    W1C   reset=0x00000000   中断清除（整字 W1C）
 //
 // 寄存器属性语义：
 //   RO    只读：写被忽略，读返回复位时的固定值

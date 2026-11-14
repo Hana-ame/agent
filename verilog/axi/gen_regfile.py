@@ -507,6 +507,37 @@ def gen_html(spec):
 <td class="desc">{html.escape(r.get('description',''))}</td>
 </tr>""")
 
+    # ---- 位域布局（文档特性）----
+    field_sections = []
+    for r in regs:
+        bfs = r.get("bitfields")
+        if not bfs:
+            continue
+        off = int(str(r["offset"]), 0)
+        frows = []
+        for f in sorted(bfs, key=lambda x: -int(str(x["bits"]).split(":")[0])
+                        if ":" in str(x["bits"]) else -int(str(x["bits"]))):
+            bs = str(f["bits"])
+            if ":" in bs:
+                hi, lo = [int(x) for x in bs.split(":")]
+            else:
+                hi = lo = int(bs)
+            color, tip = attr_color[f["attr"]]
+            frows.append(f"""<tr>
+<td class="mono">{hi}:{lo}</td>
+<td class="mono">[{hi}:{lo}]</td>
+<td class="name">{html.escape(f['name'])}</td>
+<td><span class="attr" style="color:{color};border-color:{color}44">{f['attr']}</span></td>
+<td class="desc">{html.escape(f.get('description',''))}</td></tr>""")
+        field_sections.append(f"""
+<h3 class="rf">{html.escape(r['name'])} 位域布局 <span class="rmono">@0x{off:02X}</span></h3>
+<table><thead><tr><th style="width:80px">位范围</th><th style="width:80px">索引</th>
+<th style="width:150px">位域名</th><th style="width:80px">属性</th><th>说明</th></tr></thead>
+<tbody>{''.join(frows)}</tbody></table>""")
+
+    fields_html = ("\n".join(field_sections)) if field_sections else \
+        '<p class="empty">本规格未定义位域布局。</p>'
+
     # 统计
     from collections import Counter
     cnt = Counter(r["attr"] for r in regs)
@@ -552,6 +583,11 @@ border-radius:5px;margin-right:8px;background:var(--panel)}}
 .atip{{font-size:12.5px;color:#8b949e}}
 pre{{background:#0b1017;border:1px solid #222c37;border-radius:8px;padding:14px 16px;
 font-family:var(--mono);font-size:12px;color:#b8c8d8;overflow-x:auto}}
+h3.rf{{font-size:14px;margin:22px 0 10px;color:#eaf2fa}}
+.rmono{{font-family:var(--mono);font-size:12px;color:var(--blue);font-weight:400}}
+.note{{font-size:12.5px;color:#8b949e;background:#11151b;border-left:3px solid var(--blue);
+padding:10px 14px;border-radius:5px;margin-bottom:14px}}
+.empty{{color:#6e7681;font-size:12.5px;padding:10px 0}}
 footer{{margin-top:34px;padding-top:16px;border-top:1px solid var(--bd);color:#6e7681;font-size:11.5px}}
 code{{font-family:var(--mono);background:#0d1117;border:1px solid #21262d;padding:1px 5px;
 border-radius:4px;color:#79c0ff}}
@@ -577,6 +613,12 @@ border-radius:4px;color:#79c0ff}}
 
 <h2>寄存器属性语义</h2>
 {attr_desc}
+
+<h2>位域布局</h2>
+<p class="note">注：位域布局为<strong>文档特性</strong>，RTL 按整字属性实现。
+如需按位域独立属性（同一寄存器内 RW/RO/W1C 混合），需扩展生成器的
+RTL 变换逻辑。</p>
+{fields_html}
 
 <h2>验证覆盖</h2>
 <pre><span style="color:#5b7186"># 生成 RTL + TB + 本手册</span>
