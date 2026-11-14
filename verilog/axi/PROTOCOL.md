@@ -90,17 +90,13 @@
 运行：
 
 ```bash
-iverilog -g2012 -o run/tb.vvp axi_defs_pkg.sv apb_defs_pkg.sv \
-  apb_slave_regs.sv axi_apb_bridge.sv axi_lite_vip_master.sv tb_axi_apb.sv
-vvp run/tb.vvp
+bash ../sim.sh axi
 # => PASS: axi->apb->axi all 35 checks passed (monitor clean)
 ```
 
-## 5. iverilog 兼容性注记
+## 5. 工具兼容性注记
 
-本目录所有文件用 iverilog 12 可编译的 SV 子集：
-- ✅ `package` / `typedef struct packed` / `enum` / `parameter`
-- ✅ interface + modport（声明可用）
-- ❌ interface 作为模块端口 / `'{...}` 模式赋值 / clocking —— 未使用，保证本机可跑
+本目录所有文件用 Verilator 5.055 可编译执行（统一工具链）：
+
 
 完整 SV（interface 端口 + clocking 驱动 + UVM 风格）在实际 EDA 工具（irun/VCS）上运行时可再扩展。
