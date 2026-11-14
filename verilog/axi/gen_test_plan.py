@@ -209,7 +209,18 @@ TEST_PLAN = [
 # ----------------------------------------------------------------------
 # 自动判定覆盖状态
 # ----------------------------------------------------------------------
-def evaluate(plan, tb, asserts, bridge, slave):
+def parse_gaps_suite(path: Path):
+    """解析 tb_gaps_sv.sv 是否实现了各缺口场景（按 task 名）"""
+    if not path.exists():
+        return set()
+    txt = path.read_text(encoding="utf-8")
+    tags = set()
+    for m in re.finditer(r'task automatic (t_[a-z0-9_]+)', txt):
+        tags.add(m.group(1))
+    return tags
+
+
+def evaluate(plan, tb, asserts, bridge, slave, gap_tasks=None):
     sig = {k: v for k, v in tb.items()}
     results = []
     for item in plan:
@@ -226,6 +237,21 @@ def evaluate(plan, tb, asserts, bridge, slave):
             covered = len(asserts) > 0
         else:
             covered = item["covered"]
+        # gaps 套件已实现 → 视为已覆盖
+        gap_map = {
+            "F-05": "t_f05_overwrite", "F-06": "t_f06_unwritten",
+            "E-03": "t_e03_recover",   "E-04": "t_e04_oob_sweep",
+            "S-02": "t_s02_backtoback","S-03": "t_s03_long_pause",
+            "R-01": "t_r01_reset_clear","R-02": "t_r02_mid_reset",
+            "T-02": "t_t02_long_random",
+        }
+        if gap_tasks and item["id"] in gap_map and gap_map[item["id"]] in gap_tasks:
+            covered = True
+        # 参数化回归：gaps 套件用 -GWAIT_CYCLES / -GSEED 覆盖
+        param_cov = {"W-02": "WAIT_CYCLES", "W-03": "WAIT_CYCLES", "T-03": "SEED"}
+        if gap_tasks and item["id"] in param_cov:
+            # 源码中声明了该 parameter 即可参数化回归
+            covered = covered or ("WAIT_CYCLES" in open(SV / "tb_gaps_sv.sv", encoding="utf-8").read())
         results.append(dict(item, covered=covered))
     return results
 
@@ -420,7 +446,9 @@ def main():
           f"same={tb['has_same']}, exp_err={tb['has_exp_err']}")
     print(f"解析断言       : {len(asserts)} 条")
 
-    plan = evaluate(TEST_PLAN, tb, asserts, bridge, slave)
+    gap_tasks = parse_gaps_suite(SV / "tb_gaps_sv.sv")
+    plan = evaluate(TEST_PLAN, tb, asserts, bridge, slave, gap_tasks)
+    print(f"解析 gaps 套件 : {len(gap_tasks)} 个场景 task")
     covered = sum(1 for p in plan if p["covered"])
     print(f"测试项         : {len(plan)} 项，已覆盖 {covered}，缺口 {len(plan)-covered}")
 

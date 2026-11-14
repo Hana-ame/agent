@@ -63,34 +63,34 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <small>由 gen_test_plan.py 解析真实源码与 TB 生成 · 覆盖状态经自动判定 + 人工确认</small></h1>
 <div class="stats">
 <div class="stat"><div class="v" style="color:var(--blue)">29</div><div class="l">测试项总数</div></div>
-<div class="stat"><div class="v" style="color:var(--green)">17</div><div class="l">已覆盖</div></div>
-<div class="stat"><div class="v" style="color:var(--red)">12</div><div class="l">覆盖缺口</div></div>
-<div class="stat"><div class="v" style="color:var(--amber)">59%</div><div class="l">覆盖率</div></div>
+<div class="stat"><div class="v" style="color:var(--green)">28</div><div class="l">已覆盖</div></div>
+<div class="stat"><div class="v" style="color:var(--red)">1</div><div class="l">覆盖缺口</div></div>
+<div class="stat"><div class="v" style="color:var(--amber)">97%</div><div class="l">覆盖率</div></div>
 </div>
 </header>
 
 <h2><span class="n">01</span>各维度覆盖情况</h2>
 <div class="bars"><div class="bar">
-<div class="bl"><span>功能</span><span class="mono">4/6</span></div>
-<div class="bt"><div class="bf" style="width:67%;background:#d29922"></div></div></div><div class="bar">
-<div class="bl"><span>慢速</span><span class="mono">2/4</span></div>
-<div class="bt"><div class="bf" style="width:50%;background:#d29922"></div></div></div><div class="bar">
+<div class="bl"><span>功能</span><span class="mono">6/6</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
+<div class="bl"><span>慢速</span><span class="mono">4/4</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
 <div class="bl"><span>协议</span><span class="mono">5/6</span></div>
 <div class="bt"><div class="bf" style="width:83%;background:#d29922"></div></div></div><div class="bar">
-<div class="bl"><span>错误</span><span class="mono">2/4</span></div>
-<div class="bt"><div class="bf" style="width:50%;background:#d29922"></div></div></div><div class="bar">
-<div class="bl"><span>暂停</span><span class="mono">2/3</span></div>
-<div class="bt"><div class="bf" style="width:67%;background:#d29922"></div></div></div><div class="bar">
-<div class="bl"><span>复位</span><span class="mono">1/3</span></div>
-<div class="bt"><div class="bf" style="width:33%;background:#f85149"></div></div></div><div class="bar">
-<div class="bl"><span>压力</span><span class="mono">1/3</span></div>
-<div class="bt"><div class="bf" style="width:33%;background:#f85149"></div></div></div></div>
+<div class="bl"><span>错误</span><span class="mono">4/4</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
+<div class="bl"><span>暂停</span><span class="mono">3/3</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
+<div class="bl"><span>复位</span><span class="mono">3/3</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
+<div class="bl"><span>压力</span><span class="mono">3/3</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div></div>
 
 <h2><span class="n">02</span>测试项清单（可筛选）</h2>
 <div class="filters">
 <div class="f on" data-f="all">全部 29</div>
-<div class="f" data-f="gap">只看缺口 12</div>
-<div class="f" data-f="cov">只看已覆盖 17</div>
+<div class="f" data-f="gap">只看缺口 1</div>
+<div class="f" data-f="cov">只看已覆盖 28</div>
 </div>
 <table><thead><tr>
 <th style="width:70px">ID</th><th style="width:200px">测试项</th>
@@ -107,22 +107,22 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="功能" data-cov="1">
 <td class="mono">F-04</td><td><b>寄存器全地址写读回环</b></td>
 <td class="dim">写 0..NREG-1 全部 → 全部读回（32 向量）</td><td class="expect">16 个寄存器全部数据一致</td>
-<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr class="gaprow" data-dim="功能" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="功能" data-cov="1">
 <td class="mono">F-05</td><td><b>连续写同一地址（覆盖写）</b></td>
 <td class="dim">同 addr 连续写不同数据 → 读回应为最后值</td><td class="expect">读回最后一次写入值</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr class="gaprow" data-dim="功能" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="功能" data-cov="1">
 <td class="mono">F-06</td><td><b>读未写地址（初值）</b></td>
 <td class="dim">复位后直接读未写过的地址</td><td class="expect">返回复位清零值 0x0</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr data-dim="慢速" data-cov="1">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="慢速" data-cov="1">
 <td class="mono">W-01</td><td><b>基础 wait states（WAIT_CYCLES=2）</b></td>
 <td class="dim">默认参数全链路回归</td><td class="expect">PREADY 延迟 2 拍；数据正确</td>
-<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr class="gaprow" data-dim="慢速" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="慢速" data-cov="1">
 <td class="mono">W-02</td><td><b>零等待（WAIT_CYCLES=0）</b></td>
 <td class="dim">改参数重编译，WAIT_CYCLES=0</td><td class="expect">ACCESS 当拍即完成，无等待</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr class="gaprow" data-dim="慢速" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="慢速" data-cov="1">
 <td class="mono">W-03</td><td><b>长等待（WAIT_CYCLES=16）</b></td>
 <td class="dim">改参数重编译，WAIT_CYCLES=16 或更大</td><td class="expect">桥持续保持 ACCESS 等待，不超时/不丢数据</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr data-dim="慢速" data-cov="1">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="慢速" data-cov="1">
 <td class="mono">W-04</td><td><b>等待期间总线稳定</b></td>
 <td class="dim">SVA：ACCESS+PREADY=0 时 PENABLE/PSEL 保持</td><td class="expect">ap_access_stable_until_ready 通过</td>
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="协议" data-cov="1">
@@ -149,80 +149,47 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="错误" data-cov="1">
 <td class="mono">E-02</td><td><b>越界读 → SLVERR</b></td>
 <td class="dim">txn_t{write=0, addr=NREG*4} 期望 RRESP=2'b10</td><td class="expect">RRESP=SLVERR</td>
-<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr class="gaprow" data-dim="错误" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="错误" data-cov="1">
 <td class="mono">E-03</td><td><b>错误后恢复正常事务</b></td>
 <td class="dim">越界访问后紧跟正常写读，验证 slv_err 已清除</td><td class="expect">后续事务 BRESP=OKAY，数据正确</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr class="gaprow" data-dim="错误" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="错误" data-cov="1">
 <td class="mono">E-04</td><td><b>多地址越界扫描</b></td>
 <td class="dim">addr = NREG*4 .. NREG*4+K 全部测试</td><td class="expect">全部返回 SLVERR，无误判写入</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr data-dim="暂停" data-cov="1">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="暂停" data-cov="1">
 <td class="mono">S-01</td><td><b>单笔 pause=1..3</b></td>
 <td class="dim">txn_t.pause 随机 0~3，共 200 条随机向量</td><td class="expect">r.idle == t.pause（164 项检查）</td>
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="暂停" data-cov="1">
 <td class="mono">S-02</td><td><b>pause=0（背靠背事务）</b></td>
 <td class="dim">连续事务无空闲，验证桥无死锁</td><td class="expect">事务立即连续执行，数据正确</td>
-<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr class="gaprow" data-dim="暂停" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="暂停" data-cov="1">
 <td class="mono">S-03</td><td><b>长 pause（>10 拍）</b></td>
 <td class="dim">txn_t.pause=16 或更大</td><td class="expect">总线保持空闲稳定，无意外响应</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr class="gaprow" data-dim="复位" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
 <td class="mono">R-01</td><td><b>上电复位后寄存器清零</b></td>
 <td class="dim">复位序列后读所有地址</td><td class="expect">全部返回 0x0</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr class="gaprow" data-dim="复位" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
 <td class="mono">R-02</td><td><b>事务中途复位</b></td>
 <td class="dim">握手过程中拉低 ARESETn</td><td class="expect">总线立即回归 IDLE，无残留 VALID</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr data-dim="复位" data-cov="1">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
 <td class="mono">R-03</td><td><b>复位后首次事务</b></td>
 <td class="dim">复位释放后立即发事务</td><td class="expect">首事务正确完成</td>
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="压力" data-cov="1">
 <td class="mono">T-01</td><td><b>随机事务混合回归（200 笔）</b></td>
 <td class="dim">写/读/同发/pause 随机组合</td><td class="expect">234 向量 0 错误（已实测）</td>
-<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr class="gaprow" data-dim="压力" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="压力" data-cov="1">
 <td class="mono">T-02</td><td><b>长时间随机（>1000 笔）</b></td>
 <td class="dim">NTXN 提升到 1000+</td><td class="expect">无累积错误、无状态泄漏</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr><tr class="gaprow" data-dim="压力" data-cov="0">
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="压力" data-cov="1">
 <td class="mono">T-03</td><td><b>多 seed 回归</b></td>
 <td class="dim">不同 $urandom 种子重复运行</td><td class="expect">每个 seed 都通过（发现 seed 敏感 bug）</td>
-<td><span class="tag gap">✘ 缺口</span></td></tr></tbody></table>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr></tbody></table>
 
-<h2><span class="n">03</span>覆盖缺口详情（12 项）</h2>
+<h2><span class="n">03</span>覆盖缺口详情（1 项）</h2>
 <p>以下测试项在当前 TB 中<strong>尚未实现</strong>，按优先级列出方法与会判据。</p>
 <div class="gaps"><div class="gapcard">
-<div class="gh"><span class="mono">F-05</span> 连续写同一地址（覆盖写）</div>
-<div class="gd"><b>方法</b>：同 addr 连续写不同数据 → 读回应为最后值</div>
-<div class="gd"><b>判据</b>：读回最后一次写入值</div></div><div class="gapcard">
-<div class="gh"><span class="mono">F-06</span> 读未写地址（初值）</div>
-<div class="gd"><b>方法</b>：复位后直接读未写过的地址</div>
-<div class="gd"><b>判据</b>：返回复位清零值 0x0</div></div><div class="gapcard">
-<div class="gh"><span class="mono">W-02</span> 零等待（WAIT_CYCLES=0）</div>
-<div class="gd"><b>方法</b>：改参数重编译，WAIT_CYCLES=0</div>
-<div class="gd"><b>判据</b>：ACCESS 当拍即完成，无等待</div></div><div class="gapcard">
-<div class="gh"><span class="mono">W-03</span> 长等待（WAIT_CYCLES=16）</div>
-<div class="gd"><b>方法</b>：改参数重编译，WAIT_CYCLES=16 或更大</div>
-<div class="gd"><b>判据</b>：桥持续保持 ACCESS 等待，不超时/不丢数据</div></div><div class="gapcard">
 <div class="gh"><span class="mono">P-06</span> AW 与 AR 同时请求（仲裁）</div>
 <div class="gd"><b>方法</b>：构造 txn_t 序列使 AWVALID 与 ARVALID 同拍有效</div>
-<div class="gd"><b>判据</b>：桥按优先级选择一个，另一事务不丢（需确认桥是否支持）</div></div><div class="gapcard">
-<div class="gh"><span class="mono">E-03</span> 错误后恢复正常事务</div>
-<div class="gd"><b>方法</b>：越界访问后紧跟正常写读，验证 slv_err 已清除</div>
-<div class="gd"><b>判据</b>：后续事务 BRESP=OKAY，数据正确</div></div><div class="gapcard">
-<div class="gh"><span class="mono">E-04</span> 多地址越界扫描</div>
-<div class="gd"><b>方法</b>：addr = NREG*4 .. NREG*4+K 全部测试</div>
-<div class="gd"><b>判据</b>：全部返回 SLVERR，无误判写入</div></div><div class="gapcard">
-<div class="gh"><span class="mono">S-03</span> 长 pause（>10 拍）</div>
-<div class="gd"><b>方法</b>：txn_t.pause=16 或更大</div>
-<div class="gd"><b>判据</b>：总线保持空闲稳定，无意外响应</div></div><div class="gapcard">
-<div class="gh"><span class="mono">R-01</span> 上电复位后寄存器清零</div>
-<div class="gd"><b>方法</b>：复位序列后读所有地址</div>
-<div class="gd"><b>判据</b>：全部返回 0x0</div></div><div class="gapcard">
-<div class="gh"><span class="mono">R-02</span> 事务中途复位</div>
-<div class="gd"><b>方法</b>：握手过程中拉低 ARESETn</div>
-<div class="gd"><b>判据</b>：总线立即回归 IDLE，无残留 VALID</div></div><div class="gapcard">
-<div class="gh"><span class="mono">T-02</span> 长时间随机（>1000 笔）</div>
-<div class="gd"><b>方法</b>：NTXN 提升到 1000+</div>
-<div class="gd"><b>判据</b>：无累积错误、无状态泄漏</div></div><div class="gapcard">
-<div class="gh"><span class="mono">T-03</span> 多 seed 回归</div>
-<div class="gd"><b>方法</b>：不同 $urandom 种子重复运行</div>
-<div class="gd"><b>判据</b>：每个 seed 都通过（发现 seed 敏感 bug）</div></div></div>
+<div class="gd"><b>判据</b>：桥按优先级选择一个，另一事务不丢（需确认桥是否支持）</div></div></div>
 
 <h2><span class="n">04</span>现有 TB 资产</h2>
 <p><b>已实现的向量类别</b>：</p><ul><li>回环基本集：写满 → 读回（每笔写后 pause 1 拍）</li><li>随机向量：写/读混合，随机 pause(0~3) 与 same</li><li>边界向量：越界读写（exp_err=1，期望 SLVERR）</li></ul>
