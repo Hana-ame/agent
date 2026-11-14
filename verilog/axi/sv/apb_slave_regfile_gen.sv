@@ -14,6 +14,8 @@
     //   [ 7] 0x1C  DATA_OUT     RW    reset=0x00000000   数据输出
     //   [ 8] 0x20  SCRATCH      RW    reset=0x00000000   暂存寄存器
     //   [ 9] 0x24  IRQ_CLEAR    W1C   reset=0x00000000   中断清除（整字 W1C）
+    //   [10] 0x28  INT_SET      W1S   reset=0x00000000   中断置位（写 1 置位）
+    //   [11] 0x2C  EVENT_CNT    RC    reset=0x00000000   事件计数（读清零）
 //
 // 寄存器属性语义：
 //   RO    只读：写被忽略，读返回复位时的固定值
@@ -28,7 +30,7 @@
 module apb_slave_regfile_gen #(
     parameter int AW          = 8,
     parameter int DW          = 32,
-    parameter int NREG        = 10,
+    parameter int NREG        = 12,
     parameter int WAIT_CYCLES = 2
 )(
     input  logic PCLK,
@@ -43,6 +45,8 @@ module apb_slave_regfile_gen #(
     localparam int A_RW   = 1;
     localparam int A_RO   = 2;
     localparam int A_W1C  = 3;
+    localparam int A_W1S  = 4;   // 写 1 置位
+    localparam int A_RC   = 5;   // 读清零（读完成拍清零）
 
     // ---- 寄存器名到索引（供 TB / 软件参考）----
     localparam int VERSION      = 0;   // 0x00
@@ -55,6 +59,8 @@ module apb_slave_regfile_gen #(
     localparam int DATA_OUT     = 7;   // 0x1C
     localparam int SCRATCH      = 8;   // 0x20
     localparam int IRQ_CLEAR    = 9;   // 0x24
+    localparam int INT_SET      = 10;   // 0x28
+    localparam int EVENT_CNT    = 11;   // 0x2C
 
     // ---- 属性查询（按索引）----
     function automatic int attr_of(input int i);
@@ -69,6 +75,8 @@ module apb_slave_regfile_gen #(
             7: return A_RW;   // DATA_OUT @0x1C
             8: return A_RW;   // SCRATCH @0x20
             9: return A_W1C;   // IRQ_CLEAR @0x24
+            10: return A_W1S;   // INT_SET @0x28
+            11: return A_RC;   // EVENT_CNT @0x2C
             default: return A_RSVD;   // 未定义地址视为保留
         endcase
     endfunction
@@ -86,6 +94,8 @@ module apb_slave_regfile_gen #(
             7: return 32'h00000000;
             8: return 32'h00000000;
             9: return 32'h00000000;
+            10: return 32'h00000000;
+            11: return 32'h00000000;
             default: return '0;
         endcase
     endfunction
@@ -110,11 +120,11 @@ module apb_slave_regfile_gen #(
         nv = (nv & ~32'h00000001) | (wr_v & 32'h00000001);
         // MODE bits[2:1] RW
         nv = (nv & ~32'h00000006) | (wr_v & 32'h00000006);
-        // IRQ_EN bits[3:3] RW
-        nv = (nv & ~32'h00000008) | (wr_v & 32'h00000008);
+        // IRQ_EN bits[3:3] W1S
+        nv = (nv & ~32'h00000008) | ((old_v | wr_v) & 32'h00000008);
         // RESERVED bits[15:4] RSVD
         nv = (nv & ~32'h0000FFF0) | (old_v & 32'h0000FFF0);
-        // STATUS_CODE bits[23:16] RO
+        // STATUS_CODE bits[23:16] RC
         nv = (nv & ~32'h00FF0000) | (old_v & 32'h00FF0000);
         // FLAGS bits[31:24] W1C
         nv = (nv & ~32'hFF000000) | (old_v & ~wr_v & 32'hFF000000);
@@ -133,6 +143,27 @@ module apb_slave_regfile_gen #(
         endcase
     endfunction
 
+    // CTRL 位域读清零（仅清 RC 位域）
+    function automatic logic [DW-1:0] field_read_clear_CTRL(
+        input logic [DW-1:0] cur_v
+    );
+        logic [DW-1:0] nv;
+        nv = cur_v;
+        nv = nv & ~32'h00FF0000;   // STATUS_CODE [23:16] RC 读清零
+        return nv;
+    endfunction
+
+    // ---- 位域寄存器读清零分派 ----
+    function automatic logic [DW-1:0] read_clear_dispatch_fld(
+        input int            idx,
+        input logic [DW-1:0] cur_v
+    );
+        case (idx)
+            3: return field_read_clear_CTRL(cur_v);
+            default: return read_clear_word(cur_v, attr_of(idx));
+        endcase
+    endfunction
+
 
     // ---- 写数据按属性变换（整字寄存器）----
     function automatic logic [DW-1:0] write_transform_word(
@@ -143,7 +174,8 @@ module apb_slave_regfile_gen #(
         case (attr)
             A_RW:  return wr_v;
             A_W1C: return old_v & ~wr_v;
-            default: return old_v;      // RO / RSVD 忽略写
+            A_W1S: return old_v | wr_v;   // 写 1 置位
+            default: return old_v;        // RO / RC / RSVD 忽略写
         endcase
     endfunction
 
@@ -154,6 +186,18 @@ module apb_slave_regfile_gen #(
     );
         return (attr == A_RSVD) ? '0 : cur_v;
     endfunction
+
+    // ---- 读清零（RC）：读完成拍清除 ----
+    //   整字 RC：读后整体清 0
+    //   位域 RC：只清 RC 位域，其他位域保持不变
+    function automatic logic [DW-1:0] read_clear_word(
+        input logic [DW-1:0] cur_v,
+        input int            attr
+    );
+        return (attr == A_RC) ? '0 : cur_v;
+    endfunction
+
+    // read_clear_dispatch_fld 由下方位域代码块提供（若有位域寄存器）
 
     // ---- 阶段状态机 ----
     apb_phase_t phase;
@@ -190,8 +234,12 @@ module apb_slave_regfile_gen #(
                         apb.PSLVERR <= in_range ? 1'b0 : 1'b1;
                         if (in_range && apb.PWRITE)
                             mem[idx] <= write_dispatch(idx, mem[idx], apb.PWDATA);
-                        if (!apb.PWRITE)
+                        if (!apb.PWRITE) begin
                             apb.PRDATA <= in_range ? read_transform(mem[idx], attr_of(idx)) : '0;
+                            // RC（读清零）：读完成拍清除（位域级）
+                            if (in_range)
+                                mem[idx] <= read_clear_dispatch_fld(idx, mem[idx]);
+                        end
                         phase <= APB_IDLE;
                     end else begin
                         apb.PREADY  <= 1'b0;

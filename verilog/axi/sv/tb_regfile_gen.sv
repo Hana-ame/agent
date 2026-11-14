@@ -3,7 +3,7 @@
 // ============================================================================
 // ⚠️ 自动生成，勿手工编辑。
 //
-// 覆盖寄存器（10 个）：
+// 覆盖寄存器（12 个）：
     //   0x00  VERSION      RO    reset=0x00010203
     //   0x04  INT_STATUS   W1C   reset=0x00000000
     //   0x08  RESERVED0    RSVD  reset=0x00000000
@@ -14,6 +14,8 @@
     //   0x1C  DATA_OUT     RW    reset=0x00000000
     //   0x20  SCRATCH      RW    reset=0x00000000
     //   0x24  IRQ_CLEAR    W1C   reset=0x00000000
+    //   0x28  INT_SET      W1S   reset=0x00000000
+    //   0x2C  EVENT_CNT    RC    reset=0x00000000
 // ============================================================================
 `ifndef TB_REGFILE_GEN_SV
 `define TB_REGFILE_GEN_SV
@@ -22,7 +24,7 @@
 module tb_regfile_gen #(
     parameter int AW   = 8,
     parameter int DW   = 32,
-    parameter int NREG = 10
+    parameter int NREG = 12
 );
 
     import bus_txn_pkg::*;
@@ -88,7 +90,7 @@ module tb_regfile_gen #(
 
     initial begin
         $display("======================================================");
-        $display(" generated regfile test (10 registers)");
+        $display(" generated regfile test (12 registers)");
         $display("======================================================");
         do_reset();
 
@@ -188,6 +190,26 @@ module tb_regfile_gen #(
             errors++;
         end
 
+        $display("== W1S 寄存器（写 1 置位）==");
+        // INT_SET: W1S 写 1 置位
+        write_reg(8'h28, 32'hFFFF_FFFF);
+        read_reg(8'h28, d);
+        checks++;
+        if (d !== 32'hFFFF_FFFF) begin
+            $display("  [W1S] FAIL: INT_SET 写 1 未置位 d=%h", d);
+            errors++;
+        end
+
+        $display("== RC 寄存器（读清零）==");
+        // EVENT_CNT: RC 读后清零
+        read_reg(8'h2C, d);   // 首读
+        read_reg(8'h2C, d);   // 再读应为 0
+        checks++;
+        if (d !== '0) begin
+            $display("  [RC] FAIL: EVENT_CNT 读后未清零 d=%h", d);
+            errors++;
+        end
+
         $display("== 位域寄存器（逐位属性验证）==");
         // ===== CTRL 位域测试 @0x0C =====
         // CTRL.ENABLE [0:0] RW: 写满该域应可读回
@@ -208,15 +230,15 @@ module tb_regfile_gen #(
             errors++;
         end
         write_reg(8'h0C, '0);
-        // CTRL.IRQ_EN [3:3] RW: 写满该域应可读回
-        write_reg(8'h0C, 32'h00000008);
+        // CTRL.IRQ_EN [3:3] W1S: 写 1 置位
+        write_reg(8'h0C, '0);   // 先清零（通过 W1C 不可行，直接读初值）
+        write_reg(8'h0C, 32'h00000008);   // 写 1 应置位
         read_reg(8'h0C, d);
         checks++;
         if ((d & 32'h00000008) !== 32'h00000008) begin
-            $display("  [FLD] FAIL: CTRL.IRQ_EN RW 写满回读 d=%h mask=%h", d, 32'h00000008);
+            $display("  [FLD] FAIL: CTRL.IRQ_EN W1S 未置位 d=%h", d);
             errors++;
         end
-        write_reg(8'h0C, '0);
         // CTRL.RESERVED [15:4] RSVD: 写忽略、读 0
         write_reg(8'h0C, 32'h0000FFF0);
         read_reg(8'h0C, d);
@@ -225,14 +247,12 @@ module tb_regfile_gen #(
             $display("  [FLD] FAIL: CTRL.RESERVED RSVD 非 0 d=%h", d);
             errors++;
         end
-        // CTRL.STATUS_CODE [23:16] RO: 写应被忽略
-        read_reg(8'h0C, d);
-        base = d & 32'h00FF0000;
-        write_reg(8'h0C, 32'h00FF0000);
-        read_reg(8'h0C, d);
+        // CTRL.STATUS_CODE [23:16] RC: 读后清零
+        read_reg(8'h0C, d);   // 第一次读
+        read_reg(8'h0C, d);   // 第二次读应为 0
         checks++;
-        if ((d & 32'h00FF0000) !== base) begin
-            $display("  [FLD] FAIL: CTRL.STATUS_CODE RO 被写改动 base=%h now=%h", base, d);
+        if ((d & 32'h00FF0000) !== '0) begin
+            $display("  [FLD] FAIL: CTRL.STATUS_CODE RC 读后未清零 d=%h", d);
             errors++;
         end
         // CTRL.FLAGS [31:24] W1C: 写 1 应清零
@@ -244,11 +264,11 @@ module tb_regfile_gen #(
             errors++;
         end
         // CTRL 多 RW 域同时写满，验证互不干扰
-        write_reg(8'h0C, 32'h0000000F);
+        write_reg(8'h0C, 32'h00000007);
         read_reg(8'h0C, d);
         checks++;
-        if ((d & 32'h0000000F) !== 32'h0000000F) begin
-            $display("  [FLD] FAIL: CTRL 多域写满 d=%h mask=%h", d, 32'h0000000F);
+        if ((d & 32'h00000007) !== 32'h00000007) begin
+            $display("  [FLD] FAIL: CTRL 多域写满 d=%h mask=%h", d, 32'h00000007);
             errors++;
         end
         write_reg(8'h0C, '0);

@@ -44,10 +44,10 @@ border-radius:4px;color:#79c0ff}
 <div class="meta">
 <span>地址位宽 <b>8</b></span>
 <span>数据位宽 <b>32</b></span>
-<span>寄存器数 <b>10</b></span>
+<span>寄存器数 <b>12</b></span>
 <span>wait states <b>2</b></span>
 </div>
-<div style="margin-top:14px"><span class="chip" style="color:#58a6ff">RO: 2</span><span class="chip" style="color:#8b949e">RSVD: 1</span><span class="chip" style="color:#3fb950">RW: 5</span><span class="chip" style="color:#d29922">W1C: 2</span></div>
+<div style="margin-top:14px"><span class="chip" style="color:#f85149">RC: 1</span><span class="chip" style="color:#58a6ff">RO: 2</span><span class="chip" style="color:#8b949e">RSVD: 1</span><span class="chip" style="color:#3fb950">RW: 5</span><span class="chip" style="color:#d29922">W1C: 2</span><span class="chip" style="color:#bc8cff">W1S: 1</span></div>
 </header>
 
 <h2>地址映射表</h2>
@@ -125,6 +125,20 @@ border-radius:4px;color:#79c0ff}
 <td><span class="attr" style="color:#d29922;border-color:#d2992244">W1C</span></td>
 <td class="mono">0x00000000</td>
 <td class="desc">中断清除（整字 W1C）</td>
+</tr><tr>
+<td class="mono">0x28</td>
+<td class="mono">[10]</td>
+<td class="name">INT_SET</td>
+<td><span class="attr" style="color:#bc8cff;border-color:#bc8cff44">W1S</span></td>
+<td class="mono">0x00000000</td>
+<td class="desc">中断置位（写 1 置位）</td>
+</tr><tr>
+<td class="mono">0x2C</td>
+<td class="mono">[11]</td>
+<td class="name">EVENT_CNT</td>
+<td><span class="attr" style="color:#f85149;border-color:#f8514944">RC</span></td>
+<td class="mono">0x00000000</td>
+<td class="desc">事件计数（读清零）</td>
 </tr></tbody></table>
 
 <h2>寄存器属性语义</h2>
@@ -132,6 +146,8 @@ border-radius:4px;color:#79c0ff}
 <div class="attrrow"><span class="attr" style="color:#3fb950;border-color:#3fb95044">RW</span><span class="atip">读写：写什么读什么</span></div>
 <div class="attrrow"><span class="attr" style="color:#d29922;border-color:#d2992244">W1C</span><span class="atip">写 1 清零：写 1 的位清 0，写 0 保持</span></div>
 <div class="attrrow"><span class="attr" style="color:#8b949e;border-color:#8b949e44">RSVD</span><span class="atip">保留：读 0，写忽略</span></div>
+<div class="attrrow"><span class="attr" style="color:#bc8cff;border-color:#bc8cff44">W1S</span><span class="atip">写 1 置位：写 1 的位变 1，写 0 保持</span></div>
+<div class="attrrow"><span class="attr" style="color:#f85149;border-color:#f8514944">RC</span><span class="atip">读清零：读完成拍清除为 0</span></div>
 
 <h2>位域布局</h2>
 <p class="note">注：位域布局为<strong>文档特性</strong>，RTL 按整字属性实现。

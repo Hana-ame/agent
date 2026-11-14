@@ -54,9 +54,9 @@
         {
           "name": "IRQ_EN",
           "bits": "3",
-          "attr": "RW",
+          "attr": "W1S",
           "reset": 0,
-          "description": "中断使能"
+          "description": "中断使能（写 1 置位）"
         },
         {
           "name": "RESERVED",
@@ -68,9 +68,9 @@
         {
           "name": "STATUS_CODE",
           "bits": "23:16",
-          "attr": "RO",
+          "attr": "RC",
           "reset": 0,
-          "description": "状态码（只读）"
+          "description": "状态码（读清零）"
         },
         {
           "name": "FLAGS",
@@ -122,6 +122,20 @@
       "attr": "W1C",
       "reset": "0x00000000",
       "description": "中断清除（整字 W1C）"
+    },
+    {
+      "name": "INT_SET",
+      "offset": "0x28",
+      "attr": "W1S",
+      "reset": "0x00000000",
+      "description": "中断置位（写 1 置位）"
+    },
+    {
+      "name": "EVENT_CNT",
+      "offset": "0x2C",
+      "attr": "RC",
+      "reset": "0x00000000",
+      "description": "事件计数（读清零）"
     }
   ]
 }

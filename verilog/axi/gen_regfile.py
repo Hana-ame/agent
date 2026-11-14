@@ -29,7 +29,7 @@ HERE = Path(__file__).resolve().parent      # verilog/axi
 SV = HERE / "sv"
 DEFAULT_SPEC = HERE / "regfile_spec.json"
 
-ATTR_CODES = {"RSVD": 0, "RW": 1, "RO": 2, "W1C": 3}
+ATTR_CODES = {"RSVD": 0, "RW": 1, "RO": 2, "W1C": 3, "W1S": 4, "RC": 5}
 VALID_ATTRS = set(ATTR_CODES)
 
 
@@ -132,6 +132,10 @@ def gen_rtl(spec):
     for r in field_regs:
         fld_lines.extend(field_gen.build_field_write_func(r["name"], _bfields(r), dw))
     fld_lines.extend(field_gen.build_field_dispatch(field_regs, dw))
+    # 位域读清零（RC）
+    for r in field_regs:
+        fld_lines.extend(field_gen.build_field_read_clear(r["name"], _bfields(r), dw))
+    fld_lines.extend(field_gen.build_read_clear_dispatch(field_regs, dw))
     fld_code = "\n".join(fld_lines)
 
     attr_cases = []
@@ -188,6 +192,8 @@ module {mod} #(
     localparam int A_RW   = 1;
     localparam int A_RO   = 2;
     localparam int A_W1C  = 3;
+    localparam int A_W1S  = 4;   // 写 1 置位
+    localparam int A_RC   = 5;   // 读清零（读完成拍清零）
 
     // ---- 寄存器名到索引（供 TB / 软件参考）----
 {chr(10).join(f"    localparam int {r['name']:<12} = {int(str(r['offset']),0)//(dw//8)};   // 0x{int(str(r['offset']),0):02X}" for r in sorted_regs)}
@@ -228,7 +234,8 @@ module {mod} #(
         case (attr)
             A_RW:  return wr_v;
             A_W1C: return old_v & ~wr_v;
-            default: return old_v;      // RO / RSVD 忽略写
+            A_W1S: return old_v | wr_v;   // 写 1 置位
+            default: return old_v;        // RO / RC / RSVD 忽略写
         endcase
     endfunction
 
@@ -239,6 +246,18 @@ module {mod} #(
     );
         return (attr == A_RSVD) ? '0 : cur_v;
     endfunction
+
+    // ---- 读清零（RC）：读完成拍清除 ----
+    //   整字 RC：读后整体清 0
+    //   位域 RC：只清 RC 位域，其他位域保持不变
+    function automatic logic [DW-1:0] read_clear_word(
+        input logic [DW-1:0] cur_v,
+        input int            attr
+    );
+        return (attr == A_RC) ? '0 : cur_v;
+    endfunction
+
+    // read_clear_dispatch_fld 由下方位域代码块提供（若有位域寄存器）
 
     // ---- 阶段状态机 ----
     apb_phase_t phase;
@@ -275,8 +294,12 @@ module {mod} #(
                         apb.PSLVERR <= in_range ? 1'b0 : 1'b1;
                         if (in_range && apb.PWRITE)
                             mem[idx] <= write_dispatch(idx, mem[idx], apb.PWDATA);
-                        if (!apb.PWRITE)
+                        if (!apb.PWRITE) begin
                             apb.PRDATA <= in_range ? read_transform(mem[idx], attr_of(idx)) : '0;
+                            // RC（读清零）：读完成拍清除（位域级）
+                            if (in_range)
+                                mem[idx] <= read_clear_dispatch_fld(idx, mem[idx]);
+                        end
                         phase <= APB_IDLE;
                     end else begin
                         apb.PREADY  <= 1'b0;
@@ -316,6 +339,8 @@ def gen_tb(spec):
     w1c_regs = [r for r in regs if r["attr"] == "W1C" and not _bf(r)]
     rsvd_regs = [r for r in regs if r["attr"] == "RSVD" and not _bf(r)]
     rw_regs = [r for r in regs if r["attr"] == "RW" and not _bf(r)]
+    w1s_regs = [r for r in regs if r["attr"] == "W1S" and not _bf(r)]
+    rc_regs = [r for r in regs if r["attr"] == "RC" and not _bf(r)]
 
     # 位域测试代码（列表构建）
     fld_tb_lines = []
@@ -323,6 +348,33 @@ def gen_tb(spec):
         fld_tb_lines.extend(field_tb_gen.build_field_test(r, aw, dw))
     fld_tb_body = "\n".join(fld_tb_lines) if fld_tb_lines else \
         "        // （规格中无位域寄存器）"
+
+    # ---- W1S / RC 整字测试体（列表构建）----
+    w1s_lines = []
+    for r in w1s_regs:
+        o = int(str(r["offset"]), 0)
+        w1s_lines.append(f'        // {r["name"]}: W1S 写 1 置位')
+        w1s_lines.append(f'        write_reg({aw}\'h{o:02X}, {dw}\'hFFFF_FFFF);')
+        w1s_lines.append(f'        read_reg({aw}\'h{o:02X}, d);')
+        w1s_lines.append(f'        checks++;')
+        w1s_lines.append(f'        if (d !== {dw}\'hFFFF_FFFF) begin')
+        w1s_lines.append(f'            $display("  [W1S] FAIL: {r["name"]} 写 1 未置位 d=%h", d);')
+        w1s_lines.append(f'            errors++;')
+        w1s_lines.append(f'        end')
+    w1s_body = "\n".join(w1s_lines) or "        // （规格中无整字 W1S 寄存器）"
+
+    rc_lines = []
+    for r in rc_regs:
+        o = int(str(r["offset"]), 0)
+        rc_lines.append(f'        // {r["name"]}: RC 读后清零')
+        rc_lines.append(f'        read_reg({aw}\'h{o:02X}, d);   // 首读')
+        rc_lines.append(f'        read_reg({aw}\'h{o:02X}, d);   // 再读应为 0')
+        rc_lines.append(f'        checks++;')
+        rc_lines.append(f'        if (d !== \'0) begin')
+        rc_lines.append(f'            $display("  [RC] FAIL: {r["name"]} 读后未清零 d=%h", d);')
+        rc_lines.append(f'            errors++;')
+        rc_lines.append(f'        end')
+    rc_body = "\n".join(rc_lines) or "        // （规格中无整字 RC 寄存器）"
 
     def off(r):
         return int(str(r["offset"]), 0)
@@ -487,6 +539,12 @@ module tb_regfile_gen #(
         $display("== RW 寄存器（读写）==");
 {rw_body}
 
+        $display("== W1S 寄存器（写 1 置位）==");
+{w1s_body}
+
+        $display("== RC 寄存器（读清零）==");
+{rc_body}
+
         $display("== 位域寄存器（逐位属性验证）==");
 {fld_tb_body}
 
@@ -523,6 +581,8 @@ def gen_html(spec):
         "RW": ("#3fb950", "读写：写什么读什么"),
         "W1C": ("#d29922", "写 1 清零：写 1 的位清 0，写 0 保持"),
         "RSVD": ("#8b949e", "保留：读 0，写忽略"),
+        "W1S": ("#bc8cff", "写 1 置位：写 1 的位变 1，写 0 保持"),
+        "RC": ("#f85149", "读清零：读完成拍清除为 0"),
     }
 
     rows = []
