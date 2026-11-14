@@ -54,7 +54,7 @@ class axi_test extends uvm_test;
         axi_base_seq seq;
         phase.raise_objection(this);
         seq = axi_base_seq::type_id::create("seq");
-        seq.start(env.drv.seq_item_export);
+        seq.start(env.sqr);
         phase.drop_objection(this);
     endtask
 endclass

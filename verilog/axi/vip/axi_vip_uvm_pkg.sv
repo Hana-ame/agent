@@ -126,6 +126,13 @@ package axi_vip_uvm_pkg;
     // ==================================================================
     // 4. Monitor（旁路观测，不干扰 DUT）
     // ==================================================================
+    class axi_sequencer extends uvm_sequencer #(axi_txn);
+        `uvm_component_utils(axi_sequencer)
+        function new(string name, uvm_component parent);
+            super.new(name, parent);
+        endfunction
+    endclass
+
     class axi_monitor extends uvm_monitor;
         `uvm_component_utils(axi_monitor)
         virtual axi_lite_if vif;
@@ -191,6 +198,7 @@ package axi_vip_uvm_pkg;
     class axi_vip_env extends uvm_env;
         `uvm_component_utils(axi_vip_env)
         axi_driver     drv;
+        axi_sequencer  sqr;
         axi_monitor    mon;
         axi_scoreboard sb;
 
@@ -201,11 +209,13 @@ package axi_vip_uvm_pkg;
         function void build_phase(uvm_phase phase);
             super.build_phase(phase);
             drv = axi_driver::type_id::create("drv", this);
+            sqr = axi_sequencer::type_id::create("sqr", this);
             mon = axi_monitor::type_id::create("mon", this);
             sb  = axi_scoreboard::type_id::create("sb", this);
         endfunction
 
         function void connect_phase(uvm_phase phase);
+            drv.seq_item_port.connect(sqr.seq_item_export);
             mon.ap.connect(sb.imp);
         endfunction
     endclass

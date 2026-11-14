@@ -7,18 +7,35 @@
 | 形态 | 文件 | 依赖 | 状态 |
 |---|---|---|---|
 | **非 UVM VIP** | `axi_vip_pkg.sv` + `axi_lite_vip.sv` | 无（纯 SV） | ✅ 本地实测 PASS |
-| **UVM 配套** | `axi_vip_uvm_pkg.sv` + `tb_uvm_top.sv` | UVM 库 + EDA 仿真器 | 骨架就绪，**本机无法验证** |
+| **UVM 配套** | `axi_vip_uvm_pkg.sv` + `tb_uvm_top.sv` | UVM 库 + EDA 仿真器 | ✅ **slang + 真实 UVM 库编译通过（0 errors）**，仿真仍需 EDA 工具 |
 
-### 本机 UVM 可行性（已核查）
+### 本机 UVM 可行性（已核查并已用于验证）
 
 - ✅ 系统里**有 UVM 库源码**：`modeltech_10.2c/verilog_src/uvm-1.1b|c|d`、`questa_uvm_pkg-1.2`
-- ❌ 但**没有任何 EDA 仿真器可执行文件**：`vsim`/`vlog`/`xrun`/`irun`/`vcs` 均不在 PATH，
-  该 modeltech 目录只有库文件没有二进制
-- ❌ Verilator 5.055 **不支持 UVM**（无 `uvm_pkg` 依赖的 factory/phase 机制）
+- ✅ **已用 slang + 真实 UVM 1.1d 库完成编译校验**：
+  ```
+  Build succeeded: 0 errors, 4 warnings
+  ```
+  编译单元包含 `uvm_pkg.sv` + 本项目 UVM 包 + 接口 + DUT + 顶层，
+  覆盖 `uvm_sequence_item` / `uvm_driver` / `uvm_sequencer` / `uvm_monitor` /
+  `uvm_scoreboard` / `uvm_env` / `uvm_test` 全部组件与 TLM 连接。
+- ❌ **无 EDA 仿真器可执行文件**：`vsim`/`vlog`/`xrun`/`irun`/`vcs` 均不在 PATH，
+  modeltech 目录只有库文件没有二进制
+- ❌ Verilator 5.055 不支持 UVM（无 factory/phase 机制）
 
-因此：UVM 版本按标准结构写好并做了语法级梳理，但**未在真机仿真验证**，
-需在装有 irun/VCS/xsim 的机器上跑 `tb_uvm_top.sv` 确认。
-本地真实验证的是非 UVM VIP（67 检查 PASS）。
+**结论**：UVM 版**编译语义已验证**（不再是未校验骨架），但**运行时仿真**仍需
+在装有 irun/VCS/xsim 的机器上跑 `tb_uvm_top.sv`。
+本地运行时真实验证的是非 UVM VIP（67 检查 PASS）。
+
+编译命令（本机可复现）：
+```bash
+UVM=/path/to/modeltech/verilog_src/uvm-1.1d/src
+slang --timescale=1ns/1ps -I $UVM -I sv -I vip -I . \
+  $UVM/uvm_pkg.sv axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+  sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv sv/apb_slave_regs_sv.sv \
+  vip/axi_vip_uvm_pkg.sv vip/tb_uvm_top.sv
+# => Build succeeded: 0 errors
+```
 
 ## 三行接入
 
@@ -132,8 +149,11 @@ vcs -sverilog -ntb_opts uvm-1.2 axi_vip_uvm_pkg.sv tb_uvm_top.sv
 ```
 
 UVM 组件对应：`axi_txn`→`uvm_sequence_item`、`axi_base_seq`→`uvm_sequence`、
-`axi_driver`→`uvm_driver`、`axi_monitor`→`uvm_monitor`、
-`axi_scoreboard`→`uvm_scoreboard`、`axi_vip_env`→`uvm_env`。
+`axi_driver`→`uvm_driver`、`axi_sequencer`→`uvm_sequencer`、
+`axi_monitor`→`uvm_monitor`、`axi_scoreboard`→`uvm_scoreboard`、
+`axi_vip_env`→`uvm_env`。
+
+**已验证**：用真实 UVM 1.1d 库做 slang 编译，0 errors（含 TLM 连接）。
 
 ## 接入新 DUT 的检查清单
 
