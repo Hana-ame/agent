@@ -170,6 +170,20 @@ case "${1:-all}" in
             echo "WARN: 未找到 verilator_coverage" >&2
         fi
         ;;
+    docs)
+        # 生成所有 HTML 可视化文档（从源码解析，非手绘）
+        echo "== docs: FSM 状态转移图 =="
+        ( cd axi && python3 gen_fsm_html.py 2>&1 | tail -4 )
+        echo "== docs: 接口逻辑映射 =="
+        ( cd axi && python3 gen_interface_map.py 2>&1 | tail -3 )
+        echo "== docs: 测试方案与覆盖缺口 =="
+        ( cd axi && python3 gen_test_plan.py 2>&1 | tail -3 )
+        echo "== docs: 完成 =="
+        echo "  axi/FSM.html"
+        echo "  axi/INTERFACE_MAP.html"
+        echo "  axi/TEST_PLAN.html"
+        echo "  axi/DESIGN.html（手写，非生成）"
+        ;;
     wave)
         ( cd axi && build_run wave tb_axi_apb_sv "-I./sv -I. --trace" \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -193,7 +207,7 @@ case "${1:-all}" in
     *)
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps vip"
-        echo "      coverage wave all"
+        echo "      coverage docs wave all"
         exit 1
         ;;
 esac
