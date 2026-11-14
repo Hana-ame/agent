@@ -1,282 +1,189 @@
 // 完整 SystemVerilog testbench：AXI4-Lite → APB → 慢速外设 → 响应回 AXI
-// 采用「数据向量 → 激励向量 → 数据向量」完整测试闭环：
 //
-//   ┌─────────────────────────────────────────────────────────────────┐
-//   │ ① 数据向量集（stim_vecs，输入知识库）                            │
-//   │    op(WR/RD) + addr + data + exp_resp                           │
-//   │    ├─ 程序化向量：写 NREG 条 → 读 NREG 条（回环基本集）          │
-//   │    ├─ 随机向量：200 条（写/读/同发写混合）                       │
-//   │    └─ 边界向量：越界读写（期望 SLVERR）                          │
-//   └──────────────┬──────────────────────────────────────────────────┘
-//                  ▼
-//   ┌─────────────────────────────────────────────────────────────────┐
-//   │ ② 激励向量驱动（drive_vec）                                      │
-//   │    逐向量把 AXI 事务打到 DUT（interface + 时钟同步）              │
-//   │    返回捕获的 data + resp（DUT 的实际输出）                       │
-//   └──────────────┬──────────────────────────────────────────────────┘
-//                  ▼
-//   ┌─────────────────────────────────────────────────────────────────┐
-//   │ ③ 数据向量比对（scoreboard）                                     │
-//   │    期望 = ref_vec（参考模型镜像） vs 实际 = captured              │
-//   │    - 写向量：更新 ref_mem（期望数据向量集）                       │
-//   │    - 读向量：captured.data !== ref_mem[addr] → FAIL               │
-//   │    - 越界：captured.resp !== exp_resp(SLVERR) → FAIL              │
-//   └─────────────────────────────────────────────────────────────────┘
-//    反向闭环：❸ 更新的期望 ref_mem 正是 ❶ 后续读向量的比对基准
+// ============================================================================
+// 分层：定义简单到就是结构体
+// ============================================================================
+//   第 3 层（本文件）  txn_t / rsp_t —— 只是两个 struct，一眼读完
+//                       本文件里【不出现任何 AXI 信号名】：没有 AWVALID、
+//                       没有 WREADY、没有 clocking —— 只要写
+//                           txn_t t = txn(1'b1, 8'h00, 32'hDEAD, 8'd3, 1'b0, 1'b0);
+//                           host.execute(t, r);
+//      ↓
+//   第 2 层（axi_txn_host.sv）  把 txn_t 展开成 AXI 握手时序，pause → 空闲拍
+//      ↓
+//   第 1 层（axi_lite_if / bridge / apb_if / slave）  协议细节
 //
-// 验证工具链：slang（编译合法）+ Verilator ≥5.055（实际仿真）
+// ============================================================================
+// 测试闭环：数据向量 → 激励向量 → 数据向量
+// ============================================================================
+//   ① 数据向量集：txn_t 队列（含 pause / same / exp_err 控制字段）
+//   ② 激励向量 ：host.execute(t, r) 逐条展开成总线时序
+//   ③ 数据向量 ：r vs 期望（参考镜像 ref_mem）比对；pause 可观测回读
 `ifndef TB_AXI_APB_SV_SV
 `define TB_AXI_APB_SV_SV
 `timescale 1ns / 1ps
 
 module tb_axi_apb_sv;
 
-    localparam int AW  = 8;
-    localparam int DW  = 32;
+    import bus_txn_pkg::*;
+    import axi_defs_pkg::*;
+
+    localparam int AW   = 8;
+    localparam int DW   = 32;
     localparam int NREG = 16;
     localparam int WAIT_CYCLES = 2;
-    localparam int NTXN = 200;   // 随机阶段事务数
+    localparam int NTXN = 200;   // 随机事务数
 
     // ---- 时钟/复位 ----
     logic ACLK = 0;
     logic ARESETn = 0;
     always #5 ACLK = ~ACLK;
 
-    // ---- 接口 ----
+    // ---- 接口与 DUT（第 1 层，本文件不直接操作这些信号）----
     axi_lite_if #(.AW(AW), .DW(DW)) axi(ACLK);
     apb_if      #(.AW(AW), .DW(DW)) apb(ACLK);
 
-    // ---- DUT：转换设计 + 慢速从机（接口端口连接） ----
     axi_apb_bridge_sv #(.AW(AW), .DW(DW)) bridge (
         .ACLK   (ACLK),
         .ARESETn(ARESETn),
-        .axi    (axi),   // slave modport
-        .apb    (apb)    // master modport
+        .axi    (axi),
+        .apb    (apb)
     );
 
     apb_slave_regs_sv #(.AW(AW), .DW(DW), .NREG(NREG),
                         .WAIT_CYCLES(WAIT_CYCLES)) slave (
         .PCLK   (ACLK),
         .PRESETn(ARESETn),
-        .apb    (apb)     // slave modport
+        .apb    (apb)
     );
 
-    // ==================================================================
-    // ① 数据向量集（单一事实来源：输入知识库 + 期望基准）
-    // ==================================================================
-    // 数据向量：一条 = 一个 AXI 事务的完整描述（含期望）
-    typedef struct packed {
-        bit            write;     // 1=写 0=读
-        bit            same;      // 写时 AW+W 同拍
-        bit [AW-1:0]   addr;
-        bit [DW-1:0]   data;      // 写数据（读时忽略）
-        bit [1:0]      exp_resp;  // 期望响应（OKAY / SLVERR）
-        bit            valid;     // 向量有效
-    } data_vec_t;
+    // ---- 第 2 层：事务适配器（上层只用它的 execute）----
+    axi_txn_host #(.AW(AW), .DW(DW)) host (
+        .ACLK   (ACLK),
+        .ARESETn(ARESETn),
+        .axi    (axi)
+    );
 
-    // 激励向量集：先写后读回环 + 随机 + 越界（顺序即执行顺序）
-    data_vec_t stim_vecs[$];
-
-    // 期望数据向量集：参考模型镜像
-    //   ref_mem[addr] = 该地址应读回的数据（由写向量更新，读向量比对）
+    // ========================================================================
+    // ① 数据向量集：就是 txn_t 的队列（可读、可审、可重放）
+    // ========================================================================
+    txn_t stim_vecs[$];
     logic [DW-1:0] ref_mem [0:NREG-1];
 
-    // ---- 数据向量构造辅助 ----
-    function automatic data_vec_t make_vec(input bit wr, input bit same,
-                                           input [AW-1:0] a, input [DW-1:0] d,
-                                           input [1:0] resp);
-        data_vec_t v;
-        v = '0;
-        v.write   = wr;
-        v.same    = same;
-        v.addr    = a;
-        v.data    = d;
-        v.exp_resp = resp;
-        v.valid   = 1'b1;
-        return v;
+    // 构造一条事务向量
+    function automatic txn_t txn(input bit wr, input [AW-1:0] a,
+                                 input [DW-1:0] d, input [7:0] pause,
+                                 input bit same, input bit exp_err);
+        txn_t t;
+        t = '0;
+        t.write   = wr;
+        t.addr    = a;
+        t.data    = d;
+        t.pause   = pause;
+        t.same    = same;
+        t.exp_err = exp_err;
+        return t;
     endfunction
 
-    // ---- 构建激励向量集 ----
     int vec_cnt = 0;
     initial begin
-        data_vec_t v;
-        // ①a 回环基本集：写 0..NREG-1（random 数据）→ 读 0..NREG-1
-        for (int i = 0; i < NREG; i++) begin
-            v = make_vec(1'b1, 1'b0, i[AW-1:0]*4, $urandom, axi_defs_pkg::RESP_OKAY);
-            stim_vecs.push_back(v);
-        end
-        for (int i = 0; i < NREG; i++) begin
-            v = make_vec(1'b0, 1'b0, i[AW-1:0]*4, '0, axi_defs_pkg::RESP_OKAY);
-            stim_vecs.push_back(v);
-        end
-        // ①b 随机向量：NTXN 条（写/读/同发写混合，addr 界内）
+        // ①a 回环基本集：写满 → 读回（每笔写后 pause 1 拍）
+        for (int i = 0; i < NREG; i++)
+            stim_vecs.push_back(txn(1'b1, i[AW-1:0]*4, $urandom, 8'd1, 1'b0, 1'b0));
+        for (int i = 0; i < NREG; i++)
+            stim_vecs.push_back(txn(1'b0, i[AW-1:0]*4, '0, 8'd0, 1'b0, 1'b0));
+        // ①b 随机向量：写/读混合，随机 pause(0~3) 与 same
         for (int k = 0; k < NTXN; k++) begin
-            automatic bit wr = $urandom & 1;
-            automatic bit same = wr ? ($urandom & 1) : 0;
+            automatic bit wr   = $urandom & 1;
+            automatic bit same = wr ? ($urandom & 1) : 1'b0;
+            automatic bit [7:0] pz = $urandom % 4;
             automatic bit [AW-1:0] a = $urandom % (NREG*4);
-            v = make_vec(wr, same, a, $urandom, axi_defs_pkg::RESP_OKAY);
-            stim_vecs.push_back(v);
+            stim_vecs.push_back(txn(wr, a, $urandom, pz, same, 1'b0));
         end
-        // ①c 边界向量：越界读写（期望 SLVERR）
-        v = make_vec(1'b1, 1'b0, NREG*4, 32'hDEAD_BEEF, axi_defs_pkg::RESP_SLVERR);
-        stim_vecs.push_back(v);
-        v = make_vec(1'b0, 1'b0, NREG*4, '0, axi_defs_pkg::RESP_SLVERR);
-        stim_vecs.push_back(v);
+        // ①c 边界向量：越界读写（exp_err=1，期望 SLVERR）
+        stim_vecs.push_back(txn(1'b1, NREG*4, 32'hDEAD_BEEF, 8'd2, 1'b0, 1'b1));
+        stim_vecs.push_back(txn(1'b0, NREG*4, '0, 8'd2, 1'b0, 1'b1));
         vec_cnt = stim_vecs.size();
-        $display("== ① data vectors: %0d built (loopback %0d + random %0d + oob 2) ==",
+        $display("== 1 data vectors: %0d built (loopback %0d + random %0d + oob 2) ==",
                  vec_cnt, NREG*2, NTXN);
     end
 
-    // ==================================================================
-    // ② 激励向量驱动：逐向量打 AXI 事务，捕获 DUT 实际输出
-    // ==================================================================
-    class AxiDriver;
-        virtual axi_lite_if #(.AW(AW), .DW(DW)) vif;
-
-        function new();
-            // 无参构造，vif 由外部直接赋值（兼容 Verilator 静态绑定）
-        endfunction
-
-        // 执行一条数据向量 → 返回捕获的数据向量（data/resp 填实际值）
-        task run_vec(input data_vec_t v, output data_vec_t captured);
-            captured = v;   // 继承描述字段
-            if (v.write) begin
-                if (v.same) begin
-                    // 同发写：AW+W 一拍
-                    @(posedge vif.ACLK);
-                    vif.AWVALID <= 1'b1; vif.AWADDR <= v.addr;
-                    vif.WVALID  <= 1'b1; vif.WDATA  <= v.data;
-                    while (!(vif.AWREADY && vif.WREADY)) @(posedge vif.ACLK);
-                    vif.AWVALID <= 1'b0; vif.WVALID <= 1'b0;
-                end else begin
-                    // 分开发：AW 先，W 后（握手判据 VALID&&READY）
-                    @(posedge vif.ACLK);
-                    vif.AWVALID <= 1'b1; vif.AWADDR <= v.addr;
-                    do @(posedge vif.ACLK); while (!(vif.AWVALID && vif.AWREADY));
-                    vif.AWVALID <= 1'b0;
-                    @(posedge vif.ACLK);
-                    vif.WVALID <= 1'b1; vif.WDATA <= v.data;
-                    do @(posedge vif.ACLK); while (!(vif.WVALID && vif.WREADY));
-                    vif.WVALID <= 1'b0;
-                end
-                // B 响应
-                vif.BREADY <= 1'b1;
-                do @(posedge vif.ACLK); while (!vif.BVALID);
-                captured.data = v.data;
-                captured.exp_resp = vif.BRESP;   // 捕获实际响应
-                vif.BREADY <= 1'b0;
-                @(posedge vif.ACLK);
-            end else begin
-                // 读：AR → R
-                @(posedge vif.ACLK);
-                vif.ARVALID <= 1'b1; vif.ARADDR <= v.addr;
-                while (!vif.ARREADY) @(posedge vif.ACLK);
-                vif.ARVALID <= 1'b0;
-                vif.RREADY <= 1'b1;
-                do @(posedge vif.ACLK); while (!vif.RVALID);
-                captured.data    = vif.RDATA;    // 捕获实际读回数据
-                captured.exp_resp = vif.RRESP;   // 捕获实际响应
-                vif.RREADY <= 1'b0;
-                @(posedge vif.ACLK);
-            end
-        endtask
-    endclass
-
-    // ==================================================================
-    // ③ 数据向量比对（scoreboard）：期望 vs 实际
-    // ==================================================================
+    // ========================================================================
+    // ③ 数据向量比对：只认识 txn_t / rsp_t 的字段
+    // ========================================================================
     int errors = 0;
     int checks = 0;
+    int pause_checks = 0;
 
-    // 写向量：更新期望数据向量集（写成功后 ref_mem[addr]=data）
-    function automatic void sb_write_vector(input data_vec_t exp_v,
-                                            input data_vec_t cap_v);
-        int idx = exp_v.addr >> 2;
+    function automatic void check_rsp(input txn_t t, input rsp_t r);
+        int idx = t.addr >> 2;
         checks++;
-        if (cap_v.exp_resp !== axi_defs_pkg::RESP_OKAY) begin
-            // 期望 OKAY 却得错误 → FAIL；期望 SLVERR（越界）→ 正确
-            if (idx < NREG) begin
-                $display("SB FAIL[%0d]: WR addr=%0d resp=%s (expect OKAY)",
-                         checks, exp_v.addr, axi_defs_pkg::resp_name(cap_v.exp_resp));
+        // 期望错误（越界）→ 实际必须是错误响应
+        if (t.exp_err) begin
+            if (r.resp === RESP_OKAY) begin
+                $display("SB FAIL[%0d]: %s addr=%0d expect SLVERR got OKAY",
+                         checks, t.write ? "WR" : "RD", t.addr);
                 errors++;
             end
         end else begin
-            if (idx >= NREG) begin
-                $display("SB FAIL[%0d]: OOB WR addr=%0d got OKAY", checks, exp_v.addr);
+            if (r.resp !== RESP_OKAY) begin
+                $display("SB FAIL[%0d]: %s addr=%0d expect OKAY got %s",
+                         checks, t.write ? "WR" : "RD", t.addr, resp_name(r.resp));
                 errors++;
-            end else
-                ref_mem[idx] = exp_v.data;   // 更新期望向量集（反向闭环）
+            end else if (t.write) begin
+                ref_mem[idx] = t.data;          // 写向量 → 更新期望镜像
+            end else if (r.data !== ref_mem[idx]) begin
+                $display("SB FAIL[%0d]: RD addr=%0d exp=%h got=%h",
+                         checks, t.addr, ref_mem[idx], r.data);
+                errors++;
+            end
         end
-    endfunction
-
-    // 读向量：比对 ref_mem（期望） vs 捕获数据（实际）
-    function automatic void sb_read_vector(input data_vec_t exp_v,
-                                           input data_vec_t cap_v);
-        int idx = exp_v.addr >> 2;
-        checks++;
-        if (cap_v.exp_resp !== axi_defs_pkg::RESP_OKAY) begin
-            if (idx < NREG) begin
-                $display("SB FAIL[%0d]: RD addr=%0d resp=%s (expect OKAY)",
-                         checks, exp_v.addr, axi_defs_pkg::resp_name(cap_v.exp_resp));
-                errors++;
-            end
-        end else begin
-            if (idx >= NREG) begin
-                $display("SB FAIL[%0d]: OOB RD addr=%0d got OKAY", checks, exp_v.addr);
-                errors++;
-            end else if (cap_v.data !== ref_mem[idx]) begin
-                $display("SB FAIL[%0d]: RD addr=%0d exp=%h got=%h", checks,
-                         exp_v.addr, ref_mem[idx], cap_v.data);
+        // pause 可观测性：发了几拍空闲就该回读几拍
+        if (t.pause != 0) begin
+            pause_checks++;
+            if (r.idle !== t.pause) begin
+                $display("SB FAIL[%0d]: pause=%0d but idle observed=%0d",
+                         checks, t.pause, r.idle);
                 errors++;
             end
         end
     endfunction
 
-    // ==================================================================
-    // 主流程：数据向量 → 激励向量 → 数据向量 闭环执行
-    // ==================================================================
-    AxiDriver drv;
+    // ========================================================================
+    // ② 激励向量 → ③ 数据向量：主流程（这里只有 txn_t 和 rsp_t）
+    // ========================================================================
     int txns = 0;
+    int total_pause = 0;
 
     initial begin
-        drv = new();
-        drv.vif = axi;   // 虚接口直接赋值
-
         // 复位
         ARESETn = 0;
         repeat (4) @(posedge ACLK);
         ARESETn = 1;
 
-        $display("== SV testbench: AXI->APB->AXI vector loop (WAIT=%0d) ==", WAIT_CYCLES);
+        $display("== SV testbench: AXI->APB->AXI transaction layer (WAIT=%0d) ==",
+                 WAIT_CYCLES);
+        $display("== 2 stimulus: %0d txns via host.execute(txn_t) ==", vec_cnt);
 
-        // 等待向量集构建完成（同 initial，构建块的 @ 先于本块执行）
-        // （构建块在最前声明，先于本 initial 完成；此处无额外同步需要）
-        $display("== ② 激励向量驱动: %0d vectors over AXI ==", vec_cnt);
-
-        // 逐向量：激励驱动 → 捕获 → 比对
         foreach (stim_vecs[i]) begin
-            data_vec_t cap;
-            drv.run_vec(stim_vecs[i], cap);
-            if (stim_vecs[i].write)
-                sb_write_vector(stim_vecs[i], cap);
-            else
-                sb_read_vector(stim_vecs[i], cap);
+            rsp_t r;
+            host.execute(stim_vecs[i], r);   // ← 上层唯一需要写的调用
+            check_rsp(stim_vecs[i], r);
+            total_pause += stim_vecs[i].pause;
             txns++;
         end
 
         // ---- 汇总 ----
-        $display("== ③ 数据向量比对: %0d checks, %0d errors ==", checks, errors);
-        $display("-- SUMMARY: %0d txns driven, ref_mem snapshot:", txns);
-        for (int i = 0; i < NREG; i += 4) begin
-            $display("    [%02h] %h %h %h %h", i*4,
-                     ref_mem[i], ref_mem[i+1], ref_mem[i+2], ref_mem[i+3]);
-        end
+        $display("== 3 data compare: %0d checks, %0d pause checks, %0d errors ==",
+                 checks, pause_checks, errors);
+        $display("-- SUMMARY: %0d txns, %0d pause cycles injected --",
+                 txns, total_pause);
         if (errors == 0) begin
-            $display("PASS: axi->apb->axi SV vector testbench (%0d vectors)", txns);
+            $display("PASS: axi->apb->axi transaction-layer testbench (%0d txns)", txns);
             $finish;
         end else begin
-            $display("FAIL: %0d errors in %0d checks", errors, checks);
-            $fatal(1, "SV vector testbench failed");
+            $display("FAIL: %0d errors", errors);
+            $fatal(1, "transaction-layer testbench failed");
         end
     end
 

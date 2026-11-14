@@ -16,8 +16,10 @@ TOOL="${TOOL:-auto}"
 # 编译单元：定义包 + 完整 SV 链路
 # 注意：脚本 cd 到 verilog/ 目录，故前缀 axi/
 VERILOG_SRCS="axi/axi_defs_pkg.sv axi/apb_defs_pkg.sv \
+  axi/sv/bus_txn_pkg.sv \
   axi/sv/axi_lite_if.sv axi/sv/apb_if.sv \
   axi/sv/axi_apb_bridge_sv.sv axi/sv/apb_slave_regs_sv.sv \
+  axi/sv/axi_txn_host.sv \
   axi/sv/tb_axi_apb_sv.sv"
 
 pick_tool() {
