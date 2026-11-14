@@ -107,6 +107,12 @@ case "${1:-all}" in
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
             sv/apb_slave_regs_sv.sv sv/tb_dual_sv.sv )
         ;;
+    regfilegen)
+        ( cd axi && build_run regfilegen tb_regfile_gen "-I./sv -I." \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/apb_slave_regfile_gen.sv sv/axi_txn_host.sv sv/tb_regfile_gen.sv )
+        ;;
     regfile)
         ( cd axi && build_run regfile tb_regfile_sv "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -184,6 +190,8 @@ case "${1:-all}" in
         ( cd axi && python3 gen_interface_map.py 2>&1 | tail -3 )
         echo "== docs: 测试方案与覆盖缺口 =="
         ( cd axi && python3 gen_test_plan.py 2>&1 | tail -3 )
+        echo "== docs: 寄存器手册（从 spec 生成）=="
+        ( cd axi && python3 gen_regfile.py 2>&1 | tail -4 )
         echo "== docs: 门户索引 =="
         ( cd axi && python3 gen_portal.py 2>&1 | tail -8 )
         echo "== docs: 完成 =="
@@ -192,6 +200,7 @@ case "${1:-all}" in
         echo "  axi/FSM.html              FSM 状态转移图"
         echo "  axi/INTERFACE_MAP.html    接口逻辑映射"
         echo "  axi/TEST_PLAN.html        测试方案与覆盖缺口"
+        echo "  axi/REGFILE.html          寄存器手册（从 regfile_spec.json 生成）"
         echo "  axi/COVERAGE.html         覆盖率可视化（需先跑 sim.sh coverage）"
         ;;
     wave)
@@ -212,12 +221,14 @@ case "${1:-all}" in
         bash "$0" covgaps
         bash "$0" stress
         bash "$0" regfile
+        bash "$0" regfilegen
         bash "$0" vip
         echo "################ 全部完成 ################"
         ;;
     *)
         echo "未知目标: $1"
-        echo "可用: counter counter8 axi sv gaps dual stress covgaps regfile vip"
+        echo "可用: counter counter8 axi sv gaps dual stress covgaps"
+        echo "      regfile regfilegen vip"
         echo "      coverage docs wave all"
         exit 1
         ;;

@@ -74,14 +74,14 @@ color:#6e7681;font-size:11.5px}
   <div class="kd">24 状态 · 24 转移</div>
 </div>
 <div class="kpi">
-  <div class="kv" style="color:#d29922">9</div>
+  <div class="kv" style="color:#d29922">11</div>
   <div class="kl">测试套件</div>
   <div class="kd">全部 Verilator 仿真</div>
 </div>
 <div class="kpi">
-  <div class="kv" style="color:#8b949e">2342</div>
+  <div class="kv" style="color:#8b949e">3104</div>
   <div class="kl">源码行数</div>
-  <div class="kd">RTL 833 · TB 1509</div>
+  <div class="kd">RTL 1164 · TB 1940</div>
 </div></div>
 </div></header>
 
@@ -132,10 +132,19 @@ color:#6e7681;font-size:11.5px}
   <div class="dfile">FSM.html · 12 KB</div>
   <div class="ddesc">串行桥/并发桥状态机、转移条件、可点击高亮出边</div>
   <div class="dsrc">源码解析 + 自校验</div>
+</a>
+<a class="doc" href="REGFILE.html">
+  <div class="dh">
+    <span class="dtitle">寄存器手册</span>
+    <span class="badge manual">手写</span>
+  </div>
+  <div class="dfile">REGFILE.html · 7 KB</div>
+  <div class="ddesc">地址映射表、属性语义（RO/RW/W1C/RSVD）、复位值</div>
+  <div class="dsrc">从 spec 生成</div>
 </a></div>
 
-<h2><span class="n">02</span>测试套件（9 个）</h2>
-<div><span class="chip">counter</span><span class="chip">counter8</span><span class="chip">axi</span><span class="chip">sv</span><span class="chip">gaps</span><span class="chip">dual</span><span class="chip">stress</span><span class="chip">covgaps</span><span class="chip">vip</span></div>
+<h2><span class="n">02</span>测试套件（11 个）</h2>
+<div><span class="chip">counter</span><span class="chip">counter8</span><span class="chip">axi</span><span class="chip">sv</span><span class="chip">gaps</span><span class="chip">dual</span><span class="chip">regfilegen</span><span class="chip">regfile</span><span class="chip">stress</span><span class="chip">covgaps</span><span class="chip">vip</span></div>
 <pre><span class="c"># 一键运行</span>
 bash verilog/sim.sh              <span class="c"># 全量回归</span>
 bash verilog/sim.sh sv           <span class="c"># 单个套件</span>
@@ -152,12 +161,12 @@ SEED=123 bash verilog/sim.sh gaps <span class="c"># 多 seed</span></pre>
 <div>
 <h3 style="font-size:13.5px;color:#eaf2fa;margin-bottom:6px">设计文件（RTL）</h3>
 <table><thead><tr><th>文件</th><th style="width:70px">行数</th><th style="width:60px">类型</th></tr></thead>
-<tbody><tr><td class="mono">apb_if.sv</td><td class="num">81</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">apb_slave_regs_sv.sv</td><td class="num">84</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">axi_apb_bridge_dual_sv.sv</td><td class="num">247</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">axi_apb_bridge_sv.sv</td><td class="num">180</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">axi_lite_if.sv</td><td class="num">98</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">axi_txn_host.sv</td><td class="num">97</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">bus_txn_pkg.sv</td><td class="num">46</td><td><span class="tag rtl">RTL</span></td></tr></tbody></table>
+<tbody><tr><td class="mono">apb_if.sv</td><td class="num">81</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">apb_slave_regfile_gen.sv</td><td class="num">176</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">apb_slave_regfile_sv.sv</td><td class="num">155</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">apb_slave_regs_sv.sv</td><td class="num">84</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">axi_apb_bridge_dual_sv.sv</td><td class="num">247</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">axi_apb_bridge_sv.sv</td><td class="num">180</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">axi_lite_if.sv</td><td class="num">98</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">axi_txn_host.sv</td><td class="num">97</td><td><span class="tag rtl">RTL</span></td></tr><tr><td class="mono">bus_txn_pkg.sv</td><td class="num">46</td><td><span class="tag rtl">RTL</span></td></tr></tbody></table>
 </div>
 <div>
 <h3 style="font-size:13.5px;color:#eaf2fa;margin-bottom:6px">测试文件（TB）</h3>
 <table><thead><tr><th>文件</th><th style="width:70px">行数</th><th style="width:60px">类型</th></tr></thead>
-<tbody><tr><td class="mono">tb_axi_apb_sv.sv</td><td class="num">197</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_cov_gaps.sv</td><td class="num">324</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_dual_stress.sv</td><td class="num">310</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_dual_sv.sv</td><td class="num">297</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_gaps_sv.sv</td><td class="num">381</td><td><span class="tag tb">TB</span></td></tr></tbody></table>
+<tbody><tr><td class="mono">tb_axi_apb_sv.sv</td><td class="num">197</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_cov_gaps.sv</td><td class="num">324</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_dual_stress.sv</td><td class="num">310</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_dual_sv.sv</td><td class="num">297</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_gaps_sv.sv</td><td class="num">381</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_regfile_gen.sv</td><td class="num">217</td><td><span class="tag tb">TB</span></td></tr><tr><td class="mono">tb_regfile_sv.sv</td><td class="num">214</td><td><span class="tag tb">TB</span></td></tr></tbody></table>
 </div>
 </div>
 
@@ -165,12 +174,12 @@ SEED=123 bash verilog/sim.sh gaps <span class="c"># 多 seed</span></pre>
 <table><thead><tr><th style="width:130px">工具</th><th>职责</th><th style="width:160px">说明</th></tr></thead>
 <tbody>
 <tr><td class="mono">slang</td><td>编译检查（仿真前）</td><td>完整 SV 语法/语义，含 UVM 库校验</td></tr>
-<tr><td class="mono">Verilator</td><td>仿真 + 覆盖率</td><td>9 个套件全部运行</td></tr>
+<tr><td class="mono">Verilator</td><td>仿真 + 覆盖率</td><td>11 个套件全部运行</td></tr>
 <tr><td class="mono">irun / VCS</td><td>覆盖率/UVM 运行时</td><td>最终验收（服务器）</td></tr>
 </tbody></table>
 
 <footer>
-生成时间 2026-11-15 05:33 · 生成器 <code>python3 gen_portal.py</code><br>
+生成时间 2026-11-15 06:21 · 生成器 <code>python3 gen_portal.py</code><br>
 所有统计来自：<code>gen_test_plan.py</code> 测试清单、
 <code>run/cov/annotated</code> 覆盖率数据、
 <code>sv/*.sv</code> 源码行数、<code>sim.sh</code> 套件定义、<code>gen_fsm_html.py</code> 解析结果

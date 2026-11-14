@@ -1,0 +1,83 @@
+{
+  "$schema": "apb-regfile-spec/v1",
+  "description": "APB 寄存器从机规格 —— 由 gen_regfile.py 生成 RTL 与文档",
+  "module": "apb_slave_regfile_gen",
+  "bus": {
+    "protocol": "APB",
+    "addr_width": 8,
+    "data_width": 32,
+    "wait_cycles": 2
+  },
+  "registers": [
+    {
+      "name": "VERSION",
+      "offset": "0x00",
+      "attr": "RO",
+      "reset": "0x00010203",
+      "description": "IP 版本号（只读）"
+    },
+    {
+      "name": "INT_STATUS",
+      "offset": "0x04",
+      "attr": "W1C",
+      "reset": "0x00000000",
+      "description": "中断状态，写 1 清除"
+    },
+    {
+      "name": "RESERVED0",
+      "offset": "0x08",
+      "attr": "RSVD",
+      "reset": "0x00000000",
+      "description": "保留（读 0，写忽略）"
+    },
+    {
+      "name": "CTRL",
+      "offset": "0x0C",
+      "attr": "RW",
+      "reset": "0x00000000",
+      "description": "控制寄存器"
+    },
+    {
+      "name": "STATUS",
+      "offset": "0x10",
+      "attr": "RO",
+      "reset": "0x00000011",
+      "description": "状态寄存器（只读）"
+    },
+    {
+      "name": "INT_ENABLE",
+      "offset": "0x14",
+      "attr": "RW",
+      "reset": "0x00000000",
+      "description": "中断使能"
+    },
+    {
+      "name": "DATA_IN",
+      "offset": "0x18",
+      "attr": "RW",
+      "reset": "0x00000000",
+      "description": "数据输入"
+    },
+    {
+      "name": "DATA_OUT",
+      "offset": "0x1C",
+      "attr": "RW",
+      "reset": "0x00000000",
+      "description": "数据输出"
+    },
+    {
+      "name": "SCRATCH",
+      "offset": "0x20",
+      "attr": "RW",
+      "reset": "0x00000000",
+      "description": "暂存寄存器"
+    },
+    {
+      "name": "IRQ_CLEAR",
+      "offset": "0x24",
+      "attr": "W1C",
+      "reset": "0x00000000",
+      "description": "中断清除（写 1 清）"
+    }
+  ]
+}
