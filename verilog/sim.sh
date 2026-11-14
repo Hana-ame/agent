@@ -41,22 +41,38 @@ fi
 echo "== verilator: $VLT =="
 "$VLT" --version 2>/dev/null | head -1
 
+# verilator_coverage 通常在 verilator 同目录
+VLT_DIR="$(dirname "$VLT")"
+if [ -x "$VLT_DIR/verilator_coverage" ]; then
+    VLT_COV="$VLT_DIR/verilator_coverage"
+elif command -v verilator_coverage >/dev/null 2>&1; then
+    VLT_COV="$(command -v verilator_coverage)"
+else
+    VLT_COV=""
+fi
+
 # 通用 lint 抑制（均为无害的位宽/范围提示）
 NOWARN="-Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-ASCRANGE -Wno-MULTIDRIVEN -Wno-PINCONNECTEMPTY -Wno-TIMESCALEMOD -Wno-DECLFILENAME -Wno-VARHIDDEN -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-CONSTRAINTIGN -Wno-fatal"
 
 build_run() {
-    local name="$1"; shift
-    local top="$1"; shift
-    local extra="$1"; shift || true
-    # shellcheck disable=SC2086
+    local name="$1"
+    local top="$2"
+    local extra="$3"
+    shift 3
+    local srcs=("$@")
     echo "== sim: $name (top=$top) =="
     local out_abs
-    out_abs="$(pwd)/$RUN/$name"
+    out_abs="$(pwd)/$RUN/$name"   # 绝对路径（Verilator 在 obj 子目录 make）
     # shellcheck disable=SC2086
-    "$VLT" --binary --assert --timing --top-module "$top" \
-        --Mdir "$RUN/obj_$name" $NOWARN $extra \
-        "$@" -o "$out_abs" 2>&1 | grep -E '^%Error' && {
-            echo "COMPILE FAILED: $name" >&2; return 1; }
+    if ! "$VLT" --binary --assert --timing --top-module "$top" \
+            --Mdir "$RUN/obj_$name" $NOWARN $extra \
+            "${srcs[@]}" -o "$out_abs" 2>&1 | grep -E '^%Error'; then
+        :   # 无 %Error 输出，视为成功
+    else
+        echo "COMPILE FAILED: $name" >&2
+        return 1
+    fi
+    [ -x "$out_abs" ] || { echo "BUILD MISSING: $out_abs" >&2; return 1; }
     "$out_abs"
 }
 
@@ -91,12 +107,43 @@ case "${1:-all}" in
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
             sv/apb_slave_regs_sv.sv sv/tb_dual_sv.sv )
         ;;
+    covgaps)
+        ( cd axi && build_run covgaps tb_cov_gaps "--coverage -I./sv -I." \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/tb_cov_gaps.sv )
+        ;;
     vip)
         ( cd axi && build_run vip tb_vip_demo "-I./sv -I./vip -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
             sv/apb_slave_regs_sv.sv vip/axi_vip_pkg.sv vip/axi_lite_vip.sv \
             vip/tb_vip_demo.sv )
+        ;;
+    coverage)
+        # 覆盖率收集：编译时加 --coverage，运行后用 verilator_coverage 出报告
+        COVDIR="run/cov"
+        rm -rf "$COVDIR"; mkdir -p "$COVDIR"
+        echo "== coverage: 编译 tb_axi_apb_sv（--coverage）=="
+        ( cd axi && "$VLT" --binary --assert --timing --coverage \
+            --top-module tb_axi_apb_sv --Mdir "$COVDIR/obj" $NOWARN -I./sv -I. \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv \
+            -o "$(pwd)/$COVDIR/tb" 2>&1 | grep -E '^%Error' && exit 1
+          cd ..
+          echo "== coverage: 运行主 TB =="
+          ( cd axi/sv && "../../$COVDIR/tb" >/dev/null 2>&1 || true )
+          # 覆盖率数据落在运行目录，收集起来
+          find . -name 'coverage.dat' -newer "$COVDIR/obj" -o -name 'coverage.dat' | head -1
+        )
+        echo "== coverage: 报告 =="
+        COV_DAT="$(find . -name 'coverage.dat' -newermt '-10 minutes' | head -1)"
+        if [ -n "$COV_DAT" ]; then
+            "$VLT_COV" --annotate "$COVDIR/annotated" "$COV_DAT" 2>&1 | head -12
+        else
+            echo "WARN: 未找到 coverage.dat" >&2
+        fi
         ;;
     wave)
         ( cd axi && build_run wave tb_axi_apb_sv "-I./sv -I. --trace" \
@@ -113,6 +160,7 @@ case "${1:-all}" in
         bash "$0" sv
         bash "$0" gaps
         bash "$0" dual
+        bash "$0" covgaps
         bash "$0" vip
         echo "################ 全部完成 ################"
         ;;

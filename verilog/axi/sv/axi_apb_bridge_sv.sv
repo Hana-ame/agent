@@ -60,9 +60,10 @@ module axi_apb_bridge_sv #(
                     axi.ARREADY = 1'b1;
                 end
             end
-            // 握手阶段保持 READY 拉高（AXI 允许），消除"单拍可见"竞态
-            S_AW_H: begin axi.WREADY = 1'b1; end   // 等 W
-            S_W_H:  begin axi.AWREADY = 1'b1; end  // 等 AW
+            // 握手阶段保持双方 READY 拉高（AXI 允许），消除"单拍可见"竞态：
+            // 已接受的一侧继续拉高，避免主站晚一拍撤销 VALID 时被判为中途撤销。
+            S_AW_H: begin axi.WREADY = 1'b1; axi.AWREADY = 1'b1; end  // 已收 AW，等 W
+            S_W_H:  begin axi.AWREADY = 1'b1; axi.WREADY = 1'b1; end  // 已收 W，等 AW
             S_AWW_H: begin
                 // 已收齐 AW+W，本拍仍保持 READY（收集完成），下一拍进 APB
                 axi.AWREADY = 1'b1; axi.WREADY = 1'b1;
