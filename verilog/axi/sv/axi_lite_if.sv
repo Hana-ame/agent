@@ -56,6 +56,12 @@ interface axi_lite_if #(
                ARVALID, ARADDR, RREADY,
         output AWREADY, WREADY, BVALID, BRESP, ARREADY, RVALID, RDATA, RRESP
     );
+    // 监视器：只读全部信号（被动检查协议合法性）
+    modport monitor (
+        input AWVALID, AWADDR, WVALID, WDATA, BREADY,
+              AWREADY, WREADY, BVALID, BRESP,
+              ARVALID, ARADDR, RREADY, ARREADY, RVALID, RDATA, RRESP
+    );
 
     // ---- clocking block（同步驱动/采样） ----
     clocking cb @(posedge ACLK);

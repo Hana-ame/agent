@@ -76,6 +76,14 @@ MUTATIONS = [
     ("M13", "axi_apb_bridge_dual_sv.sv", "仲裁公平性 last_rd 取反（读写优先颠倒）",
      "assign w_grant = (owner == A_NONE) && w_req && (!r_req || !last_rd);",
      "assign w_grant = (owner == A_NONE) && w_req && (!r_req || last_rd);"),
+    # 以下两个变异专门验证「独立协议监视器」是否真的在工作
+    ("M15", "apb_slave_regs_sv.sv", "SETUP 阶段提前回 PREADY（APB R3 违规）",
+     "                APB_SETUP: begin\n                    apb.PREADY  <= 1'b0;   // R3: SETUP 不回 PREADY",
+     "                APB_SETUP: begin\n                    apb.PREADY  <= 1'b1;   // 违规：SETUP 回 PREADY"),
+    ("M16", "apb_slave_regs_sv.sv", "ACCESS 拉 PREADY 后又停留一拍（APB 违规握手）",
+     "                        apb.PREADY  <= 1'b1;\n                        apb.PSLVERR <= in_range ? 1'b0 : 1'b1;\n                        if (in_range && apb.PWRITE)",
+     "                        apb.PREADY  <= 1'b1;\n                        apb.PSLVERR <= in_range ? 1'b0 : 1'b1;\n                        if (1'b1)"),
+
     ("M14", "axi_apb_bridge_dual_sv.sv", "B 响应 SLVERR 恒为 OKAY（吞错误）",
      "axi.BRESP   = w_slverr ? axi_defs_pkg::RESP_SLVERR : axi_defs_pkg::RESP_OKAY;",
      "axi.BRESP   = axi_defs_pkg::RESP_OKAY;"),
@@ -89,6 +97,7 @@ TEST_FOR = {
     "M06": "dual", "M07": "dual", "M08": "sv",
     "M09": "regfilegen", "M10": "regfilegen", "M11": "regfilegen",
     "M12": "regfilegen", "M13": "stress", "M14": "dual",
+    "M15": "dual", "M16": "dual",
 }
 
 # 套件 → 编译源文件（与 sim.sh 保持一致）

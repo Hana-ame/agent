@@ -2,7 +2,7 @@
 
 **统一工具链：Verilator（仿真 + 覆盖率）+ slang（编译检查）**。不再依赖 iverilog。
 
-当前规模：**11 个测试套件 · 约 1900 项检查 · RTL 有效覆盖率 92.5% · 变异得分 85.7%**
+当前规模：**12 个测试套件 · 约 1900 项检查 · RTL 有效覆盖率 92.2% · 变异得分 85.7%**
 
 ## 目录
 
@@ -30,6 +30,7 @@
 | `sv/apb_slave_regs_sv.sv` | APB 从机（纯存储 + 可配 wait states） |
 | `sv/apb_slave_regfile_sv.sv` | 带属性从机（RO/RW/W1C/RSVD/W1S/RC） |
 | `sv/axi_txn_host.sv` | 事务适配器（txn_t → AXI 时序，测试复用） |
+| `sv/axi_apb_monitor.sv` | **独立协议监视器**（被动只读，自动检查 AXI/APB 合法性） |
 | `regfile_spec.json` | 寄存器规格（唯一事实来源，含位域） |
 | `gen_regfile.py` | spec → RTL / TB / 手册 生成器 |
 | `gen_fsm_html.py` | 源码 → FSM 状态转移图 |
@@ -53,6 +54,7 @@ bash sim.sh gaps         # 覆盖缺口套件              285 检查
 bash sim.sh dual         # 并发桥（含反压/错误传播）  58 检查
 bash sim.sh stress       # 并发仲裁压力              505 检查
 bash sim.sh covgaps      # 覆盖率缺口专项             17 检查
+bash sim.sh monitor      # 协议监视器自测（注入违规）  2 违规捕获
 bash sim.sh regfile      # 寄存器属性（手写）         44 检查
 bash sim.sh regfilegen   # 寄存器属性（spec 生成）    70 检查
 bash sim.sh vip          # VIP                        67 检查

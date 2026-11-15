@@ -51,6 +51,11 @@ module tb_gaps_sv #(
         .PCLK(ACLK), .PRESETn(ARESETn), .apb(apb)
     );
 
+    // 独立协议监视器（被动只读）
+    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("GAPS")) mon (
+        .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
+    );
+
     axi_txn_host #(.AW(AW), .DW(DW)) host (
         .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi)
     );
@@ -361,6 +366,12 @@ module tb_gaps_sv #(
         t_t02_long_random(200);   // T-02/T-03：种子由 -GSEED 控制
 
         $display("------------------------------------------------------");
+        if (mon.errors != 0) begin
+            $display("  [MON] FAIL: 协议监视器发现 %0d 处违规", mon.errors);
+            errors += mon.errors;
+        end else
+            $display("  [MON] 协议监视器通过（观测 %0d 次 APB 传输）", mon.xfer_count);
+
         $display(" gaps result: %0d checks, %0d errors (WAIT=%0d SEED=%0d)",
                  checks, errors, WAIT_CYCLES, SEED);
         if (errors == 0) begin

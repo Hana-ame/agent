@@ -40,6 +40,11 @@ module tb_dual_sv #(
         .PCLK(ACLK), .PRESETn(ARESETn), .apb(apb)
     );
 
+    // 独立协议监视器（被动只读，与测试意图无关）
+    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("DUAL")) mon (
+        .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
+    );
+
     int errors = 0;
     int checks = 0;
 
@@ -496,6 +501,12 @@ module tb_dual_sv #(
         t_d07_r_backpressure();
 
         $display("------------------------------------------------------");
+        if (mon.errors != 0) begin
+            $display("  [MON] FAIL: 协议监视器发现 %0d 处违规", mon.errors);
+            errors += mon.errors;
+        end else
+            $display("  [MON] 协议监视器通过（%0d 次 APB 传输）", mon.xfer_count);
+
         $display(" dual result: %0d checks, %0d errors", checks, errors);
         if (errors == 0) begin
             $display("PASS: dual-path bridge concurrency");

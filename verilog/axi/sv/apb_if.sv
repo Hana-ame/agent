@@ -39,6 +39,11 @@ interface apb_if #(
         input  PSEL, PENABLE, PWRITE, PADDR, PWDATA,
         output PRDATA, PREADY, PSLVERR
     );
+    // 监视器：只读全部信号
+    modport monitor (
+        input PSEL, PENABLE, PWRITE, PADDR, PWDATA,
+              PRDATA, PREADY, PSLVERR
+    );
 
     // ---- clocking block ----
     clocking cb @(posedge PCLK);
