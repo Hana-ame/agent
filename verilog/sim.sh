@@ -272,8 +272,8 @@ case "${1:-all}" in
         )
         ;;
     lint)
-        # 静态检查：AXI 握手时序的危险模式
-        ( cd axi && python3 lint_handshake.py )
+        # 静态检查：握手时序 + 时钟竞争
+        ( cd axi && bash lint_all.sh )
         ;;
     handshake)
         ( cd axi && build_run handshake tb_handshake_protocol_sv "-I./sv -I." \

@@ -142,9 +142,9 @@ stage1() {
         sv/axi_apb_bridge_dual_sv.sv \
         sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
         sv/axi_txn_host.sv sv/tb_param_sv.sv
-      # 静态检查：握手时序危险模式（在编译检查里最先执行，最快反馈）
-      printf "  %%s " "握手时序静态检查"
-      if ( cd axi && python3 lint_handshake.py >/tmp/ci_lint.log 2>&1 ); then
+      # 静态检查：握手时序 + 时钟竞争（在编译检查里最先执行，最快反馈）
+      printf "  %%s " "静态检查(握手/时钟)"
+      if ( cd axi && bash lint_all.sh >/tmp/ci_lint.log 2>&1 ); then
           echo -e "${GRN}✓${R}"
       else
           echo -e "${RED}✗${R}"
