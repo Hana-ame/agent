@@ -16,6 +16,7 @@
 #   G5 覆盖率     RTL 有效覆盖率达标（阈值 90%）
 #   G6 变异测试   变异得分达标（阈值 80%）
 #   G7 文档生成   6 个 HTML 全部生成成功
+#   G8 复现性     干净 clone 后能跑通（防止本地状态依赖）
 #
 # 用法:
 #   bash ci.sh                  # 跑 G1-G3 + G7（默认，约 3 分钟）
@@ -65,6 +66,7 @@ STAGE_NAMES=(
     "G5:RTL覆盖率(>=${MIN_RTL_COVERAGE}%)"
     "G6:变异得分(>=${MIN_MUTATION_SCORE}%)"
     "G7:文档生成(6份HTML)"
+    "G8:复现性(干净clone)"
 )
 
 list_stages() {
@@ -75,8 +77,8 @@ list_stages() {
         i=$((i+1))
     done
     echo ""
-    echo "默认执行: G1 G2 G3 G7"
-    echo "--full 执行: 全部 7 关"
+    echo "默认执行: G1 G2 G3 G7 G8"
+    echo "--full 执行: 全部 8 关"
 }
 
 # ---------------------------------------------------------------------------
@@ -394,19 +396,40 @@ stage7() {
 }
 
 # ---------------------------------------------------------------------------
+# G8：复现性验证（干净 clone 能否跑通）
+# ---------------------------------------------------------------------------
+stage8() {
+    banner "G8 复现性验证（干净 clone）"
+    local t0=$SECONDS
+    local out rc
+    out=$(bash repro.sh --quick 2>&1); rc=$?
+    echo "$out" | grep -E "^\[|  ✓|  ✗|复现" | sed 's/^/  /'
+    local dt=$((SECONDS-t0))
+    if [ $rc -eq 0 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— 干净 clone 可跑通（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 干净 clone 无法跑通（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
 main() {
-    local run_stages=(1 2 3 7)
+    local run_stages=(1 2 3 7 8)
     local i
 
     case "${1:-}" in
         --list) shift; list_stages; exit 0 ;;
-        --full) run_stages=(1 2 3 4 5 6 7) ;;
+        --full) run_stages=(1 2 3 4 5 6 7 8) ;;
         --stage)
             local s="${2:-}"
-            if ! [[ "$s" =~ ^[1-7]$ ]]; then
-                echo "错误：--stage 需要 1-7" >&2; exit 2
+            if ! [[ "$s" =~ ^[1-8]$ ]]; then
+                echo "错误：--stage 需要 1-8" >&2; exit 2
             fi
             run_stages=("$s")
             ;;

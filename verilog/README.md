@@ -15,7 +15,8 @@
 | `tb_counter8_sv.sv` | counter8 完整 SV test bench（interface/SVA/covergroup/class 随机），需 irun/VCS |
 | **`sim.sh`** | **统一仿真入口**（Verilator） |
 | **`ci.sh`** | **质量门 CI**（7 关验收，快速失败） |
-| **`audit.sh`** | **验证工具自审计**（6 项故障注入，确认工具会报错） |
+| **`audit.sh`** | **验证工具自审计**（7 项故障注入，确认工具会报错） |
+| **`repro.sh`** | **复现性验证**（干净 clone 后能否跑通） |
 | `run_sv.sh` | EDA 服务器脚本（irun/xrun/vcs，带覆盖率） |
 | `plot_waveform.py` | VCD → PNG 波形绘图（matplotlib） |
 | `axi/` | AXI→APB→AXI 设计、验证、文档（见下） |
@@ -82,6 +83,20 @@ bash ci.sh --list       # 列出所有关卡
 | G7 | 文档生成（6 份 HTML） | 全部生成 | ~1s |
 
 任一关失败立即停止并返回 exit code 1，可直接用于 CI 集成。
+
+### 复现性验证
+
+```bash
+bash repro.sh            # 完整（clone + 全量回归，约 5 分钟）
+bash repro.sh --quick    # 快速（clone + 4 套件，约 40 秒）
+```
+
+4 步检查：干净 clone → 文件完整性 → 生成物一致性 → 全量回归。
+
+> 为什么需要这个：本项目曾出现「本地能跑、干净 clone 跑不通」——
+> `axi/run` 目录未自动创建、手改的生成物被生成器覆盖。
+> 这类问题在本地开发时完全不可见（本地已有残留状态），
+> 只有从零 clone 才能暴露。
 
 ### 验证工具自审计
 
