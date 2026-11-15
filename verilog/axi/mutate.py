@@ -72,6 +72,28 @@ MUTATIONS = [
      "nv = nv & ~32'h00FF0000;   // STATUS_CODE [23:16] RC 读清零",
      "nv = nv;   // STATUS_CODE 读清零失效"),
 
+    # --- 手写带属性从机（apb_slave_regfile_sv）---
+    # 此前该模块完全无变异覆盖，而它最近改动最多
+    ("M17", "apb_slave_regfile_sv.sv", "W1C 语义翻转（写 1 置位而非清零）",
+     "            A_W1C: return old_v & ~wr_v;",
+     "            A_W1C: return old_v | wr_v;"),
+    ("M18", "apb_slave_regfile_sv.sv", "RO 写不再被忽略（RO 变 RW）",
+     "            default: return old_v;      // RO / RSVD 忽略写",
+     "            default: return wr_v;       // RO / RSVD 忽略写"),
+    ("M19", "apb_slave_regfile_sv.sv", "RSVD 读不再返回 0（保留位泄露）",
+     "        return (attr == A_RSVD) ? '0 : cur_v;",
+     "        return cur_v;"),
+    ("M20", "apb_slave_regfile_sv.sv", "RO 寄存器复位值改为 0（丢版本号）",
+     "                mem[i] <= (attr_of(i) == A_RO)  ? RO_REG0_VALUE  :",
+     "                mem[i] <= (1'b0) ? RO_REG0_VALUE  :"),
+
+    # --- 串行桥（axi_apb_bridge_sv）--- 此前只有 1 个变异，补齐关键路径
+    ("M21", "axi_apb_bridge_sv.sv", "SLVERR 不传播到 BRESP（错误被吞）",
+     "                axi.BRESP  = slv_err ? axi_defs_pkg::RESP_SLVERR : axi_defs_pkg::RESP_OKAY;",
+     "                axi.BRESP  = axi_defs_pkg::RESP_OKAY;"),
+    ("M22", "axi_apb_bridge_sv.sv", "SLVERR 不传播到 RRESP（错误被吞）",
+     "                axi.RRESP  = slv_err ? axi_defs_pkg::RESP_SLVERR : axi_defs_pkg::RESP_OKAY;",
+     "                axi.RRESP  = axi_defs_pkg::RESP_OKAY;"),
     # --- 并发桥（axi_apb_bridge_dual_sv）---
     ("M13", "axi_apb_bridge_dual_sv.sv", "仲裁公平性 last_rd 取反（读写优先颠倒）",
      "assign w_grant = (owner == A_NONE) && w_req && (!r_req || !last_rd);",
@@ -98,6 +120,10 @@ TEST_FOR = {
     "M09": "regfilegen", "M10": "regfilegen", "M11": "regfilegen",
     "M12": "regfilegen", "M13": "stress", "M14": "dual",
     "M15": "dual", "M16": "dual",
+    # M17-M20 手写从机 → regfile 套件
+    "M17": "regfile", "M18": "regfile", "M19": "regfile", "M20": "regfile",
+    # M21-M22 串行桥错误传播 → sv 套件（有 SLVERR 测试）
+    "M21": "sv", "M22": "sv",
 }
 
 # 套件 → 编译源文件（与 sim.sh 保持一致）
@@ -209,6 +235,19 @@ def main():
               file=sys.stderr)
         sys.exit(2)
 
+    # ---- 前置检查：所有变异模式必须唯一匹配 ----
+    unmatched = []
+    for mid, rel, desc, old, new in MUTATIONS:
+        n = (SV / rel).read_text(encoding="utf-8").count(old)
+        if n != 1:
+            unmatched.append(f"{mid}: 原文在 {rel} 中出现 {n} 次（应为 1）")
+    if unmatched:
+        print("❌ 变异模式匹配检查失败：", file=sys.stderr)
+        for u in unmatched:
+            print("   -", u, file=sys.stderr)
+        print("\n可能原因：上一轮变异未正确还原。请用 git diff 检查。", file=sys.stderr)
+        sys.exit(4)
+
     if "--list" in args:
         for mid, f, desc, _, _ in MUTATIONS:
             print(f"  {mid}  {f:<32} {desc}")
@@ -255,6 +294,14 @@ def main():
         finally:
             if mutated:
                 restore(rel, original)
+                # 立即验证还原：还原失败会导致后续变异匹配错乱，
+                # 必须立刻中止而不是给出警告后继续（曾发生 M19 未还原，
+                # 导致下一轮该变异被静默 SKIP）。
+                cur = f.read_text(encoding="utf-8")
+                if cur != original:
+                    print(f"       ❌ 严重：{rel} 还原失败，立即中止", file=sys.stderr)
+                    print(f"          请检查 git diff 并手动恢复", file=sys.stderr)
+                    sys.exit(3)
 
     # ---- 汇总 ----
     print(f"\n{'='*66}")

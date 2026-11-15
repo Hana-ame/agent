@@ -59,6 +59,10 @@ module apb_slave_regfile_sv #(
 
     // RO 寄存器的固定硬件值（版本号示例）
     localparam logic [DW-1:0] RO_REG0_VALUE = 32'h0001_0203;
+    // RSVD 寄存器的复位值：故意设非零，使「读恒 0」行为可观测。
+    // 若复位为 0 且写入被忽略，则存储恒为 0，read_transform 的
+    // RSVD 分支即使失效也无法从外部观察（变异测试 M19 曾因此存活）。
+    localparam logic [DW-1:0] RSVD_REG2_VALUE = 32'hDEAD_55AA;
 
     // ---- 地址译码 ----
     logic [AW-1:0] idx;
@@ -106,7 +110,8 @@ module apb_slave_regfile_sv #(
             apb.PRDATA  <= '0;
             for (int i = 0; i < NREG; i++) begin
                 // RO 寄存器复位为固定硬件值，其余清零
-                mem[i] <= (attr_of(i) == A_RO) ? RO_REG0_VALUE : '0;
+                mem[i] <= (attr_of(i) == A_RO)  ? RO_REG0_VALUE  :
+                          (attr_of(i) == A_RSVD) ? RSVD_REG2_VALUE : '0;
             end
         end else begin
             case (phase)
