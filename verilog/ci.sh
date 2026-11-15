@@ -144,6 +144,16 @@ stage1() {
         sv/axi_apb_bridge_dual_sv.sv \
         sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
         sv/axi_txn_host.sv sv/tb_param_sv.sv
+      # 脚本可用性（语法 + 引用 + 可运行脚本的实际执行）
+      # 注意：此处处于 ( cd axi ) 子 shell 内，脚本在上一级目录
+      printf "  %s " "Shell 脚本可用性"
+      if bash ../scripts_check.sh --fast >/tmp/ci_scripts.log 2>&1; then
+          echo -e "${GRN}✓${R}"
+      else
+          echo -e "${RED}✗${R}"
+          grep -E "✗ FAIL|✗ " /tmp/ci_scripts.log | head -5 | sed 's/^/      /'
+          echo "FAIL" >> "$cnt_file"
+      fi
       # 静态检查：握手时序 + 时钟竞争（在编译检查里最先执行，最快反馈）
       printf "  %%s " "静态检查(握手/时钟)"
       if ( cd axi && bash lint_all.sh >/tmp/ci_lint.log 2>&1 ); then

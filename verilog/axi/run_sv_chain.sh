@@ -5,7 +5,6 @@
 #   TOOL=irun bash run_sv_chain.sh  # 强制 irun (Cadence Xcelium)
 #   TOOL=vcs  bash run_sv_chain.sh  # 强制 vcs (Synopsys)
 #   TOOL=slang bash run_sv_chain.sh # 仅编译检查（本机可用）
-#   TOOL=iverilog bash run_sv_chain.sh # 仅编译定义包（iverilog 子集）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -19,6 +18,7 @@ VERILOG_SRCS="axi/axi_defs_pkg.sv axi/apb_defs_pkg.sv \
   axi/sv/bus_txn_pkg.sv \
   axi/sv/axi_lite_if.sv axi/sv/apb_if.sv \
   axi/sv/axi_apb_bridge_sv.sv axi/sv/apb_slave_regs_sv.sv \
+  axi/sv/axi_apb_monitor.sv \
   axi/sv/axi_txn_host.sv \
   axi/sv/tb_axi_apb_sv.sv"
 
@@ -59,20 +59,21 @@ case "$TOOL" in
     ;;
   slang)
     # 完整 SV 编译检查（本机可验证语法语义，等价 EDA 编译）
-    slang --timescale=1ns/1ps --top tb_axi_apb_sv \
-      -I axi/sv -I axi \
-      $VERILOG_SRCS
-    echo "== slang: BUILD OK (编译检查通过；仿真需 EDA 工具) =="
-    ;;
-  iverilog)
-    # iverilog 只能编译定义包（完整 SV 链路不支持 interface 端口）
-    iverilog -g2012 -o /dev/null axi/axi_defs_pkg.sv axi/apb_defs_pkg.sv
-    echo "== iverilog: 定义包编译 OK（完整 SV 需 slang/EDA） =="
+    # 注意：必须检查退出码。此前 set -e 被注释掉，导致编译失败
+    # 仍打印 "BUILD OK"，属于会误导人的静默失败。
+    if slang --timescale=1ns/1ps --top tb_axi_apb_sv \
+         -I axi/sv -I axi \
+         $VERILOG_SRCS; then
+        echo "== slang: BUILD OK (编译检查通过；仿真需 EDA 工具) =="
+    else
+        echo "== slang: BUILD FAILED ==" >&2
+        exit 1
+    fi
     ;;
   none|*)
     echo "ERROR: 未找到 EDA 工具。请安装 slang 做编译检查，或"
     echo "       在装有 irun/xrun/vcs 的服务器上运行本脚本。"
-    echo "提示: 本仓库工具链—— slangs 见 README，EDA 见 192.168.1.53"
+    echo "提示: 本仓库工具链—— slang 见 README，EDA 仿真器需在服务器上运行"
     exit 1
     ;;
 esac
