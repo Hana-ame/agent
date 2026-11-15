@@ -72,11 +72,13 @@ package axi_uvm_lite_pkg;
             vif = v; req_mb = m;
         endfunction
 
-        // 驱动一笔事务（阻塞直到完成）
+        // 驱动一笔写事务（阻塞直到完成）
+        // 关键：AXI 握手判定必须是 VALID && READY 同拍为高，
+        //      不能只看到 VALID 就认为完成（那样 BREADY 会提前撤销，
+        //      桥永远等不到握手，卡在 S_B_RESP —— 这是曾经的 bug）。
         task automatic drive_one(input txn_t t, output rsp_t r);
             r = '0;
             r.data = t.data;
-            // ---- 发起 ----
             @(posedge vif.ACLK);
             vif.AWVALID <= 1'b1;  vif.AWADDR <= t.addr;
             vif.WVALID  <= 1'b1;  vif.WDATA  <= t.data;
@@ -85,14 +87,23 @@ package axi_uvm_lite_pkg;
                 bit aw_ok = 0, w_ok = 0, b_ok = 0;
                 while (!b_ok) begin
                     @(posedge vif.ACLK); #1;
-                    if (!aw_ok && vif.AWREADY) begin aw_ok = 1; vif.AWVALID <= 1'b0; end
-                    if (!w_ok  && vif.WREADY)  begin w_ok  = 1; vif.WVALID  <= 1'b0; end
-                    if (vif.BVALID) begin
+                    // AW 握手：VALID && READY 同拍
+                    if (!aw_ok && vif.AWVALID && vif.AWREADY) begin
+                        aw_ok = 1; vif.AWVALID <= 1'b0;
+                    end
+                    // W 握手：VALID && READY 同拍
+                    if (!w_ok && vif.WVALID && vif.WREADY) begin
+                        w_ok = 1; vif.WVALID <= 1'b0;
+                    end
+                    // B 握手：BVALID && BREADY 同拍（BREADY 一直是 1）
+                    if (vif.BVALID && vif.BREADY) begin
                         b_ok = 1;
                         r.resp = vif.BRESP;
                     end
                 end
             end
+            // 握手已完成。再多等一拍确保桥的状态机已采样到 BREADY
+            @(posedge vif.ACLK);
             vif.BREADY <= 1'b0;
             @(posedge vif.ACLK);
         endtask
@@ -107,14 +118,20 @@ package axi_uvm_lite_pkg;
                 bit ar_ok = 0, r_ok = 0;
                 while (!r_ok) begin
                     @(posedge vif.ACLK); #1;
-                    if (!ar_ok && vif.ARREADY) begin ar_ok = 1; vif.ARVALID <= 1'b0; end
-                    if (vif.RVALID) begin
+                    // AR 握手：ARVALID 与 ARREADY 同拍为高才算完成
+                    if (!ar_ok && vif.ARVALID && vif.ARREADY) begin
+                        ar_ok = 1; vif.ARVALID <= 1'b0;
+                    end
+                    // R 握手：RVALID 与 RREADY 同拍为高才算完成
+                    if (vif.RVALID && vif.RREADY) begin
                         r_ok = 1;
                         r.data = vif.RDATA;
                         r.resp = vif.RRESP;
                     end
                 end
             end
+            // 握手完成后才撤销 RREADY（再等一拍让桥退出 S_R_RESP）
+            @(posedge vif.ACLK);
             vif.RREADY <= 1'b0;
             @(posedge vif.ACLK);
         endtask

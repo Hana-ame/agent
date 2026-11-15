@@ -12,12 +12,12 @@
 //   [2] connect：TLM 连接（monitor.ap → scoreboard）
 //   [3] driver 驱动真实 AXI 写事务并收到 OKAY
 //
-// 已知限制（如实记录）
-//   曾尝试在同一个 initial 块中继续加入「读事务 + scoreboard 正反验证」，
-//   出现「编译成功但运行无输出」的挂死现象，未能定位根因
-//   （已排除：变量声明顺序、虚接口、NBA 驱动、块内/模块级声明、命名块）。
-//   因此本文件保留已验证可运行的最小集合；scoreboard 的正反验证逻辑
-//   已在 axi_uvm_lite_pkg 中实现，待后续定位挂死问题后再接入。
+// 已修复的问题（记录以便参考）
+//   曾出现「编译成功但运行无输出」——实际是输出被 stdout 缓冲，
+//   程序挂死后缓冲区未 flush，误判为「启动即退出」。
+//   真正根因：drive_one/drive_read 在检测到 VALID 后立即撤销 READY，
+//   而桥需要 VALID && READY 同拍完成握手，导致桥永远卡在 S_B_RESP。
+//   修复：握手判定改为 VALID && READY 同拍，且撤销 READY 前多等一拍。
 // ============================================================================
 `ifndef TB_UVM_LITE_TOP_SV
 `define TB_UVM_LITE_TOP_SV
@@ -54,6 +54,7 @@ module tb_uvm_lite_top #(
     initial begin
         rsp_t r;
         txn_t t;
+        lite_item it;
         lite_env env;
 
         $display("======================================================");
@@ -92,6 +93,42 @@ module tb_uvm_lite_top #(
         if (r.resp === RESP_OKAY)
             $display("  [3] driver 写事务完成 (resp=OKAY)");
         else begin $display("  [3] FAIL: 写 resp=%0d", r.resp); errors++; end
+
+        // [4] driver 读事务
+        t = '0; t.write = 0; t.addr = 8'h10; t.data = '0;
+        env.drv.drive_read(t, r);
+        checks++;
+        if (r.resp === RESP_OKAY && r.data === 32'hA5A5_1234)
+            $display("  [4] driver 读回一致 (0x%08h)", r.data);
+        else begin
+            $display("  [4] FAIL: 读回 data=0x%08h exp=0xA5A51234 resp=%0d",
+                     r.data, r.resp);
+            errors++;
+        end
+
+        // [5] scoreboard 接受正确事务
+        it = new(1'b1, 8'h10, 32'h1234_5678, RESP_OKAY);
+        env.scb.check_item(it, 32'h1234_5678, RESP_OKAY);
+        checks++;
+        if (env.scb.compared == 1 && env.scb.mismatches == 0)
+            $display("  [5] scoreboard 接受正确事务");
+        else begin $display("  [5] FAIL: scb 误判"); errors++; end
+
+        // [6] 反向验证：发现数据错误
+        it = new(1'b0, 8'h10, 32'hDEAD_BEEF, RESP_OKAY);
+        env.scb.check_item(it, 32'h1234_5678, RESP_OKAY);
+        checks++;
+        if (env.scb.mismatches == 1)
+            $display("  [6] scoreboard 发现数据错误（反向验证）");
+        else begin $display("  [6] FAIL: 未发现数据错误"); errors++; end
+
+        // [7] 反向验证：发现响应错误
+        it = new(1'b1, 8'h10, 32'h1234, RESP_SLVERR);
+        env.scb.check_item(it, 32'h1234, RESP_OKAY);
+        checks++;
+        if (env.scb.mismatches == 2)
+            $display("  [7] scoreboard 发现响应错误（反向验证）");
+        else begin $display("  [7] FAIL: 未发现响应错误"); errors++; end
 
         // 汇总
         $display("------------------------------------------------------");
