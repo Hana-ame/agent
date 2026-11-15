@@ -134,6 +134,12 @@ case "${1:-all}" in
             axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
             sv/apb_if.sv sv/axi_apb_monitor.sv sv/tb_monitor_selftest.sv )
         ;;
+    fairness)
+        ( cd axi && build_run fairness tb_fairness_sv "-I./sv -I." \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_fairness_sv.sv )
+        ;;
     latency)
         ( cd axi && build_run latency tb_latency_sv "-I./sv -I. -GWAITC=${WAIT:-2}" \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -298,6 +304,7 @@ case "${1:-all}" in
         bash "$0" monitor
         bash "$0" monitorrules
         bash "$0" latency
+        bash "$0" fairness
         bash "$0" stress
         bash "$0" regfile
         bash "$0" regfilegen
@@ -308,7 +315,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      monitor monitorrules latency coverage mutate sweep docs wave all"
+        echo "      monitor monitorrules latency fairness coverage mutate sweep docs wave all"
         exit 1
         ;;
 esac
