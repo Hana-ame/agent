@@ -110,16 +110,18 @@ case "${1:-all}" in
             sv/tb_dual_sv.sv )
         ;;
     regfilegen)
-        ( cd axi && build_run regfilegen tb_regfile_gen "-I./sv -I." \
+        ( cd axi && build_run regfilegen tb_regfile_gen "-I./sv -I. -DTXN_DW=${DW:-32} -GDUAL=${DUAL:-0}" \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/axi_apb_bridge_dual_sv.sv \
             sv/apb_slave_regfile_gen.sv sv/axi_apb_monitor.sv \
             sv/axi_txn_host.sv sv/tb_regfile_gen.sv )
         ;;
     regfile)
-        ( cd axi && build_run regfile tb_regfile_sv "-I./sv -I." \
+        ( cd axi && build_run regfile tb_regfile_sv "-I./sv -I. -DTXN_DW=${DW:-32} -GDUAL=${DUAL:-0}" \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/axi_apb_bridge_dual_sv.sv \
             sv/apb_slave_regfile_sv.sv sv/axi_apb_monitor.sv \
             sv/axi_txn_host.sv sv/tb_regfile_sv.sv )
         ;;
@@ -139,14 +141,16 @@ case "${1:-all}" in
         CNT=/tmp/params_cnt_sim
         : > "$CNT"
         run_cfg() {
-            local aw="$1" dw="$2" nreg="$3" wc="$4" label="$5"
-            local d="run/param_${aw}_${dw}_${nreg}_${wc}"
+            local aw="$1" dw="$2" nreg="$3" wc="$4" label="$5" dual="${6:-0}"
+            local d="run/param_${aw}_${dw}_${nreg}_${wc}_d${dual}"
             rm -rf "$d"; mkdir -p "$d"
             if ! "$VLT" --binary --assert --timing --top-module tb_param_sv \
                  --Mdir "$d/obj" $NOWARN -I./sv -I. \
                  -GAW=$aw -GDW=$dw -GNREG=$nreg -GWAITC=$wc -DTXN_DW=$dw \
+                 -GDUAL=$dual \
                  axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
                  sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+                 sv/axi_apb_bridge_dual_sv.sv \
                  sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
                  sv/axi_txn_host.sv sv/tb_param_sv.sv \
                  -o "$(pwd)/$d/tb" >/dev/null 2>&1; then
@@ -168,11 +172,16 @@ case "${1:-all}" in
         }
         ( cd axi
           echo "== params: 参数配置矩阵 =="
-          run_cfg 8 32 16 2 默认
-          run_cfg 6 16 4  0 小配置
-          run_cfg 4 8  2  0 最小
-          run_cfg 10 64 16 4 大位宽
-          run_cfg 8 32 32 8 多寄存器
+          run_cfg 8 32 16 2 "串行默认"    0
+          run_cfg 6 16 4  0 "串行小配置"  0
+          run_cfg 4 8  2  0 "串行最小"    0
+          run_cfg 10 64 16 4 "串行大位宽" 0
+          run_cfg 8 32 32 8 "串行多寄存器" 0
+          run_cfg 8 32 16 2 "并发默认"    1
+          run_cfg 6 16 4  0 "并发小配置"  1
+          run_cfg 4 8  2  0 "并发最小"    1
+          run_cfg 10 64 16 4 "并发大位宽" 1
+          run_cfg 8 32 32 8 "并发多寄存器" 1
         )
         echo "------------------------------------------------------"
         TOTAL=$(grep -c . "$CNT" 2>/dev/null || true); TOTAL=${TOTAL:-0}
@@ -180,7 +189,7 @@ case "${1:-all}" in
         TOTAL=$(echo "$TOTAL" | head -1 | tr -d ' \n')
         FAILED=$(echo "$FAILED" | head -1 | tr -d ' \n')
         rm -f "$CNT"
-        if [ "$FAILED" -eq 0 ] && [ "$TOTAL" -eq 5 ]; then
+        if [ "$FAILED" -eq 0 ] && [ "$TOTAL" -eq 10 ]; then
             echo "PASS: params —— $TOTAL 组参数配置全部通过"
             exit 0
         else
@@ -297,6 +306,20 @@ case "${1:-all}" in
                 printf "  WAIT=%-7s FAIL\n" "$w"
                 FAILED=$((FAILED+1))
             fi
+        done
+        echo "== sweep: 桥 × 从机交叉矩阵 =="
+        for br in 0 1; do
+            for suite in regfile regfilegen; do
+                TOTAL=$((TOTAL+1))
+                if DUAL=$br bash "$0" $suite 2>&1 | grep -q "^PASS"; then
+                    printf "  桥=%-8s + %-12s PASS\n" \
+                           "$([ $br -eq 1 ] && echo 并发 || echo 串行)" "$suite"
+                else
+                    printf "  桥=%-8s + %-12s FAIL\n" \
+                           "$([ $br -eq 1 ] && echo 并发 || echo 串行)" "$suite"
+                    FAILED=$((FAILED+1))
+                fi
+            done
         done
         echo "== sweep: 延迟公式验证（延迟 = 7 + WAIT）=="
         for w in 0 1 2 4 8 16; do

@@ -16,6 +16,7 @@
 `timescale 1ns / 1ps
 
 module tb_regfile_sv #(
+    parameter bit DUAL = 1'b0,   // 1=并发桥
     parameter int AW   = 8,
     parameter int DW   = 32,
     parameter int NREG = 16
@@ -41,9 +42,13 @@ module tb_regfile_sv #(
         .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
     );
 
-    axi_apb_bridge_sv #(.AW(AW), .DW(DW)) bridge (
-        .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
-    );
+    generate if (DUAL) begin : g_br
+        axi_apb_bridge_dual_sv #(.AW(AW), .DW(DW)) bridge (
+            .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb));
+    end else begin : g_br
+        axi_apb_bridge_sv #(.AW(AW), .DW(DW)) bridge (
+            .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb));
+    end endgenerate
     apb_slave_regfile_sv #(.AW(AW), .DW(DW), .NREG(NREG), .WAIT_CYCLES(1)) slave (
         .PCLK(ACLK), .PRESETn(ARESETn), .apb(apb)
     );

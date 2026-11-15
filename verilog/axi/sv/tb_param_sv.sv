@@ -24,7 +24,7 @@ module tb_param_sv #(
     parameter int DW   = 32,
     parameter int NREG = 16,
     parameter int WAITC = 2,
-    parameter int SEED = 0
+    parameter bit DUAL = 1'b0    // 1=用并发桥，0=串行桥
 );
 
     import bus_txn_pkg::*;
@@ -56,9 +56,15 @@ module tb_param_sv #(
     axi_lite_if #(.AW(AW), .DW(DW)) axi(ACLK);
     apb_if      #(.AW(AW), .DW(DW)) apb(ACLK);
 
-    axi_apb_bridge_sv #(.AW(AW), .DW(DW)) bridge (
-        .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
-    );
+    generate if (DUAL) begin : g_bridge
+        axi_apb_bridge_dual_sv #(.AW(AW), .DW(DW)) bridge (
+            .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
+        );
+    end else begin : g_bridge
+        axi_apb_bridge_sv #(.AW(AW), .DW(DW)) bridge (
+            .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
+        );
+    end endgenerate
     apb_slave_regs_sv #(.AW(AW), .DW(DW), .NREG(NREG), .WAIT_CYCLES(WAITC)) slave (
         .PCLK(ACLK), .PRESETn(ARESETn), .apb(apb)
     );
@@ -236,8 +242,8 @@ module tb_param_sv #(
     // ==================================================================
     initial begin
         $display("======================================================");
-        $display(" 参数配置验证：AW=%0d DW=%0d NREG=%0d WAIT=%0d",
-                 AW, DW, NREG, WAITC);
+        $display(" 参数配置验证：AW=%0d DW=%0d NREG=%0d WAIT=%0d 桥=%0s",
+                 AW, DW, NREG, WAITC, DUAL ? "并发" : "串行");
         if (!DATA_CHECK)
             $display(" 注：TXN_DW(%0d) != DW(%0d)，跳过数据完整性检查", TXN_WIDTH, DW);
         $display("======================================================");
@@ -254,11 +260,11 @@ module tb_param_sv #(
         end else
             $display("  [MON] 协议监视器通过（%0d 次 APB 传输）", mon.xfer_count);
 
-        $display(" param result: AW=%0d DW=%0d NREG=%0d WAIT=%0d → %0d checks, %0d errors",
-                 AW, DW, NREG, WAITC, checks, errors);
+        $display(" param result: AW=%0d DW=%0d NREG=%0d WAIT=%0d 桥=%0s → %0d checks, %0d errors",
+                 AW, DW, NREG, WAITC, DUAL ? "DUAL" : "SERIAL", checks, errors);
         if (errors == 0) begin
-            $display("PASS: param config AW=%0d DW=%0d NREG=%0d WAIT=%0d",
-                     AW, DW, NREG, WAITC);
+            $display("PASS: param config AW=%0d DW=%0d NREG=%0d WAIT=%0d %0s",
+                     AW, DW, NREG, WAITC, DUAL ? "DUAL" : "SERIAL");
             $finish;
         end else begin
             $display("FAIL: %0d errors", errors);
