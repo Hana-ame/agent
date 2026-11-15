@@ -298,6 +298,13 @@ case "${1:-all}" in
         # 静态检查：握手时序 + 时钟竞争
         ( cd axi && bash lint_all.sh )
         ;;
+    dualerr)
+        ( cd axi && build_run dualerr tb_dual_err_sv "-I./sv -I. -DTXN_DW=${DW:-32}" \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv \
+            sv/tb_dual_err_sv.sv )
+        ;;
     resetdom)
         ( cd axi && build_run resetdom tb_reset_domain_sv "-I./sv -I. -DTXN_DW=${DW:-32}" \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -525,6 +532,7 @@ case "${1:-all}" in
         bash "$0" params
         bash "$0" sva
         bash "$0" lint
+        bash "$0" dualerr
         bash "$0" resetdom
         bash "$0" handshake
         bash "$0" uvmlite
@@ -540,7 +548,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      lint resetdom handshake monitor monitorrules latency fairness params sva
+        echo "      lint dualerr resetdom handshake monitor monitorrules latency fairness params sva
       uvmlite asserteff dw64"
         echo "      coverage mutate sweep docs wave all"
         exit 1

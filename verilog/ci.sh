@@ -57,11 +57,19 @@ record() {   # record <name> <PASS|FAIL|SKIP> <seconds>
     STAGE_TIMES+=("$3")
 }
 
+# 动态计算仿真套件数（避免硬编码随项目增长而失真）
+SUITE_N=$(sed -n '/^    all)/,/^        ;;/p' sim.sh 2>/dev/null \
+          | grep -cE 'bash "\$0"' || true)
+SUITE_LINT=$(sed -n '/^    all)/,/^        ;;/p' sim.sh 2>/dev/null \
+             | grep -cE 'bash "\$0" lint' || true)
+SUITE_N=$(( ${SUITE_N:-0} - ${SUITE_LINT:-0} ))
+[ "$SUITE_N" -lt 1 ] && SUITE_N=1
+
 # 关卡定义
 STAGE_NAMES=(
     "G1:编译检查(slang)"
     "G2:快速回归(4套件)"
-    "G3:全量回归(22套件)"
+    "G3:全量回归(${SUITE_N}套件)"
     "G4:参数扫掠"
     "G5:RTL覆盖率(>=${MIN_RTL_COVERAGE}%)"
     "G6:变异得分(>=${MIN_MUTATION_SCORE}%)"
@@ -165,6 +173,10 @@ stage1() {
           echo -e "${RED}✗${R}"
           tail -8 /tmp/ci_lint.log | sed 's/^/      /'
       fi
+      check "并发桥错误隔离" --top tb_dual_err_sv -I sv -I . -DTXN_DW=32 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_dual_err_sv.sv
       check "复位域独立性" --top tb_reset_domain_sv -I sv -I . -DTXN_DW=32 \
         axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
         sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
@@ -259,17 +271,11 @@ stage2() {
 # G3：全量回归
 # ---------------------------------------------------------------------------
 stage3() {
-    banner "G3 全量回归（11 个套件）"
+    banner "G3 全量回归（$SUITE_N 个套件）"
     local t0=$SECONDS
     local out
-    # 期望套件数动态计算：all 目标里的调用数 - 非仿真目标（lint）
-    # 硬编码会在新增套件时静默失效（要求变松，少跑也算通过）
-    local expect_suites
-    expect_suites=$(sed -n '/^    all)/,/^        ;;/p' sim.sh \
-                    | grep -cE 'bash "\$0"' || true)
-    expect_suites=$(( ${expect_suites:-0} - $(sed -n '/^    all)/,/^        ;;/p' sim.sh \
-                    | grep -cE 'bash "\$0" lint' || true) ))
-    [ "$expect_suites" -lt 1 ] && expect_suites=1
+    # 期望套件数用全局 SUITE_N（见 STAGE_NAMES 上方）
+    local expect_suites=$SUITE_N
 
     out=$(bash sim.sh all 2>&1)
     local rc=$?
