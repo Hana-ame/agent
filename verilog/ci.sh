@@ -60,7 +60,7 @@ record() {   # record <name> <PASS|FAIL|SKIP> <seconds>
 STAGE_NAMES=(
     "G1:编译检查(slang)"
     "G2:快速回归(4套件)"
-    "G3:全量回归(20套件)"
+    "G3:全量回归(21套件)"
     "G4:参数扫掠(18组合)"
     "G5:RTL覆盖率(>=${MIN_RTL_COVERAGE}%)"
     "G6:变异得分(>=${MIN_MUTATION_SCORE}%)"
@@ -142,6 +142,10 @@ stage1() {
         sv/axi_apb_bridge_dual_sv.sv \
         sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
         sv/axi_txn_host.sv sv/tb_param_sv.sv
+      check "握手时序规范" --top tb_handshake_protocol_sv -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/tb_handshake_protocol_sv.sv
       check "轻量UVM环境" --top tb_uvm_lite_top -I sv -I . -I vip \
         axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
         sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
@@ -241,12 +245,12 @@ stage3() {
     total_checks=$(echo "$out" | grep -oE "[0-9]+ (checks|checks passed)" \
                    | grep -oE "^[0-9]+" | awk '{s+=$1} END{print s+0}')
     local dt=$((SECONDS-t0))
-    if [ $rc -eq 0 ] && [ "$passes" -ge 20 ] && [ "${total_checks:-0}" -ge 1000 ]; then
-        echo -e "  ${GRN}${BOLD}PASS${R} —— $passes/20 套件通过，累计 ${total_checks} 项检查（${dt}s）"
+    if [ $rc -eq 0 ] && [ "$passes" -ge 21 ] && [ "${total_checks:-0}" -ge 1000 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— $passes/21 套件通过，累计 ${total_checks} 项检查（${dt}s）"
         record "$1" PASS $dt
         return 0
     else
-        echo -e "  ${RED}${BOLD}FAIL${R} —— $passes/20 通过，检查数 ${total_checks:-0}（${dt}s）"
+        echo -e "  ${RED}${BOLD}FAIL${R} —— $passes/21 通过，检查数 ${total_checks:-0}（${dt}s）"
         record "$1" FAIL $dt
         return 1
     fi
