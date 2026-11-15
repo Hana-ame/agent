@@ -298,6 +298,10 @@ case "${1:-all}" in
         # 静态检查：握手时序 + 时钟竞争
         ( cd axi && bash lint_all.sh )
         ;;
+    stability)
+        # 稳定性检查：每个套件重复运行，检测偶发失败
+        python3 stability.py "${@:2}"
+        ;;
     fieldiso)
         ( cd axi && build_run fieldiso tb_field_iso_sv "-I./sv -I. -DTXN_DW=${DW:-32}" \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \

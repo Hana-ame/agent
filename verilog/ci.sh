@@ -75,6 +75,7 @@ STAGE_NAMES=(
     "G6:变异得分(>=${MIN_MUTATION_SCORE}%)"
     "G7:文档生成(6份HTML)"
     "G8:复现性(干净clone)"
+    "G9:稳定性(无偶发失败)"
 )
 
 list_stages() {
@@ -85,8 +86,8 @@ list_stages() {
         i=$((i+1))
     done
     echo ""
-    echo "默认执行: G1 G2 G3 G7 G8"
-    echo "--full 执行: 全部 8 关"
+    echo "默认执行: G1 G2 G3 G7 G8 G9"
+    echo "--full 执行: 全部 9 关"
 }
 
 # ---------------------------------------------------------------------------
@@ -459,19 +460,41 @@ stage8() {
 }
 
 # ---------------------------------------------------------------------------
+# G9：稳定性（套件重复运行，检测偶发失败）
+# ---------------------------------------------------------------------------
+stage9() {
+    banner "G9 稳定性检查（无偶发失败）"
+    local t0=$SECONDS
+    local out rc
+    # --fast 模式：跳过耗时长的套件，2 次重复（约 35s）
+    out=$(timeout 900 python3 stability.py --fast --runs 2 2>&1); rc=$?
+    echo "$out" | grep -E "^  [✓✗]|总计|全部套件|存在偶发" | sed 's/^/  /'
+    local dt=$((SECONDS-t0))
+    if [ $rc -eq 0 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— 全部套件稳定（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 存在偶发失败套件（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
 main() {
-    local run_stages=(1 2 3 7 8)
+    local run_stages=(1 2 3 7 8 9)
     local i
 
     case "${1:-}" in
         --list) shift; list_stages; exit 0 ;;
-        --full) run_stages=(1 2 3 4 5 6 7 8) ;;
+        --full) run_stages=(1 2 3 4 5 6 7 8 9) ;;
         --stage)
             local s="${2:-}"
-            if ! [[ "$s" =~ ^[1-8]$ ]]; then
-                echo "错误：--stage 需要 1-8" >&2; exit 2
+            if ! [[ "$s" =~ ^[1-9]$ ]]; then
+                echo "错误：--stage 需要 1-9" >&2; exit 2
             fi
             run_stages=("$s")
             ;;
