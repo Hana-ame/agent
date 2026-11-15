@@ -27,6 +27,7 @@ SV=axi/sv
 BACKUP_DIR=$(mktemp -d /tmp/audit_bak.XXXXXX)
 PASS=0
 FAIL=0
+checks_total=0
 declare -a RESULTS=()
 
 if [ -t 1 ]; then
@@ -64,6 +65,12 @@ backup() {
 restore() {
     if [ -n "$BACKUP_FILE" ] && [ -f "$BACKUP_FILE" ] && [ -n "$CUR_ORIG" ]; then
         cp "$BACKUP_FILE" "$CUR_ORIG"
+        # 立即校验恢复是否成功（曾因恢复失败导致 RTL 残留缺陷，
+        # 进而让后续全量回归失败 —— 与变异框架曾踩的坑同类）
+        if ! cmp -s "$BACKUP_FILE" "$CUR_ORIG"; then
+            echo "  ❌ 严重：$CUR_ORIG 恢复失败，立即中止" >&2
+            exit 3
+        fi
     fi
     BACKUP_FILE=""
     CUR_ORIG=""
@@ -108,16 +115,19 @@ audit_a2() {
     local f="$SV/apb_slave_regs_sv.sv"
     backup "$f"
     sed -i "s/assign in_range = (idx < NREG);/assign in_range = 1'b1;/" "$f"
-    local out rc passes
+    local out rc passes total
+    # 动态统计套件总数，避免硬编码数字随项目增长而过时
+    total=$(sed -n '/^    all)/,/^        ;;/p' sim.sh | grep -cE 'bash "\$0"')
+    [ "${total:-0}" -eq 0 ] && total=1
     out=$(bash sim.sh all 2>&1); rc=$?
     restore "$f"
     passes=$(echo "$out" | grep -cE "^PASS|^VIP PASS")
-    if [ $rc -ne 0 ] && [ "$passes" -lt 17 ]; then
-        echo -e "  ${GRN}✓${R} all 正确中断（exit=$rc，仅 $passes/17 通过）"
-        record "A2 全量回归中断检测" PASS "exit=$rc, ${passes}/17"
+    if [ $rc -ne 0 ] && [ "$passes" -lt "$total" ]; then
+        echo -e "  ${GRN}✓${R} all 正确中断（exit=$rc，仅 $passes/$total 通过）"
+        record "A2 全量回归中断检测" PASS "exit=$rc, ${passes}/$total"
     else
-        echo -e "  ${RED}✗${R} all 未正确中断（exit=$rc，$passes/17 通过）"
-        record "A2 全量回归中断检测" FAIL "exit=$rc, ${passes}/17"
+        echo -e "  ${RED}✗${R} all 未正确中断（exit=$rc，$passes/$total 通过）"
+        record "A2 全量回归中断检测" FAIL "exit=$rc, ${passes}/$total"
     fi
 }
 
@@ -199,6 +209,63 @@ audit_a6() {
 }
 
 # ===========================================================================
+# A7：仿真挂死时输出必须保留（stdbuf 生效）
+# ===========================================================================
+audit_a7() {
+    banner "A7 挂死输出保留（诊断可靠性）"
+    local work=/tmp/audit_a7
+    rm -rf "$work"; mkdir -p "$work"
+
+    # 造一个会挂死的迷你 TB
+    cat > "$work/t_hang.sv" <<'VEOF'
+`timescale 1ns/1ps
+module t_hang;
+  logic clk=0;
+  always #5 clk=~clk;
+  initial begin
+    $display("HANG-MARK-1");
+    repeat(3) @(posedge clk);
+    $display("HANG-MARK-2");
+    forever @(posedge clk);
+  end
+endmodule
+VEOF
+
+    local vlt="${VERILATOR:-/tmp/verilator/bin/verilator_bin}"
+    export VERILATOR_ROOT=${VERILATOR_ROOT:-/tmp/verilator}
+    if ! "$vlt" --binary --timing --top-module t_hang \
+         --Mdir "$work/obj" -Wno-fatal "$work/t_hang.sv" \
+         -o "$work/tb" >/dev/null 2>&1; then
+        echo -e "  ${RED}✗${R} 无法构建测试用例"
+        record "A7 挂死输出保留" FAIL "build"
+        return 1
+    fi
+
+    # 无缓冲：应丢失输出
+    local n_nobuf n_buf
+    n_nobuf=$(timeout 3 "$work/tb" 2>&1 | grep -c "HANG-MARK" || true)
+    # 有缓冲：应保留输出
+    n_buf=$(timeout 3 stdbuf -o0 -e0 "$work/tb" 2>&1 | grep -c "HANG-MARK" || true)
+
+    if [ "${n_buf:-0}" -ge 2 ]; then
+        echo -e "  ${GRN}✓${R} stdbuf 保留输出（无缓冲时 ${n_nobuf:-0} 行，有缓冲 ${n_buf} 行）"
+        record "A7 挂死输出保留" PASS "buf=$n_buf nobuf=${n_nobuf:-0}"
+    else
+        echo -e "  ${RED}✗${R} stdbuf 未生效（仅 ${n_buf:-0} 行）"
+        record "A7 挂死输出保留" FAIL "buf=${n_buf:-0}"
+    fi
+    # 验证 sim.sh 已使用 stdbuf
+    checks_total=$((checks_total+1))
+    if grep -q "stdbuf -o0" sim.sh; then
+        echo -e "  ${GRN}✓${R} sim.sh 仿真运行已启用 stdbuf"
+    else
+        echo -e "  ${RED}✗${R} sim.sh 未启用 stdbuf"
+        record "A7 sim.sh stdbuf" FAIL "missing"
+    fi
+    rm -rf "$work"
+}
+
+# ===========================================================================
 list_items() {
     echo "审计项："
     echo "  A1  单套件失败检测"
@@ -207,6 +274,7 @@ list_items() {
     echo "  A4  变异框架残留检测"
     echo "  A5  协议监视器违规检测"
     echo "  A6  CI 覆盖率阈值拒绝"
+    echo "  A7  挂死输出保留（stdbuf）"
 }
 
 main() {
@@ -217,6 +285,16 @@ main() {
         *) echo "未知参数: $1（用 --list）" >&2; exit 2 ;;
     esac
 
+    # 前置检查：工作区不应有未提交的 RTL 改动（防止上一轮注入残留）
+    local dirty
+    dirty=$(git -C .. status --porcelain -- verilog/axi/sv/ 2>/dev/null | grep -v "^ M verilog/axi/sv/tb_" || true)
+    if [ -n "$dirty" ]; then
+        echo -e "${RED}❌ 前置检查失败：RTL 目录存在未提交改动${R}" >&2
+        echo "$dirty" | sed 's/^/   /' >&2
+        echo "   可能原因：上一轮审计/变异注入未完全恢复。请先用 git diff 检查。" >&2
+        exit 4
+    fi
+
     echo -e "${BOLD}验证工具自审计${R}  $(date '+%Y-%m-%d %H:%M:%S')"
     echo -e "${DIM}目的：确认每条验证链路在失败时都会报错，而不是静默通过${R}"
 
@@ -226,6 +304,7 @@ main() {
     audit_a4
     audit_a5
     audit_a6
+    audit_a7
 
     banner "审计结果"
     for r in "${RESULTS[@]}"; do

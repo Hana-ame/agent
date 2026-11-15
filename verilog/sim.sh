@@ -73,7 +73,15 @@ build_run() {
         return 1
     fi
     [ -x "$out_abs" ] || { echo "BUILD MISSING: $out_abs" >&2; return 1; }
-    "$out_abs"
+    # 关键：禁用 stdout 缓冲再运行仿真。
+    # 若仿真挂死被 kill，缓冲未 flush 会导致「零输出」，
+    # 极易被误判为「程序启动即退出」（本项目已踩坑 4 次）。
+    # stdbuf 不可用时回退到直接执行。
+    if command -v stdbuf >/dev/null 2>&1; then
+        stdbuf -o0 -e0 "$out_abs"
+    else
+        "$out_abs"
+    fi
 }
 
 case "${1:-all}" in
