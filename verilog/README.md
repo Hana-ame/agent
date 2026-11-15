@@ -14,6 +14,7 @@
 | `tb_counter8_icarus.sv` | counter8 test bench（26 项断言） |
 | `tb_counter8_sv.sv` | counter8 完整 SV test bench（interface/SVA/covergroup/class 随机），需 irun/VCS |
 | **`sim.sh`** | **统一仿真入口**（Verilator） |
+| **`ci.sh`** | **质量门 CI**（7 关验收，快速失败） |
 | `run_sv.sh` | EDA 服务器脚本（irun/xrun/vcs，带覆盖率） |
 | `plot_waveform.py` | VCD → PNG 波形绘图（matplotlib） |
 | `axi/` | AXI→APB→AXI 设计、验证、文档（见下） |
@@ -56,6 +57,27 @@ bash sim.sh regfile      # 寄存器属性（手写）         44 检查
 bash sim.sh regfilegen   # 寄存器属性（spec 生成）    70 检查
 bash sim.sh vip          # VIP                        67 检查
 ```
+
+### 质量门 CI
+
+```bash
+bash ci.sh              # 默认 4 关：编译检查 + 快速回归 + 全量回归 + 文档（~35s）
+bash ci.sh --full       # 全部 7 关（含参数扫掠/覆盖率/变异，~10min）
+bash ci.sh --stage 5    # 只跑第 5 关
+bash ci.sh --list       # 列出所有关卡
+```
+
+| 关卡 | 内容 | 阈值 | 典型耗时 |
+|---|---|---|---|
+| G1 | slang 编译检查（4 组） | 全部通过 | <1s |
+| G2 | 快速回归（4 套件） | 全部通过 | ~1s |
+| G3 | 全量回归（11 套件） | 全部通过 | ~33s |
+| G4 | 参数扫掠（9 种子 × 9 wait） | 18/18 | ~5min |
+| G5 | RTL 有效覆盖率 | ≥ 90% | ~50s |
+| G6 | 变异得分 | ≥ 80% | ~250s |
+| G7 | 文档生成（6 份 HTML） | 全部生成 | ~1s |
+
+任一关失败立即停止并返回 exit code 1，可直接用于 CI 集成。
 
 ### 工具目标
 

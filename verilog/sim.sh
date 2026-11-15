@@ -180,7 +180,7 @@ case "${1:-all}" in
             # 自动生成 HTML 覆盖率报告
             if [ -f axi/gen_coverage_html.py ]; then
                 echo "== coverage: 生成 HTML 报告 =="
-                ( cd axi && python3 gen_coverage_html.py 2>&1 | tail -4 )
+                ( cd axi && python3 gen_coverage_html.py 2>&1 | tail -9 )
             fi
         else
             echo "WARN: 未找到 verilator_coverage" >&2
