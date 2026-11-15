@@ -134,6 +134,66 @@ case "${1:-all}" in
             axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
             sv/apb_if.sv sv/axi_apb_monitor.sv sv/tb_monitor_selftest.sv )
         ;;
+    params)
+        # 参数配置矩阵：逐配置验证 DUT 在非默认参数下仍正确
+        CNT=/tmp/params_cnt_sim
+        : > "$CNT"
+        run_cfg() {
+            local aw="$1" dw="$2" nreg="$3" wc="$4" label="$5"
+            local d="run/param_${aw}_${dw}_${nreg}_${wc}"
+            rm -rf "$d"; mkdir -p "$d"
+            if ! "$VLT" --binary --assert --timing --top-module tb_param_sv \
+                 --Mdir "$d/obj" $NOWARN -I./sv -I. \
+                 -GAW=$aw -GDW=$dw -GNREG=$nreg -GWAITC=$wc \
+                 axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+                 sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+                 sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+                 sv/axi_txn_host.sv sv/tb_param_sv.sv \
+                 -o "$(pwd)/$d/tb" >/dev/null 2>&1; then
+                printf "  %-14s AW=%-2s DW=%-2s NREG=%-2s WAIT=%-2s BUILD-FAIL\n" \
+                       "$label" "$aw" "$dw" "$nreg" "$wc"
+                echo "FAIL" >> "$CNT"; return
+            fi
+            local tb_out=""
+            tb_out=$( cd "$d" && ./tb 2>&1 || true )
+            if echo "$tb_out" | grep -q "^PASS"; then
+                printf "  %-14s AW=%-2s DW=%-2s NREG=%-2s WAIT=%-2s PASS\n" \
+                       "$label" "$aw" "$dw" "$nreg" "$wc"
+                echo "PASS" >> "$CNT"
+            else
+                printf "  %-14s AW=%-2s DW=%-2s NREG=%-2s WAIT=%-2s FAIL\n" \
+                       "$label" "$aw" "$dw" "$nreg" "$wc"
+                echo "FAIL" >> "$CNT"
+            fi
+        }
+        ( cd axi
+          echo "== params: 参数配置矩阵 =="
+          run_cfg 8 32 16 2 默认
+          run_cfg 6 16 4  0 小配置
+          run_cfg 4 8  2  0 最小
+          run_cfg 10 64 16 4 大位宽
+          run_cfg 8 32 32 8 多寄存器
+        )
+        echo "------------------------------------------------------"
+        TOTAL=$(grep -c . "$CNT" 2>/dev/null || true); TOTAL=${TOTAL:-0}
+        FAILED=$(grep -c FAIL "$CNT" 2>/dev/null || true); FAILED=${FAILED:-0}
+        TOTAL=$(echo "$TOTAL" | head -1 | tr -d ' \n')
+        FAILED=$(echo "$FAILED" | head -1 | tr -d ' \n')
+        rm -f "$CNT"
+        if [ "$FAILED" -eq 0 ] && [ "$TOTAL" -eq 5 ]; then
+            echo "PASS: params —— $TOTAL 组参数配置全部通过"
+            exit 0
+        else
+            echo "FAIL: params —— $FAILED/$TOTAL 组失败"
+            exit 1
+        fi
+        ;;
+    dw64)
+        ( cd axi && build_run dw64 tb_dw64_sv "-I./sv -I." \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/tb_dw64_sv.sv )
+        ;;
     fairness)
         ( cd axi && build_run fairness tb_fairness_sv "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -305,6 +365,8 @@ case "${1:-all}" in
         bash "$0" monitorrules
         bash "$0" latency
         bash "$0" fairness
+        bash "$0" params
+        bash "$0" dw64
         bash "$0" stress
         bash "$0" regfile
         bash "$0" regfilegen
@@ -315,7 +377,8 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      monitor monitorrules latency fairness coverage mutate sweep docs wave all"
+        echo "      monitor monitorrules latency fairness params dw64"
+        echo "      coverage mutate sweep docs wave all"
         exit 1
         ;;
 esac
