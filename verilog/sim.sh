@@ -61,6 +61,10 @@ build_run() {
     shift 3
     local srcs=("$@")
     echo "== sim: $name (top=$top) =="
+    # 在「当前工作目录」下创建 run（支持 axi 等子目录：
+    # 顶层只创建了 verilog/run，子目录运行时会缺 axi/run，
+    # 干净 clone 后首次运行会报 "Can't write file: run/obj_xxx/..."）
+    mkdir -p "$RUN"
     local out_abs
     out_abs="$(pwd)/$RUN/$name"   # 绝对路径（Verilator 在 obj 子目录 make）
     # shellcheck disable=SC2086
