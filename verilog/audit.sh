@@ -18,7 +18,8 @@
 #
 # 用法:
 #   bash audit.sh           # 跑全部审计
-#   bash audit.sh --list    # 列出审计项
+#   bash audit.sh --list         # 列出审计项
+#   bash audit.sh --allow-dirty  # 跳过「工作区必须干净」的前置检查
 # ============================================================================
 set -uo pipefail
 cd "$(dirname "$0")" || exit 1
@@ -28,6 +29,7 @@ BACKUP_DIR=$(mktemp -d /tmp/audit_bak.XXXXXX)
 PASS=0
 FAIL=0
 checks_total=0
+ALLOW_DIRTY=0
 declare -a RESULTS=()
 
 if [ -t 1 ]; then
@@ -300,6 +302,7 @@ list_items() {
 
 main() {
     case "${1:-}" in
+        --allow-dirty) ALLOW_DIRTY=1; shift; main "$@" ;;
         --list) list_items; exit 0 ;;
         --help|-h) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         "") ;;
@@ -307,8 +310,15 @@ main() {
     esac
 
     # 前置检查：工作区不应有未提交的 RTL 改动（防止上一轮注入残留）
+    # --allow-dirty 用于「开发中/被其他工具调用」场景（如 scripts_check.sh），
+    # 此时工作区本来就可能不干净，不应因此判定审计失败。
     local dirty
-    dirty=$(git -C .. status --porcelain -- verilog/axi/sv/ 2>/dev/null | grep -v "^ M verilog/axi/sv/tb_" || true)
+    if [ "${ALLOW_DIRTY:-0}" -eq 1 ]; then
+        echo -e "  ${DIM}（--allow-dirty：跳过工作区前置检查）${R}"
+        dirty=""
+    else
+        dirty=$(git -C .. status --porcelain -- verilog/axi/sv/ 2>/dev/null | grep -v "^ M verilog/axi/sv/tb_" || true)
+    fi
     if [ -n "$dirty" ]; then
         echo -e "${RED}❌ 前置检查失败：RTL 目录存在未提交改动${R}" >&2
         echo "$dirty" | sed 's/^/   /' >&2

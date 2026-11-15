@@ -135,7 +135,15 @@ echo ""
 echo -e "${B}[3/3] 实际执行${R}"
 
 # 本机可运行的脚本（有明确权限/依赖）
-run_script "audit.sh" 0 400 || true
+# audit.sh 的前置检查要求 RTL 干净；此处用 --allow-dirty
+# 避免「开发中工作区不干净」被误判为脚本失效
+out=$(timeout 400 bash audit.sh --allow-dirty 2>&1); rc=$?
+if [ "$rc" -eq 0 ]; then
+    record "audit.sh 执行" PASS "exit=0"
+else
+    record "audit.sh 执行" FAIL "exit=$rc"
+    echo "$out" | tail -4 | sed 's/^/      /'
+fi
 run_script "axi/lint_all.sh" 0 200 || true
 if [ "$FAST" -eq 1 ]; then
     echo -e "  ${D}- 跳过${R} axi/run_sv_chain.sh 执行（--fast 模式）"
