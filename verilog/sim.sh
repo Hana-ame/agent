@@ -271,6 +271,10 @@ case "${1:-all}" in
           fi
         )
         ;;
+    lint)
+        # 静态检查：AXI 握手时序的危险模式
+        ( cd axi && python3 lint_handshake.py )
+        ;;
     handshake)
         ( cd axi && build_run handshake tb_handshake_protocol_sv "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -482,6 +486,7 @@ case "${1:-all}" in
         bash "$0" fairness
         bash "$0" params
         bash "$0" sva
+        bash "$0" lint
         bash "$0" handshake
         bash "$0" uvmlite
         bash "$0" asserteff
@@ -496,7 +501,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      monitor monitorrules latency fairness params sva handshake
+        echo "      lint handshake monitor monitorrules latency fairness params sva
       uvmlite asserteff dw64"
         echo "      coverage mutate sweep docs wave all"
         exit 1

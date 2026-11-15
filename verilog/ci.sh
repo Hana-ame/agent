@@ -142,6 +142,14 @@ stage1() {
         sv/axi_apb_bridge_dual_sv.sv \
         sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
         sv/axi_txn_host.sv sv/tb_param_sv.sv
+      # 静态检查：握手时序危险模式（在编译检查里最先执行，最快反馈）
+      printf "  %%s " "握手时序静态检查"
+      if ( cd axi && python3 lint_handshake.py >/tmp/ci_lint.log 2>&1 ); then
+          echo -e "${GRN}✓${R}"
+      else
+          echo -e "${RED}✗${R}"
+          tail -8 /tmp/ci_lint.log | sed 's/^/      /'
+      fi
       check "握手时序规范" --top tb_handshake_protocol_sv -I sv -I . \
         axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
         sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \

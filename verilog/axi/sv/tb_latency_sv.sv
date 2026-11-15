@@ -29,6 +29,9 @@ module tb_latency_sv #(parameter int WAITC = 2);
       if (axi.WREADY  && axi.WVALID)  axi.WVALID  <= 1'b0;
       if (axi.BVALID) begin
         lat = cyc - t0;
+        // 关键：BVALID 出现时桥尚未采样握手，BREADY 必须再保持一拍
+        // （否则桥卡在 S_B_RESP —— 见 tb_handshake_protocol_sv）
+        @(posedge ACLK);
         axi.BREADY <= 1'b0;
         @(posedge ACLK);
         disable meas_wr;
@@ -46,6 +49,7 @@ module tb_latency_sv #(parameter int WAITC = 2);
       if (axi.ARREADY && axi.ARVALID) axi.ARVALID <= 1'b0;
       if (axi.RVALID) begin
         lat = cyc - t0;
+        @(posedge ACLK);
         axi.RREADY <= 1'b0;
         @(posedge ACLK);
         disable meas_rd;
