@@ -92,7 +92,8 @@ case "${1:-all}" in
         ( cd axi && build_run sv tb_axi_apb_sv "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
-            sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv )
+            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+            sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv )
         ;;
     gaps)
         ( cd axi && build_run gaps tb_gaps_sv \
@@ -112,19 +113,21 @@ case "${1:-all}" in
         ( cd axi && build_run regfilegen tb_regfile_gen "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
-            sv/apb_slave_regfile_gen.sv sv/axi_txn_host.sv sv/tb_regfile_gen.sv )
+            sv/apb_slave_regfile_gen.sv sv/axi_apb_monitor.sv \
+            sv/axi_txn_host.sv sv/tb_regfile_gen.sv )
         ;;
     regfile)
         ( cd axi && build_run regfile tb_regfile_sv "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
-            sv/apb_slave_regfile_sv.sv sv/axi_txn_host.sv sv/tb_regfile_sv.sv )
+            sv/apb_slave_regfile_sv.sv sv/axi_apb_monitor.sv \
+            sv/axi_txn_host.sv sv/tb_regfile_sv.sv )
         ;;
     stress)
         ( cd axi && build_run stress tb_dual_stress "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
-            sv/apb_slave_regs_sv.sv sv/tb_dual_stress.sv )
+            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_dual_stress.sv )
         ;;
     monitor)
         ( cd axi && build_run monitor tb_mon_selftest "-I./sv -I." \
@@ -135,7 +138,7 @@ case "${1:-all}" in
         ( cd axi && build_run covgaps tb_cov_gaps "--coverage -I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
-            sv/apb_slave_regs_sv.sv sv/tb_cov_gaps.sv )
+            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_cov_gaps.sv )
         ;;
     vip)
         ( cd axi && build_run vip tb_vip_demo "-I./sv -I./vip -I." \
@@ -164,7 +167,8 @@ case "${1:-all}" in
           run_cov tb_axi_apb_sv \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
-            sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv
+            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+            sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv
           run_cov tb_cov_gaps \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
@@ -176,7 +180,8 @@ case "${1:-all}" in
           run_cov tb_regfile_gen \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
-            sv/apb_slave_regfile_gen.sv sv/axi_txn_host.sv sv/tb_regfile_gen.sv
+            sv/apb_slave_regfile_gen.sv sv/axi_apb_monitor.sv \
+            sv/axi_txn_host.sv sv/tb_regfile_gen.sv
           cp -r "$COVDIR"/*/cov_*.dat "$COVDIR/" 2>/dev/null || true
         )
         echo "== coverage: 合并报告 =="
@@ -254,7 +259,8 @@ case "${1:-all}" in
         ( cd axi && build_run wave tb_axi_apb_sv "-I./sv -I. --trace" \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
-            sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv
+            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+            sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv
           echo "VCD: $(ls axi/*.vcd 2>/dev/null || echo '(检查 axi 目录)')" )
         ;;
     all)

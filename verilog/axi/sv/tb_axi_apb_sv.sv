@@ -43,6 +43,11 @@ module tb_axi_apb_sv;
     axi_lite_if #(.AW(AW), .DW(DW)) axi(ACLK);
     apb_if      #(.AW(AW), .DW(DW)) apb(ACLK);
 
+    // 独立协议监视器（被动只读，自动检查 AXI/APB 合法性）
+    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("SV")) mon (
+        .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
+    );
+
     axi_apb_bridge_sv #(.AW(AW), .DW(DW)) bridge (
         .ACLK   (ACLK),
         .ARESETn(ARESETn),
@@ -179,6 +184,12 @@ module tb_axi_apb_sv;
         $display("-- SUMMARY: %0d txns, %0d pause cycles injected --",
                  txns, total_pause);
         if (errors == 0) begin
+            if (mon.errors != 0) begin
+                $display("  [MON] FAIL: 协议监视器发现 %0d 处违规", mon.errors);
+                errors += mon.errors;
+            end else
+                $display("  [MON] 协议监视器通过（观测 %0d 次 APB 传输）", mon.xfer_count);
+
             $display("PASS: axi->apb->axi transaction-layer testbench (%0d txns)", txns);
             $finish;
         end else begin

@@ -37,6 +37,11 @@ module tb_dual_stress #(
     axi_lite_if #(.AW(AW), .DW(DW)) axi(ACLK);
     apb_if      #(.AW(AW), .DW(DW)) apb(ACLK);
 
+    // 独立协议监视器（被动只读，自动检查 AXI/APB 合法性）
+    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("STRESS")) mon (
+        .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
+    );
+
     axi_apb_bridge_dual_sv #(.AW(AW), .DW(DW)) bridge (
         .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
     );
@@ -290,6 +295,12 @@ module tb_dual_stress #(
         t_data_integrity();
 
         $display("------------------------------------------------------");
+        if (mon.errors != 0) begin
+            $display("  [MON] FAIL: 协议监视器发现 %0d 处违规", mon.errors);
+            errors += mon.errors;
+        end else
+            $display("  [MON] 协议监视器通过（观测 %0d 次 APB 传输）", mon.xfer_count);
+
         $display(" stress result: %0d checks, %0d errors (W=%0d R=%0d)",
                  sim_checks, errors, w_count, r_count);
         if (errors == 0) begin
