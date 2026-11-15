@@ -271,6 +271,13 @@ case "${1:-all}" in
           fi
         )
         ;;
+    uvmlite)
+        ( cd axi && build_run uvmlite tb_uvm_lite_top "-I./sv -I. -I./vip" \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+            vip/axi_uvm_lite_pkg.sv vip/tb_uvm_lite_top.sv )
+        ;;
     sva)
         ( cd axi && build_run sva tb_sva_antecedent_sv "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
@@ -469,6 +476,7 @@ case "${1:-all}" in
         bash "$0" fairness
         bash "$0" params
         bash "$0" sva
+        bash "$0" uvmlite
         bash "$0" asserteff
         bash "$0" dw64
         bash "$0" stress
@@ -481,7 +489,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      monitor monitorrules latency fairness params sva asserteff dw64"
+        echo "      monitor monitorrules latency fairness params sva uvmlite asserteff dw64"
         echo "      coverage mutate sweep docs wave all"
         exit 1
         ;;
