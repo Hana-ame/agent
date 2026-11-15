@@ -15,6 +15,7 @@
 | `tb_counter8_sv.sv` | counter8 完整 SV test bench（interface/SVA/covergroup/class 随机），需 irun/VCS |
 | **`sim.sh`** | **统一仿真入口**（Verilator） |
 | **`ci.sh`** | **质量门 CI**（7 关验收，快速失败） |
+| **`audit.sh`** | **验证工具自审计**（6 项故障注入，确认工具会报错） |
 | `run_sv.sh` | EDA 服务器脚本（irun/xrun/vcs，带覆盖率） |
 | `plot_waveform.py` | VCD → PNG 波形绘图（matplotlib） |
 | `axi/` | AXI→APB→AXI 设计、验证、文档（见下） |
@@ -81,6 +82,26 @@ bash ci.sh --list       # 列出所有关卡
 | G7 | 文档生成（6 份 HTML） | 全部生成 | ~1s |
 
 任一关失败立即停止并返回 exit code 1，可直接用于 CI 集成。
+
+### 验证工具自审计
+
+```bash
+bash audit.sh            # 6 项故障注入审计
+bash audit.sh --list     # 列出审计项
+```
+
+对每条验证链路做「注入缺陷 → 确认报错 → 恢复」的闭环：
+
+| 审计 | 内容 | 期望 |
+|---|---|---|
+| A1 | 单套件注入缺陷 | exit≠0 且输出 FAIL |
+| A2 | 全量回归注入缺陷 | 中断且 exit≠0 |
+| A3 | CI G3 注入缺陷 | 报告失败 |
+| A4 | 变异框架残留检测 | exit=4 |
+| A5 | 协议监视器自测 | 能抓违规 |
+| A6 | 覆盖率阈值拒绝 | 低覆盖被拒 |
+
+目的：确认工具在失败时**不会静默通过**。
 
 ### 工具目标
 
