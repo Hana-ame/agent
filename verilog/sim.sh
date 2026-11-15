@@ -197,6 +197,80 @@ case "${1:-all}" in
             exit 1
         fi
         ;;
+    asserteff)
+        # 断言有效性：逐条注入违规，确认断言会失败（而非真空通过）
+        ( cd axi
+          AE_FAIL=0
+          echo "== asserteff: 断言有效性验证 =="
+          for c in 1 2 3 4; do
+              d="run/ae_$c"
+              rm -rf "$d"; mkdir -p "$d"
+              if ! "$VLT" --binary --assert --timing \
+                   --top-module tb_assert_effectiveness_sv --Mdir "$d/obj" \
+                   $NOWARN -I./sv -I. -DCASE=$c \
+                   axi_defs_pkg.sv apb_defs_pkg.sv sv/apb_if.sv \
+                   sv/tb_assert_effectiveness_sv.sv \
+                   -o "$(pwd)/$d/tb" >/dev/null 2>&1; then
+                  printf "  CASE=%-2s BUILD-FAIL\n" "$c"
+                  AE_FAIL=$((AE_FAIL+1)); continue
+              fi
+              out=$( cd "$d" && ./tb 2>&1 || true )
+              if echo "$out" | grep -q "Assertion failed"; then
+                  printf "  CASE=%-2s 断言正确报错 PASS\n" "$c"
+              else
+                  printf "  CASE=%-2s 断言未报错 FAIL\n" "$c"
+                  AE_FAIL=$((AE_FAIL+1))
+              fi
+          done
+          # CASE 5：合法序列不应误报
+          d="run/ae_5"; rm -rf "$d"; mkdir -p "$d"
+          if "$VLT" --binary --assert --timing \
+               --top-module tb_assert_effectiveness_sv --Mdir "$d/obj" \
+               $NOWARN -I./sv -I. -DCASE=5 \
+               axi_defs_pkg.sv apb_defs_pkg.sv sv/apb_if.sv \
+               sv/tb_assert_effectiveness_sv.sv \
+               -o "$(pwd)/$d/tb" >/dev/null 2>&1; then
+              out=$( cd "$d" && ./tb 2>&1 || true )
+              if echo "$out" | grep -q "^PASS"; then
+                  printf "  CASE=5  合法序列无误报 PASS\n"
+              else
+                  printf "  CASE=5  合法序列误报 FAIL\n"
+                  AE_FAIL=$((AE_FAIL+1))
+              fi
+          else
+              printf "  CASE=5  BUILD-FAIL\n"
+              AE_FAIL=$((AE_FAIL+1))
+          fi
+          # ---- AXI 5 条断言 ----
+          for c in 1 2 3 4 5; do
+              d="run/axae_$c"
+              rm -rf "$d"; mkdir -p "$d"
+              if ! "$VLT" --binary --assert --timing \
+                   --top-module tb_axi_assert_eff_sv --Mdir "$d/obj" \
+                   $NOWARN -I./sv -I. -DACASE=$c \
+                   axi_defs_pkg.sv apb_defs_pkg.sv \
+                   sv/axi_lite_if.sv sv/apb_if.sv \
+                   sv/tb_axi_assert_eff_sv.sv \
+                   -o "$(pwd)/$d/tb" >/dev/null 2>&1; then
+                  printf "  AXICASE=%-2s BUILD-FAIL\n" "$c"
+                  AE_FAIL=$((AE_FAIL+1)); continue
+              fi
+              out=$( cd "$d" && ./tb 2>&1 || true )
+              if echo "$out" | grep -q "Assertion failed"; then
+                  printf "  AXICASE=%-2s 断言正确报错 PASS\n" "$c"
+              else
+                  printf "  AXICASE=%-2s 断言未报错 FAIL\n" "$c"
+                  AE_FAIL=$((AE_FAIL+1))
+              fi
+          done
+          if [ "$AE_FAIL" -eq 0 ]; then
+              echo "PASS: assertion effectiveness（APB 4 条 + AXI 5 条断言均能捕获违规，合法序列无误报）"
+          else
+              echo "FAIL: $AE_FAIL 项断言有效性检查失败"
+              exit 1
+          fi
+        )
+        ;;
     sva)
         ( cd axi && build_run sva tb_sva_antecedent_sv "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
@@ -395,6 +469,7 @@ case "${1:-all}" in
         bash "$0" fairness
         bash "$0" params
         bash "$0" sva
+        bash "$0" asserteff
         bash "$0" dw64
         bash "$0" stress
         bash "$0" regfile
@@ -406,7 +481,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      monitor monitorrules latency fairness params sva dw64"
+        echo "      monitor monitorrules latency fairness params sva asserteff dw64"
         echo "      coverage mutate sweep docs wave all"
         exit 1
         ;;

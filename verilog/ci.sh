@@ -60,7 +60,7 @@ record() {   # record <name> <PASS|FAIL|SKIP> <seconds>
 STAGE_NAMES=(
     "G1:编译检查(slang)"
     "G2:快速回归(4套件)"
-    "G3:全量回归(18套件)"
+    "G3:全量回归(19套件)"
     "G4:参数扫掠(18组合)"
     "G5:RTL覆盖率(>=${MIN_RTL_COVERAGE}%)"
     "G6:变异得分(>=${MIN_MUTATION_SCORE}%)"
@@ -145,6 +145,12 @@ stage1() {
       check "SVA 前件激活" --top tb_sva_antecedent_sv -I sv -I . \
         axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
         sv/apb_if.sv sv/tb_sva_antecedent_sv.sv
+      check "断言有效性(APB)" --top tb_assert_effectiveness_sv -I sv -I . -DCASE=5 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/apb_if.sv \
+        sv/tb_assert_effectiveness_sv.sv
+      check "断言有效性(AXI)" --top tb_axi_assert_eff_sv -I sv -I . -DACASE=0 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
+        sv/apb_if.sv sv/tb_axi_assert_eff_sv.sv
       check "DW=64 数据通路" --top tb_dw64_sv -I sv -I . \
         axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
         sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
@@ -230,12 +236,12 @@ stage3() {
     total_checks=$(echo "$out" | grep -oE "[0-9]+ (checks|checks passed)" \
                    | grep -oE "^[0-9]+" | awk '{s+=$1} END{print s+0}')
     local dt=$((SECONDS-t0))
-    if [ $rc -eq 0 ] && [ "$passes" -ge 18 ] && [ "${total_checks:-0}" -ge 1000 ]; then
-        echo -e "  ${GRN}${BOLD}PASS${R} —— $passes/18 套件通过，累计 ${total_checks} 项检查（${dt}s）"
+    if [ $rc -eq 0 ] && [ "$passes" -ge 19 ] && [ "${total_checks:-0}" -ge 1000 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— $passes/19 套件通过，累计 ${total_checks} 项检查（${dt}s）"
         record "$1" PASS $dt
         return 0
     else
-        echo -e "  ${RED}${BOLD}FAIL${R} —— $passes/18 通过，检查数 ${total_checks:-0}（${dt}s）"
+        echo -e "  ${RED}${BOLD}FAIL${R} —— $passes/19 通过，检查数 ${total_checks:-0}（${dt}s）"
         record "$1" FAIL $dt
         return 1
     fi
