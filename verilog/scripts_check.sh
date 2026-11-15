@@ -137,12 +137,27 @@ echo -e "${B}[3/3] 实际执行${R}"
 # 本机可运行的脚本（有明确权限/依赖）
 # audit.sh 的前置检查要求 RTL 干净；此处用 --allow-dirty
 # 避免「开发中工作区不干净」被误判为脚本失效
-out=$(timeout 400 bash audit.sh --allow-dirty 2>&1); rc=$?
-if [ "$rc" -eq 0 ]; then
-    record "audit.sh 执行" PASS "exit=0"
+# audit.sh 首次执行耗时取决于机器负载：
+#   完整审计含 A8（跑 G6 变异约 350s）+ A1-A7，总计可能 600s+
+#   --fast 模式只验证它能启动（--list），避免 CI G1 被拖到 10 分钟
+if [ "$FAST" -eq 1 ]; then
+    out=$(timeout 120 bash audit.sh --list 2>&1); rc=$?
+    if [ "$rc" -eq 0 ] && echo "$out" | grep -q "A1 "; then
+        echo -e "  ${D}- 部分验证${R} audit.sh（--fast：仅验证可启动与审计项清单）"
+        record "audit.sh 执行" SKIP "--fast"
+    else
+        echo -e "  ${Y}✗${R} audit.sh 无法启动（exit=$rc）"
+        record "audit.sh 执行" FAIL "exit=$rc"
+    fi
 else
-    record "audit.sh 执行" FAIL "exit=$rc"
-    echo "$out" | tail -4 | sed 's/^/      /'
+    # 完整审计：A8 会跑 G6 变异（~350s），默认 900s 超时
+    out=$(timeout "${AUDIT_TIMEOUT:-900}" bash audit.sh --allow-dirty 2>&1); rc=$?
+    if [ "$rc" -eq 0 ]; then
+        record "audit.sh 执行" PASS "exit=0"
+    else
+        record "audit.sh 执行" FAIL "exit=$rc"
+        echo "$out" | tail -4 | sed 's/^/      /'
+    fi
 fi
 run_script "axi/lint_all.sh" 0 200 || true
 if [ "$FAST" -eq 1 ]; then

@@ -29,7 +29,7 @@ cd "$(dirname "$0")" || exit 1
 
 # ---- 配置 ----
 MIN_RTL_COVERAGE=90      # G5 阈值（%）
-MIN_MUTATION_SCORE=88    # G6 阈值（%）
+MIN_MUTATION_SCORE=88
 SLANG=$(command -v slang 2>/dev/null || echo "")
 VERILATOR="${VERILATOR:-/tmp/verilator/bin/verilator_bin}"
 [ -z "$VERILATOR_ROOT" ] && export VERILATOR_ROOT=/tmp/verilator
@@ -173,6 +173,10 @@ stage1() {
           echo -e "${RED}✗${R}"
           tail -8 /tmp/ci_lint.log | sed 's/^/      /'
       fi
+      check "位域跨域隔离" --top tb_field_iso_sv -I sv -I . -DTXN_DW=32 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regfile_gen.sv sv/axi_txn_host.sv sv/tb_field_iso_sv.sv
       check "并发桥错误隔离" --top tb_dual_err_sv -I sv -I . -DTXN_DW=32 \
         axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
         sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
