@@ -197,6 +197,11 @@ case "${1:-all}" in
             exit 1
         fi
         ;;
+    sva)
+        ( cd axi && build_run sva tb_sva_antecedent_sv "-I./sv -I." \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
+            sv/apb_if.sv sv/tb_sva_antecedent_sv.sv )
+        ;;
     dw64)
         ( cd axi && build_run dw64 tb_dw64_sv "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -389,6 +394,7 @@ case "${1:-all}" in
         bash "$0" latency
         bash "$0" fairness
         bash "$0" params
+        bash "$0" sva
         bash "$0" dw64
         bash "$0" stress
         bash "$0" regfile
@@ -400,7 +406,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      monitor monitorrules latency fairness params dw64"
+        echo "      monitor monitorrules latency fairness params sva dw64"
         echo "      coverage mutate sweep docs wave all"
         exit 1
         ;;
