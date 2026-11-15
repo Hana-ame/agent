@@ -134,6 +134,11 @@ case "${1:-all}" in
             axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
             sv/apb_if.sv sv/axi_apb_monitor.sv sv/tb_monitor_selftest.sv )
         ;;
+    monitorrules)
+        ( cd axi && build_run monitorrules tb_monitor_rules "-I./sv -I." \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
+            sv/apb_if.sv sv/axi_apb_monitor.sv sv/tb_monitor_rules.sv )
+        ;;
     covgaps)
         ( cd axi && build_run covgaps tb_cov_gaps "--coverage -I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -273,6 +278,7 @@ case "${1:-all}" in
         bash "$0" dual
         bash "$0" covgaps
         bash "$0" monitor
+        bash "$0" monitorrules
         bash "$0" stress
         bash "$0" regfile
         bash "$0" regfilegen
@@ -283,7 +289,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      monitor coverage mutate sweep docs wave all"
+        echo "      monitor monitorrules coverage mutate sweep docs wave all"
         exit 1
         ;;
 esac
