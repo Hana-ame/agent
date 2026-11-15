@@ -61,7 +61,7 @@ record() {   # record <name> <PASS|FAIL|SKIP> <seconds>
 STAGE_NAMES=(
     "G1:编译检查(slang)"
     "G2:快速回归(4套件)"
-    "G3:全量回归(21套件)"
+    "G3:全量回归(22套件)"
     "G4:参数扫掠"
     "G5:RTL覆盖率(>=${MIN_RTL_COVERAGE}%)"
     "G6:变异得分(>=${MIN_MUTATION_SCORE}%)"
@@ -165,6 +165,10 @@ stage1() {
           echo -e "${RED}✗${R}"
           tail -8 /tmp/ci_lint.log | sed 's/^/      /'
       fi
+      check "复位域独立性" --top tb_reset_domain_sv -I sv -I . -DTXN_DW=32 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_reset_domain_sv.sv
       check "握手时序规范" --top tb_handshake_protocol_sv -I sv -I . \
         axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
         sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
@@ -282,7 +286,7 @@ stage3() {
         record "$1" PASS $dt
         return 0
     else
-        echo -e "  ${RED}${BOLD}FAIL${R} —— $passes/21 通过，检查数 ${total_checks:-0}（${dt}s）"
+        echo -e "  ${RED}${BOLD}FAIL${R} —— $passes/22 通过，检查数 ${total_checks:-0}（${dt}s）"
         record "$1" FAIL $dt
         return 1
     fi
