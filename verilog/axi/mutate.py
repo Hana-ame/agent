@@ -48,10 +48,12 @@ MUTATIONS = [
      "if (wait_cnt == 0) begin", "if (wait_cnt <= 0) begin"),
 
     # --- 桥（axi_apb_bridge_sv）---
-    ("M06", "axi_apb_bridge_sv.sv", "B 响应等待 BREADY 改为无条件",
-     "S_B_RESP: if (axi.BREADY)", "S_B_RESP: if (1'b1)"),
-    ("M07", "axi_apb_bridge_sv.sv", "R 响应等待 RREADY 改为无条件",
-     "S_R_RESP: if (axi.RREADY)", "S_R_RESP: if (1'b1)"),
+    ("M06", "axi_apb_bridge_dual_sv.sv", "B 响应不等 BREADY 就退出（反压丢失）",
+     "                W_RESP: begin\n                    if (axi.BREADY) begin",
+     "                W_RESP: begin\n                    if (1'b1) begin"),
+    ("M07", "axi_apb_bridge_dual_sv.sv", "R 响应不等 RREADY 就退出（反压丢失）",
+     "                R_RESP: begin\n                    if (axi.RREADY) begin",
+     "                R_RESP: begin\n                    if (1'b1) begin"),
     ("M08", "axi_apb_bridge_sv.sv", "APB 地址被篡改低位（地址错位）",
      "                        paddr_q <= axi.AWADDR;\n                        pwdata_q <= axi.WDATA;",
      "                        paddr_q <= axi.AWADDR | 2'b01;\n                        pwdata_q <= axi.WDATA;"),

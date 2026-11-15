@@ -334,6 +334,153 @@ module tb_dual_sv #(
         $display("  [D-05] 合法地址仍返回 OKAY ✓");
     endtask
 
+
+    // ------------------------------------------------------------------
+    // D-06：B 通道反压 —— BREADY 长期为低时 BVALID 必须保持
+    // ------------------------------------------------------------------
+    // 变异测试发现：既有测试 BREADY 常高，无法观测「桥不等 BREADY 就退出
+    // RESP 状态」的缺陷（那样 BVALID 只持续一拍，主站晚取就丢事务）。
+    // AXI 规则：VALID 一旦拉高，在 READY 之前不得撤销。
+    task automatic t_d06_b_backpressure();
+        int hold_cycles = 8;
+        int hold_seen = 0;
+        int wait_lim = 60;
+        bit b_valid_ever = 0;
+        logic [1:0] resp_cap;
+        $display("== D-06: B 通道反压（BREADY 延迟 %0d 拍）==", hold_cycles);
+        do_reset();
+
+        // ---- 发起写；BREADY 全程为低 ----
+        @(posedge ACLK); #1;
+        axi.AWVALID = 1'b1; axi.AWADDR = 8'h00;
+        axi.WVALID  = 1'b1; axi.WDATA  = 32'h1234_5678;
+        begin : hs
+            bit aw_ok = 0, w_ok = 0;
+            while (!(aw_ok && w_ok)) begin
+                @(posedge ACLK); #1;
+                if (!aw_ok && axi.AWREADY) begin aw_ok = 1; axi.AWVALID = 1'b0; end
+                if (!w_ok  && axi.WREADY)  begin w_ok  = 1; axi.WVALID  = 1'b0; end
+            end
+        end
+
+        // ---- 关键修正：先等 BVALID 首次拉高（APB 事务需若干拍），
+        //      再检查它在 BREADY=0 期间是否持续保持 ----
+        for (int c = 0; c < wait_lim && !b_valid_ever; c++) begin
+            @(posedge ACLK); #1;
+            if (axi.BVALID) begin
+                b_valid_ever = 1;
+                resp_cap = axi.BRESP;
+            end
+        end
+
+        checks++;
+        if (!b_valid_ever) begin
+            $display("  [D-06] FAIL: BREADY=0 时 BVALID 从未拉高（%0d 拍超时）", wait_lim);
+            errors++;
+        end else begin
+            // 已拉高：继续观察 hold_cycles 拍，BVALID 必须一直保持
+            for (int c = 0; c < hold_cycles; c++) begin
+                @(posedge ACLK); #1;
+                if (axi.BVALID) hold_seen++;
+            end
+            checks++;
+            if (hold_seen == hold_cycles) begin
+                $display("  [D-06] BREADY=0 期间 BVALID 持续保持 %0d 拍 ✓", hold_cycles);
+            end else begin
+                $display("  [D-06] FAIL: BVALID 仅保持 %0d/%0d 拍（AXI 要求保持到握手）",
+                         hold_seen, hold_cycles);
+                errors++;
+            end
+        end
+
+        // ---- 释放 BREADY，握手应完成 ----
+        axi.BREADY = 1'b1;
+        @(posedge ACLK); #1;
+        checks++;
+        if (resp_cap !== RESP_OKAY) begin
+            $display("  [D-06] FAIL: BRESP=%s（应 OKAY）", resp_name(resp_cap));
+            errors++;
+        end else
+            $display("  [D-06] 反压释放后写事务正常完成 ✓");
+        #1; axi.BREADY = 1'b0;
+        @(posedge ACLK);
+    endtask
+
+    // ------------------------------------------------------------------
+    // D-07：R 通道反压 —— RREADY 长期为低时 RVALID/RDATA 必须保持
+    // ------------------------------------------------------------------
+    task automatic t_d07_r_backpressure();
+        int hold_cycles = 8;
+        int hold_seen = 0;
+        int wait_lim = 60;
+        bit r_valid_ever = 0;
+        logic [DW-1:0] first_data = 'x;
+        logic [DW-1:0] cur_data;
+        int data_stable = 1;
+        $display("== D-07: R 通道反压（RREADY 延迟 %0d 拍）==", hold_cycles);
+        do_reset();
+
+        // 先写入已知值
+        wr(8'h04, 32'hCAFE_BABE);
+
+        // ---- 发起读；RREADY 全程为低 ----
+        @(posedge ACLK); #1;
+        axi.ARVALID = 1'b1; axi.ARADDR = 8'h04;
+        while (1) begin
+            @(posedge ACLK); #1;
+            if (axi.ARREADY) begin axi.ARVALID = 1'b0; break; end
+        end
+
+        // ---- 先等 RVALID 首次拉高，再检查保持 ----
+        for (int c = 0; c < wait_lim && !r_valid_ever; c++) begin
+            @(posedge ACLK); #1;
+            if (axi.RVALID) begin
+                r_valid_ever = 1;
+                first_data = axi.RDATA;
+            end
+        end
+
+        checks++;
+        if (!r_valid_ever) begin
+            $display("  [D-07] FAIL: RREADY=0 时 RVALID 从未拉高（%0d 拍超时）", wait_lim);
+            errors++;
+        end else begin
+            for (int c = 0; c < hold_cycles; c++) begin
+                @(posedge ACLK); #1;
+                if (axi.RVALID) begin
+                    hold_seen++;
+                    cur_data = axi.RDATA;
+                    if (cur_data !== first_data) data_stable = 0;
+                end
+            end
+            checks++;
+            if (hold_seen == hold_cycles)
+                $display("  [D-07] RREADY=0 期间 RVALID 持续保持 %0d 拍 ✓", hold_cycles);
+            else begin
+                $display("  [D-07] FAIL: RVALID 仅保持 %0d/%0d 拍", hold_seen, hold_cycles);
+                errors++;
+            end
+            checks++;
+            if (!data_stable) begin
+                $display("  [D-07] FAIL: 反压期间 RDATA 不稳定");
+                errors++;
+            end else
+                $display("  [D-07] 反压期间 RDATA 保持稳定 ✓");
+        end
+
+        // ---- 释放 RREADY ----
+        axi.RREADY = 1'b1;
+        @(posedge ACLK); #1;
+        checks++;
+        if (first_data !== 32'hCAFE_BABE) begin
+            $display("  [D-07] FAIL: 读数据=%h（应 CAFEBABE）", first_data);
+            errors++;
+        end else
+            $display("  [D-07] 反压后读数据正确 ✓");
+        #1; axi.RREADY = 1'b0;
+        @(posedge ACLK);
+    endtask
+
     // ------------------------------------------------------------------
     initial begin
         $display("======================================================");
@@ -345,6 +492,8 @@ module tb_dual_sv #(
         t_d02_r_during_b();
         t_d04_consistency();
         t_d05_error_propagation();
+        t_d06_b_backpressure();
+        t_d07_r_backpressure();
 
         $display("------------------------------------------------------");
         $display(" dual result: %0d checks, %0d errors", checks, errors);
