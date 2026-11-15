@@ -62,7 +62,7 @@ STAGE_NAMES=(
     "G1:编译检查(slang)"
     "G2:快速回归(4套件)"
     "G3:全量回归(21套件)"
-    "G4:参数扫掠(18组合)"
+    "G4:参数扫掠"
     "G5:RTL覆盖率(>=${MIN_RTL_COVERAGE}%)"
     "G6:变异得分(>=${MIN_MUTATION_SCORE}%)"
     "G7:文档生成(6份HTML)"
@@ -292,15 +292,21 @@ stage3() {
 # G4：参数扫掠
 # ---------------------------------------------------------------------------
 stage4() {
-    banner "G4 参数扫掠（9 种子 × 9 wait = 18 组合）"
+    banner "G4 参数扫掠（多种子 × 多 wait × 延迟公式）"
     local t0=$SECONDS
     local out
     out=$(bash sim.sh sweep 2>&1)
     local rc=$?
     echo "$out" | grep -E "^  (SEED|WAIT)|^PASS|^FAIL" | sed 's/^/  /'
     local dt=$((SECONDS-t0))
+    # 组合数从输出中动态提取（避免硬编码与实际脱节）
+    local n_combo
+    n_combo=$(echo "$out" | grep -oE "PASS: sweep [0-9]+/[0-9]+" | grep -oE "[0-9]+/" \
+              | tr -d '/' | tail -1)
+    [ -z "$n_combo" ] && n_combo=$(echo "$out" | grep -cE "^  (SEED|WAIT)" || true)
+    [ -z "$n_combo" ] && n_combo="?"
     if [ $rc -eq 0 ]; then
-        echo -e "  ${GRN}${BOLD}PASS${R} —— 18/18 组合通过（${dt}s）"
+        echo -e "  ${GRN}${BOLD}PASS${R} —— $n_combo/$n_combo 组合通过（${dt}s）"
         record "$1" PASS $dt
         return 0
     else

@@ -189,11 +189,18 @@ case "${1:-all}" in
           run_cfg 4 8  2  0 "串行最小"    0
           run_cfg 10 64 16 4 "串行大位宽" 0
           run_cfg 8 32 32 8 "串行多寄存器" 0
+          # 边界配置（本轮补充）：验证参数空间的极值
+          run_cfg 1 32 1  0 "串行地址极窄" 0     # AW=1：最小合法地址位宽
+          run_cfg 4 32 1  0 "串行单寄存器" 0     # NREG=1：地址译码边界
+          run_cfg 4 8  2 15 "串行长反压"  0      # WAIT=15：最长等待
           run_cfg 8 32 16 2 "并发默认"    1
           run_cfg 6 16 4  0 "并发小配置"  1
           run_cfg 4 8  2  0 "并发最小"    1
           run_cfg 10 64 16 4 "并发大位宽" 1
           run_cfg 8 32 32 8 "并发多寄存器" 1
+          run_cfg 1 32 1  0 "并发地址极窄" 1
+          run_cfg 4 32 1  0 "并发单寄存器" 1
+          run_cfg 4 8  2 15 "并发长反压"  1
         )
         echo "------------------------------------------------------"
         TOTAL=$(grep -c . "$CNT" 2>/dev/null || true); TOTAL=${TOTAL:-0}
@@ -201,11 +208,15 @@ case "${1:-all}" in
         TOTAL=$(echo "$TOTAL" | head -1 | tr -d ' \n')
         FAILED=$(echo "$FAILED" | head -1 | tr -d ' \n')
         rm -f "$CNT"
-        if [ "$FAILED" -eq 0 ] && [ "$TOTAL" -eq 10 ]; then
-            echo "PASS: params —— $TOTAL 组参数配置全部通过"
+        # 期望组数动态计算（硬编码会在新增配置时要求变松）
+        EXPECT_CFG=$(sed -n '/^    params)/,/^        ;;/p' sim.sh \
+                     | grep -cE '^\s+run_cfg [0-9]' || true)
+        EXPECT_CFG=${EXPECT_CFG:-0}
+        if [ "$FAILED" -eq 0 ] && [ "$TOTAL" -eq "$EXPECT_CFG" ] && [ "$TOTAL" -gt 0 ]; then
+            echo "PASS: params —— $TOTAL 组参数配置全部通过（期望 $EXPECT_CFG）"
             exit 0
         else
-            echo "FAIL: params —— $FAILED/$TOTAL 组失败"
+            echo "FAIL: params —— $FAILED/$TOTAL 组失败（期望 $TOTAL=$EXPECT_CFG）"
             exit 1
         fi
         ;;
