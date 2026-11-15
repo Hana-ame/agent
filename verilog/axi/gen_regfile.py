@@ -144,10 +144,24 @@ def gen_rtl(spec):
         attr_cases.append(f"            {idx}: return A_{r['attr']};   // {r['name']} "
                           f"@0x{int(str(r['offset']),0):02X}")
 
+    def _bfields_of(r):
+        return r.get("fields") or r.get("bitfields") or []
+
     reset_cases = []
     for r in sorted_regs:
         idx = int(str(r["offset"]), 0) // (dw // 8)
         rst = int(str(r["reset"]), 0)
+        # 若有位域，把各字段的 reset 合成到整字复位值
+        for f in _bfields_of(r):
+            bs = str(f["bits"])
+            if ":" in bs:
+                hi, lo = [int(x) for x in bs.split(":")]
+            else:
+                hi = lo = int(bs)
+            width = hi - lo + 1
+            mask = ((1 << width) - 1) << lo
+            freset = int(str(f.get("reset", 0)), 0)
+            rst = (rst & ~mask) | ((freset << lo) & mask)
         reset_cases.append(f"            {idx}: return {dw}'h{rst:0{dw//4}X};")
 
     reg_table = "\n".join(
@@ -366,8 +380,15 @@ def gen_tb(spec):
     rc_lines = []
     for r in rc_regs:
         o = int(str(r["offset"]), 0)
-        rc_lines.append(f'        // {r["name"]}: RC 读后清零')
+        rv = int(str(r["reset"]), 0)
+        rc_lines.append(f'        // {r["name"]}: 复位值 0x{rv:08X}，读后应清零')
         rc_lines.append(f'        read_reg({aw}\'h{o:02X}, d);   // 首读')
+        if rv != 0:
+            rc_lines.append(f'        checks++;')
+            rc_lines.append(f'        if (d !== {dw}\'h{rv:08X}) begin')
+            rc_lines.append(f'            $display("  [RC] FAIL: {r["name"]} 首读=%h expect {rv:08X}", d);')
+            rc_lines.append(f'            errors++;')
+            rc_lines.append(f'        end')
         rc_lines.append(f'        read_reg({aw}\'h{o:02X}, d);   // 再读应为 0')
         rc_lines.append(f'        checks++;')
         rc_lines.append(f'        if (d !== \'0) begin')
@@ -400,17 +421,27 @@ def gen_tb(spec):
         for r in ro_regs
     ) or "        // （规格中无 RO 寄存器）"
 
-    w1c_body = "\n".join(
-        f'        // {r["name"]}: 写全 1 应清零\n'
-        f'        write_reg({aw}\'h{off(r):02X}, {dw}\'hFFFF_FFFF);\n'
-        f'        read_reg({aw}\'h{off(r):02X}, d);\n'
-        f'        checks++;\n'
-        f'        if (d !== \'0) begin\n'
-        f'            $display("  [W1C] FAIL: {r["name"]} 写 1 后应 0，实际=%h", d);\n'
-        f'            errors++;\n'
-        f'        end'
-        for r in w1c_regs
-    ) or "        // （规格中无 W1C 寄存器）"
+    w1c_lines = []
+    for r in w1c_regs:
+        o = int(str(r["offset"]), 0)
+        rv = int(str(r["reset"]), 0)
+        w1c_lines.append(f'        // {r["name"]}: 复位值 0x{rv:08X}，写全 1 应清零')
+        if rv != 0:
+            # 关键：验证复位值非零，这样"清零"才可观测
+            w1c_lines.append(f'        read_reg({aw}\'h{o:02X}, d);')
+            w1c_lines.append(f'        checks++;')
+            w1c_lines.append(f'        if (d !== {dw}\'h{rv:08X}) begin')
+            w1c_lines.append(f'            $display("  [W1C] FAIL: {r["name"]} 复位值=%h expect {rv:08X}", d);')
+            w1c_lines.append(f'            errors++;')
+            w1c_lines.append(f'        end')
+        w1c_lines.append(f'        write_reg({aw}\'h{o:02X}, {dw}\'hFFFF_FFFF);')
+        w1c_lines.append(f'        read_reg({aw}\'h{o:02X}, d);')
+        w1c_lines.append(f'        checks++;')
+        w1c_lines.append(f'        if (d !== \'0) begin')
+        w1c_lines.append(f'            $display("  [W1C] FAIL: {r["name"]} 写 1 后应 0，实际=%h", d);')
+        w1c_lines.append(f'            errors++;')
+        w1c_lines.append(f'        end')
+    w1c_body = "\n".join(w1c_lines) or "        // （规格中无 W1C 寄存器）"
 
     rsvd_body = "\n".join(
         f'        // {r["name"]}: 读恒 0\n'

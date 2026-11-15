@@ -20,8 +20,8 @@
       "name": "INT_STATUS",
       "offset": "0x04",
       "attr": "W1C",
-      "reset": "0x00000000",
-      "description": "中断状态（整字 W1C）"
+      "reset": "0x000000F3",
+      "description": "中断状态（整字 W1C，复位带初始待处理位）"
     },
     {
       "name": "RESERVED0",
@@ -69,14 +69,14 @@
           "name": "STATUS_CODE",
           "bits": "23:16",
           "attr": "RC",
-          "reset": 0,
+          "reset": 60,
           "description": "状态码（读清零）"
         },
         {
           "name": "FLAGS",
           "bits": "31:24",
           "attr": "W1C",
-          "reset": 0,
+          "reset": 165,
           "description": "事件标志（写 1 清除）"
         }
       ]
@@ -120,8 +120,8 @@
       "name": "IRQ_CLEAR",
       "offset": "0x24",
       "attr": "W1C",
-      "reset": "0x00000000",
-      "description": "中断清除（整字 W1C）"
+      "reset": "0x0000000F",
+      "description": "中断清除（整字 W1C，复位带初始值）"
     },
     {
       "name": "INT_SET",
@@ -134,8 +134,8 @@
       "name": "EVENT_CNT",
       "offset": "0x2C",
       "attr": "RC",
-      "reset": "0x00000000",
-      "description": "事件计数（读清零）"
+      "reset": "0x000000A5",
+      "description": "事件计数（读清零，复位带初始值）"
     }
   ]
 }

@@ -50,6 +50,16 @@ def build_field_test(reg, aw, dw):
             L.append(f'        end')
         elif a == "W1C":
             L.append(f'        // {tag} [{hi}:{lo}] W1C: 写 1 应清零')
+            # 关键：先复位恢复位域初值，否则前面测试已把该位域写成 0，
+            # 「清零」与「保持」无差异，变异无法被发现
+            L.append(f'        do_reset();')
+            L.append(f'        read_reg({off_s}, d);   // 复位后应有初值')
+            L.append(f'        base = d & {mask_s};')
+            L.append(f'        checks++;')
+            L.append(f'        if (base === \'0) begin')
+            L.append(f'            $display("  [FLD] FAIL: {tag} W1C 复位后初值为0，清零不可观测");')
+            L.append(f'            errors++;')
+            L.append(f'        end')
             L.append(f'        write_reg({off_s}, {mask_s});')
             L.append(f'        read_reg({off_s}, d);')
             L.append(f'        checks++;')
@@ -69,7 +79,14 @@ def build_field_test(reg, aw, dw):
             L.append(f'        end')
         elif a == "RC":
             L.append(f'        // {tag} [{hi}:{lo}] RC: 读后清零')
-            L.append(f'        read_reg({off_s}, d);   // 第一次读')
+            L.append(f'        do_reset();   // 恢复 RC 位域初值')
+            L.append(f'        read_reg({off_s}, d);   // 第一次读（应为初值）')
+            L.append(f'        base = d & {mask_s};')
+            L.append(f'        checks++;')
+            L.append(f'        if (base === \'0) begin')
+            L.append(f'            $display("  [FLD] FAIL: {tag} RC 复位后初值为0，读清零不可观测");')
+            L.append(f'            errors++;')
+            L.append(f'        end')
             L.append(f'        read_reg({off_s}, d);   // 第二次读应为 0')
             L.append(f'        checks++;')
             L.append(f'        if ((d & {mask_s}) !== \'0) begin')

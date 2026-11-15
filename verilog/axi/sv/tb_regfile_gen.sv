@@ -5,7 +5,7 @@
 //
 // 覆盖寄存器（12 个）：
     //   0x00  VERSION      RO    reset=0x00010203
-    //   0x04  INT_STATUS   W1C   reset=0x00000000
+    //   0x04  INT_STATUS   W1C   reset=0x000000F3
     //   0x08  RESERVED0    RSVD  reset=0x00000000
     //   0x0C  CTRL         RW    reset=0x00000000
     //   0x10  STATUS       RO    reset=0x00000011
@@ -13,9 +13,9 @@
     //   0x18  DATA_IN      RW    reset=0x00000000
     //   0x1C  DATA_OUT     RW    reset=0x00000000
     //   0x20  SCRATCH      RW    reset=0x00000000
-    //   0x24  IRQ_CLEAR    W1C   reset=0x00000000
+    //   0x24  IRQ_CLEAR    W1C   reset=0x0000000F
     //   0x28  INT_SET      W1S   reset=0x00000000
-    //   0x2C  EVENT_CNT    RC    reset=0x00000000
+    //   0x2C  EVENT_CNT    RC    reset=0x000000A5
 // ============================================================================
 `ifndef TB_REGFILE_GEN_SV
 `define TB_REGFILE_GEN_SV
@@ -125,7 +125,13 @@ module tb_regfile_gen #(
         end
 
         $display("== W1C 寄存器（写 1 清零）==");
-        // INT_STATUS: 写全 1 应清零
+        // INT_STATUS: 复位值 0x000000F3，写全 1 应清零
+        read_reg(8'h04, d);
+        checks++;
+        if (d !== 32'h000000F3) begin
+            $display("  [W1C] FAIL: INT_STATUS 复位值=%h expect 000000F3", d);
+            errors++;
+        end
         write_reg(8'h04, 32'hFFFF_FFFF);
         read_reg(8'h04, d);
         checks++;
@@ -133,7 +139,13 @@ module tb_regfile_gen #(
             $display("  [W1C] FAIL: INT_STATUS 写 1 后应 0，实际=%h", d);
             errors++;
         end
-        // IRQ_CLEAR: 写全 1 应清零
+        // IRQ_CLEAR: 复位值 0x0000000F，写全 1 应清零
+        read_reg(8'h24, d);
+        checks++;
+        if (d !== 32'h0000000F) begin
+            $display("  [W1C] FAIL: IRQ_CLEAR 复位值=%h expect 0000000F", d);
+            errors++;
+        end
         write_reg(8'h24, 32'hFFFF_FFFF);
         read_reg(8'h24, d);
         checks++;
@@ -201,8 +213,13 @@ module tb_regfile_gen #(
         end
 
         $display("== RC 寄存器（读清零）==");
-        // EVENT_CNT: RC 读后清零
+        // EVENT_CNT: 复位值 0x000000A5，读后应清零
         read_reg(8'h2C, d);   // 首读
+        checks++;
+        if (d !== 32'h000000A5) begin
+            $display("  [RC] FAIL: EVENT_CNT 首读=%h expect 000000A5", d);
+            errors++;
+        end
         read_reg(8'h2C, d);   // 再读应为 0
         checks++;
         if (d !== '0) begin
@@ -248,7 +265,14 @@ module tb_regfile_gen #(
             errors++;
         end
         // CTRL.STATUS_CODE [23:16] RC: 读后清零
-        read_reg(8'h0C, d);   // 第一次读
+        do_reset();   // 恢复 RC 位域初值
+        read_reg(8'h0C, d);   // 第一次读（应为初值）
+        base = d & 32'h00FF0000;
+        checks++;
+        if (base === '0) begin
+            $display("  [FLD] FAIL: CTRL.STATUS_CODE RC 复位后初值为0，读清零不可观测");
+            errors++;
+        end
         read_reg(8'h0C, d);   // 第二次读应为 0
         checks++;
         if ((d & 32'h00FF0000) !== '0) begin
@@ -256,6 +280,14 @@ module tb_regfile_gen #(
             errors++;
         end
         // CTRL.FLAGS [31:24] W1C: 写 1 应清零
+        do_reset();
+        read_reg(8'h0C, d);   // 复位后应有初值
+        base = d & 32'hFF000000;
+        checks++;
+        if (base === '0) begin
+            $display("  [FLD] FAIL: CTRL.FLAGS W1C 复位后初值为0，清零不可观测");
+            errors++;
+        end
         write_reg(8'h0C, 32'hFF000000);
         read_reg(8'h0C, d);
         checks++;

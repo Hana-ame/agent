@@ -5,7 +5,7 @@
 //
 // 寄存器映射：
     //   [ 0] 0x00  VERSION      RO    reset=0x00010203   IP 版本号（只读，整字属性）
-    //   [ 1] 0x04  INT_STATUS   W1C   reset=0x00000000   中断状态（整字 W1C）
+    //   [ 1] 0x04  INT_STATUS   W1C   reset=0x000000F3   中断状态（整字 W1C，复位带初始待处理位）
     //   [ 2] 0x08  RESERVED0    RSVD  reset=0x00000000   保留（整字保留）
     //   [ 3] 0x0C  CTRL         RW    reset=0x00000000   控制寄存器（含位域定义）（位域属性见 fields）
     //   [ 4] 0x10  STATUS       RO    reset=0x00000011   状态寄存器（整字只读）
@@ -13,9 +13,9 @@
     //   [ 6] 0x18  DATA_IN      RW    reset=0x00000000   数据输入
     //   [ 7] 0x1C  DATA_OUT     RW    reset=0x00000000   数据输出
     //   [ 8] 0x20  SCRATCH      RW    reset=0x00000000   暂存寄存器
-    //   [ 9] 0x24  IRQ_CLEAR    W1C   reset=0x00000000   中断清除（整字 W1C）
+    //   [ 9] 0x24  IRQ_CLEAR    W1C   reset=0x0000000F   中断清除（整字 W1C，复位带初始值）
     //   [10] 0x28  INT_SET      W1S   reset=0x00000000   中断置位（写 1 置位）
-    //   [11] 0x2C  EVENT_CNT    RC    reset=0x00000000   事件计数（读清零）
+    //   [11] 0x2C  EVENT_CNT    RC    reset=0x000000A5   事件计数（读清零，复位带初始值）
 //
 // 寄存器属性语义：
 //   RO    只读：写被忽略，读返回复位时的固定值
@@ -85,17 +85,17 @@ module apb_slave_regfile_gen #(
     function automatic logic [DW-1:0] reset_of(input int i);
         case (i)
             0: return 32'h00010203;
-            1: return 32'h00000000;
+            1: return 32'h000000F3;
             2: return 32'h00000000;
-            3: return 32'h00000000;
+            3: return 32'hA53C0000;
             4: return 32'h00000011;
             5: return 32'h00000000;
             6: return 32'h00000000;
             7: return 32'h00000000;
             8: return 32'h00000000;
-            9: return 32'h00000000;
+            9: return 32'h0000000F;
             10: return 32'h00000000;
-            11: return 32'h00000000;
+            11: return 32'h000000A5;
             default: return '0;
         endcase
     endfunction

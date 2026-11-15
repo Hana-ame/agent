@@ -55,7 +55,10 @@ module tb_dual_sv #(
     // ------------------------------------------------------------------
     // 基本写事务（AW+W 同拍发，握手后立即撤销 VALID）
     // ------------------------------------------------------------------
-    task automatic wr(input [AW-1:0] a, input [DW-1:0] d);
+    // 记录最近一次写的响应（供 D-05 错误传播测试使用）
+    logic [1:0] last_wr_resp;
+
+    task automatic wr_resp(input [AW-1:0] a, input [DW-1:0] d, output logic [1:0] resp);
         bit aw_ok = 0, w_ok = 0;
         @(posedge ACLK); #1;
         // 在沿后 #1 驱动，桥在下一个 posedge 采样
@@ -77,8 +80,16 @@ module tb_dual_sv #(
         end
         axi.BREADY = 1'b1;
         do @(posedge ACLK); while (!axi.BVALID);
+        resp = axi.BRESP;
         #1; axi.BREADY = 1'b0;
         @(posedge ACLK);
+    endtask
+
+    // 兼容旧调用的 wr（丢弃响应，但记录下来）
+    task automatic wr(input [AW-1:0] a, input [DW-1:0] d);
+        logic [1:0] r;
+        wr_resp(a, d, r);
+        last_wr_resp = r;
     endtask
 
     // ------------------------------------------------------------------
@@ -266,6 +277,63 @@ module tb_dual_sv #(
         end
     endtask
 
+
+    // ------------------------------------------------------------------
+    // D-05：错误响应传播（越界地址 → APB PSLVERR → AXI SLVERR）
+    // ------------------------------------------------------------------
+    // 变异测试发现：双桥的所有既有测试都不产生错误响应，
+    // 因此 "SLVERR 恒为 OKAY" 这类缺陷无法被发现。
+    // 本任务专门验证错误传播路径。
+    task automatic t_d05_error_propagation();
+        logic [DW-1:0] d;
+        logic [1:0] resp;
+        int bad_ok = 0, good_ok = 0;
+
+        $display("== D-05: 错误响应传播（越界地址 → SLVERR）==");
+
+        // 越界写：NREG=16，地址 0x40 起越界
+        for (int k = 0; k < 4; k++) begin
+            automatic int oob = NREG*4 + k*4;
+            automatic logic [1:0] wresp;
+            wr_resp(oob[AW-1:0], 32'hDEAD_0000 + k, wresp);
+            checks++;
+            if (wresp === RESP_SLVERR) bad_ok++;
+            else begin
+                $display("  [D-05] FAIL: 越界写 addr=0x%0h 未返回 SLVERR，实际=%s",
+                         oob, resp_name(wresp));
+                errors++;
+            end
+        end
+
+        // 越界读
+        for (int k = 0; k < 4; k++) begin
+            automatic int oob = NREG*4 + k*4;
+            rd(oob[AW-1:0], d, resp);
+            checks++;
+            if (resp === RESP_SLVERR) good_ok++;
+            else begin
+                $display("  [D-05] FAIL: 越界读 addr=0x%0h 未返回 SLVERR，实际=%s",
+                         oob, resp_name(resp));
+                errors++;
+            end
+        end
+
+        if (bad_ok == 4 && good_ok == 4)
+            $display("  [D-05] 越界读/写各 4 次均正确传播 SLVERR ✓");
+
+        // 合法地址必须仍返回 OKAY（避免"恒 SLVERR"的过度修复）
+        for (int k = 0; k < 4; k++) begin
+            rd(k*4, d, resp);
+            checks++;
+            if (resp !== RESP_OKAY) begin
+                $display("  [D-05] FAIL: 合法地址 0x%0h 返回 %s（应 OKAY）",
+                         k*4, resp_name(resp));
+                errors++;
+            end
+        end
+        $display("  [D-05] 合法地址仍返回 OKAY ✓");
+    endtask
+
     // ------------------------------------------------------------------
     initial begin
         $display("======================================================");
@@ -276,6 +344,7 @@ module tb_dual_sv #(
         t_d01_b_during_r();
         t_d02_r_during_b();
         t_d04_consistency();
+        t_d05_error_propagation();
 
         $display("------------------------------------------------------");
         $display(" dual result: %0d checks, %0d errors", checks, errors);

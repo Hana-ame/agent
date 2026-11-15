@@ -186,6 +186,10 @@ case "${1:-all}" in
             echo "WARN: 未找到 verilator_coverage" >&2
         fi
         ;;
+    mutate)
+        # 变异测试：验证测试能否发现人为注入的 RTL 缺陷
+        ( cd axi && python3 mutate.py )
+        ;;
     docs)
         # 生成所有 HTML 可视化文档（从源码解析，非手绘）
         echo "== docs: FSM 状态转移图 =="
@@ -233,7 +237,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      coverage docs wave all"
+        echo "      coverage mutate docs wave all"
         exit 1
         ;;
 esac

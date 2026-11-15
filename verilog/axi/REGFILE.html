@@ -67,8 +67,8 @@ border-radius:4px;color:#79c0ff}
 <td class="mono">[1]</td>
 <td class="name">INT_STATUS</td>
 <td><span class="attr" style="color:#d29922;border-color:#d2992244">W1C</span></td>
-<td class="mono">0x00000000</td>
-<td class="desc">中断状态（整字 W1C）</td>
+<td class="mono">0x000000F3</td>
+<td class="desc">中断状态（整字 W1C，复位带初始待处理位）</td>
 </tr><tr>
 <td class="mono">0x08</td>
 <td class="mono">[2]</td>
@@ -123,8 +123,8 @@ border-radius:4px;color:#79c0ff}
 <td class="mono">[9]</td>
 <td class="name">IRQ_CLEAR</td>
 <td><span class="attr" style="color:#d29922;border-color:#d2992244">W1C</span></td>
-<td class="mono">0x00000000</td>
-<td class="desc">中断清除（整字 W1C）</td>
+<td class="mono">0x0000000F</td>
+<td class="desc">中断清除（整字 W1C，复位带初始值）</td>
 </tr><tr>
 <td class="mono">0x28</td>
 <td class="mono">[10]</td>
@@ -137,8 +137,8 @@ border-radius:4px;color:#79c0ff}
 <td class="mono">[11]</td>
 <td class="name">EVENT_CNT</td>
 <td><span class="attr" style="color:#f85149;border-color:#f8514944">RC</span></td>
-<td class="mono">0x00000000</td>
-<td class="desc">事件计数（读清零）</td>
+<td class="mono">0x000000A5</td>
+<td class="desc">事件计数（读清零，复位带初始值）</td>
 </tr></tbody></table>
 
 <h2>寄存器属性语义</h2>
