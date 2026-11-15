@@ -134,6 +134,12 @@ case "${1:-all}" in
             axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
             sv/apb_if.sv sv/axi_apb_monitor.sv sv/tb_monitor_selftest.sv )
         ;;
+    latency)
+        ( cd axi && build_run latency tb_latency_sv "-I./sv -I. -GWAITC=${WAIT:-2}" \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_latency_sv.sv )
+        ;;
     monitorrules)
         ( cd axi && build_run monitorrules tb_monitor_rules "-I./sv -I." \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
@@ -226,6 +232,18 @@ case "${1:-all}" in
                 FAILED=$((FAILED+1))
             fi
         done
+        echo "== sweep: 延迟公式验证（延迟 = 7 + WAIT）=="
+        for w in 0 1 2 4 8 16; do
+            TOTAL=$((TOTAL+1))
+            out=$(WAIT=$w bash "$0" latency 2>&1)
+            expect=$((7+w))
+            if echo "$out" | grep -q "^PASS" && echo "$out" | grep -q "写 $expect 周期"; then
+                printf "  WAIT=%-3s → 延迟 %2d 周期  PASS\n" "$w" "$expect"
+            else
+                printf "  WAIT=%-3s → 延迟不符（期望 %d） FAIL\n" "$w" "$expect"
+                FAILED=$((FAILED+1))
+            fi
+        done
         echo "------------------------------------------------------"
         if [ "$FAILED" -eq 0 ]; then
             echo "PASS: sweep —— $TOTAL 组参数组合全部通过"
@@ -279,6 +297,7 @@ case "${1:-all}" in
         bash "$0" covgaps
         bash "$0" monitor
         bash "$0" monitorrules
+        bash "$0" latency
         bash "$0" stress
         bash "$0" regfile
         bash "$0" regfilegen
@@ -289,7 +308,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      monitor monitorrules coverage mutate sweep docs wave all"
+        echo "      monitor monitorrules latency coverage mutate sweep docs wave all"
         exit 1
         ;;
 esac
