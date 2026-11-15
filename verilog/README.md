@@ -31,6 +31,7 @@
 | `sv/apb_slave_regfile_sv.sv` | 带属性从机（RO/RW/W1C/RSVD/W1S/RC） |
 | `sv/axi_txn_host.sv` | 事务适配器（txn_t → AXI 时序，测试复用） |
 | `sv/axi_apb_monitor.sv` | **独立协议监视器**（被动只读，自动检查 AXI/APB 合法性） |
+| `sv/bus_txn_pkg.sv` | 事务结构体（数据位宽由 `TXN_DW` 宏配置，默认 32） |
 | `regfile_spec.json` | 寄存器规格（唯一事实来源，含位域） |
 | `gen_regfile.py` | spec → RTL / TB / 手册 生成器 |
 | `gen_fsm_html.py` | 源码 → FSM 状态转移图 |

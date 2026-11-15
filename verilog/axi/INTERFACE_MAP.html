@@ -88,7 +88,7 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <td><span class="chip out">AWVALID</span><span class="chip out">AWADDR</span><span class="chip out">WVALID</span><span class="chip out">WDATA</span><span class="chip out">ARVALID</span><span class="chip out">ARADDR</span></td><td><span class="chip in">BVALID</span><span class="chip in">BRESP</span><span class="chip in">RVALID</span><span class="chip in">RDATA</span><span class="chip in">RRESP</span></td><td style="color:#8b949e">选择写/读通道：写走 AW/W/B，读走 AR/R</td></tr><tr>
 <td class="mono"><b>addr</b><span style="color:#6e7681"> [7:0]</span></td>
 <td><span class="chip out">AWADDR</span><span class="chip out">ARADDR</span></td><td><span class="chip in">PRDATA</span><span class="chip in">PSLVERR</span></td><td style="color:#8b949e">地址 → AWADDR（写）或 ARADDR（读）→ 桥转 PADDR → 从机译码</td></tr><tr>
-<td class="mono"><b>data</b><span style="color:#6e7681"> [31:0]</span></td>
+<td class="mono"><b>data</b><span style="color:#6e7681"> [`TXN_DW-1:0]</span></td>
 <td><span class="chip out">WDATA</span></td><td><span class="chip in">RDATA</span><span class="chip in">PRDATA</span></td><td style="color:#8b949e">写数据 → WDATA → PWDATA → 寄存器；读数据反向 RDATA</td></tr><tr>
 <td class="mono"><b>pause</b><span style="color:#6e7681"> [7:0]</span></td>
 <td><span class="chip out">AWVALID</span><span class="chip out">WVALID</span><span class="chip out">ARVALID</span></td><td><span class="chip dim">—</span></td><td style="color:#8b949e">事务后拉低全部 VALID，插 N 拍总线空闲</td></tr><tr>
@@ -99,7 +99,7 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 
 <h2><span class="n">02</span>结果字段（rsp_t）</h2>
 <table><thead><tr><th style="width:150px">字段</th><th>来源</th></tr></thead>
-<tbody><tr><td class="mono"><b>data</b><span style="color:#6e7681"> [31:0]</span></td><td style="color:#8b949e">读回数据（来自 RDATA）</td></tr><tr><td class="mono"><b>resp</b><span style="color:#6e7681"> [1:0]</span></td><td style="color:#8b949e">实际响应编码（来自 BRESP/RRESP）</td></tr><tr><td class="mono"><b>idle</b><span style="color:#6e7681"> [7:0]</span></td><td style="color:#8b949e">实际注入的空闲拍数（pause 可观测）</td></tr></tbody></table>
+<tbody><tr><td class="mono"><b>data</b><span style="color:#6e7681"> [`TXN_DW-1:0]</span></td><td style="color:#8b949e">读回数据（来自 RDATA）</td></tr><tr><td class="mono"><b>resp</b><span style="color:#6e7681"> [1:0]</span></td><td style="color:#8b949e">实际响应编码（来自 BRESP/RRESP）</td></tr><tr><td class="mono"><b>idle</b><span style="color:#6e7681"> [7:0]</span></td><td style="color:#8b949e">实际注入的空闲拍数（pause 可观测）</td></tr></tbody></table>
 <div class="legend">
 <span>🟩 驱动信号（本层输出）</span><span>🟪 观测信号（本层采样）</span>
 <span>⬜ 无</span></div>

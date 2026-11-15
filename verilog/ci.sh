@@ -136,7 +136,7 @@ stage1() {
         axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
         sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
         sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_fairness_sv.sv
-      check "参数矩阵" --top tb_param_sv -I sv -I . \
+      check "参数矩阵" --top tb_param_sv -I sv -I . -DTXN_DW=32 \
         axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
         sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
         sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \

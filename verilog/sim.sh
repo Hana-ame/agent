@@ -144,7 +144,7 @@ case "${1:-all}" in
             rm -rf "$d"; mkdir -p "$d"
             if ! "$VLT" --binary --assert --timing --top-module tb_param_sv \
                  --Mdir "$d/obj" $NOWARN -I./sv -I. \
-                 -GAW=$aw -GDW=$dw -GNREG=$nreg -GWAITC=$wc \
+                 -GAW=$aw -GDW=$dw -GNREG=$nreg -GWAITC=$wc -DTXN_DW=$dw \
                  axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
                  sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
                  sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \

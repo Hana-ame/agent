@@ -42,7 +42,10 @@ module tb_param_sv #(
     // 已验证（tb_dw64 直接驱动接口，绕过 txn_t）：
     //   DW=64 时桥与从机的读写数据、边界、越界响应全部正确。
     // 故本限制属验证基础设施问题，不是 DUT 缺陷。
-    localparam bit DATA_CHECK = (DW == 32);
+    // TXN_DW（事务层位宽）与 DW（DUT 位宽）一致时可做数据完整性检查。
+    // sim.sh params 目标会自动按 DW 传 -DTXN_DW=<DW>。
+    localparam int TXN_WIDTH = `TXN_DW;
+    localparam bit DATA_CHECK = (TXN_WIDTH == DW);
 
     localparam logic [DW-1:0] PATTERN_A = {DW/4{4'hA}};
     localparam logic [DW-1:0] PATTERN_5 = {DW/4{4'h5}};
@@ -236,7 +239,7 @@ module tb_param_sv #(
         $display(" 参数配置验证：AW=%0d DW=%0d NREG=%0d WAIT=%0d",
                  AW, DW, NREG, WAITC);
         if (!DATA_CHECK)
-            $display(" 注：DW != 32，跳过数据完整性检查（txn_t.data 硬编码 32 位）");
+            $display(" 注：TXN_DW(%0d) != DW(%0d)，跳过数据完整性检查", TXN_WIDTH, DW);
         $display("======================================================");
 
         t_basic();
