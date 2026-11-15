@@ -44,7 +44,9 @@ module tb_reset_domain_sv #(
         .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi)
     );
     // 关键：PRESETn 独立，不再跟随 ARESETn
-    apb_slave_regs_sv #(.AW(AW), .DW(DW), .NREG(NREG), .WAIT_CYCLES(1)) slave (
+    // WAIT_CYCLES=3：拉长 APB ACCESS 窗口，
+    // 使 [5] 的「传输中独立复位」能稳定命中 S_RD_ACC（否则是时序竞态）
+    apb_slave_regs_sv #(.AW(AW), .DW(DW), .NREG(NREG), .WAIT_CYCLES(3)) slave (
         .PCLK(ACLK), .PRESETn(PRESETn), .apb(apb)
     );
 
@@ -218,14 +220,104 @@ module tb_reset_domain_sv #(
         end
 
         // ---------------------------------------------------------
+        // [5] APB 独立复位导致死锁 → ARESETn 可恢复
+        // ---------------------------------------------------------
+        // 上轮发现：APB 从机在传输中被单独复位会让桥卡在
+        // S_RD_ACC / S_WR_ACC 等 PREADY。这里进一步验证：
+        // 该死锁能否通过复位 AXI 域解除？——结论：可以。
+        $display("== [5] APB 传输中独立复位 → 死锁 → ARESETn 恢复 ==");
+        wait_idle("before-deadlock-test");
+        // 确保所有 AXI 通道完全空闲（前面操作可能残留 valid）
+        clear_axi_bus();
+        repeat (5) @(posedge ACLK);
+        wait_idle("before-deadlock-test-2");
+
+        begin
+            bit hit = 0;
+            // 用 fork 并行监控：桥完成 APB 传输只需极少数周期，
+            // 串行「先拉 AR 再等 PENABLE」会错过窗口。
+            // 因此一边驱动 AR，一边立即盯 PENABLE。
+            fork
+                // 线程 A：驱动读事务
+                begin
+                    axi.ARVALID = 1; axi.ARADDR = 8'h10; axi.RREADY = 0;
+                    begin
+                        int g = 0; bit done = 0;
+                        while (!done && g < 50) begin
+                            @(posedge ACLK); #1; g++;
+                            if (axi.ARREADY) done = 1;
+                        end
+                        if (done) axi.ARVALID = 0;
+                    end
+                end
+                // 线程 B：盯 PENABLE，命中即复位 PRESETn
+                begin
+                    int g = 0; bit found = 0;
+                    while (!found && g < 80) begin
+                        @(posedge ACLK); #1; g++;
+                        if (apb.PENABLE && apb.PSEL && !apb.PREADY) begin
+                            found = 1;
+                            hit = 1;
+                            $display("  命中 APB ACCESS（st=%0d），复位 PRESETn", bridge.state);
+                            PRESETn = 0;
+                            repeat (4) @(posedge ACLK);
+                            PRESETn = 1;
+                        end
+                    end
+                end
+            join
+            repeat (10) @(posedge ACLK);
+
+            checks++;
+            if (hit && bridge.state != 0) begin
+                $display("  ✓ 确认死锁：桥卡在 state=%0d（等 PREADY）", bridge.state);
+            end else if (!hit) begin
+                $display("  ⚠ 未命中 APB ACCESS 窗口（st=%0d, PENABLE=%b, PSEL=%b）",
+                         bridge.state, apb.PENABLE, apb.PSEL);
+            end else begin
+                $display("  ✗ 预期死锁但桥已回 IDLE");
+                errors++;
+            end
+
+            // 用 ARESETn 恢复（复位会打断 APB 传输，R2 断言必然触发）
+            $assertoff(0, tb_reset_domain_sv.apb);
+            ARESETn = 0; clear_axi_bus();
+            repeat (4) @(posedge ACLK);
+            ARESETn = 1;
+            repeat (2) @(posedge ACLK);
+            $asserton(0, tb_reset_domain_sv.apb);
+
+            checks++;
+            if (bridge.state == 0) begin
+                $display("  ✓ ARESETn 成功解除死锁（桥回 IDLE）");
+            end else begin
+                $display("  ✗ ARESETn 未能解除死锁（state=%0d）", bridge.state);
+                errors++;
+            end
+
+            // 恢复后必须能正常工作
+            wr(8'h18, 32'hDEAD_BEEF, resp);
+            rd(8'h18, data, resp);
+            checks++;
+            if (resp === RESP_OKAY && data === 32'hDEAD_BEEF) begin
+                $display("  ✓ 恢复后系统可正常读写");
+            end else begin
+                $display("  ✗ 恢复后系统失效：data=0x%08h", data);
+                errors++;
+            end
+        end
+
+        // ---------------------------------------------------------
         // 汇总 + 使用约束说明
         // ---------------------------------------------------------
         $display("------------------------------------------------------");
         $display(" 使用约束（本测试验证得出结论）：");
-        $display("   APB 从机不得在事务进行中被单独复位 ——");
-        $display("   桥无超时保护，会卡在 S_RD_ACC/S_WR_ACC 等 PREADY。");
-        $display("   实际 SoC 中应保证 APB 域复位不打断进行中的传输；");
-        $display("   若不满足，需在系统层加超时复位。");
+        $display("   1. APB 从机不得在事务进行中被单独复位 ——");
+        $display("      桥无超时保护，会卡在 S_RD_ACC/S_WR_ACC 等 PREADY。");
+        $display("   2. 若已发生该死锁，复位 AXI 域（ARESETn）可解除，");
+        $display("      但会打断进行中的 APB 传输（违反 APB R2 协议）。");
+        $display("   3. 实际 SoC 应保证 APB 域复位不打断进行中的传输；");
+        $display("      否则需在系统层加超时复位机制。");
         $display("------------------------------------------------------");
         $display(" reset-domain result: %0d checks, %0d errors", checks, errors);
         if (errors == 0) begin
