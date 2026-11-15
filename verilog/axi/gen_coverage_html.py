@@ -49,7 +49,9 @@ def parse_annotated(path: Path):
 # 整个函数体计一次，分支行显示 %000000，但功能实际被执行。
 # 已用插桩验证（直接层次调用 attr_of/reset_of）确认返回值正确。
 # ---------------------------------------------------------------------------
-FUNC_CASE_RE = re.compile(r'^\s*(?:\d+|default)\s*:\s*return\b')
+FUNC_CASE_RE = re.compile(
+    r'^\s*(?:\d+|default|[A-Z][A-Z0-9_]*)\s*:\s*return\b'
+)
 
 
 def is_func_case_artifact(src: str) -> bool:
@@ -79,14 +81,24 @@ def summarize(rows):
 
 
 def build_html(files_data):
+    rtl_files = [d for d in files_data if not d.get("is_tb")]
+    tb_files = [d for d in files_data if d.get("is_tb")]
+    rtl_cov = sum(d["stats"]["coverable"] for d in rtl_files)
+    rtl_hit = sum(d["stats"]["hit"] for d in rtl_files)
+    rtl_art = sum(d["stats"]["artifact"] for d in rtl_files)
+    rtl_real_zero = sum(d["stats"]["real_zero"] for d in rtl_files)
+    rtl_eff_pct = (100.0 * rtl_hit / (rtl_cov - rtl_art)) if (rtl_cov - rtl_art) else 0.0
+
     total_cov = sum(d["stats"]["coverable"] for d in files_data)
     total_hit = sum(d["stats"]["hit"] for d in files_data)
     total_zero = sum(d["stats"]["real_zero"] for d in files_data)
     total_artifact = sum(d["stats"]["artifact"] for d in files_data)
     pct = (100.0 * total_hit / total_cov) if total_cov else 0.0
 
-    # 侧栏文件列表
+    # 侧栏文件列表（分 RTL / TB 两组）
     nav = []
+    nav_rtl = []
+    nav_tb = []
     for idx, d in enumerate(files_data):
         s = d["stats"]
         color = "#3fb950" if s["pct"] >= 95 else ("#d29922" if s["pct"] >= 80 else "#f85149")
@@ -102,6 +114,7 @@ def build_html(files_data):
             f'<span class="fmeta">{s["hit"]}/{s["coverable"]}{extra}'
             + '</span></div>'
         )
+        (nav_tb if d.get("is_tb") else nav_rtl).append(nav[-1])
 
     # 每个文件的代码视图
     panes = []
@@ -152,6 +165,9 @@ h1 small{{display:block;font-size:12px;color:var(--dim);font-weight:400;margin-t
 .bar div{{height:100%;background:linear-gradient(90deg,#238636,#3fb950);border-radius:4px}}
 .layout{{display:grid;grid-template-columns:300px 1fr;min-height:calc(100vh - 200px)}}
 aside{{border-right:1px solid var(--bd);overflow-y:auto;max-height:calc(100vh - 200px)}}
+.grp{{padding:12px 16px 7px;font-size:10.5px;color:#6e7681;text-transform:uppercase;
+letter-spacing:.5px;border-bottom:1px solid #21262d;background:#0f141a}}
+.grp small{{display:block;font-size:9.5px;text-transform:none;letter-spacing:0;margin-top:2px}}
 .fitem{{padding:11px 16px;border-bottom:1px solid #21262d;cursor:pointer;transition:.12s}}
 .fitem:hover{{background:#161b22}}
 .fitem.on{{background:#1f6feb22;border-left:3px solid var(--blue)}}
@@ -180,7 +196,8 @@ padding:1px 5px;border-radius:4px;color:#79c0ff}}
 <h1>覆盖率报告：AXI→APB→AXI
 <small>Verilator --coverage + verilator_coverage 注解 · 红色行为从未执行</small></h1>
 <div class="stats">
-<div class="stat"><div class="v" style="color:var(--green)">{pct:.1f}%</div><div class="l">行覆盖率</div></div>
+<div class="stat"><div class="v" style="color:var(--green)">{rtl_eff_pct:.1f}%</div><div class="l">RTL 有效覆盖率<br><small>{rtl_hit}/{rtl_cov - rtl_art}</small></div></div>
+<div class="stat"><div class="v">{pct:.1f}%</div><div class="l">含 TB 总覆盖率</div></div>
 <div class="stat"><div class="v">{total_hit}/{total_cov}</div><div class="l">已执行 / 可覆盖行</div></div>
 <div class="stat"><div class="v" style="color:var(--red)">{total_zero}</div><div class="l">真实零覆盖</div></div>
 <div class="stat"><div class="v" style="color:var(--dim)">{total_artifact}</div><div class="l">注解缺陷<br><small>函数内 case return</small></div></div>
@@ -189,7 +206,10 @@ padding:1px 5px;border-radius:4px;color:#79c0ff}}
 <div class="bar"><div style="width:{pct:.1f}%"></div></div>
 </header>
 <div class="layout">
-<aside>{''.join(nav)}</aside>
+<aside>
+<div class="grp">设计文件（RTL）</div>{''.join(nav_rtl)}
+<div class="grp">测试文件（TB）<small>零覆盖多为 FAIL 分支</small></div>{''.join(nav_tb)}
+</aside>
 <main>{''.join(panes)}</main>
 </div>
 <footer>
@@ -236,8 +256,12 @@ def main():
         print(f"错误：{ann_dir} 下没有 .sv 注解文件", file=sys.stderr)
         sys.exit(1)
 
-    # 按未覆盖数降序（问题最多的排前面）
-    files_data.sort(key=lambda d: (-d["stats"]["zero"], d["name"]))
+    # 标记文件类型：测试平台（tb_*/含 FAIL 分支）与设计（RTL）
+    for d in files_data:
+        d["is_tb"] = d["name"].startswith("tb_")
+
+    # 按未覆盖数降序（问题最多的排前面），但 RTL 优先展示
+    files_data.sort(key=lambda d: (d["is_tb"], -d["stats"]["real_zero"], d["name"]))
 
     for d in files_data:
         s = d["stats"]
@@ -256,6 +280,13 @@ def main():
     art = sum(d["stats"]["artifact"] for d in files_data)
     eff_tot = tot - art
     eff_pct = 100.0 * hit / eff_tot if eff_tot else 0
+    rtl_d = [d for d in files_data if not d.get("is_tb")]
+    rc2 = sum(d["stats"]["coverable"] for d in rtl_d)
+    rh2 = sum(d["stats"]["hit"] for d in rtl_d)
+    ra2 = sum(d["stats"]["artifact"] for d in rtl_d)
+    rz2 = sum(d["stats"]["real_zero"] for d in rtl_d)
+    print(f"\n【RTL】可覆盖 {rc2} · 命中 {rh2} · 注解缺陷 {ra2} · 真实零覆盖 {rz2}")
+    print(f"【RTL】有效覆盖率: {100.0*rh2/(rc2-ra2) if (rc2-ra2) else 0:.1f}%  ({rh2}/{rc2-ra2})")
     print(f"\n原始行覆盖率: {100.0*hit/tot if tot else 0:.1f}%  ({hit}/{tot})")
     print(f"真实零覆盖:   {zero} 行")
     print(f"注解缺陷:     {art} 行（Verilator 函数内 case return，非真实缺失）")
