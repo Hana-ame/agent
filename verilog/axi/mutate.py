@@ -167,8 +167,39 @@ def restore(rel_path: str, original: str):
     (SV / rel_path).write_text(original, encoding="utf-8")
 
 
+def validate_mappings() -> list:
+    """校验：每个变异的 RTL 文件必须被其测试套件编译。
+    否则变异不会被测试覆盖（上轮 M06/M07 就是踩了这个坑，
+    花了好几轮才发现变异与测试不匹配）。"""
+    problems = []
+    for mid, rel, desc, old, new in MUTATIONS:
+        suite = TEST_FOR.get(mid)
+        if not suite:
+            problems.append(f"{mid}: 未定义测试套件")
+            continue
+        if suite not in SUITE_SRCS:
+            problems.append(f"{mid}: 套件 {suite} 不在 SUITE_SRCS 中")
+            continue
+        srcs = SUITE_SRCS[suite]
+        if not (rel in srcs or f"sv/{rel}" in srcs):
+            problems.append(
+                f"{mid}: 目标文件 {rel} 未被套件 {suite} 编译 "
+                f"（变异永远不会被执行 → 必然误判为存活）")
+    return problems
+
+
 def main():
     args = sys.argv[1:]
+    # ---- 前置校验：变异与套件必须匹配 ----
+    probs = validate_mappings()
+    if probs:
+        print("❌ 变异-套件映射校验失败：", file=sys.stderr)
+        for p_ in probs:
+            print("   -", p_, file=sys.stderr)
+        print("\n（这类错误会让变异永远存活，看起来像测试盲区，实则是配置错误）",
+              file=sys.stderr)
+        sys.exit(2)
+
     if "--list" in args:
         for mid, f, desc, _, _ in MUTATIONS:
             print(f"  {mid}  {f:<32} {desc}")

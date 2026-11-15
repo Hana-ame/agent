@@ -1,7 +1,8 @@
 # verilog：DUT + test bench
 
-**统一工具链：Verilator（仿真）+ slang（编译检查）**。不再依赖 iverilog —— 实测
-Verilator 5.055 可跑通本项目全部 7 个测试套件（含原先标为"iverilog 版"的用例）。
+**统一工具链：Verilator（仿真 + 覆盖率）+ slang（编译检查）**。不再依赖 iverilog。
+
+当前规模：**11 个测试套件 · 约 1900 项检查 · RTL 有效覆盖率 92.5% · 变异得分 85.7%**
 
 ## 目录
 
@@ -15,18 +16,54 @@ Verilator 5.055 可跑通本项目全部 7 个测试套件（含原先标为"ive
 | **`sim.sh`** | **统一仿真入口**（Verilator） |
 | `run_sv.sh` | EDA 服务器脚本（irun/xrun/vcs，带覆盖率） |
 | `plot_waveform.py` | VCD → PNG 波形绘图（matplotlib） |
+| `axi/` | AXI→APB→AXI 设计、验证、文档（见下） |
+
+### axi/ 子目录
+
+| 文件 | 说明 |
+|---|---|
+| `axi_defs_pkg.sv` / `apb_defs_pkg.sv` | AXI4-Lite / APB 协议类型定义 |
+| `sv/axi_lite_if.sv` / `sv/apb_if.sv` | 接口 + modport + clocking + SVA |
+| `sv/axi_apb_bridge_sv.sv` | 串行桥（单事务 FSM，11 状态） |
+| `sv/axi_apb_bridge_dual_sv.sv` | 并发桥（读写独立 FSM + 仲裁，13 状态） |
+| `sv/apb_slave_regs_sv.sv` | APB 从机（纯存储 + 可配 wait states） |
+| `sv/apb_slave_regfile_sv.sv` | 带属性从机（RO/RW/W1C/RSVD/W1S/RC） |
+| `sv/axi_txn_host.sv` | 事务适配器（txn_t → AXI 时序，测试复用） |
+| `regfile_spec.json` | 寄存器规格（唯一事实来源，含位域） |
+| `gen_regfile.py` | spec → RTL / TB / 手册 生成器 |
+| `gen_fsm_html.py` | 源码 → FSM 状态转移图 |
+| `gen_interface_map.py` | 源码 → 接口逻辑映射 |
+| `gen_test_plan.py` | 源码 → 测试方案 |
+| `gen_coverage_html.py` | 覆盖率注解 → 可视化报告 |
+| `gen_portal.py` | 文档门户（统计实时提取） |
+| `mutate.py` | 变异测试框架 |
 
 ## 运行（统一入口）
 
+### 测试套件（11 个）
+
 ```bash
-bash sim.sh              # 全量回归（7 个套件）
-bash sim.sh counter      # 4-bit 计数器        20 检查
-bash sim.sh counter8     # 8-bit 计数器        26 检查
-bash sim.sh axi          # AXI→APB→AXI 行为级  35 检查
-bash sim.sh sv           # 完整 SV 事务层      234 向量
-bash sim.sh gaps         # 覆盖缺口套件        285 检查
-bash sim.sh dual         # 并发桥              34 检查
-bash sim.sh vip          # VIP                 67 检查
+bash sim.sh              # 全量回归
+bash sim.sh counter      # 4-bit 计数器              20 检查
+bash sim.sh counter8     # 8-bit 计数器              26 检查
+bash sim.sh axi          # AXI→APB→AXI 行为级        35 检查
+bash sim.sh sv           # 完整 SV 事务层            234 向量
+bash sim.sh gaps         # 覆盖缺口套件              285 检查
+bash sim.sh dual         # 并发桥（含反压/错误传播）  58 检查
+bash sim.sh stress       # 并发仲裁压力              505 检查
+bash sim.sh covgaps      # 覆盖率缺口专项             17 检查
+bash sim.sh regfile      # 寄存器属性（手写）         44 检查
+bash sim.sh regfilegen   # 寄存器属性（spec 生成）    70 检查
+bash sim.sh vip          # VIP                        67 检查
+```
+
+### 工具目标
+
+```bash
+bash sim.sh coverage     # 覆盖率报告 + HTML
+bash sim.sh mutate       # 变异测试（验证测试有效性）
+bash sim.sh sweep        # 参数扫掠（9 种子 × 9 wait）
+bash sim.sh docs         # 生成全部 HTML 文档
 bash sim.sh wave         # 完整 SV + VCD 波形
 ```
 

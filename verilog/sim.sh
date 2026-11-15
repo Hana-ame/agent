@@ -186,6 +186,39 @@ case "${1:-all}" in
             echo "WARN: 未找到 verilator_coverage" >&2
         fi
         ;;
+    sweep)
+        # 参数扫掠：多种子 × 多 wait cycles，验证测试在参数空间稳定
+        FAILED=0
+        TOTAL=0
+        echo "== sweep: 多种子（WAIT=${WAIT:-2}）=="
+        for s in 0 1 7 42 123 999 31337 271828 161803; do
+            TOTAL=$((TOTAL+1))
+            if SEED=$s bash "$0" gaps 2>&1 | grep -q "^PASS"; then
+                printf "  SEED=%-7s PASS\n" "$s"
+            else
+                printf "  SEED=%-7s FAIL\n" "$s"
+                FAILED=$((FAILED+1))
+            fi
+        done
+        echo "== sweep: 多 wait cycles（SEED=${SEED:-0}）=="
+        for w in 0 1 2 3 4 8 16 31 63; do
+            TOTAL=$((TOTAL+1))
+            if WAIT=$w bash "$0" gaps 2>&1 | grep -q "^PASS"; then
+                printf "  WAIT=%-7s PASS\n" "$w"
+            else
+                printf "  WAIT=%-7s FAIL\n" "$w"
+                FAILED=$((FAILED+1))
+            fi
+        done
+        echo "------------------------------------------------------"
+        if [ "$FAILED" -eq 0 ]; then
+            echo "PASS: sweep —— $TOTAL 组参数组合全部通过"
+            exit 0
+        else
+            echo "FAIL: sweep —— $FAILED/$TOTAL 组失败"
+            exit 1
+        fi
+        ;;
     mutate)
         # 变异测试：验证测试能否发现人为注入的 RTL 缺陷
         ( cd axi && python3 mutate.py )
@@ -237,7 +270,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      coverage mutate docs wave all"
+        echo "      coverage mutate sweep docs wave all"
         exit 1
         ;;
 esac
