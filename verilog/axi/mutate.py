@@ -346,4 +346,35 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # 顶层保护：确保 Ctrl-C / SIGTERM 时也能恢复被变异的 RTL。
+    # 虽然每个变异用 try/finally 还原，但若中断发生在 finally 之外
+    # （如打印/统计阶段），仍可能残留。这里做最后的兜底检查。
+    import signal
+
+    def _emergency_check(signum=None, frame=None):
+        """退出前检查是否有变异残留，并提示恢复命令"""
+        from pathlib import Path as _P
+        sv = _P(__file__).resolve().parent / "sv"
+        dirty = []
+        for mid, rel, desc, old, new in MUTATIONS:
+            f = sv / rel
+            try:
+                txt = f.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            # 若文件里已找不到原文，说明该变异可能未还原
+            if txt.count(old) != 1 and txt.count(new) == 1:
+                dirty.append(f"{rel}（{mid} 可能未还原）")
+        if dirty:
+            print("\n⚠ 检测到可能的变异残留：", file=sys.stderr)
+            for d in dirty:
+                print(f"   {d}", file=sys.stderr)
+            print("   恢复命令：git checkout -- verilog/axi/sv/", file=sys.stderr)
+
+    signal.signal(signal.SIGINT, lambda s, f: (_emergency_check(), sys.exit(130)))
+    signal.signal(signal.SIGTERM, lambda s, f: (_emergency_check(), sys.exit(143)))
+    try:
+        main()
+    except KeyboardInterrupt:
+        _emergency_check()
+        sys.exit(130)

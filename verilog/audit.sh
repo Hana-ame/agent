@@ -76,15 +76,36 @@ restore() {
     CUR_ORIG=""
 }
 cleanup() {
-    # 兜底：按清单恢复到原始路径
+    # 兜底：按清单恢复到原始路径，并校验恢复成功
+    local restore_fail=0
     if [ -f "$MANIFEST" ]; then
         while IFS='|' read -r b org; do
             [ -f "$b" ] && [ -n "$org" ] && cp "$b" "$org"
+            if [ -f "$b" ] && [ -n "$org" ] && ! cmp -s "$b" "$org"; then
+                restore_fail=1
+                echo "  ❌ 恢复失败：$org" >&2
+            fi
         done < "$MANIFEST"
+    fi
+    if [ "$restore_fail" -eq 1 ]; then
+        echo "  ⚠ 部分文件恢复失败，请用 git status / git diff 检查" >&2
+        echo "  提示：git checkout -- verilog/axi/sv/" >&2
     fi
     rm -rf "$BACKUP_DIR"
 }
-trap cleanup EXIT
+# 监听多个信号：仅 EXIT 不足以覆盖被中断的情况。
+# 注意：若中断发生在 sleep/长时间外部命令期间，bash 的 trap 行为取决于
+# 信号是否传递给 bash 本身。这里显式监听 INT/TERM/HUP 提高覆盖率，
+# 并在 cleanup 里做幂等处理（多次调用安全）。
+TRAP_ACTIVE=1
+cleanup_once() {
+    # 幂等：只执行一次
+    if [ "${TRAP_ACTIVE:-0}" -eq 1 ]; then
+        TRAP_ACTIVE=0
+        cleanup
+    fi
+}
+trap cleanup_once EXIT INT TERM HUP
 
 # ===========================================================================
 # A1：单套件必须能报告失败
