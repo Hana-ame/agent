@@ -291,6 +291,61 @@ VEOF
 }
 
 # ===========================================================================
+# A8：CI 门槛「能拒绝」的集中验证
+# ===========================================================================
+# 背景：A6 曾因覆盖率升到 100% 而使 99.9% 阈值无法触发，
+# 审计长期显示 PASS 却什么也没验证。这类「门槛失效」很隐蔽。
+# A8 集中验证所有数值型门槛在「不可能达到的阈值」下都会拒绝。
+# ===========================================================================
+audit_a8() {
+    banner "A8 CI 门槛有效性（阈值不可达时必须拒绝）"
+    local f=ci.sh
+    local ok=0 bad=0
+
+    check_gate() {
+        local name="$1" var="$2" orig="$3" bad_val="$4"
+        local rc
+        sed -i "s/^${var}=.*/${var}=${bad_val}/" "$f"
+        if grep -q "^${var}=${bad_val}" "$f"; then
+            ( bash ci.sh --stage "$5" >/dev/null 2>&1 ); rc=$?
+            sed -i "s/^${var}=.*/${var}=${orig}/" "$f"
+            if [ $rc -ne 0 ]; then
+                echo -e "  ${GRN}✓${R} $name：阈值 ${bad_val} 被正确拒绝（exit=$rc）"
+                ok=$((ok+1))
+            else
+                echo -e "  ${RED}✗${R} $name：阈值 ${bad_val} 未生效（exit=$rc）"
+                bad=$((bad+1))
+            fi
+        else
+            echo -e "  ${RED}✗${R} $name：无法注入阈值（变量 $var 不存在？）"
+            bad=$((bad+1))
+        fi
+    }
+
+    backup "$f"
+    # G5 覆盖率：阈值 101（覆盖率最高 100）
+    check_gate "G5 覆盖率阈值" MIN_RTL_COVERAGE 90 101 5
+    # G6 变异得分：阈值 100（本项目得分 90.9）
+    check_gate "G6 变异得分阈值" MIN_MUTATION_SCORE 88 100 6
+    restore "$f"
+
+    # 注入后确认 ci.sh 已完全恢复
+    checks_total=$((checks_total+1))
+    if grep -q '^MIN_RTL_COVERAGE=90' ci.sh && grep -q '^MIN_MUTATION_SCORE=88' ci.sh; then
+        echo -e "  ${GRN}✓${R} ci.sh 阈值已恢复原值"
+    else
+        echo -e "  ${RED}✗${R} ci.sh 阈值未恢复，请检查"
+        bad=$((bad+1))
+    fi
+
+    if [ "$bad" -eq 0 ]; then
+        record "A8 CI 门槛有效性" PASS "$ok 个门槛全部有效"
+    else
+        record "A8 CI 门槛有效性" FAIL "$bad 个门槛失效"
+    fi
+}
+
+# ===========================================================================
 list_items() {
     echo "审计项："
     echo "  A1  单套件失败检测"
@@ -300,6 +355,7 @@ list_items() {
     echo "  A5  协议监视器违规检测"
     echo "  A6  CI 覆盖率阈值拒绝"
     echo "  A7  挂死输出保留（stdbuf）"
+    echo "  A8  CI 门槛有效性（集中验证）"
 }
 
 main() {
@@ -338,6 +394,7 @@ main() {
     audit_a5
     audit_a6
     audit_a7
+    audit_a8
 
     banner "审计结果"
     for r in "${RESULTS[@]}"; do

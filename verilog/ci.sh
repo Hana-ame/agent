@@ -258,6 +258,15 @@ stage3() {
     banner "G3 全量回归（11 个套件）"
     local t0=$SECONDS
     local out
+    # 期望套件数动态计算：all 目标里的调用数 - 非仿真目标（lint）
+    # 硬编码会在新增套件时静默失效（要求变松，少跑也算通过）
+    local expect_suites
+    expect_suites=$(sed -n '/^    all)/,/^        ;;/p' sim.sh \
+                    | grep -cE 'bash "\$0"' || true)
+    expect_suites=$(( ${expect_suites:-0} - $(sed -n '/^    all)/,/^        ;;/p' sim.sh \
+                    | grep -cE 'bash "\$0" lint' || true) ))
+    [ "$expect_suites" -lt 1 ] && expect_suites=1
+
     out=$(bash sim.sh all 2>&1)
     local rc=$?
     local passes
@@ -268,8 +277,8 @@ stage3() {
     total_checks=$(echo "$out" | grep -oE "[0-9]+ (checks|checks passed)" \
                    | grep -oE "^[0-9]+" | awk '{s+=$1} END{print s+0}')
     local dt=$((SECONDS-t0))
-    if [ $rc -eq 0 ] && [ "$passes" -ge 21 ] && [ "${total_checks:-0}" -ge 1000 ]; then
-        echo -e "  ${GRN}${BOLD}PASS${R} —— $passes/21 套件通过，累计 ${total_checks} 项检查（${dt}s）"
+    if [ $rc -eq 0 ] && [ "$passes" -ge "$expect_suites" ] && [ "${total_checks:-0}" -ge 1000 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— $passes/$expect_suites 套件通过，累计 ${total_checks} 项检查（${dt}s）"
         record "$1" PASS $dt
         return 0
     else
