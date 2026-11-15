@@ -218,12 +218,14 @@ audit_a6() {
     banner "A6 CI 覆盖率阈值拒绝（临时把阈值设为不可能达到）"
     local f=ci.sh
     backup "$f"
-    sed -i 's/^MIN_RTL_COVERAGE=.*/MIN_RTL_COVERAGE=99.9/' "$f"
+    # 阈值必须「物理上不可能达到」。覆盖率已达 100%，
+    # 故用 101（此前用 99.9 已无法触发拒绝，属于审计用例失效）
+    sed -i 's/^MIN_RTL_COVERAGE=.*/MIN_RTL_COVERAGE=101/' "$f"
     local rc
     ( bash ci.sh --stage 5 >/dev/null 2>&1 ); rc=$?
     restore "$f"
     if [ $rc -ne 0 ]; then
-        echo -e "  ${GRN}✓${R} 覆盖率 92.2% 被 99.9% 阈值正确拒绝（exit=$rc）"
+        echo -e "  ${GRN}✓${R} 覆盖率被 101% 阈值正确拒绝（exit=$rc）"
         record "A6 覆盖率阈值拒绝" PASS "exit=$rc"
     else
         echo -e "  ${RED}✗${R} 阈值未生效（exit=$rc）"

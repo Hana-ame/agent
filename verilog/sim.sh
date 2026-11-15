@@ -376,6 +376,14 @@ case "${1:-all}" in
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
             sv/apb_slave_regfile_gen.sv sv/axi_apb_monitor.sv \
             sv/axi_txn_host.sv sv/tb_regfile_gen.sv
+          # monitor 规则测试：唯一会触发 violation() 分支的套件。
+          # 不纳入覆盖率收集的话，监视器的检查逻辑会显示为大面积零覆盖，
+          # 那是「收集范围问题」而非「代码不可达」。
+          run_cov tb_monitor_rules \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+            sv/tb_monitor_rules.sv
           cp -r "$COVDIR"/*/cov_*.dat "$COVDIR/" 2>/dev/null || true
         )
         echo "== coverage: 合并报告 =="

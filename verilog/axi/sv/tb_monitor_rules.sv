@@ -150,6 +150,28 @@ module tb_monitor_rules #(
         err_base = mon.errors;
     endtask
 
+    // A2.ARADDR：ARVALID 保持期间改地址（此前只测了 AWADDR/WDATA，
+    // 导致监视器里这条规则从未被执行，是真实的测试缺口）
+    task automatic test_a2_araddr();
+        $display("== A2.ARADDR：ARVALID 保持期间改地址 ==");
+        do_reset(); err_base = mon.errors;
+
+        tick(); axi.ARVALID = 1; axi.ARADDR = 8'h10;
+        tick();
+        axi.ARADDR = 8'h20;          // 违规：地址变了
+        tick();
+        axi.ARVALID = 0;
+        tick();
+        checks++;
+        if (mon.errors - err_base >= 1 && grep_violation("A2")) begin
+            $display("  ✓ A2.ARADDR  捕获地址变化违规");
+        end else begin
+            $display("  ✗ A2.ARADDR  未捕获地址变化违规");
+            errors++;
+        end
+        err_base = mon.errors;
+    endtask
+
     task automatic test_a2_wdata();
         $display("== A2.WDATA：WVALID 保持期间改数据 ==");
         do_reset(); err_base = mon.errors;
@@ -320,6 +342,7 @@ module tb_monitor_rules #(
         test_a1_wvalid();
         test_a1_arvalid();
         test_a2_awaddr();
+        test_a2_araddr();
         test_a2_wdata();
         test_p1();
         test_p2();

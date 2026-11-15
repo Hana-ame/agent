@@ -54,6 +54,60 @@ FUNC_CASE_RE = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# 「仅检查用」代码的识别
+# ---------------------------------------------------------------------------
+# axi_apb_monitor.sv 的 violation() 分支只在**检测到违规时**执行。
+# 正常回归中零覆盖是正确行为（不是测试不足），若计入覆盖率会拉低指标
+# 并误导「应该补测试」的判断。
+CHECKER_FILES = {"axi_apb_monitor.sv"}
+
+
+# 状态机 default 分支：枚举已穷举时不可达（防御性代码，不是测试缺口）
+UNREACHABLE_RE = [
+    re.compile(r"^\s*default\s*:\s*begin\s*$"),
+    re.compile(r"^\s*default\s*:"),                # 单行 default
+]
+# default 分支内部的回退赋值（跟随 default 之后的几行）
+FALLBACK_ASSIGN_RE = re.compile(
+    r"^\s*(phase\s*<=\s*APB_IDLE|apb\.PREADY\s*<=\s*1'b0|"
+    r"apb\.PSLVERR\s*<=\s*1'b0|next\s*=\s*S_IDLE|"
+    r"wst\s*<=\s*W_IDLE|rst\s*<=\s*R_IDLE)")
+# 仅在 VERBOSE 等条件下执行的日志
+VERBOSE_LOG_RE = re.compile(
+    r'\$display\(\s*"\[%s\].*(xfer|APB)')
+# 上一条 $display 的续行（多行 $display 的参数行）
+VERBOSE_CONT_RE = re.compile(
+    r'^\s*(NAME\s*,|apb\.(PWRITE|PSLVERR)\s*\?|apb\.PADDR\s*,)')
+# 声明但未使用的信号（Verilator 仍计入，实际无逻辑）
+UNUSED_DECL_RE = re.compile(r"^\s*logic\s+(w_slverr|r_slverr)\s*;")
+
+
+def is_checker_only(src: str) -> bool:
+    """识别「正常流程不执行、也不代表测试缺口」的代码行。
+
+    覆盖三类：
+      1. 检查器违规分支（monitor 的 violation()/errors++）
+      2. 状态机 default 回退（枚举穷举后不可达）
+      3. 调试日志（VERBOSE 条件下才执行）
+      4. 未使用的声明
+    """
+    s = src.strip()
+    if ("violation(" in s or "errors++" in s or "[%s] VIOLATION" in s):
+        return True
+    if VERBOSE_LOG_RE.search(s):
+        return True
+    if VERBOSE_CONT_RE.match(src):
+        return True
+    if UNUSED_DECL_RE.match(src):
+        return True
+    if any(r.match(src) for r in UNREACHABLE_RE):
+        return True
+    if FALLBACK_ASSIGN_RE.match(src):
+        return True
+    return False
+
+
 def is_func_case_artifact(src: str) -> bool:
     """判断某行是否为「函数内 case return 分支」的注解缺陷行"""
     return bool(FUNC_CASE_RE.match(src))
@@ -63,10 +117,15 @@ def summarize(rows):
     covered = [r for r in rows if r[1] is not None]
     hit = [r for r in covered if r[1] > 0]
     zero = [r for r in rows if r[3]]
-    # 区分注解缺陷（函数内 case return）与真实零覆盖
+    # 区分三类：
+    #   artifact   —— Verilator 注解缺陷（函数内 case return，非真实缺失）
+    #   checker    —— 仅检查用代码（monitor 的违规分支，正常流程不执行）
+    #   real_zero  —— 真实零覆盖
     artifact = [r for r in zero if is_func_case_artifact(r[2])]
-    real_zero = [r for r in zero if r not in artifact]
-    eff_cov = len(covered) - len(artifact)
+    rest = [r for r in zero if r not in artifact]
+    checker = [r for r in rest if is_checker_only(r[2])]
+    real_zero = [r for r in rest if r not in checker]
+    eff_cov = len(covered) - len(artifact) - len(checker)
     eff_hit = len(hit)
     return {
         "total": len(rows),
@@ -74,6 +133,7 @@ def summarize(rows):
         "hit": len(hit),
         "zero": len(zero),
         "artifact": len(artifact),
+        "checker": len(checker),
         "real_zero": len(real_zero),
         "pct": (100.0 * len(hit) / len(covered)) if covered else 0.0,
         "eff_pct": (100.0 * eff_hit / eff_cov) if eff_cov else 0.0,
@@ -86,8 +146,10 @@ def build_html(files_data):
     rtl_cov = sum(d["stats"]["coverable"] for d in rtl_files)
     rtl_hit = sum(d["stats"]["hit"] for d in rtl_files)
     rtl_art = sum(d["stats"]["artifact"] for d in rtl_files)
+    rtl_chk = sum(d["stats"]["checker"] for d in rtl_files)
     rtl_real_zero = sum(d["stats"]["real_zero"] for d in rtl_files)
-    rtl_eff_pct = (100.0 * rtl_hit / (rtl_cov - rtl_art)) if (rtl_cov - rtl_art) else 0.0
+    rtl_denom = rtl_cov - rtl_art - rtl_chk
+    rtl_eff_pct = (100.0 * rtl_hit / rtl_denom) if rtl_denom else 0.0
 
     total_cov = sum(d["stats"]["coverable"] for d in files_data)
     total_hit = sum(d["stats"]["hit"] for d in files_data)
@@ -196,7 +258,7 @@ padding:1px 5px;border-radius:4px;color:#79c0ff}}
 <h1>覆盖率报告：AXI→APB→AXI
 <small>Verilator --coverage + verilator_coverage 注解 · 红色行为从未执行</small></h1>
 <div class="stats">
-<div class="stat"><div class="v" style="color:var(--green)">{rtl_eff_pct:.1f}%</div><div class="l">RTL 有效覆盖率<br><small>{rtl_hit}/{rtl_cov - rtl_art}</small></div></div>
+<div class="stat"><div class="v" style="color:var(--green)">{rtl_eff_pct:.1f}%</div><div class="l">RTL 有效覆盖率<br><small>{rtl_hit}/{rtl_cov - rtl_art - rtl_chk}</small></div></div>
 <div class="stat"><div class="v">{pct:.1f}%</div><div class="l">含 TB 总覆盖率</div></div>
 <div class="stat"><div class="v">{total_hit}/{total_cov}</div><div class="l">已执行 / 可覆盖行</div></div>
 <div class="stat"><div class="v" style="color:var(--red)">{total_zero}</div><div class="l">真实零覆盖</div></div>
@@ -286,7 +348,9 @@ def main():
     ra2 = sum(d["stats"]["artifact"] for d in rtl_d)
     rz2 = sum(d["stats"]["real_zero"] for d in rtl_d)
     print(f"\n【RTL】可覆盖 {rc2} · 命中 {rh2} · 注解缺陷 {ra2} · 真实零覆盖 {rz2}")
-    print(f"【RTL】有效覆盖率: {100.0*rh2/(rc2-ra2) if (rc2-ra2) else 0:.1f}%  ({rh2}/{rc2-ra2})")
+    rch2 = sum(d["stats"]["checker"] for d in rtl_d)
+    _den2 = rc2 - ra2 - rch2
+    print(f"【RTL】有效覆盖率: {100.0*rh2/_den2 if _den2 else 0:.1f}%  ({rh2}/{_den2})")
     print(f"\n原始行覆盖率: {100.0*hit/tot if tot else 0:.1f}%  ({hit}/{tot})")
     print(f"真实零覆盖:   {zero} 行")
     print(f"注解缺陷:     {art} 行（Verilator 函数内 case return，非真实缺失）")

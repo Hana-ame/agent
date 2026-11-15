@@ -63,27 +63,75 @@ def parse_test_plan():
 
 
 def parse_coverage():
-    """从注解目录统计覆盖率（若有）"""
+    """从注解目录统计覆盖率。
+
+    重要：必须区分 RTL 与 TB。
+      - RTL 覆盖率是真正有意义的指标（设计代码被执行了多少）
+      - TB 的「零覆盖」大多来自 FAIL 分支（测试通过时不执行），属正常
+    混在一起会得出误导性的低数字。
+
+    同时识别 Verilator 的注解缺陷（函数内 case 的 return 分支不计入）。
+    """
     ann = HERE / "run" / "cov" / "annotated"
     if not ann.exists():
         return None
-    total = hit = zero = 0
-    files = 0
+
     LINE_RE = re.compile(r'^([%~]?)(\d{6})\s+(.*)$')
+    FUNC_CASE_RE = re.compile(r'^\s*(?:\d+|default|[A-Z][A-Z0-9_]*)\s*:\s*return\b')
+
+    # 非测试缺口（与 gen_coverage_html.py 保持同一口径）：
+    #   1. 检查器违规分支   2. 状态机 default 回退（枚举已穷举）
+    #   3. VERBOSE 日志     4. 未使用的声明
+    _NON_GAP_RES = [
+        re.compile(r"violation\(|errors\+\+|\[%s\] VIOLATION"),
+        re.compile(r'\$display\(\s*"\[%s\].*(xfer|APB)'),
+        re.compile(r'^\s*(NAME\s*,|apb\.(PWRITE|PSLVERR)\s*\?|apb\.PADDR\s*,)'),
+        re.compile(r"^\s*logic\s+(w_slverr|r_slverr)\s*;"),
+        re.compile(r"^\s*default\s*:"),
+        re.compile(r"^\s*(phase\s*<=\s*APB_IDLE|apb\.PREADY\s*<=\s*1'b0|"
+                   r"apb\.PSLVERR\s*<=\s*1'b0|next\s*=\s*S_IDLE|"
+                   r"wst\s*<=\s*W_IDLE|rst\s*<=\s*R_IDLE)"),
+    ]
+
+    def is_non_gap(line):
+        return any(r.search(line) for r in _NON_GAP_RES)
+
+    stat = {"rtl": {"total": 0, "hit": 0, "zero": 0, "artifact": 0},
+            "tb":  {"total": 0, "hit": 0, "zero": 0, "artifact": 0},
+            "files": 0}
     for sv in ann.glob("*.sv"):
-        files += 1
+        stat["files"] += 1
+        kind = "tb" if sv.name.startswith("tb_") else "rtl"
         for line in sv.read_text(encoding="utf-8", errors="replace").splitlines():
             m = LINE_RE.match(line)
-            if m:
-                total += 1
-                if int(m.group(2)) > 0:
-                    hit += 1
-                elif m.group(1) == '%':
-                    zero += 1
-    if not total:
+            if not m:
+                continue
+            stat[kind]["total"] += 1
+            cnt = int(m.group(2))
+            if cnt > 0:
+                stat[kind]["hit"] += 1
+            elif m.group(1) == '%':
+                # 与 gen_coverage_html.py 保持同一口径
+                if FUNC_CASE_RE.match(m.group(3)):
+                    stat[kind]["artifact"] += 1
+                elif is_non_gap(m.group(3)):
+                    stat[kind]["checker"] = stat[kind].get("checker", 0) + 1
+                else:
+                    stat[kind]["zero"] += 1
+
+    r = stat["rtl"]
+    if r["total"] == 0:
         return None
-    return {"files": files, "total": total, "hit": hit, "zero": zero,
-            "pct": 100.0 * hit / total}
+    eff_total = r["total"] - r["artifact"] - r.get("checker", 0)
+    return {
+        "files": stat["files"],
+        "rtl_total": r["total"], "rtl_hit": r["hit"],
+        "rtl_zero": r["zero"], "rtl_artifact": r["artifact"],
+        "rtl_checker": r.get("checker", 0),
+        "rtl_eff_pct": (100.0 * r["hit"] / eff_total) if eff_total else 0.0,
+        "rtl_raw_pct": 100.0 * r["hit"] / r["total"],
+        "tb_total": stat["tb"]["total"], "tb_hit": stat["tb"]["hit"],
+    }
 
 
 def parse_sources():
@@ -97,18 +145,23 @@ def parse_sources():
 
 
 def parse_suites():
-    """从 sim.sh 提取套件清单"""
+    """从 sim.sh 的 all 目标提取「实际执行的测试套件」清单。
+
+    注意：不能统计所有 case 分支——那会把 coverage/docs/wave/mutate
+    等工具目标也算进去。只有 all 目标里真正被调用的才是测试套件。
+    """
     p = ROOT / "sim.sh"
     if not p.exists():
         return []
     txt = p.read_text(encoding="utf-8")
-    m = re.search(r"case \"\$\{1:-all\}\" in(.*?)\nesac", txt, re.S)
+    # 提取 all) 分支里的 `bash "$0" <target>` 调用
+    m = re.search(r"^    all\)(.*?)^        ;;", txt, re.S | re.M)
     if not m:
         return []
-    names = re.findall(r"^    (\w+)\)", m.group(1), re.M)
-    # 排除全量入口与工具类目标（它们不是测试套件）
-    TOOL_TARGETS = {"all", "*", "coverage", "docs", "wave", "help"}
-    return [n for n in names if n not in TOOL_TARGETS]
+    names = re.findall(r'bash "\$0" (\w+)', m.group(1))
+    # 排除静态检查类（lint 不是仿真套件）
+    NON_TEST = {"lint"}
+    return [n for n in names if n not in NON_TEST]
 
 
 def parse_fsm_stats():
@@ -158,8 +211,10 @@ def build_html():
         kpis.append(("测试项", f"{tp['covered']}/{tp['total']}",
                      f"{100*tp['covered']//tp['total']}% 覆盖 · {tp['gaps']} 缺口", "#3fb950"))
     if cov:
-        kpis.append(("行覆盖率", f"{cov['pct']:.1f}%",
-                     f"{cov['hit']}/{cov['total']} 行 · {cov['zero']} 未覆盖", "#58a6ff"))
+        _den = cov['rtl_total'] - cov['rtl_artifact'] - cov.get('rtl_checker', 0)
+        kpis.append(("RTL 覆盖率", f"{cov['rtl_eff_pct']:.1f}%",
+                     f"{cov['rtl_hit']}/{_den} 行·有效目标",
+                     "#58a6ff"))
     if fsm:
         kpis.append(("状态机", f"{fsm['machines']}",
                      f"{fsm['states']} 状态 · {fsm['edges']} 转移", "#bc8cff"))
@@ -330,7 +385,10 @@ def main():
     if tp:
         print(f"  测试项      {tp['covered']}/{tp['total']}（{tp['gaps']} 缺口）")
     if cov:
-        print(f"  行覆盖率    {cov['pct']:.1f}%（{cov['hit']}/{cov['total']}，{cov['zero']} 未覆盖）")
+        _den = cov['rtl_total'] - cov['rtl_artifact'] - cov.get('rtl_checker', 0)
+        print(f"  RTL 覆盖率  {cov['rtl_eff_pct']:.1f}%（{cov['rtl_hit']}/{_den} 有效目标，"
+              f"原始 {cov['rtl_raw_pct']:.1f}%，注解缺陷 {cov['rtl_artifact']}，"
+              f"非缺口 {cov.get('rtl_checker', 0)}）")
     if fsm:
         print(f"  状态机      {fsm['machines']} 个 · {fsm['states']} 状态 · {fsm['edges']} 转移")
     print(f"  测试套件    {len(suites)} 个")
