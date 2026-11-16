@@ -578,7 +578,7 @@ Top level design units:
       <tr><td>slang 12.1</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td></tr>
       <tr><td>Verilator 5.055（最新，自编译）</td><td class="yes">✅</td><td class="yes">✅</td><td class="part">✅ 子集</td><td class="part">✅ 需 z3</td><td class="no">❌ 宏隔离</td></tr>
       <tr><td>Verilator 5.020（apt 旧版）</td><td class="no">❌ 跨文件虚接口缺陷</td><td class="part">⚠️</td><td class="yes">✅</td><td class="part">⚠️</td><td class="no">❌</td></tr>
-      <tr><td>irun / VCS</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td></tr>
+      <tr><td>irun / VCS（本机无，未实测）</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td></tr>
     </tbody>
   </table>
 
@@ -591,6 +591,12 @@ Top level design units:
     <div class="item"><div class="box">✓</div><div><b>删除过强断言</b> <span>— <code>W-without-AW</code> 在分开发写事务中存在合法间隙，属误报，移除</span></div></div>
     <div class="item"><div class="box">✓</div><div><b>单驱动约束</b> <span>— <code>rdata_q</code>/<code>slv_err</code>/<code>mem</code> 各归一个 <code>always_ff</code>，过 slang 严格检查</span></div></div>
     <div class="item"><div class="box">✓</div><div><b>SV 关键字避让</b> <span>— <code>expect</code> 是 SV 关键字，参考模型改名 <code>ref_mem</code></span></div></div>
+    <div class="item"><div class="box">✓</div><div><b>握手只看 VALID 不看 READY 同拍</b> <span>— 最常踩的坑（5 次）：驱动侧看到 VALID 就撤 READY，桥永远等不到握手。已做成静态检查 <code>lint_handshake.py</code></span></div></div>
+    <div class="item"><div class="box">✓</div><div><b>时钟沿处阻塞赋值</b> <span>— 沿后不延时直接阻塞驱动接口信号，与 DUT 采样竞争。已做成静态检查 <code>lint_clocking.py</code></span></div></div>
+    <div class="item"><div class="box">✓</div><div><b>输出缓冲掩盖挂死</b> <span>— 仿真挂死被 kill 时 stdout 缓冲未 flush，表现为「零输出」，易误判为「启动即退出」。sim.sh 统一用 <code>stdbuf -o0</code></span></div></div>
+    <div class="item"><div class="box">✓</div><div><b>测试判定函数空实现</b> <span>— <code>grep_violation()</code> 曾 <code>return 1'b1</code>（永远通过），导致监视器规则失效也测不出。已改为真实查询 <code>rule_hit()</code></span></div></div>
+    <div class="item"><div class="box">✓</div><div><b>硬编码数量随配置增长失准</b> <span>— 套件数/配置数/阈值共 5 处硬编码，配置增长后要求变松或误报。全部改为动态计算</span></div></div>
+    <div class="item"><div class="box">✓</div><div><b>本地状态掩盖缺陷</b> <span>— 「本地能跑、干净 clone 跑不通」：<code>axi/run</code> 未自动创建、手改生成物被覆盖。已加 <code>repro.sh</code></span></div></div>
   </div>
 </section>
 

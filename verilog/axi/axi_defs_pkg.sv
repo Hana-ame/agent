@@ -7,17 +7,22 @@
 //   - 协议常量：响应编码、突发类型、大小编码、Cache/Prot 常用值
 //   - 协议函数：响应名称、地址对齐、单拍位选（DUT 与参考模型共用同一逻辑）
 //
-// 注意：iverilog 12 支持本文件的全部语法（package / typedef struct packed /
-//       function / parameter）。不支持的东西（'{...} 模式赋值、clocking）特意
-//       不用，保证本机可跑；完整 SV（含 interface+clocking）见单独文件。
-//
-// AXI 通道（AXI4-Lite 子集，本桥用）：
-//   AW: 写地址通道   { AWID, AWADDR, AWPROT }
-//   W : 写数据通道   { WDATA, WSTRB }
+// 本文件提供**完整的 AXI4 五通道定义**（不是 Lite 子集）：
+//   AW: 写地址通道   { AWID, AWADDR, AWLEN, AWSIZE, AWBURST, AWLOCK,
+//                      AWCACHE, AWPROT, AWQOS, AWREGION }
+//   W : 写数据通道   { WDATA, WSTRB, WLAST }
 //   B : 写响应通道   { BID, BRESP }
-//   AR: 读地址通道   { ARID, ARADDR, ARPROT }
-//   R : 读数据通道   { RID, RDATA, RRESP }
-// 全局信号：ACLK, ARESETn（本文档明确列出，作为总线全局定义）
+//   AR: 读地址通道   { ARID, ARADDR, ARLEN, ARSIZE, ARBURST, ARLOCK,
+//                      ARCACHE, ARPROT, ARQOS, ARREGION }
+//   R : 读数据通道   { RID, RDATA, RRESP(=RRESP), RLAST }
+// 全局信号：ACLK, ARESETn
+//
+// 说明：本桥只用到 AXI4-Lite 子集（无 burst、单拍传输），
+//       但 struct 保留 AXI4 全量字段，便于日后扩展与协议对照；
+//       Lite 保留字段（awlen/awburst/awqos/...）在桥内恒为默认值。
+//
+// 工具链：Verilator 5.055（仿真/覆盖率）+ slang 12.1（编译检查）。
+//         iverilog 已从工具链移除（见 README）。
 // ============================================================================
 `ifndef AXI_DEFS_PKG_SV
 `define AXI_DEFS_PKG_SV
