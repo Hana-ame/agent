@@ -50,6 +50,7 @@ module tb_monitor_rules #(
     endtask
 
     task automatic do_reset();
+        mon.rule_clear();
         ARESETn = 0;
         idle_bus();
         repeat (3) @(posedge ACLK);
@@ -323,9 +324,12 @@ module tb_monitor_rules #(
         expect_clean("全部规则");
     endtask
 
-    // 从违规日志中查关键字（粗粒度辅助）
+    // 精确查询某规则是否被触发过
+    // 此前是空实现（永远返回 1），导致「规则失效也测不出来」——
+    // 这是真实盲区：M28 变异（A2.AWADDR 规则删掉）本应被发现却存活。
+    // 现在改为调用监视器的 rule_hit() 做精确匹配。
     function automatic bit grep_violation(input string kw);
-        return 1'b1;      // 简化：计数已覆盖，此处不解析日志
+        return mon.rule_hit(kw);
     endfunction
 
     // ==================================================================

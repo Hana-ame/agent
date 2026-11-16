@@ -101,6 +101,22 @@ MUTATIONS = [
     ("M22", "axi_apb_bridge_sv.sv", "SLVERR 不传播到 RRESP（错误被吞）",
      "                axi.RRESP  = slv_err ? axi_defs_pkg::RESP_SLVERR : axi_defs_pkg::RESP_OKAY;",
      "                axi.RRESP  = axi_defs_pkg::RESP_OKAY;"),
+    # 串行桥此前只有 3 个变异（179 行，最核心模块），本轮补齐关键路径。
+    # 注：本轮试过 5 个候选变异，其中 2 类被证明是等价变异（已剔除）：
+    #   - S_IDLE 不合并 AW+W / S_AW_H 不拉 WREADY：桥有 S_AW_H/S_W_H 兜底
+    #     路径，退化后功能仍正确（只是多一拍）→ 等价变异
+    #   - S_WR_SETUP 的 PWRITE 恒 0：从机只在 ACC 完成拍采样 PWRITE，
+    #     而 S_WR_ACC 会重新拉高 PWRITE，故该变异无效果 → 等价变异
+    # 保留的 3 个是真正破坏功能的点：
+    ("M24", "axi_apb_bridge_sv.sv", "WR_SETUP 不拉 PSEL（写事务永不启动）",
+     "            S_WR_SETUP: begin apb.PSEL = 1'b1; apb.PENABLE = 1'b0; apb.PWRITE = 1'b1; end",
+     "            S_WR_SETUP: begin apb.PSEL = 1'b0; apb.PENABLE = 1'b0; apb.PWRITE = 1'b1; end"),
+    ("M25", "axi_apb_bridge_sv.sv", "WR_ACC 不拉 PENABLE（APB 握手不完成）",
+     "            S_WR_ACC:   begin apb.PSEL = 1'b1; apb.PENABLE = 1'b1; apb.PWRITE = 1'b1; end",
+     "            S_WR_ACC:   begin apb.PSEL = 1'b1; apb.PENABLE = 1'b0; apb.PWRITE = 1'b1; end"),
+    ("M26", "axi_apb_bridge_sv.sv", "读数据恒为 0（RDATA 未接）",
+     "        axi.RDATA   = rdata_q;",
+     "        axi.RDATA   = 32'h0;"),
     # --- 并发桥（axi_apb_bridge_dual_sv）---
     ("M13", "axi_apb_bridge_dual_sv.sv", "仲裁公平性 last_rd 取反（读写优先颠倒）",
      "assign w_grant = (owner == A_NONE) && w_req && (!r_req || !last_rd);",
@@ -116,6 +132,21 @@ MUTATIONS = [
     ("M14", "axi_apb_bridge_dual_sv.sv", "B 响应 SLVERR 恒为 OKAY（吞错误）",
      "axi.BRESP   = w_slverr ? axi_defs_pkg::RESP_SLVERR : axi_defs_pkg::RESP_OKAY;",
      "axi.BRESP   = axi_defs_pkg::RESP_OKAY;"),
+
+    # --- 协议监视器（axi_apb_monitor）--- 此前完全无变异覆盖（172 行）
+    # 监视器是「验证工具」本身，它失效会导致所有套件的协议检查静默失效。
+    ("M27", "axi_apb_monitor.sv", "监视器 A1.AWVALID 规则失效（漏检）",
+     '            if (prev_awvalid && !prev_awready && !axi.AWVALID)\n                violation("A1.AWVALID", "AWVALID dropped without AWREADY");',
+     '            if (1\'b0)\n                violation("A1.AWVALID", "AWVALID dropped without AWREADY");'),
+    ("M28", "axi_apb_monitor.sv", "监视器 A2.AWADDR 规则失效（漏检）",
+     '            if (prev_awvalid && !prev_awready && axi.AWVALID && axi.AWADDR !== prev_awaddr)\n                violation("A2.AWADDR", "AWADDR changed while AWVALID held");',
+     '            if (1\'b0)\n                violation("A2.AWADDR", "AWADDR changed while AWVALID held");'),
+    ("M29", "axi_apb_monitor.sv", "监视器误报（握手完成后仍检 A1）",
+     '            if (prev_awvalid && !prev_awready && !axi.AWVALID)',
+     '            if (prev_awvalid && !axi.AWVALID)'),
+    ("M30", "axi_apb_monitor.sv", "监视器 P1 规则失效（PENABLE 无 PSEL 漏检）",
+     '            if (!penable_ok(apb.PSEL, apb.PENABLE))',
+     '            if (1\'b0)'),
 ]
 
 # 每个变异对应的验证套件
@@ -131,6 +162,9 @@ TEST_FOR = {
     "M17": "regfile", "M18": "regfile", "M19": "regfile", "M20": "regfile",
     # M21-M22 串行桥错误传播 → sv 套件（有 SLVERR 测试）
     "M21": "sv", "M22": "sv",
+    "M24": "sv", "M25": "sv", "M26": "sv",
+    "M27": "monitorrules", "M28": "monitorrules",
+    "M29": "monitorrules", "M30": "monitorrules",
 }
 
 # 套件 → 编译源文件（与 sim.sh 保持一致）
@@ -153,12 +187,17 @@ SUITE_SRCS = {
     "stress": ["axi_defs_pkg.sv", "apb_defs_pkg.sv", "sv/bus_txn_pkg.sv",
                "sv/axi_lite_if.sv", "sv/apb_if.sv", "sv/axi_apb_bridge_dual_sv.sv",
                "sv/apb_slave_regs_sv.sv", "sv/tb_dual_stress.sv"],
+    "monitorrules": ["axi_defs_pkg.sv", "apb_defs_pkg.sv", "sv/bus_txn_pkg.sv",
+                     "sv/axi_lite_if.sv", "sv/apb_if.sv",
+                     "sv/axi_apb_bridge_sv.sv", "sv/apb_slave_regs_sv.sv",
+                     "sv/axi_apb_monitor.sv", "sv/tb_monitor_rules.sv"],
 }
 
 TOPS = {
     "regfile": "tb_regfile_sv", "regfilegen": "tb_regfile_gen",
     "gaps": "tb_gaps_sv", "dual": "tb_dual_sv",
     "sv": "tb_axi_apb_sv", "stress": "tb_dual_stress",
+    "monitorrules": "tb_monitor_rules",
 }
 
 NOFATAL = ["-Wno-WIDTHEXPAND", "-Wno-WIDTHTRUNC", "-Wno-ASCRANGE",
@@ -333,19 +372,30 @@ def main():
     if skipped:
         print(f"\n跳过 {len(skipped)} 个（原文不唯一）")
 
-    # 校验 RTL 已完整还原
+    # 校验 RTL 已完整还原。
+    # 注意：不能简单用 git status 判定 —— 正常工作区改动（开发中的功能修改）
+    # 也会显示为 dirty，会造成误报。正确做法是检查「变异后的文本是否还在文件里」：
+    # 若某文件里出现了变异文本（且原文不再唯一），才是真的残留。
     print()
-    r = subprocess.run(["git", "status", "--porcelain", "sv/"],
-                       cwd=str(HERE), capture_output=True, text=True)
-    dirty = [l for l in r.stdout.splitlines() if l.strip()
-             and not l.strip().endswith("apb_slave_regfile_gen.sv")
-             and not l.strip().endswith("tb_regfile_gen.sv")]
-    if dirty:
-        print("⚠ 警告：以下 RTL 文件可能未还原：")
-        for d in dirty:
+    residual = []
+    for mid, rel, desc, old, new in MUTATIONS:
+        f = HERE / "sv" / rel
+        if not f.exists():
+            continue
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if txt.count(new) >= 1 and txt.count(old) == 0:
+            residual.append(f"{rel}（{mid} 变异文本仍在）")
+
+    if residual:
+        print("⚠ 警告：检测到变异残留（非正常改动）：")
+        for d in residual:
             print("   ", d)
+        print("   恢复命令：git checkout -- verilog/axi/sv/")
     else:
-        print("✅ RTL 已全部还原（git status 干净）")
+        print("✅ RTL 已全部还原（无变异残留）")
 
     shutil.rmtree(work_root, ignore_errors=True)
 

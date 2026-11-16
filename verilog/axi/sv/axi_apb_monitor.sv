@@ -89,11 +89,37 @@ module axi_apb_monitor #(
         end
     end
 
-    // 违规记录helper
+    // 违规记录 helper
+    // 除计数外，记录「最近一次违规的规则名」，供 testbench 精确校验
+    //（此前 tb_monitor_rules 的 grep_violation 是空实现，永远返回 1，
+    //  导致规则失效也测不出来 —— 是真实的测试盲区）。
+    string last_rule = "";
+    int    rule_hits[string];
+
     task automatic violation(input string rule, input string detail);
         errors++;
+        last_rule = rule;
+        rule_hits[rule] = rule_hits.exists(rule) ? rule_hits[rule] + 1 : 1;
         $display("[%s] VIOLATION %s: %s @%0t", NAME, rule, detail, $time);
     endtask
+
+    // 查询某规则是否被触发过。
+    // 支持两种用法：
+    //   精确名 rule_hit("A2.AWADDR")
+    //   前缀名 rule_hit("A2")  → 匹配 A2.AWADDR / A2.WDATA / A2.ARADDR
+    function automatic bit rule_hit(input string rule);
+        foreach (rule_hits[k]) begin
+            if (k == rule || k.substr(0, rule.len()-1) == rule)
+                return 1'b1;
+        end
+        return 1'b0;
+    endfunction
+
+    // 清除规则命中记录（每次子测试前调用）
+    function automatic void rule_clear();
+        rule_hits.delete();
+        last_rule = "";
+    endfunction
 
     // ==================================================================
     // AXI 规则检查
