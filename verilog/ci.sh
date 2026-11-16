@@ -432,6 +432,20 @@ stage5() {
 stage6() {
     banner "G6 变异得分（阈值 ${MIN_MUTATION_SCORE}%）"
     local t0=$SECONDS
+
+    # 先自测变异定义：old 必须唯一存在、old != new。
+    # 否则某个变异可能「永远被杀死」（old 找不到，替换无效）或
+    # 「永远存活」（等价变异），让 100% 得分变成假象。
+    local st_out
+    if ! st_out=$(cd axi && python3 mutate_self_test.py 2>&1); then
+        echo -e "  ${RED}✗${R} 变异定义自测失败"
+        echo "$st_out" | grep -E "✗|问题" | head -6 | sed 's/^/      /'
+        local dt0=$((SECONDS-t0))
+        record "$1" FAIL "$dt0"
+        return 1
+    fi
+    echo -e "  ${DIM}$(echo "$st_out" | tail -1)${R}"
+
     local out
     out=$(cd axi && python3 mutate.py 2>&1)
     local rc=$?
