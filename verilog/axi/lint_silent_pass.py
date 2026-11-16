@@ -33,7 +33,31 @@ RULES = {
     "S1": "判定函数/任务直接返回常量（空实现）",
     "S2": "SKIP 之后 return 0 / exit 0（把未执行当成通过）",
     "S3": "只比对总数不核对身份（可能掩盖单项失败）",
+    "S4": "帮助/错误信息漏列实际可用的目标（用户找不到功能）",
 }
+
+
+def scan_s4(path: Path):
+    """找「case 分支里的目标没出现在帮助信息中」"""
+    if path.name != "sim.sh":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    # 实际 case 分支
+    actual = set(re.findall(r"^    ([a-z0-9]+)\)$", txt, re.M))
+    # 帮助信息通常在 `*)` 分支里；若已改为自动生成（含 grep -oE ... 提取），
+    # 则不存在手工列表，跳过
+    if "目标清单自动从本脚本" in txt or "_targets=$(grep" in txt:
+        return []
+    out = []
+    m = re.search(r"未知目标.*?(?=exit 1)", txt, re.S)
+    if not m:
+        return []
+    block = m.group(0)
+    listed = set(re.findall(r"\b([a-z0-9]+)\b", block.split("可用")[-1] if "可用" in block else block))
+    missing = sorted(actual - listed - {"*", "help"})
+    for t in missing:
+        out.append((0, f"目标 {t} 未出现在帮助信息中"))
+    return out
 
 
 def scan_s1(path: Path):
@@ -117,6 +141,8 @@ def main():
         if f.suffix == ".sh":
             issues += [(ln, "S2", d) for ln, d in scan_s2(f)]
         issues += [(ln, "S3", d) for ln, d in scan_s3(f)]
+        if f.name == "sim.sh":
+            issues += [(ln, "S4", d) for ln, d in scan_s4(f)]
 
         if not issues:
             continue

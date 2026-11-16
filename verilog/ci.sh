@@ -553,7 +553,14 @@ main() {
         --stage)
             local s="${2:-}"
             if ! [[ "$s" =~ ^[1-9]$ ]]; then
-                echo "错误：--stage 需要 1-9" >&2; exit 2
+                echo "错误：--stage 需要 1-9（当前支持：${#STAGE_NAMES[@]} 关）" >&2
+            echo "" >&2
+            echo "可用关卡：" >&2
+            _i=1
+            for _n in "${STAGE_NAMES[@]}"; do
+                echo "  $_i  $_n" >&2
+                _i=$((_i+1))
+            done; exit 2
             fi
             run_stages=("$s")
             ;;

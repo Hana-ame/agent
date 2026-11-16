@@ -614,11 +614,34 @@ case "${1:-all}" in
         ;;
     *)
         echo "未知目标: $1"
-        echo "可用: counter counter8 axi sv gaps dual stress covgaps"
-        echo "      regfile regfilegen vip"
-        echo "      lint duallegal fieldiso dualerr resetdom handshake monitor monitorrules latency fairness params sva
-      uvmlite asserteff dw64"
-        echo "      coverage mutate sweep docs wave all"
+        echo ""
+        # 目标清单自动从本脚本的 case 分支提取（避免手工维护漏项，
+        # 此前帮助信息漏列了 dw64 / vip / covgaps 等实际存在的套件）
+        _targets=$(grep -oE '^    [a-z0-9]+\)' "$0" | sed 's/^ *//;s/)$//' \
+                   | grep -vE '^(\*|help)$' | sort)
+        # 按类别分组显示（更易读）
+        _basic=""; _axi=""; _tool=""
+        for _t in $_targets; do
+            case "$_t" in
+                all|lint|coverage|mutate|sweep|docs|wave|stability)
+                    _tool="$_tool $_t" ;;
+                counter|counter8)
+                    _basic="$_basic $_t" ;;
+                *)
+                    _axi="$_axi $_t" ;;
+            esac
+        done
+        echo "可用目标（$(echo $_targets | wc -w) 个）:"
+        echo ""
+        [ -n "$_basic" ] && { echo "  基础套件:"; echo "  $_basic" | fold -s -w 74 | sed 's/^/   /'; echo ""; }
+        [ -n "$_axi" ] && { echo "  AXI/APB 相关:"; echo "  $_axi" | fold -s -w 74 | sed 's/^/   /'; echo ""; }
+        [ -n "$_tool" ] && { echo "  工具/汇总:"; echo "  $_tool" | fold -s -w 74 | sed 's/^/   /'; echo ""; }
+        echo "常用："
+        echo "  bash sim.sh <target>      # 跑单个套件"
+        echo "  bash sim.sh all           # 全量回归"
+        echo "  bash sim.sh coverage      # 覆盖率收集"
+        echo ""
+        echo "不确定用哪个？先跑：bash sim.sh all"
         exit 1
         ;;
 esac
