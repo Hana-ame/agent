@@ -7,7 +7,7 @@
     //   [ 0] 0x00  VERSION      RO    reset=0x00010203   IP 版本号（只读，整字属性）
     //   [ 1] 0x04  INT_STATUS   W1C   reset=0x000000F3   中断状态（整字 W1C，复位带初始待处理位）
     //   [ 2] 0x08  RESERVED0    RSVD  reset=0x00000000   保留（整字保留）
-    //   [ 3] 0x0C  CTRL         RW    reset=0x00000000   控制寄存器（含位域定义）（位域属性见 fields）
+    //   [ 3] 0x0C  CTRL         RW    reset=0xA53C0000   控制寄存器（含位域定义）（位域属性见 fields）（reset 由各位域 reset 拼合得出，非 0）
     //   [ 4] 0x10  STATUS       RO    reset=0x00000011   状态寄存器（整字只读）
     //   [ 5] 0x14  INT_ENABLE   RW    reset=0x00000000   中断使能（整字读写）
     //   [ 6] 0x18  DATA_IN      RW    reset=0x00000000   数据输入

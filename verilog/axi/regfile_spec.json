@@ -34,8 +34,8 @@
       "name": "CTRL",
       "offset": "0x0C",
       "attr": "RW",
-      "reset": "0x00000000",
-      "description": "控制寄存器（含位域定义）（位域属性见 fields）",
+      "reset": "0xA53C0000",
+      "description": "控制寄存器（含位域定义）（位域属性见 fields）（reset 由各位域 reset 拼合得出，非 0）",
       "fields": [
         {
           "name": "ENABLE",

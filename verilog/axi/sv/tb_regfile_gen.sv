@@ -7,7 +7,7 @@
     //   0x00  VERSION      RO    reset=0x00010203
     //   0x04  INT_STATUS   W1C   reset=0x000000F3
     //   0x08  RESERVED0    RSVD  reset=0x00000000
-    //   0x0C  CTRL         RW    reset=0x00000000
+    //   0x0C  CTRL         RW    reset=0xA53C0000
     //   0x10  STATUS       RO    reset=0x00000011
     //   0x14  INT_ENABLE   RW    reset=0x00000000
     //   0x18  DATA_IN      RW    reset=0x00000000

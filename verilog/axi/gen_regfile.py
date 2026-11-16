@@ -72,6 +72,32 @@ def validate(spec):
         if r["attr"] not in VALID_ATTRS:
             errs.append(f"{name}: 非法属性 {r['attr']}（合法: {sorted(VALID_ATTRS)}）")
 
+        # 复位值一致性：若有位域定义，顶层 reset 必须等于「各位域 reset 拼合」
+        # （曾经 CTRL 的顶层 reset=0，但位域拼合=0xA53C0000，
+        #   RTL 按位域实现，导致手册显示 0x0 而实际复位值是 0xA53C0000）
+        fields = r.get("fields", [])
+        if fields:
+            try:
+                top = r["reset"]
+                topv = int(top, 16) if isinstance(top, str) else int(top)
+                computed = 0
+                for f in fields:
+                    bits = str(f.get("bits", ""))
+                    if ":" in bits:
+                        msb, lsb = map(int, bits.split(":"))
+                    elif bits:
+                        msb = lsb = int(bits)
+                    else:
+                        continue
+                    w = msb - lsb + 1
+                    computed |= (int(f.get("reset", 0)) & ((1 << w) - 1)) << lsb
+                if topv != computed:
+                    errs.append(
+                        f"{name}: 顶层 reset=0x{topv:08X} 与位域拼合值 "
+                        f"0x{computed:08X} 不一致（请修正 reset 或 field.reset）")
+            except (ValueError, TypeError) as e:
+                errs.append(f"{name}: 复位值解析失败（{e}）")
+
         # 名字唯一
         if r["name"] in seen_names:
             errs.append(f"{name}: 名字重复")
