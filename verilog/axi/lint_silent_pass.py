@@ -36,7 +36,35 @@ RULES = {
     "S4": "帮助/错误信息漏列实际可用的目标（用户找不到功能）",
     "S5": "恒真检查：计数器无条件自增后与循环次数比对",
     "S6": "定义未使用的类型/函数（文档声称支持但代码未引用）",
+    "S7": "协议版本声明与信号集不符（声称的版本含未实现信号）",
 }
+
+
+def scan_s7(path: Path):
+    """检测协议版本声明与接口信号集是否一致。
+
+    实例：apb_defs_pkg.sv 曾把 PSLVERR 标为「APB4」，
+    但 PSLVERR 是 APB3 引入的；APB4 新增的是 PPROT/PSTRB。
+    """
+    if path.name != "apb_defs_pkg.sv":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    iface = HERE / "sv" / "apb_if.sv"
+    if not iface.exists():
+        return []
+    itxt = iface.read_text(encoding="utf-8", errors="replace")
+    out = []
+    # 若声称 APB4，接口里必须有 PPROT 和 PSTRB。
+    # 但若注释已明确说明「未实现 APB4 / 只到 APB3」，属已声明意图，不告警。
+    if "APB4" in txt:
+        declared = ("未实现 APB4" in txt or "只到 APB3" in txt
+                    or "本实现对应的 APB 版本：**APB3**" in txt)
+        if not declared:
+            missing = [s for s in ("PPROT", "PSTRB") if s not in itxt]
+            if missing:
+                out.append((0, f"注释声称 APB4，但接口缺少 {'/'.join(missing)}"
+                               "（APB4 新增信号）；实际只到 APB3"))
+    return out
 
 
 def scan_s6(path: Path):
@@ -231,6 +259,7 @@ def main():
             issues += [(ln, "S4", d) for ln, d in scan_s4(f)]
         issues += [(ln, "S5", d) for ln, d in scan_s5(f)]
         issues += [(ln, "S6", d) for ln, d in scan_s6(f)]
+        issues += [(ln, "S7", d) for ln, d in scan_s7(f)]
 
         if not issues:
             continue

@@ -15,7 +15,14 @@
 //   PWDATA  写数据
 //   PRDATA  读数据
 //   PREADY  从机就绪（慢速从机用 0 插入 wait states -> "可以慢"）
-//   PSLVERR 传输错误（APB4；可选）
+//   PSLVERR 传输错误（APB3 引入；可选）
+//
+// 本实现对应的 APB 版本：**APB3**
+//   已具备 PSLVERR（APB3 新增）。
+//   ⚠ 未实现 APB4 的两个信号：PPROT（保护属性）、PSTRB（写字节选通）。
+//     因此本接口是 APB3 信号集，不支持「按字节写」与「安全/特权标记」。
+//     如需 APB4，需在 sv/apb_if.sv 增加 PPROT/PSTRB，
+//     并让从机的写逻辑按 PSTRB 做字节使能。
 //
 // 阶段（Transfer）：
 //   IDLE    无传输（PSEL=0, PENABLE=0）
