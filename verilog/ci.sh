@@ -29,7 +29,7 @@ cd "$(dirname "$0")" || exit 1
 
 # ---- 配置 ----
 MIN_RTL_COVERAGE=90      # G5 阈值（%）
-MIN_MUTATION_SCORE=88
+MIN_MUTATION_SCORE=95      # G6 阈值（%）：当前 100%，留 5% 余量
 SLANG=$(command -v slang 2>/dev/null || echo "")
 VERILATOR="${VERILATOR:-/tmp/verilator/bin/verilator_bin}"
 [ -z "$VERILATOR_ROOT" ] && export VERILATOR_ROOT=/tmp/verilator

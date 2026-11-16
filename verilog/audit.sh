@@ -323,18 +323,30 @@ audit_a8() {
     }
 
     backup "$f"
-    # G5 覆盖率：阈值 101（覆盖率最高 100）
-    check_gate "G5 覆盖率阈值" MIN_RTL_COVERAGE 90 101 5
-    # G6 变异得分：阈值 100（本项目得分 90.9）
-    check_gate "G6 变异得分阈值" MIN_MUTATION_SCORE 88 100 6
+    # 记录注入前的实际阈值（不硬编码：阈值会随项目成熟度调整）
+    local orig_cov orig_mut
+    orig_cov=$(grep -oE '^MIN_RTL_COVERAGE=[0-9]+' "$f" | cut -d= -f2)
+    orig_mut=$(grep -oE '^MIN_MUTATION_SCORE=[0-9]+' "$f" | cut -d= -f2)
+    orig_cov=${orig_cov:-0}
+    orig_mut=${orig_mut:-0}
+
+    # G5 覆盖率：阈值 101（覆盖率上限 100，物理不可达）
+    check_gate "G5 覆盖率阈值" MIN_RTL_COVERAGE "$orig_cov" 101 5
+    # G6 变异得分：阈值 101（得分上限 100，物理不可达）
+    # 注意：此前用 100，在变异得分达到 100% 后该审计会失去意义（同 A6 的坑）
+    check_gate "G6 变异得分阈值" MIN_MUTATION_SCORE "$orig_mut" 101 6
     restore "$f"
 
-    # 注入后确认 ci.sh 已完全恢复
+    # 注入后确认 ci.sh 已恢复为注入前的值（不硬编码具体数字，
+    # 否则阈值调整后这里会误报 —— 硬编码问题第 5 次出现）
     checks_total=$((checks_total+1))
-    if grep -q '^MIN_RTL_COVERAGE=90' ci.sh && grep -q '^MIN_MUTATION_SCORE=88' ci.sh; then
-        echo -e "  ${GRN}✓${R} ci.sh 阈值已恢复原值"
+    local now_cov now_mut
+    now_cov=$(grep -oE '^MIN_RTL_COVERAGE=[0-9]+' ci.sh | cut -d= -f2)
+    now_mut=$(grep -oE '^MIN_MUTATION_SCORE=[0-9]+' ci.sh | cut -d= -f2)
+    if [ "$now_cov" = "$orig_cov" ] && [ "$now_mut" = "$orig_mut" ]; then
+        echo -e "  ${GRN}✓${R} ci.sh 阈值已恢复原值（覆盖 ${orig_cov}% / 变异 ${orig_mut}%）"
     else
-        echo -e "  ${RED}✗${R} ci.sh 阈值未恢复，请检查"
+        echo -e "  ${RED}✗${R} ci.sh 阈值未恢复（覆盖 ${now_cov}≠${orig_cov} 或 变异 ${now_mut}≠${orig_mut}）"
         bad=$((bad+1))
     fi
 

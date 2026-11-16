@@ -44,8 +44,12 @@ MUTATIONS = [
      "apb.PSLVERR <= in_range ? 1'b0 : 1'b1;", "apb.PSLVERR <= 1'b0;"),
     ("M04", "apb_slave_regs_sv.sv", "写使能 && 改为 ||（读时也写）",
      "if (in_range && apb.PWRITE)", "if (in_range || apb.PWRITE)"),
-    ("M05", "apb_slave_regs_sv.sv", "wait 计数 == 0 改为 <= 0（永不完成）",
-     "if (wait_cnt == 0) begin", "if (wait_cnt <= 0) begin"),
+    # M05 原为 `wait_cnt <= 0`，但 wait_cnt 是 logic[7:0]（无符号），
+    # <= 0 与 == 0 恒等价 —— 属等价变异，测不出来是正常行为（不是测试盲区）。
+    # 换为真正有意义的变异：读周期也执行写内存（写穿），会破坏后续读。
+    ("M05", "apb_slave_regs_sv.sv", "读周期也写内存（写穿破坏数据）",
+     "                        if (in_range && apb.PWRITE)\n                            mem[idx] <= apb.PWDATA;",
+     "                        if (in_range)\n                            mem[idx] <= apb.PWDATA;"),
 
     # --- 桥（axi_apb_bridge_sv）---
     ("M06", "axi_apb_bridge_dual_sv.sv", "B 响应不等 BREADY 就退出（反压丢失）",
@@ -54,9 +58,12 @@ MUTATIONS = [
     ("M07", "axi_apb_bridge_dual_sv.sv", "R 响应不等 RREADY 就退出（反压丢失）",
      "                R_RESP: begin\n                    if (axi.RREADY) begin",
      "                R_RESP: begin\n                    if (1'b1) begin"),
-    ("M08", "axi_apb_bridge_sv.sv", "APB 地址被篡改低位（地址错位）",
+    # M08 此前用 | 2'b01 篡改 bit0，但 APB 从机用 PADDR>>2 译码，
+    # bit0/bit1 被丢弃 → 该变异与原代码行为等价，测不出来是正常的。
+    # 改为篡改 bit2（字地址最低位），会真正写到相邻寄存器，是实现缺陷。
+    ("M08", "axi_apb_bridge_sv.sv", "APB 地址错位（字地址 +1，写到相邻寄存器）",
      "                        paddr_q <= axi.AWADDR;\n                        pwdata_q <= axi.WDATA;",
-     "                        paddr_q <= axi.AWADDR | 2'b01;\n                        pwdata_q <= axi.WDATA;"),
+     "                        paddr_q <= axi.AWADDR ^ 8'h04;\n                        pwdata_q <= axi.WDATA;"),
 
     # --- 寄存器从机（apb_slave_regfile_gen）---
     ("M09", "apb_slave_regfile_gen.sv", "W1C 语义 ~wr_v 改为 wr_v（写 1 置位）",
