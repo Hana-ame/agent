@@ -175,7 +175,7 @@ footer{
       <span class="sub">设计文档 · 完整 AXI/APB 定义 · 转换设计 · 向量化测试闭环 · 双工具实测</span>
     </h1>
     <div class="meta">
-      <span class="tag ok">iverilog 12 · PASS 35 检查</span>
+      <span class="tag ok">Verilator 5.055 · 25 套件全 PASS</span>
       <span class="tag ok">slang 12.1 · 0 错误 0 警告</span>
       <span class="tag ok">Verilator 5.055 · 234 向量 PASS</span>
       <span class="tag info">分支 verilog</span>
@@ -210,7 +210,7 @@ footer{
   <div class="grid g2" style="margin-top:14px">
     <div class="card">
       <h4>④ testbench</h4>
-      <p>双版本：iverilog 行为级（35 检查） + 完整 SV（interface/SVA/class，234 向量）</p>
+      <p>统一工具链：<b>Verilator 5.055</b>（仿真 + 覆盖率）+ <b>slang 12.1</b>（编译检查）；完整 SV 版 234 向量 + 25 个专项套件</p>
     </div>
     <div class="card">
       <h4>⑤ 向量化测试闭环</h4>
@@ -254,6 +254,11 @@ footer{
       <tr><td><code>sv/axi_apb_bridge_sv.sv</code></td><td>178</td><td><b>转换设计</b>（接口端口版）</td><td>11 状态 FSM、接口端口、握手保持 READY</td></tr>
       <tr><td><code>sv/apb_slave_regs_sv.sv</code></td><td>83</td><td>慢速从机（接口端口版）</td><td><code>apb_phase_t</code> 状态机、wait states、SLVERR</td></tr>
       <tr><td><code>sv/tb_axi_apb_sv.sv</code></td><td>289</td><td><b>向量化 testbench</b></td><td>数据向量集 → 激励驱动 → 数据向量比对三段闭环</td></tr>
+      <tr><td><code>sv/axi_txn_host.sv</code></td><td>96</td><td><b>事务适配层</b>（L2）</td><td><code>execute(txn_t, rsp_t)</code>：把一笔事务展开成 AXI 握手；AWW 同发/分开发、pause、统一 <code>VALID && READY</code> 判据</td></tr>
+      <tr><td><code>sv/axi_apb_bridge_dual_sv.sv</code></td><td>246</td><td><b>并发桥</b></td><td>写 FSM + 读 FSM 独立并行（13 态）；round-robin 仲裁 <code>w_grant</code>/<code>r_grant</code>；读写错误标志独立（<code>w_slverr</code>/<code>r_slverr</code>）</td></tr>
+      <tr><td><code>sv/apb_slave_regfile_sv.sv</code></td><td>160</td><td>带属性从机（手写）</td><td>4 种属性 <code>A_RSVD</code>/<code>A_RW</code>/<code>A_RO</code>/<code>A_W1C</code>；<code>RO_REG0_VALUE</code>/<code>RSVD_REG2_VALUE</code></td></tr>
+      <tr><td><code>sv/apb_slave_regfile_gen.sv</code></td><td>259</td><td>带属性从机（生成）</td><td>由 <code>regfile_spec.json</code> 生成；<b>位域级属性</b>（同一寄存器内混合 RW/W1S/RSVD/RC/W1C）；读清零/写1置位语义</td></tr>
+      <tr><td><code>sv/axi_apb_monitor.sv</code></td><td>198</td><td><b>被动协议监视器</b></td><td>11 条规则：AXI <code>A1.AWVALID/WVALID/ARVALID</code>、<code>A2.AWADDR/WDATA/ARADDR</code>；APB <code>P1.PENABLE</code>/<code>P2.PHASE</code>/<code>P3.SETUP</code>/<code>P4.PADDR/PWRITE</code>；<code>rule_hits[]</code> 记录供精确校验</td></tr>
     </tbody>
   </table>
 </section>
@@ -418,10 +423,18 @@ footer{
 <!-- ============ 7. 验证：双版本 ============ -->
 <section>
   <h2><span class="num">07</span>验证架构：双版本互补</h2>
+  <div class="note" style="border-left:3px solid #d29922;padding:10px 14px;margin:12px 0;
+       background:rgba(210,153,34,.08);border-radius:6px">
+    <b>⚠ 现状说明</b>：<code>iverilog</code> <b>已从工具链移除</b>，当前统一使用
+    <b>Verilator 5.055</b>（仿真/覆盖率）+ <b>slang 12.1</b>（编译检查）。
+    下表的「行为级版」指 <code>verilog/axi/</code> 下端口式（非 interface）的那套 RTL/TB，
+    现在同样由 Verilator 编译运行（<code>sim.sh axi</code>，35 项检查）；
+    保留它是因为结构与完整 SV 版互补，便于对照学习，与工具选择无关。
+  </div>
 
   <table>
     <thead>
-      <tr><th>维度</th><th>iverilog 版（<code>verilog/axi/</code>）</th><th>完整 SV 版（<code>verilog/axi/sv/</code>）</th></tr>
+      <tr><th>维度</th><th>行为级版（<code>verilog/axi/</code>）</th><th>完整 SV 版（<code>verilog/axi/sv/</code>）</th></tr>
     </thead>
     <tbody>
       <tr><td>接口</td><td>普通端口</td><td><b>interface + modport</b></td></tr>
@@ -501,16 +514,36 @@ footer{
 <section>
   <h2><span class="num">09</span>实测结果</h2>
 
-  <h3>iverilog 12 · 行为级链路</h3>
-  <div class="result"><span class="dim">$ iverilog -g2012 ... && vvp run/tb_axi_apb.vvp</span>
-<span class="dim">== AXI-&gt;APB-&gt;AXI test bench (slow slave, WAIT=3) ==</span>
--- phase 1: write 16 regs (split AW/W) --
--- phase 2: read back 16 regs --
--- phase 3: same-cycle AW+W write --
--- phase 4: out-of-range access (expect SLVERR) --
-    OOB write resp=10 (SLVERR)
-    OOB read  resp=10 (SLVERR)
-<span class="hl">PASS: axi-&gt;apb-&gt;axi all 35 checks passed (monitor clean)</span></div>
+  <h3>Verilator 5.055 · 全量回归（25 套件）</h3>
+  <div class="result"><span class="dim">$ bash sim.sh all</span>
+<span class="hl">PASS: all 20 checks passed</span>                     <span class="dim">counter</span>
+<span class="hl">PASS: counter8 SV, all checks passed</span>            <span class="dim">counter8</span>
+<span class="hl">PASS: axi-&gt;apb-&gt;axi all 35 checks passed</span>         <span class="dim">axi</span>
+<span class="hl">PASS: ... 234 checks, 0 errors</span>                  <span class="dim">sv（向量化）</span>
+<span class="hl">PASS: gaps suite</span>                                 <span class="dim">gaps（285 检查）</span>
+<span class="hl">PASS: dual bridge ...</span>                            <span class="dim">dual / dualstress / dualerr / duallegal</span>
+<span class="hl">PASS: all monitor rules verified</span>                <span class="dim">monitorrules（12 项）</span>
+<span class="hl">PASS: latency baseline</span> / <span class="hl">fairness and throughput</span>  <span class="dim">latency / fairness</span>
+<span class="hl">PASS: param config ...</span>                          <span class="dim">params（16 组配置）</span>
+<span class="hl">PASS: ...</span>                                        <span class="dim">sva / handshake / resetdom / asserteff</span>
+<span class="hl">PASS: ...</span>                                        <span class="dim">fieldiso / regfile / regfilegen / vip / dw64</span>
+<span class="hl">全部 25 套件通过</span></div>
+
+  <h3>质量门 CI（6 关）</h3>
+  <div class="result"><span class="dim">$ bash ci.sh</span>
+<span class="hl">✓ PASS  G1:编译检查(slang)</span>              <span class="dim">16 组编译 + 静态检查 + 脚本可用性</span>
+<span class="hl">✓ PASS  G2:快速回归(4套件)</span>
+<span class="hl">✓ PASS  G3:全量回归(25套件)</span>            <span class="dim">要求累计 ≥1000 项检查</span>
+<span class="hl">✓ PASS  G7:文档生成(6份HTML)</span>
+<span class="hl">✓ PASS  G8:复现性(干净clone)</span>           <span class="dim">干净 clone 能直接跑通</span>
+<span class="hl">✓ PASS  G9:稳定性(无偶发失败)</span>          <span class="dim">套件重复运行检测 flaky</span>
+<span class="hl">质量门全部通过</span></div>
+
+  <h3>变异测试（29 个变异 / 6 个模块）</h3>
+  <div class="result"><span class="dim">$ python3 mutate.py</span>
+<span class="hl">变异得分: 100.0%  (29/29 杀死)</span>
+<span class="dim">覆盖模块：串行桥 6 · 并发桥 4 · 纯存储从机 7 · 手写属性从机 4
+          生成属性从机 4 · 协议监视器 4</span></div>
 
   <h3>slang 12.1 · 完整 SV 编译检查</h3>
   <div class="result"><span class="dim">$ slang --top tb_axi_apb_sv ...</span>

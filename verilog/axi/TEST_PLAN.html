@@ -62,8 +62,8 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <h1>测试方案与覆盖缺口：AXI→APB→AXI
 <small>由 gen_test_plan.py 解析真实源码与 TB 生成 · 覆盖状态经自动判定 + 人工确认</small></h1>
 <div class="stats">
-<div class="stat"><div class="v" style="color:var(--blue)">29</div><div class="l">测试项总数</div></div>
-<div class="stat"><div class="v" style="color:var(--green)">29</div><div class="l">已覆盖</div></div>
+<div class="stat"><div class="v" style="color:var(--blue)">48</div><div class="l">测试项总数</div></div>
+<div class="stat"><div class="v" style="color:var(--green)">48</div><div class="l">已覆盖</div></div>
 <div class="stat"><div class="v" style="color:var(--red)">0</div><div class="l">覆盖缺口</div></div>
 <div class="stat"><div class="v" style="color:var(--amber)">100%</div><div class="l">覆盖率</div></div>
 </div>
@@ -81,16 +81,22 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
 <div class="bl"><span>暂停</span><span class="mono">3/3</span></div>
 <div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
-<div class="bl"><span>复位</span><span class="mono">3/3</span></div>
+<div class="bl"><span>复位</span><span class="mono">8/8</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
+<div class="bl"><span>并发</span><span class="mono">6/6</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
+<div class="bl"><span>位域</span><span class="mono">5/5</span></div>
+<div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
+<div class="bl"><span>监视器</span><span class="mono">3/3</span></div>
 <div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div><div class="bar">
 <div class="bl"><span>压力</span><span class="mono">3/3</span></div>
 <div class="bt"><div class="bf" style="width:100%;background:#3fb950"></div></div></div></div>
 
 <h2><span class="n">02</span>测试项清单（可筛选）</h2>
 <div class="filters">
-<div class="f on" data-f="all">全部 29</div>
+<div class="f on" data-f="all">全部 48</div>
 <div class="f" data-f="gap">只看缺口 0</div>
-<div class="f" data-f="cov">只看已覆盖 29</div>
+<div class="f" data-f="cov">只看已覆盖 48</div>
 </div>
 <table><thead><tr>
 <th style="width:70px">ID</th><th style="width:200px">测试项</th>
@@ -166,13 +172,70 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 <td class="dim">txn_t.pause=16 或更大</td><td class="expect">总线保持空闲稳定，无意外响应</td>
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
 <td class="mono">R-01</td><td><b>上电复位后寄存器清零</b></td>
-<td class="dim">复位序列后读所有地址</td><td class="expect">全部返回 0x0</td>
+<td class="dim">复位序列后读所有地址（tb_gaps_sv::t_r01_reset_clear）</td><td class="expect">全部返回 0x0</td>
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
 <td class="mono">R-02</td><td><b>事务中途复位</b></td>
-<td class="dim">握手过程中拉低 ARESETn</td><td class="expect">总线立即回归 IDLE，无残留 VALID</td>
+<td class="dim">握手过程中拉低 ARESETn（tb_gaps_sv::t_r02_mid_reset）</td><td class="expect">总线立即回归 IDLE，无残留 VALID</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
+<td class="mono">R-04</td><td><b>APB 从机独立复位（AXI 侧运行中）</b></td>
+<td class="dim">PRESETn 独立于 ARESETn；空闲时只复位 APB 域</td><td class="expect">APB 寄存器清零；AXI 桥继续正常工作</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
+<td class="mono">R-05</td><td><b>AXI 桥独立复位（APB 侧保持）</b></td>
+<td class="dim">只拉低 ARESETn，PRESETn 保持</td><td class="expect">APB 寄存器内容保留；桥复位后可用</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
+<td class="mono">R-06</td><td><b>复位释放顺序差异</b></td>
+<td class="dim">先 APB 后 AXI / 先 AXI 后 APB 两种顺序</td><td class="expect">两种顺序都能恢复正常工作</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
+<td class="mono">R-07</td><td><b>APB 传输中独立复位 → 死锁</b></td>
+<td class="dim">在 PENABLE=1 且 PREADY=0 时拉低 PRESETn</td><td class="expect">桥卡在 S_RD_ACC/S_WR_ACC（已知约束，需系统层超时复位）</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
+<td class="mono">R-08</td><td><b>死锁后经 ARESETn 恢复</b></td>
+<td class="dim">死锁后断言 ARESETn 再释放</td><td class="expect">桥回 IDLE；恢复后读写正常</td>
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="复位" data-cov="1">
 <td class="mono">R-03</td><td><b>复位后首次事务</b></td>
 <td class="dim">复位释放后立即发事务</td><td class="expect">首事务正确完成</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="并发" data-cov="1">
+<td class="mono">C-01</td><td><b>读写通道同时进行（合法并发）</b></td>
+<td class="dim">fork：写 0x20 + 读 0x10 同时发起</td><td class="expect">两者都正确；读数据与写地址无串扰</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="并发" data-cov="1">
+<td class="mono">C-02</td><td><b>并发写数据真实落盘</b></td>
+<td class="dim">并发写后单独读回校验</td><td class="expect">读回值等于并发写入值（非假成功）</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="并发" data-cov="1">
+<td class="mono">C-03</td><td><b>连续多轮并发无累积错误</b></td>
+<td class="dim">连续 5 轮 写+读 并发</td><td class="expect">5/5 轮全部正确</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="并发" data-cov="1">
+<td class="mono">C-04</td><td><b>并发桥读写错误标志独立</b></td>
+<td class="dim">写越界 + 读正常 / 写正常 + 读越界</td><td class="expect">错误不串扰：各自 resp 独立正确</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="并发" data-cov="1">
+<td class="mono">C-05</td><td><b>并发双越界</b></td>
+<td class="dim">读写同时越界</td><td class="expect">两者都返回 SLVERR</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="并发" data-cov="1">
+<td class="mono">C-06</td><td><b>并发后数据一致性</b></td>
+<td class="dim">并发混合事务后读回校验</td><td class="expect">最终数据与最后一次写一致</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="位域" data-cov="1">
+<td class="mono">W-01</td><td><b>写一个域不影响同寄存器其他域</b></td>
+<td class="dim">CTRL 内写 ENABLE[0]，检查 MODE/IRQ_EN/RESERVED/FLAGS</td><td class="expect">仅 bit0 变化；其他域保持</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="位域" data-cov="1">
+<td class="mono">W-02</td><td><b>W1S 语义（写1置位，写0保持）</b></td>
+<td class="dim">CTRL.IRQ_EN[3]：写 1 → 置位；再写 0 → 仍为 1</td><td class="expect">写 1 置位；写 0 不清零（区别于 RW）</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="位域" data-cov="1">
+<td class="mono">W-03</td><td><b>RSVD 写入被忽略</b></td>
+<td class="dim">CTRL.RESERVED[15:4] 写满 1</td><td class="expect">读回始终为 0</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="位域" data-cov="1">
+<td class="mono">W-04</td><td><b>W1C 语义（写1清零）</b></td>
+<td class="dim">CTRL.FLAGS[31:24] 写 0xFF</td><td class="expect">对应位被清零</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="位域" data-cov="1">
+<td class="mono">W-05</td><td><b>跨域隔离（写 RW 不影响 W1C 域）</b></td>
+<td class="dim">先记录 FLAGS，再只写 ENABLE，比对 FLAGS</td><td class="expect">FLAGS 未被误改</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="监视器" data-cov="1">
+<td class="mono">M-01</td><td><b>11 条规则逐条能捕获违规</b></td>
+<td class="dim">对每条规则注入对应违规，检查 rule_hit()</td><td class="expect">每条规则都被精确触发（不是任意规则）</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="监视器" data-cov="1">
+<td class="mono">M-02</td><td><b>合法事务不误报</b></td>
+<td class="dim">跑一段合法事务流</td><td class="expect">0 违规</td>
+<td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="监视器" data-cov="1">
+<td class="mono">M-03</td><td><b>监视器规则失效能被检出</b></td>
+<td class="dim">变异测试 M27-M30：删除规则/放宽条件</td><td class="expect">4 个监视器变异全部 KILLED</td>
 <td><span class="tag ok">✔ 已覆盖</span></td></tr><tr data-dim="压力" data-cov="1">
 <td class="mono">T-01</td><td><b>随机事务混合回归（200 笔）</b></td>
 <td class="dim">写/读/同发/pause 随机组合</td><td class="expect">234 向量 0 错误（已实测）</td>
