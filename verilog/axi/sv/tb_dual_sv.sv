@@ -41,7 +41,7 @@ module tb_dual_sv #(
     );
 
     // 独立协议监视器（被动只读，与测试意图无关）
-    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("DUAL")) mon (
+    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("DUAL"), .SERIAL_BRIDGE(0)) mon (
         .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
     );
 

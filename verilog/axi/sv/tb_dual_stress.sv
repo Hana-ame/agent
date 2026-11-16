@@ -38,7 +38,7 @@ module tb_dual_stress #(
     apb_if      #(.AW(AW), .DW(DW)) apb(ACLK);
 
     // 独立协议监视器（被动只读，自动检查 AXI/APB 合法性）
-    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("STRESS")) mon (
+    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("STRESS"), .SERIAL_BRIDGE(0)) mon (
         .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
     );
 

@@ -32,6 +32,7 @@ module axi_apb_monitor #(
     parameter int    AW       = 8,
     parameter int    DW       = 32,
     parameter string NAME     = "MON",
+    parameter bit    SERIAL_BRIDGE = 1'b1,  // 1=串行桥（A3 规则适用）
     parameter bit    VERBOSE  = 1'b0    // 1=打印每次传输完成
 )(
     input  logic ACLK,
@@ -135,6 +136,20 @@ module axi_apb_monitor #(
                 violation("A1.WVALID", "WVALID dropped without WREADY");
             if (prev_arvalid && !prev_arready && !axi.ARVALID)
                 violation("A1.ARVALID", "ARVALID dropped without ARREADY");
+
+            // ---- A3: 单事务桥不允许 AW 与 AR 同时请求 ----
+            // 复用 axi_defs_pkg 的 valid_channels_ok()（此前该函数定义了但从未被调用）。
+            // 注意：这条规则只对**串行桥**成立；并发桥（_dual_sv）读写并行，
+            // 由 DUEL 参数隔离（见下）。
+            if (!SERIAL_BRIDGE || !valid_channels_ok(axi.AWVALID, axi.WVALID, axi.ARVALID)) begin
+                if (SERIAL_BRIDGE && axi.AWVALID && axi.ARVALID)
+                    violation("A3.CHANNEL", "AWVALID and ARVALID asserted together (serial bridge)");
+            end
+
+            // 注：不检查地址对齐。AXI4-Lite 允许非对齐地址（协议只「建议」对齐），
+            // 本桥与从机也不要求对齐 —— 越界/非对齐地址由从机用 SLVERR 处理。
+            // 曾试加 A4.ALIGN 规则，结果 gaps 套件的越界测试（addr=0xFF）大量误报，
+            // 证明这是「过度约束」而非真实协议要求，已移除。
 
             // ---- A2: 握手期间地址/数据必须稳定 ----
             if (prev_awvalid && !prev_awready && axi.AWVALID && axi.AWADDR !== prev_awaddr)

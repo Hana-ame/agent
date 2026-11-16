@@ -135,6 +135,11 @@ package axi_defs_pkg;
 
     // 地址对齐掩码：按 SIZE 返回字节偏移应全零的位数
     // 例: SIZE=WORD(2) -> 低 2 位须为 0（4 字节对齐）
+    // 地址对齐判断（协议工具函数）。
+    // 注意：AXI4-Lite **不要求**地址对齐（协议只「建议」），本桥与从机
+    // 也不强制对齐 —— 非对齐/越界地址由从机用 SLVERR 处理。
+    // 因此该函数不用于监视器检查（曾试过，会对 gaps 套件的越界测试大量误报），
+    // 保留供使用者按需调用（如验证「对齐访问」的专项测试）。
     function automatic logic is_aligned(input logic [PW-1:0] addr,
                                         input logic [2:0]   size);
         logic [7:0] mask;
@@ -142,8 +147,8 @@ package axi_defs_pkg;
         return ((addr & mask[PW-1:0]) == {PW{1'b0}});
     endfunction
 
-    // 简单校验：AXI VALID 信号之间无非法组合（本桥单事务，检查写地址/写数据
-    // 不同时出现在两个不同事务）
+    // 单事务桥的通道合法性：AW 与 AR 不允许同时请求
+    // （并发桥读写并行，不适用此规则 —— 由监视器的 SERIAL_BRIDGE 参数隔离）
     function automatic logic valid_channels_ok(input logic awv, input logic wv,
                                                input logic arv);
         // 单事务桥：AW 与 AR 不允许同时请求（否则需要仲裁/流水）

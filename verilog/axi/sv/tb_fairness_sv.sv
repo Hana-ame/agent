@@ -40,7 +40,7 @@ module tb_fairness_sv #(
     apb_slave_regs_sv #(.AW(AW), .DW(DW), .NREG(NREG), .WAIT_CYCLES(1)) slave (
         .PCLK(ACLK), .PRESETn(ARESETn), .apb(apb)
     );
-    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("FAIR")) mon (
+    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("FAIR"), .SERIAL_BRIDGE(0)) mon (
         .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
     );
 

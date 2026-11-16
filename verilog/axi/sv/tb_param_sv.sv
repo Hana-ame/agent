@@ -68,7 +68,7 @@ module tb_param_sv #(
     apb_slave_regs_sv #(.AW(AW), .DW(DW), .NREG(NREG), .WAIT_CYCLES(WAITC)) slave (
         .PCLK(ACLK), .PRESETn(ARESETn), .apb(apb)
     );
-    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("PARAM")) mon (
+    axi_apb_monitor #(.AW(AW), .DW(DW), .NAME("PARAM"), .SERIAL_BRIDGE(!DUAL)) mon (
         .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb)
     );
     axi_txn_host #(.AW(AW), .DW(DW)) host (

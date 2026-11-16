@@ -301,6 +301,29 @@ module tb_monitor_rules #(
     // ==================================================================
     // 合法操作：全部规则都不应误报
     // ==================================================================
+    // ==================================================================
+    // A3：串行桥不允许 AW 与 AR 同时请求
+    // ==================================================================
+    task automatic test_a3_channel();
+        $display("== A3.CHANNEL：AWVALID 与 ARVALID 同时拉高 ==");
+        do_reset(); err_base = mon.errors;
+
+        tick(); axi.AWVALID = 1; axi.AWADDR = 8'h10;
+                axi.ARVALID = 1; axi.ARADDR = 8'h20;
+        tick();
+        tick();
+        axi.AWVALID = 0; axi.ARVALID = 0;
+        tick();
+        checks++;
+        if (mon.errors - err_base >= 1 && grep_violation("A3.CHANNEL")) begin
+            $display("  ✓ A3.CHANNEL  捕获读写同时请求");
+        end else begin
+            $display("  ✗ A3.CHANNEL  未捕获读写同时请求");
+            errors++;
+        end
+        err_base = mon.errors;
+    endtask
+
     task automatic test_legal_all();
         $display("== 合法事务：所有规则均不应误报 ==");
         do_reset(); err_base = mon.errors;
@@ -365,6 +388,7 @@ module tb_monitor_rules #(
         test_p3();
         test_p4_paddr();
         test_p4_pwrite();
+        test_a3_channel();
         test_legal_all();
 
         $display("------------------------------------------------------");
