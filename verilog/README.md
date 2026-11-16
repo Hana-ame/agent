@@ -2,7 +2,7 @@
 
 **统一工具链：Verilator（仿真 + 覆盖率）+ slang（编译检查）**。不再依赖 iverilog。
 
-当前规模：**12 个测试套件 · 约 1900 项检查 · RTL 有效覆盖率 92.2% · 变异得分 85.7%**
+当前规模：**25 个测试套件 · 约 1400 项检查 · RTL 有效覆盖率 100% · 变异得分 100%（29/29）**
 
 ## 目录
 
@@ -12,10 +12,10 @@
 | `tb_counter.v` | counter 的 test bench（20 项断言） |
 | `counter8.sv` | 8-bit 同步计数器：增加 carry 进位输出 |
 | `tb_counter8_icarus.sv` | counter8 test bench（26 项断言） |
-| `tb_counter8_sv.sv` | counter8 完整 SV test bench（interface/SVA/covergroup/class 随机），需 irun/VCS |
+| `tb_counter8_sv.sv` | counter8 完整 SV test bench（interface/SVA/covergroup/class 随机），Verilator 可跑 |
 | **`sim.sh`** | **统一仿真入口**（Verilator） |
-| **`ci.sh`** | **质量门 CI**（7 关验收，快速失败） |
-| **`audit.sh`** | **验证工具自审计**（7 项故障注入，确认工具会报错） |
+| **`ci.sh`** | **质量门 CI**（9 关定义，默认跑 6 关） |
+| **`audit.sh`** | **验证工具自审计**（8 项故障注入，确认工具会报错） |
 | **`repro.sh`** | **复现性验证**（干净 clone 后能否跑通） |
 | **`stability.py`** | **稳定性检查**（套件重复运行检测偶发失败） |
 | **`axi/docs_check.py`** | **文档一致性**（模块清单/测试项数/废弃工具残留/HTML 结构） |

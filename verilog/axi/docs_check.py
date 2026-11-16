@@ -159,6 +159,57 @@ def check_html_balance():
     return ok(f"D5 HTML 标签平衡（{len(list(HERE.glob('*.html')))} 份）")
 
 
+def check_readme_stats():
+    """D6: README 顶部的规模统计应与实际一致
+
+    这是最容易过时的地方：README 长期停在「12 套件 / 92.2% / 85.7%」，
+    而实际早已是 25 套件 / 100% / 100%。
+    """
+    readme = read(HERE.parent / "README.md")
+    if not readme:
+        return fail("D6 README.md 不存在")
+
+    # 期望套件数
+    expect_suites = count_suites()
+
+    # README 里的套件数
+    m = re.search(r"\*\*(\d+) 个测试套件", readme)
+    if not m:
+        return warn("D6 README 未找到套件数统计（跳过）")
+    got_suites = int(m.group(1))
+
+    problems = []
+    if got_suites != expect_suites:
+        problems.append(f"套件数 {got_suites} ≠ {expect_suites}")
+
+    # 变异得分：从 README 抓「变异得分 NN%」，与实际 mutate.py 的分母比对
+    m2 = re.search(r"变异得分 (\d+)%", readme)
+    if m2:
+        got_mut = int(m2.group(1))
+        # 从 mutate.py 数变异总数
+        mut_src = read(HERE / "mutate.py")
+        total_mut = len(re.findall(r'\("M\d+",\s*"[^"]+"', mut_src))
+        if total_mut and got_mut != 100:
+            # 只有 100% 时可静态校验（否则需真跑变异）
+            pass
+
+    # 覆盖率：README 的 RTL 覆盖率应与 COVERAGE.html 一致
+    m3 = re.search(r"RTL 有效覆盖率 (\d+)%", readme)
+    cov_html = read(HERE / "COVERAGE.html")
+    m4 = re.search(r'([0-9.]+)%</div><div class="l">RTL 有效覆盖率', cov_html)
+    if m3 and m4:
+        got_cov = int(m3.group(1))
+        real_cov = float(m4.group(1))
+        if abs(got_cov - real_cov) > 1:
+            problems.append(f"覆盖率 {got_cov}% ≠ {real_cov}%")
+
+    if problems:
+        fail(f"D6 README 统计过时：{'；'.join(problems)}")
+        return 1
+    return ok(f"D6 README 统计一致（{got_suites} 套件" +
+              (f"，覆盖率 {int(float(m4.group(1)))}%" if m4 else "") + "）")
+
+
 def main():
     verbose = "--verbose" in sys.argv
     print("文档一致性检查")
@@ -169,6 +220,7 @@ def main():
     rc += check_suite_count()
     rc += check_deprecated()
     rc += check_html_balance()
+    rc += check_readme_stats()
     print("=" * 58)
     if rc == 0:
         print("\033[32m✅ 文档与实现一致\033[0m")

@@ -78,7 +78,11 @@ check_refs() {
         fi
         echo -e "  ${D}  引用缺失: $ref${R}"
         missing=$((missing+1))
-    done < <(grep -oE '[A-Za-z0-9_/]+\.(sv|v)\b' "$f" 2>/dev/null | sort -u)
+    # 注意：排除 $VAR/xxx.sv 这类变量路径 —— 形如 $SV/foo.sv，
+    # grep 会把 "SV/foo.sv" 当字面路径，永远找不到 → 误报。
+    # 这是 audit.sh 在干净 clone 下报「2 处引用缺失」的原因。
+    done < <(grep -oE '[A-Za-z0-9_/]+\.(sv|v)\b' "$f" 2>/dev/null \
+             | grep -vE '^[A-Z][A-Z0-9_]*/' | sort -u)
 
     if [ "$missing" -eq 0 ]; then
         : # record 在调用处统一记
