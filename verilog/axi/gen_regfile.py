@@ -789,6 +789,44 @@ bash verilog/sim.sh regfilegen</pre>
 </div></body></html>"""
 
 
+def validate_fields_structure(spec):
+    """校验位域结构：不重叠 + 完整覆盖数据位宽
+
+    背景：位域定义错位/重叠会导致掩码写错，而「逐域测试」很难发现
+    （每个域单独测都可能通过，但组合起来互相踩）。
+    """
+    errs = []
+    dw = spec.get("bus", {}).get("data_width", 32)
+    for r in spec.get("registers", []):
+        fields = r.get("fields", [])
+        if not fields:
+            continue
+        name = r.get("name", "?")
+        covered = {}
+        for f in fields:
+            bits = str(f.get("bits", ""))
+            try:
+                if ":" in bits:
+                    msb, lsb = map(int, bits.split(":"))
+                else:
+                    msb = lsb = int(bits)
+            except ValueError:
+                errs.append(f"{name}.{f.get('name','?')}: bits 格式非法（{bits}）")
+                continue
+            if msb >= dw or lsb < 0 or msb < lsb:
+                errs.append(f"{name}.{f.get('name','?')}: 位范围 [{msb}:{lsb}] 越界（DW={dw}）")
+                continue
+            for b in range(lsb, msb + 1):
+                if b in covered:
+                    errs.append(f"{name}: 位 {b} 被 {covered[b]} 与 {f['name']} 重叠覆盖")
+                covered[b] = f["name"]
+        missing = [b for b in range(dw) if b not in covered]
+        if missing:
+            # 未覆盖位按惯例视为保留，但必须显式声明
+            errs.append(f"{name}: 位 {missing} 未被任何域覆盖（请显式加 RSVD 域）")
+    return errs
+
+
 def main():
     spec_path = DEFAULT_SPEC
     args = sys.argv[1:]
@@ -799,6 +837,8 @@ def main():
     print(f"读取规格: {spec_path.name}")
 
     errs = validate(spec)
+    # 位域结构校验：不重叠 + 完整覆盖（防止掩码写错，逐域测试难发现）
+    errs += validate_fields_structure(spec)
     if errs:
         print("\n❌ 规格校验失败：", file=sys.stderr)
         for e in errs:
