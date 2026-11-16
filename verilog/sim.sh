@@ -447,7 +447,8 @@ case "${1:-all}" in
         # 只测一个值无法证明「公式正确」（可能只是恰好匹配）。
         ( cd axi
           _lat_fail=0
-          for _w in 0 1 2 5 8 15; do
+          # 含边界：0（零等待）与 255（wait_cnt 为 8 位，最大等待）
+          for _w in 0 1 2 5 8 15 93 94 255; do
               printf "== sim: latency (WAIT=%s) ==\n" "$_w"
               d="run/lat_$_w"; rm -rf "$d"; mkdir -p "$d"
               if ! "$VLT" --binary --assert --timing --top-module tb_latency_sv \
@@ -466,7 +467,7 @@ case "${1:-all}" in
               fi
           done
           if [ "$_lat_fail" -eq 0 ]; then
-              echo "PASS: latency 公式 7+WAIT 在 6 种 WAIT 下均成立"
+              echo "PASS: latency 公式 7+WAIT 在 9 种 WAIT 下均成立（含 0 与 255 边界）"
           else
               echo "FAIL: $_lat_fail 种 WAIT 配置下公式不成立"
               exit 1

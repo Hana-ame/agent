@@ -96,9 +96,17 @@ module tb_latency_sv #(parameter int WAITC = 2);
       end
 
       // 检查 2：活性（延迟有上界，无死锁）
+      //
+      // ⚠ 上界不能写死 100：合法延迟 = 7 + WAIT_CYCLES，
+      //   当 WAIT_CYCLES > 93 时就会超过 100，被误判为「疑似死锁」。
+      //   实测 WAIT_CYCLES=255（从机 wait_cnt 是 8 位，最大值）时
+      //   延迟 262 周期、公式正确，却被旧上界判成死锁。
+      //   现改为「公式值 + 合理余量」，既能发现真死锁，
+      //   又不会冤枉合法的慢速传输。
       checks++;
-      if (w_max < 100 && r_max < 100)
-        $display("  ✓ 无死锁（延迟 %0d 周期 < 100 上界）", w_max);
+      if (w_max <= (7 + WAITC) + 5 && r_max <= (7 + WAITC) + 5)
+        $display("  ✓ 无死锁（延迟 %0d 周期 <= 公式值 %0d + 余量 5）",
+                 w_max, 7 + WAITC);
       else begin
         $display("  ✗ 延迟 %0d 周期，疑似死锁", w_max);
         errors++;
