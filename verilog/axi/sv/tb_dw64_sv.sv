@@ -88,7 +88,7 @@ module tb_dw64_sv;
     end else $display("  ✓ DW=64 越界返回 SLVERR");
 
     $display("--------------------------------------------------");
-    if (errors==0) begin $display("PASS: DW=64 桥与从机功能正确"); $finish; end
+    if (errors==0) begin $display("PASS: DW=64 桥与从机功能正确（%0d checks）", checks); $finish; end
     else begin $display("FAIL: %0d errors", errors); $fatal(1); end
   end
 endmodule

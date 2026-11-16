@@ -117,7 +117,7 @@ case "${1:-all}" in
         build_run counter tb_counter "" counter.v tb_counter.v
         ;;
     counter8)
-        build_run counter8 tb_counter8 "" counter8.sv tb_counter8_icarus.sv
+        build_run counter8 tb_counter8 "" counter8.sv tb_counter8_tb.sv
         ;;
     axi)
         ( cd axi && build_run axi tb_axi_apb "" \
@@ -200,6 +200,8 @@ case "${1:-all}" in
                 printf "  %-14s AW=%-2s DW=%-2s NREG=%-2s WAIT=%-2s PASS\n" \
                        "$label" "$aw" "$dw" "$nreg" "$wc"
                 echo "PASS" >> "$CNT"
+                # 同时记录该配置的真实检查数（供汇总）
+                echo "$tb_out" | grep -E "param result:.*checks" >> "$CNT" || true
             else
                 printf "  %-14s AW=%-2s DW=%-2s NREG=%-2s WAIT=%-2s FAIL\n" \
                        "$label" "$aw" "$dw" "$nreg" "$wc"
@@ -227,17 +229,25 @@ case "${1:-all}" in
           run_cfg 4 8  2 15 "并发长反压"  1
         )
         echo "------------------------------------------------------"
-        TOTAL=$(grep -c . "$CNT" 2>/dev/null || true); TOTAL=${TOTAL:-0}
-        FAILED=$(grep -c FAIL "$CNT" 2>/dev/null || true); FAILED=${FAILED:-0}
+        # 只数 PASS/FAIL 标记行（CNT 里还有 param result 行，不能算组数）
+        TOTAL=$(grep -cE "^(PASS|FAIL)$" "$CNT" 2>/dev/null || true); TOTAL=${TOTAL:-0}
+        FAILED=$(grep -cE "^FAIL$" "$CNT" 2>/dev/null || true); FAILED=${FAILED:-0}
         TOTAL=$(echo "$TOTAL" | head -1 | tr -d ' \n')
         FAILED=$(echo "$FAILED" | head -1 | tr -d ' \n')
+        # 真实检查数：每个配置的 TB 打印 "param result: ... N checks"，
+        # 汇总这些 N（而不是只数组数）。注意必须在删 CNT 之前读。
+        SUM_CHECKS=$(grep -oE "param result:.*[0-9]+ checks" "$CNT" 2>/dev/null \
+                     | grep -oE "[0-9]+ checks" | grep -oE "^[0-9]+" \
+                     | awk '{s+=$1} END{print s+0}')
+        SUM_CHECKS=${SUM_CHECKS:-0}
         rm -f "$CNT"
         # 期望组数动态计算（硬编码会在新增配置时要求变松）
         EXPECT_CFG=$(sed -n '/^    params)/,/^        ;;/p' sim.sh \
                      | grep -cE '^\s+run_cfg [0-9]' || true)
         EXPECT_CFG=${EXPECT_CFG:-0}
+        [ "$SUM_CHECKS" -eq 0 ] && SUM_CHECKS=$TOTAL
         if [ "$FAILED" -eq 0 ] && [ "$TOTAL" -eq "$EXPECT_CFG" ] && [ "$TOTAL" -gt 0 ]; then
-            echo "PASS: params —— $TOTAL 组参数配置全部通过（期望 $EXPECT_CFG）"
+            echo "PASS: params —— $SUM_CHECKS checks（$TOTAL 组参数配置，期望 $EXPECT_CFG 组）"
             exit 0
         else
             echo "FAIL: params —— $FAILED/$TOTAL 组失败（期望 $TOTAL=$EXPECT_CFG）"
@@ -335,7 +345,7 @@ case "${1:-all}" in
               fi
           done
           if [ "$AE_FAIL" -eq 0 ]; then
-              echo "PASS: assertion effectiveness（APB 4 条 + AXI 5 条断言均能捕获违规，合法序列无误报）"
+              echo "PASS: assertion effectiveness 9 checks, 0 errors（APB 4 条 + AXI 5 条断言均能捕获违规，合法序列无误报）"
           else
               echo "FAIL: $AE_FAIL 项断言有效性检查失败"
               exit 1

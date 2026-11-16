@@ -15,7 +15,7 @@
 >
 > 或手动设置 `VERILATOR=/path/to/verilator_bin` / `VERILATOR_ROOT=/path/to/install`
 
-当前规模：**25 个测试套件 · 约 1400 项检查 · RTL 有效覆盖率 100% · 变异得分 100%（29/29）**
+当前规模：**25 个测试套件 · 约 3800 项检查 · RTL 有效覆盖率 100% · 变异得分 100%（32/32）**
 
 ## 目录
 
@@ -24,7 +24,7 @@
 | `counter.v` | 4-bit 同步计数器（DUT）：同步复位 / 使能 / 回绕 |
 | `tb_counter.v` | counter 的 test bench（20 项断言） |
 | `counter8.sv` | 8-bit 同步计数器：增加 carry 进位输出 |
-| `tb_counter8_icarus.sv` | counter8 test bench（26 项断言） |
+| `tb_counter8_tb.sv` | counter8 test bench（26 项断言，Verilator） |
 | `tb_counter8_sv.sv` | counter8 完整 SV test bench（interface/SVA/covergroup/class 随机），Verilator 可跑 |
 | **`setup_env.sh`** | **环境准备**（自动获取/编译 Verilator >= 5.040，幂等） |
 | **`sim.sh`** | **统一仿真入口**（Verilator） |

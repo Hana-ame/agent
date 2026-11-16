@@ -13,6 +13,7 @@ module tb_mon_selftest;
     .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb));
 
   int detected = 0;
+  int checks = 0;   // 检查计数（供 CI 统计）
 
   initial begin
     // AXI 侧保持空闲（不测 AXI 规则，本测试只验 APB）
@@ -61,6 +62,7 @@ module tb_mon_selftest;
     apb.PSEL=0; apb.PENABLE=0; apb.PREADY=0;
     @(posedge ACLK);
     if (mon.errors == detected) begin
+      checks++;
       $display("  ✓ 合法传输未误报"); 
     end else begin
       $display("  ✗ 合法传输被误报（%0d 新违规）", mon.errors - detected);
@@ -70,7 +72,8 @@ module tb_mon_selftest;
     $display("------------------------------------------------------");
     $display(" monitor selftest: 捕获 %0d 处违规, 观测 %0d 次传输", mon.errors, mon.xfer_count);
     if (mon.errors >= 2) begin
-      $display("PASS: monitor detects violations");
+      $display("PASS: monitor detects violations（%0d checks, %0d 违规）",
+               checks, mon.errors);
       $finish;
     end else begin
       $display("FAIL: monitor 未能捕获注入的违规");

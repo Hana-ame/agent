@@ -34,12 +34,15 @@ module tb_counter8;
 
     // ---- 检查 ----
     integer errors = 0;
+    integer checks = 0;      // 检查总数（供 CI 统计「确实执行了测试」）
+
     task check;
         input [31:0] tc;
         input [WIDTH-1:0] expected;
         input [WIDTH-1:0] actual;
         input [31:0] info;
         begin
+            checks = checks + 1;
             if (expected !== actual) begin
                 $display("FAIL: tc=%0d expected=%h actual=%h (info=%0d) @%0t",
                          tc, expected, actual, info, $time);
@@ -140,8 +143,9 @@ module tb_counter8;
             $display("-- SUMMARY: %0d error(s) over %0d random cycles --",
                      errors, 1000);
             if (errors == 0) begin
-                $display("PASS: counter8 (iverilog v2) all checks passed");
-                $finish;                 // 退出码 0（iverilog 下 $finish(n) 恒 0）
+                // 输出格式与其它套件统一：带检查数，便于 CI 汇总
+                $display("PASS: counter8 %0d checks, 0 errors", checks);
+                $finish;
             end else begin
                 $display("FAIL: %0d errors", errors);
                 $fatal(1, "test bench failed");   // 退出码 1，可被 CI 捕获

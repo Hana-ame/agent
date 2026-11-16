@@ -52,7 +52,7 @@ module tb_handshake_protocol_sv;
     $display("  桥已回 IDLE");
     @(posedge ACLK);
     if (bridge.state == 0)
-      $display("PASS: AXI handshake protocol (BREADY held until slave exits)");
+      $display("PASS: AXI handshake protocol 1 checks, 0 errors (BREADY held until slave exits)");
     else begin
       $display("FAIL: state=%0d", bridge.state);
       $fatal(1);
