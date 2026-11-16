@@ -37,7 +37,31 @@ RULES = {
     "S5": "恒真检查：计数器无条件自增后与循环次数比对",
     "S6": "定义未使用的类型/函数（文档声称支持但代码未引用）",
     "S7": "协议版本声明与信号集不符（声称的版本含未实现信号）",
+    "S8": "DW 可参数化但向量用 32 位常量，且未声明位宽覆盖范围",
 }
+
+
+def scan_s8(path: Path):
+    """检测「DW 可参数化但测试向量硬编码 32 位」的 TB。
+
+    风险：这类 TB 以 DW=64 编译时，高 32 位只会被写 0、
+    不会被验证，但看起来「跑过了」。需在注释中声明覆盖范围。
+    """
+    if not path.name.startswith("tb_") or path.suffix != ".sv":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    # 可参数化 DW ？
+    if not re.search(r"parameter\s+int\s+DW\s*=\s*32", txt):
+        return []
+    # 用了 32 位常量？
+    n32 = len(re.findall(r"32'h[0-9A-Fa-f_]+", txt))
+    if n32 < 3:
+        return []
+    # 已声明覆盖范围？
+    if "数据位宽说明" in txt or "位宽覆盖范围" in txt:
+        return []
+    return [(0, f"DW 可参数化但用了 {n32} 个 32 位常量，未声明位宽覆盖范围"
+                "（DW=64 时高 32 位不会被验证）")]
 
 
 def scan_s7(path: Path):
@@ -260,6 +284,7 @@ def main():
         issues += [(ln, "S5", d) for ln, d in scan_s5(f)]
         issues += [(ln, "S6", d) for ln, d in scan_s6(f)]
         issues += [(ln, "S7", d) for ln, d in scan_s7(f)]
+        issues += [(ln, "S8", d) for ln, d in scan_s8(f)]
 
         if not issues:
             continue
