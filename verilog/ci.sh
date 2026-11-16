@@ -57,13 +57,12 @@ record() {   # record <name> <PASS|FAIL|SKIP> <seconds>
     STAGE_TIMES+=("$3")
 }
 
-# 动态计算仿真套件数（避免硬编码随项目增长而失真）
-SUITE_N=$(sed -n '/^    all)/,/^        ;;/p' sim.sh 2>/dev/null \
-          | grep -cE 'bash "\$0"' || true)
-SUITE_LINT=$(sed -n '/^    all)/,/^        ;;/p' sim.sh 2>/dev/null \
-             | grep -cE 'bash "\$0" lint' || true)
-SUITE_N=$(( ${SUITE_N:-0} - ${SUITE_LINT:-0} ))
-[ "$SUITE_N" -lt 1 ] && SUITE_N=1
+# 套件清单：唯一权威来源（供 SUITE_N / G3 逐套件核对 / 关卡标签共用）
+SUITE_LIST=$(sed -n '/^    all)/,/^        ;;/p' sim.sh 2>/dev/null \
+             | grep -oE 'bash "\$0" [a-z0-9]+' | awk '{print $3}' \
+             | grep -v '^lint$' | tr '\n' ' ')
+SUITE_N=$(echo $SUITE_LIST | wc -w | tr -d ' ')
+[ "${SUITE_N:-0}" -lt 1 ] && SUITE_N=1
 
 # 关卡定义
 STAGE_NAMES=(
@@ -311,12 +310,37 @@ stage3() {
     total_checks=$(echo "$out" | grep -oE "[0-9]+ (checks|checks passed)" \
                    | grep -oE "^[0-9]+" | awk '{s+=$1} END{print s+0}')
     local dt=$((SECONDS-t0))
-    if [ $rc -eq 0 ] && [ "$passes" -ge "$expect_suites" ] && [ "${total_checks:-0}" -ge 1000 ]; then
-        echo -e "  ${GRN}${BOLD}PASS${R} —— $passes/$expect_suites 套件通过，累计 ${total_checks} 项检查（${dt}s）"
+    # ★ 逐套件精确核对：不能只数 PASS 行数。
+    # 若某套件静默跳过、另一套件多打一行 PASS，总数仍可能达标。
+    local missing_suites=""
+    local n_ok=0
+    for st in $SUITE_LIST; do
+        # 在 all 输出里找 "== sim: <suite> ... ==" 之后是否出现 PASS
+        # 头部有两种格式：
+        #   "== sim: <suite> (top=...)"（大多数）
+        #   "== <suite>: ..."（params / asserteff 这类非 build_run 套件）
+        if echo "$out" | awk -v s1="== sim: $st " -v s2="== $st:" '
+             (index($0, s1) == 1) || (index($0, s2) == 1) { found=1; next }
+             found && /^PASS/ { ok=1; exit }
+             found && /^VIP PASS/ { ok=1; exit }
+             END { exit ok ? 0 : 1 }'; then
+            n_ok=$((n_ok+1))
+        else
+            missing_suites="$missing_suites $st"
+        fi
+    done
+
+    if [ -n "$missing_suites" ]; then
+        echo -e "  ${RED}✗${R} 以下套件在 all 输出中未见 PASS：$missing_suites"
+    fi
+
+    if [ $rc -eq 0 ] && [ "$passes" -ge "$expect_suites" ] \
+       && [ "${total_checks:-0}" -ge 1000 ] && [ -z "$missing_suites" ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— $passes/$expect_suites 套件通过（逐个确认 $n_ok 个），累计 ${total_checks} 项检查（${dt}s）"
         record "$1" PASS $dt
         return 0
     else
-        echo -e "  ${RED}${BOLD}FAIL${R} —— $passes/22 通过，检查数 ${total_checks:-0}（${dt}s）"
+        echo -e "  ${RED}${BOLD}FAIL${R} —— $passes/$expect_suites 套件通过（逐个确认 $n_ok 个），检查数 ${total_checks:-0}（${dt}s）"
         record "$1" FAIL $dt
         return 1
     fi
