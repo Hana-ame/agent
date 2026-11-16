@@ -173,17 +173,28 @@ def build_html(files_data):
     nav_tb = []
     for idx, d in enumerate(files_data):
         s = d["stats"]
-        color = "#3fb950" if s["pct"] >= 95 else ("#d29922" if s["pct"] >= 80 else "#f85149")
+        # 显示「有效覆盖率」而非原始覆盖率：
+        # apb_slave_regfile_gen.sv 原始仅 29.6%，但其中 34 行是 Verilator
+        # 注解缺陷、4 行是防御性 fallback，有效覆盖率其实是 100%。
+        # 只显示原始值会让读者误判该模块测试不足。
+        eff_den = s["coverable"] - s["artifact"] - s["checker"]
+        eff_pct = (100.0 * s["hit"] / eff_den) if eff_den > 0 else 100.0
+        color = "#3fb950" if eff_pct >= 95 else ("#d29922" if eff_pct >= 80 else "#f85149")
         extra = ''
         if s["real_zero"]:
             extra = f' · <b style="color:#f85149">{s["real_zero"]} 未覆盖</b>'
-        elif s["artifact"]:
-            extra = f' · <span style="color:#6e7681">{s["artifact"]} 注解缺陷</span>'
+        elif s["artifact"] or s["checker"]:
+            bits = []
+            if s["artifact"]:
+                bits.append(f'{s["artifact"]} 注解缺陷')
+            if s["checker"]:
+                bits.append(f'{s["checker"]} 防御分支')
+            extra = f' · <span style="color:#6e7681">{"/".join(bits)}，原始 {s["pct"]:.1f}%</span>'
         nav.append(
             f'<div class="fitem" data-idx="{idx}">'
             f'<span class="fname">{html.escape(d["name"])}</span>'
-            f'<span class="fpct" style="color:{color}">{s["pct"]:.1f}%</span>'
-            f'<span class="fmeta">{s["hit"]}/{s["coverable"]}{extra}'
+            f'<span class="fpct" style="color:{color}">{eff_pct:.1f}%</span>'
+            f'<span class="fmeta">{s["hit"]}/{eff_den}{extra}'
             + '</span></div>'
         )
         (nav_tb if d.get("is_tb") else nav_rtl).append(nav[-1])
@@ -338,10 +349,18 @@ def main():
     for d in files_data:
         s = d["stats"]
         mark = ""
-        if s["artifact"]:
-            mark = f"  [注解缺陷 {s['artifact']}]"
-        print(f"  {d['name']:<32} {s['pct']:5.1f}%  "
-              f"{s['hit']:3d}/{s['coverable']:3d} "
+        if s["artifact"] or s["checker"]:
+            bits = []
+            if s["artifact"]:
+                bits.append(f"注解缺陷 {s['artifact']}")
+            if s["checker"]:
+                bits.append(f"防御分支 {s['checker']}")
+            mark = f"  [{'/'.join(bits)}，原始 {s['pct']:.1f}%]"
+        # 打印有效覆盖率（剔除非缺口行后的分母）
+        eff_den = s["coverable"] - s["artifact"] - s["checker"]
+        eff_pct = (100.0 * s["hit"] / eff_den) if eff_den > 0 else 100.0
+        print(f"  {d['name']:<32} {eff_pct:5.1f}%  "
+              f"{s['hit']:3d}/{eff_den:3d} "
               f"真实零覆盖 {s['real_zero']}{mark}")
 
     html_text = build_html(files_data)
