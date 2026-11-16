@@ -73,7 +73,7 @@ STAGE_NAMES=(
     "G4:参数扫掠"
     "G5:RTL覆盖率(>=${MIN_RTL_COVERAGE}%)"
     "G6:变异得分(>=${MIN_MUTATION_SCORE}%)"
-    "G7:文档生成(6份HTML)"
+    "G7:文档生成+一致性"
     "G8:复现性(干净clone)"
     "G9:稳定性(无偶发失败)"
 )
@@ -406,7 +406,7 @@ stage6() {
 # G7：文档生成
 # ---------------------------------------------------------------------------
 stage7() {
-    banner "G7 文档生成（6 份 HTML）"
+    banner "G7 文档生成与一致性（6 份 HTML + 内容校验）"
     local t0=$SECONDS
     local fails=0
     ( cd axi || exit 1
@@ -421,6 +421,16 @@ stage7() {
           fi
       done
     )
+    # 文档一致性检查（内容是否反映当前实现，而非仅文件存在）
+    printf "  %-26s " "文档一致性"
+    if ( cd axi && python3 docs_check.py >/tmp/ci_docs.log 2>&1 ); then
+        echo -e "${GRN}✓${R}"
+    else
+        echo -e "${RED}✗${R}"
+        grep -E "✗|失败" /tmp/ci_docs.log | head -6 | sed 's/^/      /'
+        fails=$((fails+1))
+    fi
+
     # 校验 6 份文件存在且非空
     local expect=(DESIGN.html INTERFACE_MAP.html TEST_PLAN.html COVERAGE.html FSM.html INDEX.html)
     local missing=0

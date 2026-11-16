@@ -17,6 +17,8 @@
 | **`ci.sh`** | **质量门 CI**（7 关验收，快速失败） |
 | **`audit.sh`** | **验证工具自审计**（7 项故障注入，确认工具会报错） |
 | **`repro.sh`** | **复现性验证**（干净 clone 后能否跑通） |
+| **`stability.py`** | **稳定性检查**（套件重复运行检测偶发失败） |
+| **`axi/docs_check.py`** | **文档一致性**（模块清单/测试项数/废弃工具残留/HTML 结构） |
 | `run_sv.sh` | EDA 服务器脚本（irun/xrun/vcs，带覆盖率） |
 | `plot_waveform.py` | VCD → PNG 波形绘图（matplotlib） |
 | `axi/` | AXI→APB→AXI 设计、验证、文档（见下） |

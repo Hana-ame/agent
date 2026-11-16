@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""
+docs_check.py —— 文档一致性检查（文档是否真实反映当前实现）
+
+背景
+    G7 只校验「生成器能跑通 + 6 份 HTML 非空」，
+    不检查内容是否正确。结果：
+      - DESIGN.html 模块清单少列 4 个模块（实际 10 个只写 6 个）
+      - TEST_PLAN.html 少列 19 个测试项（29 vs 48）
+      - 文档仍把 iverilog 当主工具链
+    这些靠人工核对才被发现，需要自动化。
+
+检查项
+    D1  模块清单完整性：RTL 模块是否都在 DESIGN.html 出现
+    D2  测试项数量一致性：TEST_PLAN.html 数量 vs gen_test_plan.py 的 TEST_PLAN
+    D3  套件数与 INDEX.html 一致
+    D4  无已废弃工具残留（iverilog 只允许出现在「历史/不再使用」说明中）
+    D5  HTML 标签平衡（生成的文档结构是否正确）
+
+用法
+    python3 docs_check.py
+    python3 docs_check.py --verbose
+"""
+import re
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent      # verilog/axi
+
+
+def fail(msg):
+    print(f"  \033[31m✗\033[0m {msg}")
+    return 1
+
+
+def ok(msg):
+    print(f"  \033[32m✓\033[0m {msg}")
+    return 0
+
+
+def warn(msg):
+    print(f"  \033[33m⚠\033[0m {msg}")
+    return 0
+
+
+def read(p):
+    try:
+        return Path(p).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def check_module_list():
+    """D1: DESIGN.html 应包含所有 RTL 模块"""
+    design = read(HERE / "DESIGN.html")
+    if not design:
+        return fail("D1 DESIGN.html 不存在")
+
+    rtl = [f.stem for f in (HERE / "sv").glob("*.sv") if not f.name.startswith("tb_")]
+    rtl += [f.stem for f in HERE.glob("*_pkg.sv")]
+    rtl = sorted(set(rtl))
+
+    missing = [m for m in rtl if m not in design]
+    if missing:
+        fail(f"D1 DESIGN.html 缺少 {len(missing)} 个模块：{', '.join(missing)}")
+        return 1
+    return ok(f"D1 模块清单完整（{len(rtl)} 个 RTL 模块全部出现）")
+
+
+def check_test_plan_count():
+    """D2: TEST_PLAN.html 的项数应等于 gen_test_plan.py 里的 TEST_PLAN 项数"""
+    gen = read(HERE / "gen_test_plan.py")
+    m = re.search(r"TEST_PLAN = \[(.*?)\n\]", gen, re.S)
+    if not m:
+        return fail("D2 无法解析 gen_test_plan.py 中的 TEST_PLAN")
+    expect = len(re.findall(r'id="([^"]+)"', m.group(1)))
+
+    html = read(HERE / "TEST_PLAN.html")
+    if not html:
+        return fail("D2 TEST_PLAN.html 不存在")
+
+    # 页面里统计卡显示测试项总数
+    m2 = re.search(r'<div class="v"[^>]*>(\d+)</div><div class="l">测试项总数', html)
+    if not m2:
+        # 回退：数表格里的 id 名
+        got = len(re.findall(r'<td><code>([A-Z]-\d+)</code></td>', html))
+    else:
+        got = int(m2.group(1))
+
+    if got != expect:
+        fail(f"D2 TEST_PLAN 数量不一致：HTML={got}，生成器={expect}")
+        return 1
+    return ok(f"D2 测试项数量一致（{expect} 项）")
+
+
+def count_suites():
+    txt = read(HERE.parent / "sim.sh")
+    m = re.search(r"^    all\)(.*?)^        ;;", txt, re.S | re.M)
+    if not m:
+        return 0
+    names = re.findall(r'bash "\$0" (\w+)', m.group(1))
+    return len([n for n in names if n != "lint"])
+
+
+def check_suite_count():
+    """D3: INDEX.html 的套件数应与 sim.sh 一致"""
+    html = read(HERE / "INDEX.html")
+    if not html:
+        return fail("D3 INDEX.html 不存在")
+    m = re.search(r"<div class=\"v\"[^>]*>(\d+)</div><div class=\"l\">测试套件", html)
+    if not m:
+        m = re.search(r"(\d+)\s*</div>\s*<div[^>]*>测试套件", html)
+    expect = count_suites()
+    if not m:
+        return warn("D3 未找到套件数显示（跳过）")
+    got = int(m.group(1))
+    if got != expect:
+        fail(f"D3 套件数不一致：INDEX={got}，sim.sh={expect}")
+        return 1
+    return ok(f"D3 套件数一致（{expect} 个）")
+
+
+def check_deprecated():
+    """D4: iverilog 只应出现在「历史 / 不再使用」类说明中"""
+    bad = []
+    for f in HERE.glob("*.html"):
+        txt = read(f)
+        if "iverilog" not in txt:
+            continue
+        # 逐行判断：含 iverilog 的行必须同时带「历史/不再/移除/说明/旧」等限定词
+        ALLOW = ("历史", "不再", "移除", "说明", "旧", "对照学习", "已从工具链")
+        for i, line in enumerate(txt.splitlines(), 1):
+            if "iverilog" in line and not any(k in line for k in ALLOW):
+                # 允许代码块里的历史命令（前置注释已声明）
+                bad.append(f"{f.name}:{i}")
+    if bad:
+        fail(f"D4 {len(bad)} 处 iverilog 引用缺少「历史/不再使用」限定")
+        for b in bad[:5]:
+            print(f"       {b}")
+        return 1
+    return ok("D4 无废弃工具残留（iverilog 仅作为历史说明出现）")
+
+
+def check_html_balance():
+    """D5: HTML 标签平衡"""
+    bad = []
+    for f in sorted(HERE.glob("*.html")):
+        txt = read(f)
+        for tag in ("table", "section", "div", "pre", "tr", "td"):
+            o = len(re.findall(rf"<{tag}[ >]", txt))
+            c = len(re.findall(rf"</{tag}>", txt))
+            if o != c:
+                bad.append(f"{f.name}: <{tag}> {o}/{c}")
+    if bad:
+        fail(f"D5 HTML 标签不平衡（{len(bad)} 处）")
+        for b in bad[:5]:
+            print(f"       {b}")
+        return 1
+    return ok(f"D5 HTML 标签平衡（{len(list(HERE.glob('*.html')))} 份）")
+
+
+def main():
+    verbose = "--verbose" in sys.argv
+    print("文档一致性检查")
+    print("=" * 58)
+    rc = 0
+    rc += check_module_list()
+    rc += check_test_plan_count()
+    rc += check_suite_count()
+    rc += check_deprecated()
+    rc += check_html_balance()
+    print("=" * 58)
+    if rc == 0:
+        print("\033[32m✅ 文档与实现一致\033[0m")
+        sys.exit(0)
+    print(f"\033[31m❌ {rc} 项文档一致性检查失败\033[0m")
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
