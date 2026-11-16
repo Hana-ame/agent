@@ -13,7 +13,12 @@
 //   C. last_rd=0（上次写）时同时请求 → 应优先读
 //   D. 一方持续请求、另一方饥饿 → round-robin 应切换
 //
-// 本文件用真实并发（fork 两条激励线程）打满读写竞争。
+// 本文件通过「读写交替 + 双桶地址隔离」制造读写竞争。
+//
+// 说明（避免误解）：本 TB **未使用 fork 并发驱动**，而是串行调用
+// wr()/rd()，靠「读桶(RBUCKET)与写桶(WBUCKET)分开」让两个方向
+// 访问不同寄存器，从而在时序上产生读写交叠的压力。
+// 真正的并行请求验证见 tb_fairness_sv（同拍拉高 AW/W/AR）。
 // ============================================================================
 `ifndef TB_DUAL_STRESS_SV
 `define TB_DUAL_STRESS_SV
@@ -243,23 +248,32 @@ module tb_dual_stress #(
     // E：读请求持续不断，验证写不被饿死（round-robin）
     // ------------------------------------------------------------------
     task automatic t_no_starvation();
-        int writes_done = 0;
+        int writes_ok = 0;
         $display("== STRESS-2: 持续读洪流下写不被饿死 ==");
 
+        // 注意：这里的判据必须是「写入的数据真的生效」，
+        // 不能只数循环次数 —— 原实现 writes_done++ 放在循环里，
+        // 无条件自增，40 次循环后必然 == 40，检查恒真（等于没检查）。
         for (int k = 0; k < 40; k++) begin
             // 每轮：一个读 + 一个写（读优先请求，制造偏斜）
             automatic bit [DW-1:0] d;
             automatic bit [1:0] rsp;
+            automatic bit [DW-1:0] chk;
+            automatic bit [1:0] chk_rsp;
             rd(RBUCKET + (k % 8) * 4, d, rsp);
             wr(WBUCKET + (k % 8) * 4, 32'hC000_0000 + k);
-            writes_done++;
+            // 回读确认这次写真的落了
+            rd(WBUCKET + (k % 8) * 4, chk, chk_rsp);
+            if (chk_rsp === RESP_OKAY && chk === (32'hC000_0000 + k))
+                writes_ok++;
         end
         sim_checks++;
-        if (writes_done != 40) begin
-            $display("  [STRESS-2] FAIL: 仅完成 %0d/40 次写", writes_done);
+        if (writes_ok != 40) begin
+            $display("  [STRESS-2] FAIL: 仅 %0d/40 次写真正生效（可能被饿死或数据错）",
+                     writes_ok);
             errors++;
         end else
-            $display("  [STRESS-2] 40 次写全部完成（无饿死）✓");
+            $display("  [STRESS-2] 40 次写全部生效（回读确认，无饿死）✓");
     endtask
 
     // ------------------------------------------------------------------

@@ -34,7 +34,46 @@ RULES = {
     "S2": "SKIP 之后 return 0 / exit 0（把未执行当成通过）",
     "S3": "只比对总数不核对身份（可能掩盖单项失败）",
     "S4": "帮助/错误信息漏列实际可用的目标（用户找不到功能）",
+    "S5": "恒真检查：计数器无条件自增后与循环次数比对",
 }
+
+
+def scan_s5(path: Path):
+    """检测恒真检查：`for (int k=0; k<N; k++) { ... cnt++; }` 然后 `cnt != N`
+
+    这类检查永远通过（计数器无条件自增），等于没检查。
+    """
+    if not path.name.startswith("tb_") or path.suffix != ".sv":
+        return []
+    out = []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for i, ln in enumerate(lines):
+        m = re.search(r"for \(int (\w+) = 0; \1 < (\d+);", ln)
+        if not m:
+            continue
+        var, n = m.group(1), int(m.group(2))
+        for k in range(i, min(i + 50, len(lines))):
+            cm = re.search(r"if \((\w+)\s*!=\s*(\d+)\)", lines[k])
+            if not cm:
+                continue
+            cnt, num = cm.group(1), int(cm.group(2))
+            if num != n:
+                break
+            body = lines[i:k + 1]
+            # 找计数器自增行，并检查它前面紧邻的行是否是有条件的 if
+            bad = False
+            for bi, bl in enumerate(body):
+                if not re.search(rf"\b{cnt}\s*\+\+|{cnt}\s*=\s*{cnt}\s*\+\s*1", bl):
+                    continue
+                prev = body[bi - 1].strip() if bi > 0 else ""
+                # 同一行带条件 或 上一行是无花括号的 if(...)
+                if re.search(r"if\s*\(", bl) or prev.startswith("if"):
+                    continue
+                bad = True
+            if bad:
+                out.append((k + 1, f"{cnt} 在循环内无条件自增，随后与 {n} 比对（恒真）"))
+            break
+    return out
 
 
 def scan_s4(path: Path):
@@ -126,6 +165,9 @@ def main():
     for pat in ("*.sh", "*.py"):
         targets += sorted(ROOT.glob(pat))
     targets += sorted(HERE.glob("*.py"))
+    # ★ 必须包含 SV 测试台：S5（恒真检查）只能在这里检测。
+    # 此前漏扫 sv/，导致 S5 规则从未真正执行过（空跑）。
+    targets += sorted((HERE / "sv").glob("tb_*.sv"))
     targets = [t for t in targets if t.name != "lint_silent_pass.py"]
 
     print(f"静默通过检查（{len(targets)} 个文件）")
@@ -143,6 +185,7 @@ def main():
         issues += [(ln, "S3", d) for ln, d in scan_s3(f)]
         if f.name == "sim.sh":
             issues += [(ln, "S4", d) for ln, d in scan_s4(f)]
+        issues += [(ln, "S5", d) for ln, d in scan_s5(f)]
 
         if not issues:
             continue
