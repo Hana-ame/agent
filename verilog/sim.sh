@@ -419,10 +419,35 @@ case "${1:-all}" in
             sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_fairness_sv.sv )
         ;;
     latency)
-        ( cd axi && build_run latency tb_latency_sv "-I./sv -I. -GWAITC=${WAIT:-2}" \
-            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
-            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
-            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_latency_sv.sv )
+        # 延迟公式 7+WAIT_CYCLES 必须在多个 WAIT 值下都成立，
+        # 只测一个值无法证明「公式正确」（可能只是恰好匹配）。
+        ( cd axi
+          _lat_fail=0
+          for _w in 0 1 2 5 8 15; do
+              printf "== sim: latency (WAIT=%s) ==\n" "$_w"
+              d="run/lat_$_w"; rm -rf "$d"; mkdir -p "$d"
+              if ! "$VLT" --binary --assert --timing --top-module tb_latency_sv \
+                   --Mdir "$d/obj" $NOWARN -I./sv -I. -GWAITC=$_w -DTXN_DW=${DW:-32} \
+                   axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+                   sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+                   sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_latency_sv.sv \
+                   -o "$(pwd)/$d/tb" >/dev/null 2>&1; then
+                  printf "  WAIT=%-2s BUILD-FAIL\n" "$_w"
+                  _lat_fail=$((_lat_fail+1)); continue
+              fi
+              _out=$( cd "$d" && ./tb 2>&1 || true )
+              echo "$_out" | grep -E "基线|✓ 延迟符合|✗" | sed 's/^/  /'
+              if ! echo "$_out" | grep -q "延迟符合公式"; then
+                  _lat_fail=$((_lat_fail+1))
+              fi
+          done
+          if [ "$_lat_fail" -eq 0 ]; then
+              echo "PASS: latency 公式 7+WAIT 在 6 种 WAIT 下均成立"
+          else
+              echo "FAIL: $_lat_fail 种 WAIT 配置下公式不成立"
+              exit 1
+          fi
+        )
         ;;
     monitorrules)
         ( cd axi && build_run monitorrules tb_monitor_rules "-I./sv -I." \
