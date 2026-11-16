@@ -77,6 +77,16 @@ STAGE_NAMES=(
     "G9:稳定性(无偶发失败)"
 )
 
+# 自检：STAGE_NAMES 项数必须等于 stageN() 函数个数
+# （手工清单容易与实现脱节，与「帮助信息漏列目标」同类）
+_n_stage_fn=$(grep -cE '^stage[0-9]+\(\)' "$0" || true)
+_n_stage_name=${#STAGE_NAMES[@]}
+if [ "${_n_stage_fn:-0}" -ne "${_n_stage_name:-0}" ]; then
+    echo "ERROR: STAGE_NAMES 有 $_n_stage_name 项，但只定义了 $_n_stage_fn 个 stage 函数" >&2
+    echo "       请同步 ci.sh 里的 STAGE_NAMES 数组与 stageN() 实现" >&2
+    exit 2
+fi
+
 list_stages() {
     echo "可用关卡："
     local i=1
@@ -477,7 +487,25 @@ stage7() {
     fi
 
     # 校验 6 份文件存在且非空
-    local expect=(DESIGN.html INTERFACE_MAP.html TEST_PLAN.html COVERAGE.html FSM.html INDEX.html)
+    # 期望清单自动从生成器的输出声明提取（避免手工维护漏项，
+    # 此前漏了 REGFILE.html —— 实际 7 份，只检查 6 份）
+    local expect=()
+    for gen in gen_fsm_html.py gen_interface_map.py gen_test_plan.py \
+               gen_regfile.py gen_coverage_html.py gen_portal.py; do
+        [ -f "axi/$gen" ] || continue
+        # 从生成器源码里找它写出的 .html 文件名
+        while IFS= read -r h; do
+            [ -n "$h" ] && expect+=("$h")
+        done < <(grep -oE '[A-Z_]+\.html' "axi/$gen" 2>/dev/null | sort -u)
+    done
+    # 去重
+    if [ ${#expect[@]} -gt 0 ]; then
+        mapfile -t expect < <(printf '%s\n' "${expect[@]}" | sort -u)
+    else
+        # 兜底：扫描 axi/ 下已有的 html
+        mapfile -t expect < <(cd axi && ls *.html 2>/dev/null)
+    fi
+    echo "  期望文档 ${#expect[@]} 份：${expect[*]}"
     local missing=0
     for f in "${expect[@]}"; do
         if [ ! -s "axi/$f" ]; then
@@ -487,7 +515,7 @@ stage7() {
     done
     local dt=$((SECONDS-t0))
     if [ $fails -eq 0 ] && [ $missing -eq 0 ]; then
-        echo -e "  ${GRN}${BOLD}PASS${R} —— 6/6 份文档生成（${dt}s）"
+        echo -e "  ${GRN}${BOLD}PASS${R} —— ${#expect[@]}/${#expect[@]} 份文档生成且一致（${dt}s）"
         record "$1" PASS $dt
         return 0
     else
