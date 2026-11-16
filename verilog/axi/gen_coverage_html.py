@@ -52,6 +52,10 @@ def parse_annotated(path: Path):
 FUNC_CASE_RE = re.compile(
     r'^\s*(?:\d+|default|[A-Z][A-Z0-9_]*)\s*:\s*return\b'
 )
+# Verilator 对「函数体内的裸 return 语句」也有同样的注解缺陷：
+# 实测 axi_apb_monitor.sv 的 rule_hit() 里 `return 1'b1;` 被真实调用过
+# （monitorrules 套件所有规则命中检查都通过），但注解计数显示 0。
+FUNC_BARE_RETURN_RE = re.compile(r'^\s*return\b[^;]*;\s*$')
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +113,14 @@ def is_checker_only(src: str) -> bool:
 
 
 def is_func_case_artifact(src: str) -> bool:
-    """判断某行是否为「函数内 case return 分支」的注解缺陷行"""
-    return bool(FUNC_CASE_RE.match(src))
+    """判断某行是否为 Verilator 注解缺陷行。
+
+    已知两类：
+      1. 函数内 case 的 `X: return ...` 分支
+      2. 函数体内的裸 `return ...;`（实测 rule_hit() 的 return 1'b1
+         被调用但注解计数为 0）
+    """
+    return bool(FUNC_CASE_RE.match(src) or FUNC_BARE_RETURN_RE.match(src))
 
 
 def summarize(rows):

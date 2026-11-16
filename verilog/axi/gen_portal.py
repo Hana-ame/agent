@@ -78,6 +78,8 @@ def parse_coverage():
 
     LINE_RE = re.compile(r'^([%~]?)(\d{6})\s+(.*)$')
     FUNC_CASE_RE = re.compile(r'^\s*(?:\d+|default|[A-Z][A-Z0-9_]*)\s*:\s*return\b')
+    # 与 gen_coverage_html.py 保持同一口径：函数体内裸 return 也属注解缺陷
+    FUNC_BARE_RETURN_RE = re.compile(r'^\s*return\b[^;]*;\s*$')
 
     # 非测试缺口（与 gen_coverage_html.py 保持同一口径）：
     #   1. 检查器违规分支   2. 状态机 default 回退（枚举已穷举）
@@ -112,7 +114,7 @@ def parse_coverage():
                 stat[kind]["hit"] += 1
             elif m.group(1) == '%':
                 # 与 gen_coverage_html.py 保持同一口径
-                if FUNC_CASE_RE.match(m.group(3)):
+                if FUNC_CASE_RE.match(m.group(3)) or FUNC_BARE_RETURN_RE.match(m.group(3)):
                     stat[kind]["artifact"] += 1
                 elif is_non_gap(m.group(3)):
                     stat[kind]["checker"] = stat[kind].get("checker", 0) + 1

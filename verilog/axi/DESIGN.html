@@ -442,7 +442,7 @@ footer{
       <tr><td>同步驱动</td><td>手动 <code>@(posedge)</code></td><td><b>clocking block</b></td></tr>
       <tr><td>协议检查</td><td>传统 task 断言 + monitor</td><td><b>SVA 并发断言</b>（接口内自动）</td></tr>
       <tr><td>激励</td><td><code>$random</code></td><td><b>class + $urandom / rand + constraint</b></td></tr>
-      <tr><td>覆盖率</td><td>—</td><td><b>covergroup</b>（<code>SV_COVERAGE</code> 宏）</td></tr>
+      <tr><td>覆盖率</td><td>Verilator --coverage（RTL 行/翻转/分支）</td><td>Verilator --coverage（同上）</td></tr>
       <tr><td>工具</td><td>Verilator（历史曾用 iverilog，已移除）</td><td>slang / Verilator</td></tr>
       <tr><td>实测结果</td><td class="yes">PASS · 35 检查</td><td class="yes">PASS · 234 向量</td></tr>
     </tbody>
@@ -573,7 +573,7 @@ Top level design units:
 <section>
   <h2><span class="num">10</span>工具兼容性与兼容性处理</h2>
   <table>
-    <thead><tr><th>工具</th><th>interface 端口</th><th>clocking</th><th>SVA</th><th>class 随机</th><th>covergroup</th></tr></thead>
+    <thead><tr><th>工具</th><th>interface 端口</th><th>clocking</th><th>SVA</th><th>class 随机</th><th>行/翻转覆盖率</th></tr></thead>
     <tbody>
       <tr><td>slang 12.1</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td></tr>
       <tr><td>Verilator 5.055（最新，自编译）</td><td class="yes">✅</td><td class="yes">✅</td><td class="part">✅ 子集</td><td class="part">✅ 需 z3</td><td class="no">❌ 宏隔离</td></tr>
@@ -584,7 +584,8 @@ Top level design units:
 
   <h3>兼容性处理与踩坑记录</h3>
   <div class="chk">
-    <div class="item"><div class="box">✓</div><div><b>covergroup 宏隔离</b> <span>— Verilator 不支持，用 <code>SV_COVERAGE</code> 包裹；slang/irun/VCS 默认启用</span></div></div>
+    <div class="item"><div class="box">✓</div><div><b>覆盖率改为工具内置</b> <span>— Verilator 不支持 <code>covergroup</code>，因此不用 SV 功能覆盖率，改用 <code>--coverage</code>（行/翻转/分支）+ <code>verilator_coverage --annotate</code> 出逐行报告；功能维度由 48 项测试计划覆盖
+      （自动判定：扫描各 TB 的 task 名与源码特征，<code>gen_test_plan.py</code> 统计，当前 48/48）</span></div></div>
     <div class="item"><div class="box">✓</div><div><b>随机化降级</b> <span>— <code>rand/constraint</code> 需 SAT 求解器（z3），改用 <code>$urandom</code> 保持跨工具通用</span></div></div>
     <div class="item"><div class="box">✓</div><div><b>虚接口赋值时机</b> <span>— 在 <code>initial</code> 直接赋值 <code>drv.vif = axi</code>，兼容 Verilator 静态绑定</span></div></div>
     <div class="item"><div class="box">✓</div><div><b>握手判据统一</b> <span>— 用 <code>VALID &amp;&amp; READY</code> + do-while 先推一拍，修复“桥提前就绪覆盖主站 NBA”死锁</span></div></div>
@@ -634,13 +635,13 @@ TOOL=xrun bash run_sv_chain.sh  <span class="c"># 或强制指定</span></pre>
     <div class="item"><div class="box">✓</div><div><b>完整 AXI 定义</b> <span>— 五通道 struct 全字段 + 全部协议常量 + 协议函数（149 行）</span></div></div>
     <div class="item"><div class="box">✓</div><div><b>完整 APB 定义</b> <span>— 总线 struct + 阶段枚举 + R1–R7 规则函数（117 行）</span></div></div>
     <div class="item"><div class="box">✓</div><div><b>转换设计</b> <span>— AXI4-Lite → APB 单事务串行桥，11 态 FSM，握手/时序/响应全合规</span></div></div>
-    <div class="item"><div class="box">✓</div><div><b>testbench</b> <span>— 端口式版（35 检查）与完整 SV 版（SVA + class + covergroup）双版本（历史曾用 iverilog）</span></div></div>
+    <div class="item"><div class="box">✓</div><div><b>testbench</b> <span>— 端口式版（35 检查）与完整 SV 版（SVA + class 随机）双版本（历史曾用 iverilog）</span></div></div>
     <div class="item"><div class="box">✓</div><div><b>向量化测试闭环</b> <span>— 数据向量 → 激励向量 → 数据向量，234 向量全过，DUT 往返一致性可审阅</span></div></div>
   </div>
 
   <h3>后续可扩展</h3>
   <div class="grid g3" style="margin-top:12px">
-    <div class="card"><h4>覆盖率收集</h4><p>连服务器 irun/VCS，开 <code>SV_COVERAGE</code> 跑向量覆盖率</p></div>
+    <div class="card"><h4>覆盖率收集</h4><p><code>bash sim.sh coverage</code><br>Verilator 行/翻转/分支 + 逐行注解</p></div>
     <div class="card"><h4>outstanding 流水</h4><p>打破单事务串行，支持多事务并发与乱序响应</p></div>
     <div class="card"><h4>AXI4 全协议 burst</h4><p>从 AXI4-Lite 扩展到 burst（INCR/WRAP）+ WSTRB</p></div>
   </div>
