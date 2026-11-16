@@ -35,7 +35,48 @@ RULES = {
     "S3": "只比对总数不核对身份（可能掩盖单项失败）",
     "S4": "帮助/错误信息漏列实际可用的目标（用户找不到功能）",
     "S5": "恒真检查：计数器无条件自增后与循环次数比对",
+    "S6": "定义未使用的类型/函数（文档声称支持但代码未引用）",
 }
+
+
+def scan_s6(path: Path):
+    """检测 typedef struct 定义了但从未被引用的类型。
+
+    本项目就有实例：axi_defs_pkg 里 5 个 AXI4 通道 struct
+    （aw/w/b/ar/r_chan_t）完整定义，但 RTL 只用 AXI4-Lite，
+    引用数为 0 —— 属「文档性定义」，需在注释中明确标注。
+    """
+    if path.name != "axi_defs_pkg.sv":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    types = re.findall(r"\}\s*(\w+_t)\s*;", txt)
+    if not types:
+        return []
+    # 扫描所有 sv/vip 文件中的引用
+    users = []
+    for d in ("sv", "vip", "."):
+        p = HERE / d
+        if p.is_dir():
+            users += [f for f in p.glob("*.sv")]
+    other_txt = ""
+    for f in users:
+        if f.name == "axi_defs_pkg.sv":
+            continue
+        other_txt += f.read_text(encoding="utf-8", errors="replace")
+    out = []
+    unused = [t for t in types if t not in other_txt]
+    if not unused:
+        return out
+    # 若注释已显式说明「这些字段未被引用 / 仅作协议对照」，
+    # 视为已声明意图，不再告警（避免重复提醒已知情况）。
+    declared_ok = ("根本未使用" in txt or "未被任何 RTL 或 TB 引用" in txt
+                   or "仅作协议对照" in txt)
+    if declared_ok:
+        return out
+    out.append((0, f"{len(unused)} 个 struct 类型无任何引用: "
+                   f"{', '.join(unused[:6])}"
+                   "（若为文档性定义，需在注释中明确标注）"))
+    return out
 
 
 def scan_s5(path: Path):
@@ -168,6 +209,9 @@ def main():
     # ★ 必须包含 SV 测试台：S5（恒真检查）只能在这里检测。
     # 此前漏扫 sv/，导致 S5 规则从未真正执行过（空跑）。
     targets += sorted((HERE / "sv").glob("tb_*.sv"))
+    # 包定义文件：S6（未使用的类型）只在这里检测
+    targets += sorted(HERE.glob("*_pkg.sv"))
+    targets += sorted((HERE / "sv").glob("*_pkg.sv"))
     targets = [t for t in targets if t.name != "lint_silent_pass.py"]
 
     print(f"静默通过检查（{len(targets)} 个文件）")
@@ -186,6 +230,7 @@ def main():
         if f.name == "sim.sh":
             issues += [(ln, "S4", d) for ln, d in scan_s4(f)]
         issues += [(ln, "S5", d) for ln, d in scan_s5(f)]
+        issues += [(ln, "S6", d) for ln, d in scan_s6(f)]
 
         if not issues:
             continue

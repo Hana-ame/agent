@@ -17,9 +17,14 @@
 //   R : 读数据通道   { RID, RDATA, RRESP(=RRESP), RLAST }
 // 全局信号：ACLK, ARESETn
 //
-// 说明：本桥只用到 AXI4-Lite 子集（无 burst、单拍传输），
-//       但 struct 保留 AXI4 全量字段，便于日后扩展与协议对照；
-//       Lite 保留字段（awlen/awburst/awqos/...）在桥内恒为默认值。
+// 说明：本桥只用到 AXI4-Lite 子集（无 burst、单拍传输）。
+//       struct 保留 AXI4 全量字段，用途是「协议对照与日后扩展」——
+//       ⚠ 这些 AXI4 专有字段（awlen/awsize/awburst/awcache/awprot/
+//         awqos/awregion/wstrb/wlast/bid/arid/rlast 等）目前
+//         **未被任何 RTL 或 TB 引用**（grep 结果为 0），
+//         不是「恒为默认值」，而是「根本未使用」。
+//       桥与接口的信号集就是 AXI4-Lite 的 16 个信号，
+//       见 sv/axi_lite_if.sv。若日后要支持 burst，需同时扩展接口与桥。
 //
 // 工具链：Verilator 5.055（仿真/覆盖率）+ slang 12.1（编译检查）。
 //         iverilog 已从工具链移除（见 README）。
