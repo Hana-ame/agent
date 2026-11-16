@@ -7,7 +7,19 @@
 | 形态 | 文件 | 依赖 | 状态 |
 |---|---|---|---|
 | **非 UVM VIP** | `axi_vip_pkg.sv` + `axi_lite_vip.sv` | 无（纯 SV） | ✅ 本地实测 PASS |
-| **UVM 配套** | `axi_vip_uvm_pkg.sv` + `tb_uvm_top.sv` | UVM 库 + EDA 仿真器 | ✅ **slang + 真实 UVM 库编译通过（0 errors）**，仿真仍需 EDA 工具 |
+| **UVM 配套** | `axi_vip_uvm_pkg.sv` + `tb_uvm_top.sv` | UVM 库 + EDA 仿真器 | ✅ **slang + 真实 UVM 库编译通过（0 errors，可复验：`bash uvm_check.sh`）**，仿真仍需 EDA 工具 |
+
+### 复验方式
+
+```bash
+bash verilog/uvm_check.sh          # 自动定位 UVM 库并编译检查
+UVM_SRC=/path/to/uvm-1.1d bash verilog/uvm_check.sh   # 显式指定
+```
+
+> ⚠ **必须传 `--timescale=1ns/1ps`**：UVM 库文件自带 `timescale`，
+> 而项目文件没有，不加会报 6 处
+> "design element does not have a time scale defined"。
+> 这个参数此前未记录，导致「编译通过」的结论无法直接被复现。
 
 ### 本机 UVM 可行性（已核查并已用于验证）
 

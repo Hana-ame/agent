@@ -153,6 +153,21 @@ stage1() {
         sv/axi_apb_bridge_dual_sv.sv \
         sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
         sv/axi_txn_host.sv sv/tb_param_sv.sv
+      # 真实 UVM 库编译（此前仅有结论、无自动化验证）
+      printf "  %s " "真实UVM库编译"
+      if bash ../uvm_check.sh >/tmp/ci_uvm.log 2>&1; then
+          # 区分「编译通过」与「因无 UVM 库而跳过」——
+          # 后者不能显示为 ✓，否则把「未验证」当成「通过」
+          if grep -q "SKIP" /tmp/ci_uvm.log; then
+              echo -e "${YEL}SKIP${R} ${DIM}(无 UVM 库)${R}"
+          else
+              echo -e "${GRN}✓${R}"
+          fi
+      else
+          echo -e "${RED}✗${R}"
+          tail -4 /tmp/ci_uvm.log | sed 's/^/      /'
+          echo "FAIL" >> "$cnt_file"
+      fi
       # 脚本可用性（语法 + 引用）
       # 关键：必须用 ( cd .. && ... ) 子 shell 隔离。
       # scripts_check.sh 内部会 cd 到多个目录，若直接运行会改变
