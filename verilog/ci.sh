@@ -592,16 +592,40 @@ main() {
         k=$((k+1))
     done
 
+    # 统计 SKIP：全部/SKIP 过多时不能报「全部通过」
+    local n_pass=0 n_skip=0 n_fail=0
+    for r in "${STAGE_RESULTS[@]}"; do
+        case "${r%%|*}" in
+            PASS) n_pass=$((n_pass+1)) ;;
+            SKIP) n_skip=$((n_skip+1)) ;;
+            *)    n_fail=$((n_fail+1)) ;;
+        esac
+    done
+    local n_total=$((n_pass + n_skip + n_fail))
+
     echo ""
     if [ -n "$failed_at" ]; then
         echo -e "  ${RED}${BOLD}质量门未通过${R} —— 卡在 $failed_at（总耗时 ${total}s）"
         echo ""
         exit 1
-    else
-        echo -e "  ${GRN}${BOLD}质量门全部通过${R}（总耗时 ${total}s）"
+    fi
+
+    # 防假通过：一项都没真正 PASS 时不能报全部通过。
+    # （与「缺 slang 时 G1 SKIP 却算通过」同类问题）
+    if [ "$n_pass" -eq 0 ]; then
+        echo -e "  ${YEL}${BOLD}⚠ 没有任何关卡真正执行${R}（PASS=0 SKIP=$n_skip）"
+        echo ""
+        exit 1
+    fi
+    if [ "$n_skip" -gt 0 ]; then
+        echo -e "  ${GRN}${BOLD}质量门通过${R}（PASS=$n_pass SKIP=$n_skip / 共 $n_total，总耗时 ${total}s）"
+        echo -e "  ${YEL}注意：有 $n_skip 关被跳过，其覆盖范围未被验证${R}"
         echo ""
         exit 0
     fi
+    echo -e "  ${GRN}${BOLD}质量门全部通过${R}（共 $n_total 关，总耗时 ${total}s）"
+    echo ""
+    exit 0
 }
 
 main "$@"

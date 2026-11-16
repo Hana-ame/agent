@@ -218,6 +218,12 @@ for r in "${RESULTS[@]}"; do
     esac
 done
 echo ""
+# 防假通过：若一项都没真正通过（全是 SKIP），不能报「全部可用」。
+# 这与「缺 slang 时 G1 SKIP 却算通过」是同一类问题。
+if [ "$FAIL" -eq 0 ] && [ "$PASS" -eq 0 ]; then
+    echo -e "  ${Y}${B}⚠ 没有任何检查真正执行${R}（PASS=0 SKIP=$SKIP）"
+    exit 1
+fi
 if [ "$FAIL" -eq 0 ]; then
     echo -e "  ${G}${B}全部脚本可用${R}（PASS=$PASS SKIP=$SKIP）"
     exit 0
