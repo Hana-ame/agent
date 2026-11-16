@@ -177,6 +177,15 @@ else
     fi
 fi
 run_script "axi/lint_all.sh" 0 200 || true
+# setup_env.sh 只做 --check（不触发编译），验证环境探测逻辑
+printf "  %-26s " "setup_env.sh --check"
+if bash setup_env.sh --check >/tmp/se_chk.log 2>&1; then
+    echo -e "${G}✓${R}"
+    record "setup_env.sh --check" PASS ""
+else
+    echo -e "${Y}✗${R}"
+    record "setup_env.sh --check" FAIL "env not ready"
+fi
 if [ "$FAST" -eq 1 ]; then
     echo -e "  ${D}- 跳过${R} axi/run_sv_chain.sh 执行（--fast 模式）"
     record "axi/run_sv_chain.sh 执行" SKIP "--fast"

@@ -6,8 +6,14 @@
 > - **Verilator ≥ 5.040**：apt 的 5.020 有跨文件虚接口缺陷，会让仿真**静默挂死**
 >   （无输出、无报错、进程不动）——比直接报错更难排查。
 >   `sim.sh` 会检查版本并在过低时**明确拒绝运行**。
-> - 自编译方式：`git clone https://github.com/verilator/verilator && autoconf && ./configure --prefix=/tmp/verilator && make -j && make install`
-> - 或设置 `VERILATOR=/path/to/verilator_bin` / `VERILATOR_ROOT=/path/to/install`
+> **快速准备环境**：
+> ```bash
+> bash setup_env.sh --check     # 先检查现有环境是否满足
+> bash setup_env.sh             # 不满足则自动编译安装到 /tmp/verilator
+> ```
+> 脚本幂等：已满足要求时立即退出。也可 `PREFIX=$HOME/tools bash setup_env.sh` 指定安装位置。
+>
+> 或手动设置 `VERILATOR=/path/to/verilator_bin` / `VERILATOR_ROOT=/path/to/install`
 
 当前规模：**25 个测试套件 · 约 1400 项检查 · RTL 有效覆盖率 100% · 变异得分 100%（29/29）**
 
@@ -20,6 +26,7 @@
 | `counter8.sv` | 8-bit 同步计数器：增加 carry 进位输出 |
 | `tb_counter8_icarus.sv` | counter8 test bench（26 项断言） |
 | `tb_counter8_sv.sv` | counter8 完整 SV test bench（interface/SVA/covergroup/class 随机），Verilator 可跑 |
+| **`setup_env.sh`** | **环境准备**（自动获取/编译 Verilator >= 5.040，幂等） |
 | **`sim.sh`** | **统一仿真入口**（Verilator） |
 | **`ci.sh`** | **质量门 CI**（9 关定义，默认跑 6 关） |
 | **`audit.sh`** | **验证工具自审计**（8 项故障注入，确认工具会报错） |
