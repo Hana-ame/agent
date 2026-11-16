@@ -37,6 +37,7 @@ run_check() {
 run_check "握手时序" lint_handshake.py
 run_check "时钟竞争" lint_clocking.py
 run_check "静默通过" lint_silent_pass.py
+run_check "规则自测" lint_self_test.py
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

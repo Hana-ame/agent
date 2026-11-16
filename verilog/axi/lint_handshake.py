@@ -99,9 +99,42 @@ def scan_file(path: Path):
                                f"while 等 {sig}{note}", raw.strip()))
 
         # ---- R4: do @(posedge); while (!VALID); 后紧跟撤 READY ----
-        m = re.search(r"while\s*\(\s*!\s*\(\s*axi\.([A-Z_]+READY)\s*\)\s*\)", ln)
-        if m:
-            pass  # 等 READY 是安全的
+        # 真正的危险模式：先等 VALID 就退出循环，然后立刻把 READY 清零，
+        # 此时 DUT 可能还没采样到 READY=1，握手丢失。
+        # 判定：等 VALID 的 while 之后 3 行内出现 ready 清零，且中间无延时。
+        m4 = re.search(r"while\s*\(\s*!\s*(?:\()?\s*axi\.([A-Z_]+VALID)", ln)
+        if m4:
+            sig4 = m4.group(1)
+            ready4 = READY_OF.get(sig4)
+            if ready4:
+                # 先找到 while 循环的结束行（end / endwhile），
+                # 再在循环之后找「无延时撤销 READY」。
+                # 循环体内本来就有 @(posedge)，不能拿来当终止条件。
+                k = i
+                in_loop = "begin" in ln
+                depth = 1 if in_loop else 0
+                if not in_loop:
+                    # 单语句循环：while (...) stmt;
+                    k = i
+                else:
+                    for k in range(i + 1, min(i + 30, len(lines))):
+                        body = lines[k].split("//")[0]
+                        if re.search(r"\bbegin\b", body):
+                            depth += 1
+                        if re.search(r"\bend\b", body):
+                            depth -= 1
+                            if depth <= 0:
+                                break
+                # 从循环结束后开始看 3 行
+                for j in range(k + 1, min(k + 4, len(lines))):
+                    nxt = lines[j].split("//")[0]
+                    if re.search(r"@\s*\(|#\s*\d", nxt):
+                        break
+                    if re.search(rf"\b{ready4}\b\s*(<=|=)\s*1'b0", nxt):
+                        issues.append((i + 1, "R4",
+                                       f"等 {sig4} 后无延时立即撤销 {ready4}",
+                                       raw.strip()))
+                        break
 
         # ---- R1/R2: if (axi.XXXVALID) ----
         m = re.search(r"if\s*\(\s*axi\.([A-Z_]+VALID)\s*\)", ln)
