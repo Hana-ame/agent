@@ -174,6 +174,10 @@ stage1() {
           echo -e "${RED}✗${R}"
           tail -8 /tmp/ci_lint.log | sed 's/^/      /'
       fi
+      check "并发桥合法并发" --top tb_dual_legal_sv -I sv -I . -DTXN_DW=32 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_dual_legal_sv.sv
       check "位域跨域隔离" --top tb_field_iso_sv -I sv -I . -DTXN_DW=32 \
         axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
         sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \

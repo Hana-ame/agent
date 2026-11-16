@@ -184,7 +184,9 @@ module tb_monitor_rules #(
         axi.WVALID = 0;
         tick();
         checks++;
-        if (mon.errors - err_base >= 1) begin
+        // 精确校验：必须是 A2.WDATA 这条规则被触发，
+        // 而不是任意其他规则（A1 未握手撤销也会计数）
+        if (mon.errors - err_base >= 1 && grep_violation("A2.WDATA")) begin
             $display("  ✓ A2.WDATA   捕获数据变化违规");
         end else begin
             $display("  ✗ A2.WDATA   未捕获数据变化违规");
@@ -255,7 +257,7 @@ module tb_monitor_rules #(
         apb.PSEL = 0; apb.PENABLE = 0; apb.PADDR = 0;
         tick();
         checks++;
-        if (mon.errors - err_base >= 1) begin
+        if (mon.errors - err_base >= 1 && grep_violation("P4.PADDR")) begin
             $display("  ✓ P4.PADDR   捕获地址变化违规");
         end else begin
             $display("  ✗ P4.PADDR   未捕获地址变化违规");
@@ -277,7 +279,7 @@ module tb_monitor_rules #(
         apb.PSEL = 0; apb.PENABLE = 0;
         tick();
         checks++;
-        if (mon.errors - err_base >= 1) begin
+        if (mon.errors - err_base >= 1 && grep_violation("P4.PWRITE")) begin
             $display("  ✓ P4.PWRITE  捕获方向变化违规");
         end else begin
             $display("  ✗ P4.PWRITE  未捕获方向变化违规");

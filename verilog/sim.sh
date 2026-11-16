@@ -302,6 +302,13 @@ case "${1:-all}" in
         # 稳定性检查：每个套件重复运行，检测偶发失败
         python3 stability.py "${@:2}"
         ;;
+    duallegal)
+        ( cd axi && build_run duallegal tb_dual_legal_sv "-I./sv -I. -DTXN_DW=${DW:-32}" \
+            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+            sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv \
+            sv/tb_dual_legal_sv.sv )
+        ;;
     fieldiso)
         ( cd axi && build_run fieldiso tb_field_iso_sv "-I./sv -I. -DTXN_DW=${DW:-32}" \
             axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
@@ -543,6 +550,7 @@ case "${1:-all}" in
         bash "$0" params
         bash "$0" sva
         bash "$0" lint
+        bash "$0" duallegal
         bash "$0" fieldiso
         bash "$0" dualerr
         bash "$0" resetdom
@@ -560,7 +568,7 @@ case "${1:-all}" in
         echo "未知目标: $1"
         echo "可用: counter counter8 axi sv gaps dual stress covgaps"
         echo "      regfile regfilegen vip"
-        echo "      lint fieldiso dualerr resetdom handshake monitor monitorrules latency fairness params sva
+        echo "      lint duallegal fieldiso dualerr resetdom handshake monitor monitorrules latency fairness params sva
       uvmlite asserteff dw64"
         echo "      coverage mutate sweep docs wave all"
         exit 1
