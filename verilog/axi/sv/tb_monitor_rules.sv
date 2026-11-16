@@ -68,13 +68,23 @@ module tb_monitor_rules #(
     // ---- 断言辅助：本段应新增 N 处违规 ----
     int err_base;
 
+    // 期望「tag 这条规则」被触发 delta 次。
+    // 关键：必须校验规则名，不能只看违规总数 ——
+    // 一次注入可能同时触发多条规则（如 ACCESS 提前退出会同时
+    // 触发 P1/P2/P3），数量对了不代表目标规则生效。
     task automatic expect_violation(input string tag, input int delta = 1);
         checks++;
-        if (mon.errors - err_base == delta) begin
-            $display("  ✓ %-12s 捕获 %0d 处违规（预期 %0d）", tag, mon.errors - err_base, delta);
-        end else begin
-            $display("  ✗ %-12s 捕获 %0d 处（预期 %0d）", tag, mon.errors - err_base, delta);
-            errors++;
+        begin
+            int cnt;
+            cnt = mon.rule_hits.exists(tag) ? mon.rule_hits[tag] : 0;
+            if (mon.errors - err_base >= 1 && cnt == delta) begin
+                $display("  ✓ %-12s 规则命中 %0d 次（预期 %0d，总违规 %0d）",
+                         tag, cnt, delta, mon.errors - err_base);
+            end else begin
+                $display("  ✗ %-12s 规则命中 %0d 次（预期 %0d，总违规 %0d）—— 目标规则未生效",
+                         tag, cnt, delta, mon.errors - err_base);
+                errors++;
+            end
         end
         err_base = mon.errors;
     endtask

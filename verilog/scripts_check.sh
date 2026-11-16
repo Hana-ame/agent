@@ -68,12 +68,25 @@ check_refs() {
         case "$ref" in
             work/*|/tmp/*|*t_hang*) continue ;;
         esac
+        # 排除含 $ 的变量路径（如 $UVM_SRC/src/uvm_pkg.sv），
+        # 这类路径无法静态解析，不算「引用缺失」。
+        # 也排除形如 "UVM_SRC/src/..." / "UVM/src/..." 的变量展开残影。
+        case "$ref" in
+            *'$'*|UVM_SRC/*|UVM/*|v/src/*) continue ;;
+        esac
+        # 外部库文件（由 UVM_SRC 等变量指向，不在本仓库内）：
+        # uvm_pkg.sv 是 UVM 标准库文件，项目里必然没有，不算缺失。
+        case "$ref" in
+            uvm_pkg.sv|uvm_macros.svh) continue ;;
+        esac
         # 支持多种路径基准：脚本目录 / 当前目录 / 仓库根
         # 支持的路径基准（bare 文件名可能位于 sv/ 子目录）
         if [ -f "$dir/$ref" ]     || [ -f "$ref" ]         \
         || [ -f "axi/$ref" ]      || [ -f "axi/sv/$ref" ]  \
         || [ -f "../$ref" ]       || [ -f "../../$ref" ]   \
-        || [ -f "../axi/sv/$ref" ] || [ -f "../../axi/sv/$ref" ]; then
+        || [ -f "../axi/sv/$ref" ] || [ -f "../../axi/sv/$ref" ] \
+        || [ -f "vip/$ref" ]      || [ -f "axi/vip/$ref" ] \
+        || [ -f "../axi/vip/$ref" ]; then
             continue
         fi
         echo -e "  ${D}  引用缺失: $ref${R}"

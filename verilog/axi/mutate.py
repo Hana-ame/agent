@@ -147,6 +147,17 @@ MUTATIONS = [
     ("M30", "axi_apb_monitor.sv", "监视器 P1 规则失效（PENABLE 无 PSEL 漏检）",
      '            if (!penable_ok(apb.PSEL, apb.PENABLE))',
      '            if (1\'b0)'),
+    # 以下 3 个是「规则名错位」变异：违规**数量不变**，只有校验规则名才能检出。
+    # 如果 TB 只看 mon.errors - err_base >= 1，这些变异会全部 SURVIVED。
+    ("M31", "axi_apb_monitor.sv", "A1.WVALID 违规被记到 A1.AWVALID 名下（规则名错位）",
+     '                violation("A1.WVALID", "WVALID dropped without WREADY");',
+     '                violation("A1.AWVALID", "WVALID dropped without WREADY");'),
+    ("M32", "axi_apb_monitor.sv", "P2.PHASE 违规被记到 P1.PENABLE 名下（规则名错位）",
+     '                violation("P2.PHASE", "APB ACCESS terminated before PREADY");',
+     '                violation("P1.PENABLE", "APB ACCESS terminated before PREADY");'),
+    ("M33", "axi_apb_monitor.sv", "P3.SETUP 违规被记到 P2.PHASE 名下（规则名错位）",
+     '                violation("P3.SETUP", "PREADY asserted during SETUP phase");',
+     '                violation("P2.PHASE", "PREADY asserted during SETUP phase");'),
 ]
 
 # 每个变异对应的验证套件
@@ -165,6 +176,7 @@ TEST_FOR = {
     "M24": "sv", "M25": "sv", "M26": "sv",
     "M27": "monitorrules", "M28": "monitorrules",
     "M29": "monitorrules", "M30": "monitorrules",
+    "M31": "monitorrules", "M32": "monitorrules", "M33": "monitorrules",
 }
 
 # 套件 → 编译源文件（与 sim.sh 保持一致）
