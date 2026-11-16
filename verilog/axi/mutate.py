@@ -158,6 +158,17 @@ MUTATIONS = [
     ("M33", "axi_apb_monitor.sv", "P3.SETUP 违规被记到 P2.PHASE 名下（规则名错位）",
      '                violation("P3.SETUP", "PREADY asserted during SETUP phase");',
      '                violation("P2.PHASE", "PREADY asserted during SETUP phase");'),
+    # ---- SVA 断言变异：验证断言本身是「有效」的 ----
+    # 这些断言写错时，变异测试应能发现（因为 assert_effectiveness 会失败）
+    # 注：没有为 axi_lite_if.sv 的 5 条 VALID 稳定性断言都加变异。
+    # 试过 M34（AWVALID 前件写反），实测表明该断言本身工作正常
+    # （asserteff 的 AXICASE=1 会报 "触发的是 ，不是 ap_aw_valid_stable FAIL"），
+    # 但 mutate.py 的 run_suite 只编译运行一次 TB，
+    # 而 asserteff 需要对 9 个 CASE 分别编译运行，驱动方式不适配，
+    # 所以该变异会被误判为 SURVIVED。撤回，避免制造假缺口。
+    ("M35", "apb_if.sv", "PENABLE 蕴含 PSEL 断言改为反向（|-> 变 |-> !）",
+     "PENABLE |-> PSEL",
+     "PENABLE |-> !PSEL")
 ]
 
 # 每个变异对应的验证套件
@@ -177,10 +188,16 @@ TEST_FOR = {
     "M27": "monitorrules", "M28": "monitorrules",
     "M29": "monitorrules", "M30": "monitorrules",
     "M31": "monitorrules", "M32": "monitorrules", "M33": "monitorrules",
+    # SVA 断言由 asserteff 套件验证（逐条注入违规，确认断言能捕获）
+    "M35": "asserteff",
 }
 
 # 套件 → 编译源文件（与 sim.sh 保持一致）
 SUITE_SRCS = {
+    # 断言有效性检查（APB 4 条 + AXI 5 条断言逐条注入违规）
+    "asserteff": ["axi_defs_pkg.sv", "apb_defs_pkg.sv",
+                  "sv/axi_lite_if.sv", "sv/apb_if.sv",
+                  "sv/tb_assert_effectiveness_sv.sv"],
     "regfile": ["axi_defs_pkg.sv", "apb_defs_pkg.sv", "sv/bus_txn_pkg.sv",
                 "sv/axi_lite_if.sv", "sv/apb_if.sv", "sv/axi_apb_bridge_sv.sv",
                 "sv/apb_slave_regfile_sv.sv", "sv/axi_txn_host.sv", "sv/tb_regfile_sv.sv"],
@@ -210,6 +227,7 @@ TOPS = {
     "gaps": "tb_gaps_sv", "dual": "tb_dual_sv",
     "sv": "tb_axi_apb_sv", "stress": "tb_dual_stress",
     "monitorrules": "tb_monitor_rules",
+    "asserteff": "tb_assert_effectiveness_sv",
 }
 
 NOFATAL = ["-Wno-WIDTHEXPAND", "-Wno-WIDTHTRUNC", "-Wno-ASCRANGE",
