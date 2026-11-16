@@ -251,8 +251,16 @@ module tb_param_sv #(
         $display("======================================================");
         $display(" 参数配置验证：AW=%0d DW=%0d NREG=%0d WAIT=%0d 桥=%0s",
                  AW, DW, NREG, WAITC, DUAL ? "并发" : "串行");
-        if (!DATA_CHECK)
-            $display(" 注：TXN_DW(%0d) != DW(%0d)，跳过数据完整性检查", TXN_WIDTH, DW);
+        // TXN_WIDTH 是从 `TXN_DW 宏得到的位宽（见 localparam）
+        $display(" 事务位宽：txn_t.data=%0d bit（TXN_DW），DUT DW=%0d bit",
+                 TXN_WIDTH, DW);
+        if (!DATA_CHECK) begin
+            // 这是**受限验证**：高速位数据未被比对，不能算「完整通过」。
+            // 明确标注出来，避免被当成全绿。
+            $display(" ⚠ 受限验证：TXN_DW(%0d) != DW(%0d)，数据完整性检查未执行",
+                     TXN_WIDTH, DW);
+            $display("   （高位数据未被比对；如需完整验证请令 TXN_DW == DW）");
+        end
         $display("======================================================");
 
         t_basic();
@@ -267,6 +275,8 @@ module tb_param_sv #(
         end else
             $display("  [MON] 协议监视器通过（%0d 次 APB 传输）", mon.xfer_count);
 
+        if (!DATA_CHECK)
+            $display(" ⚠ 本次为受限验证（TXN_DW != DW），数据完整性未覆盖");
         $display(" param result: AW=%0d DW=%0d NREG=%0d WAIT=%0d 桥=%0s → %0d checks, %0d errors",
                  AW, DW, NREG, WAITC, DUAL ? "DUAL" : "SERIAL", checks, errors);
         if (errors == 0) begin
