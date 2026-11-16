@@ -95,9 +95,15 @@ list_stages() {
 stage1() {
     banner "G1 编译检查（slang）"
     if [ -z "$SLANG" ]; then
-        echo -e "${YEL}SKIP: 未找到 slang${R}"
-        record "$1" SKIP 0
-        return 0
+        # 关键：不能 SKIP（SKIP 会让「质量门全部通过」变成假象——
+        # 19 项编译检查一项都没跑，却报告全部通过）。
+        # 编译检查是质量门的第一环，缺工具必须算失败。
+        echo -e "${RED}✗ 未找到 slang，编译检查无法执行${R}"
+        echo -e "  ${DIM}安装方式（任选其一）：${R}"
+        echo -e "  ${DIM}  a) bash setup_env.sh   # 自动安装 slang + Verilator${R}"
+        echo -e "  ${DIM}  b) 下载预编译包：https://github.com/MikePopoloski/slang/releases${R}"
+        record "$1" FAIL 0
+        return 1
     fi
     local t0=$SECONDS
     local cnt_file=/tmp/ci_g1_count

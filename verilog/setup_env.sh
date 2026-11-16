@@ -75,21 +75,28 @@ for cand in "${VERILATOR:-}" \
     fi
 done
 
+# 注意：即使 Verilator 已就绪，也要继续检查 slang，
+# 不能提前 exit（否则「环境已就绪」是假象）。
+VLT_READY=0
 if [ -n "$FOUND" ]; then
-    echo ""
-    echo -e "${G}${B}环境已就绪${R}"
-    echo -e "  推荐用法：${D}export VERILATOR_ROOT=$(dirname "$(dirname "$FOUND")")${R}"
-    exit 0
+    VLT_READY=1
+    echo -e "  ${D}推荐：export VERILATOR_ROOT=$(dirname "$(dirname "$FOUND")")${R}"
 fi
 
-if [ "$CHECK_ONLY" -eq 1 ]; then
+if [ "$VLT_READY" -eq 0 ] && [ "$CHECK_ONLY" -eq 1 ]; then
     echo ""
     printf "${Y}✗ 未找到 >= %d.%03d 的 Verilator${R}\n" "$MIN_VER_MAJOR" "$MIN_VER_MINOR"
     echo -e "  运行 ${B}bash setup_env.sh${R} 自动安装"
     exit 1
 fi
 
-# ---- 2. 构建依赖检查 ----
+# ---- 2. 构建依赖检查（仅 Verilator 未就绪时需要）----
+if [ "$VLT_READY" -eq 1 ]; then
+    SKIP_VLT_BUILD=1
+else
+    SKIP_VLT_BUILD=0
+fi
+if [ "$SKIP_VLT_BUILD" -eq 0 ]; then
 echo ""
 echo -e "${B}检查构建依赖${R}"
 MISSING=()
@@ -172,11 +179,78 @@ fi
 echo -e "  ${G}✓${R} Verilator $NEW_V 安装成功"
 
 echo ""
+echo -e "${G}✓${R} Verilator 准备完成"
+fi  # end SKIP_VLT_BUILD
+
+# ============================================================================
+# slang（编译检查工具）
+# ============================================================================
+# 为什么需要：ci.sh 的 G1 用 slang 做 19 项编译检查。
+# 没有 slang 时 G1 会判 FAIL（不再静默 SKIP）。
+# slang 是单一静态二进制，安装比 Verilator 简单。
+# ============================================================================
+echo ""
+echo -e "${B}环境检查：slang（SV 编译检查）${R}"
+
+SLANG_BIN=$(command -v slang 2>/dev/null || true)
+if [ -n "$SLANG_BIN" ]; then
+    SV=$( "$SLANG_BIN" --version 2>&1 | head -1 || true )
+    echo -e "  ${G}✓${R} 已安装: $SLANG_BIN（$SV）"
+else
+    echo -e "  ${Y}✗${R} 未找到 slang"
+    if [ "$CHECK_ONLY" -eq 1 ]; then
+        echo -e "  ${D}运行 bash setup_env.sh 自动安装${R}"
+        exit 1
+    fi
+
+    SLANG_VER="${SLANG_VERSION:-v10.0}"
+    SLANG_URL="https://github.com/MikePopoloski/slang/releases/download/${SLANG_VER}/slang-${SLANG_VER#v}-linux-x86_64.tar.gz"
+    echo -e "  ${D}尝试从 GitHub 下载 ${SLANG_VER}...${R}"
+
+    TMPD=$(mktemp -d)
+    if command -v curl >/dev/null 2>&1; then
+        DL="curl -fsSL"
+    elif command -v wget >/dev/null 2>&1; then
+        DL="wget -qO-"
+    else
+        DL=""
+    fi
+
+    INSTALLED=0
+    if [ -n "$DL" ]; then
+        if $DL "$SLANG_URL" -o "$TMPD/slang.tar.gz" 2>/dev/null \
+           || $DL "$SLANG_URL" > "$TMPD/slang.tar.gz" 2>/dev/null; then
+            if tar -xzf "$TMPD/slang.tar.gz" -C "$TMPD" 2>/dev/null; then
+                SLANG_FOUND=$(find "$TMPD" -name slang -type f -perm -u+x 2>/dev/null | head -1)
+                if [ -n "$SLANG_FOUND" ]; then
+                    mkdir -p "$HOME/.local/bin"
+                    cp "$SLANG_FOUND" "$HOME/.local/bin/slang"
+                    chmod +x "$HOME/.local/bin/slang"
+                    echo -e "  ${G}✓${R} 已安装到 $HOME/.local/bin/slang"
+                    echo -e "  ${D}  请确保 $HOME/.local/bin 在 PATH 中${R}"
+                    INSTALLED=1
+                fi
+            fi
+        fi
+    fi
+    rm -rf "$TMPD"
+
+    if [ "$INSTALLED" -eq 0 ]; then
+        echo -e "  ${Y}✗ 自动安装失败（可能无网络或版本号不对）${R}"
+        echo "  手动安装方式（任选其一）："
+        echo "    a) 下载预编译包："
+        echo "       https://github.com/MikePopoloski/slang/releases"
+        echo "       解压后把 slang 放到 PATH（如 ~/.local/bin/）"
+        echo "    b) 从源码构建（需 cmake + C++20 编译器）："
+        echo "       git clone https://github.com/MikePopoloski/slang.git"
+        echo "       cd slang && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"
+        exit 1
+    fi
+fi
+
+echo ""
 echo -e "${G}${B}环境准备完成${R}"
 echo ""
-echo "  后续使用（任选其一）："
-echo -e "    ${B}export VERILATOR_ROOT=$SRC_DIR${R}   # 推荐，sim.sh 会自动识别"
-echo -e "    ${B}export VERILATOR=$SRC_DIR/bin/verilator_bin${R}"
-echo ""
 echo "  验证："
-echo -e "    ${D}bash sim.sh counter${R}"
+echo -e "    ${D}bash ci.sh --stage 1     # 编译检查${R}"
+echo -e "    ${D}bash sim.sh counter      # 简单仿真${R}"
