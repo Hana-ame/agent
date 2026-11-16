@@ -189,8 +189,15 @@ module tb_param_sv #(
             end
             rd_chk(AW'(NREG*4), '0, "P02-oob", 1'b0);
             $display("  ✓ 越界地址返回 SLVERR");
+        end else if ((NREG * 4) == (1 << AW)) begin
+            $display("  （NREG 恰好占满地址空间，无越界地址可测，跳过）");
         end else begin
-            $display("  （NREG 占满地址空间，无越界地址可测，跳过）");
+            // NREG*4 > 2^AW：地址空间连寄存器都装不下 → 配置非法。
+            // 这种组合下「寄存器 0 仍可访问」会让人误以为配置正常，
+            // 实际是地址回绕到了同一个寄存器，必须显式报错。
+            $display("  [P02] FAIL: 配置非法 —— NREG*4=%0d 字节 > 地址空间 %0d 字节（AW=%0d）",
+                     NREG*4, (1 << AW), AW);
+            errors++;
         end
     endtask
 

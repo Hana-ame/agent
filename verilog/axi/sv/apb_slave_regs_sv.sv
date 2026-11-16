@@ -25,6 +25,11 @@ module apb_slave_regs_sv #(
     // ---- 地址译码 ----
     logic [AW-1:0] idx;
     logic          in_range;
+    // 地址译码：按字寻址（PADDR>>2），越界返回 SLVERR。
+    // ⚠ 参数约束：地址空间必须装得下所有寄存器，即 2^AW >= NREG*4。
+    //   若 2^AW < NREG*4（如 AW=1 时只有 2 字节，连一个 32 位寄存器都放不下），
+    //   高位地址会被截断并回绕到同一个寄存器 —— 看似能读写，实则配置非法。
+    //   tb_param_sv 的 P-02 会显式检出这种非法组合。
     assign idx = apb.PADDR >> 2;
     assign in_range = (idx < NREG);
 
