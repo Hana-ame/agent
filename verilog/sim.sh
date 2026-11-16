@@ -223,6 +223,7 @@ case "${1:-all}" in
     asserteff)
         # 断言有效性：逐条注入违规，确认断言会失败（而非真空通过）
         ( cd axi
+          set +e          # 本任务是逐条检查并汇总，不因单条失败而中断
           AE_FAIL=0
           echo "== asserteff: 断言有效性验证 =="
           for c in 1 2 3 4; do
@@ -238,10 +239,22 @@ case "${1:-all}" in
                   AE_FAIL=$((AE_FAIL+1)); continue
               fi
               out=$( cd "$d" && ./tb 2>&1 || true )
-              if echo "$out" | grep -q "Assertion failed"; then
-                  printf "  CASE=%-2s 断言正确报错 PASS\n" "$c"
+              # 精确校验：必须是「预期的那条断言」触发，不能只看有没有报错。
+              # 否则错误触发别的断言也会被判为 PASS。
+              case $c in
+                  1) AE_EXPECT="ap_penable_requires_psel" ;;
+                  2) AE_EXPECT="ap_no_ready_in_setup" ;;
+                  3) AE_EXPECT="ap_access_stable_until_ready" ;;
+                  4) AE_EXPECT="ap_xfer_done_exits" ;;
+              esac
+              if echo "$out" | grep -qE "Assertion failed.*[.]${AE_EXPECT}:"; then
+                  printf "  CASE=%-2s 断言 %-28s 正确触发 PASS\n" "$c" "$AE_EXPECT"
+              elif echo "$out" | grep -q "Assertion failed"; then
+                  got=$(echo "$out" | grep -oE "ap_[a-z_]+" | head -1)
+                  printf "  CASE=%-2s 触发的是 %s，不是 %s FAIL\n" "$c" "$got" "$AE_EXPECT"
+                  AE_FAIL=$((AE_FAIL+1))
               else
-                  printf "  CASE=%-2s 断言未报错 FAIL\n" "$c"
+                  printf "  CASE=%-2s 断言 %-28s 未报错 FAIL\n" "$c" "$AE_EXPECT"
                   AE_FAIL=$((AE_FAIL+1))
               fi
           done
@@ -279,10 +292,21 @@ case "${1:-all}" in
                   AE_FAIL=$((AE_FAIL+1)); continue
               fi
               out=$( cd "$d" && ./tb 2>&1 || true )
-              if echo "$out" | grep -q "Assertion failed"; then
-                  printf "  AXICASE=%-2s 断言正确报错 PASS\n" "$c"
+              case $c in
+                  1) AE_EXPECT="ap_aw_valid_stable" ;;
+                  2) AE_EXPECT="ap_w_valid_stable" ;;
+                  3) AE_EXPECT="ap_ar_valid_stable" ;;
+                  4) AE_EXPECT="ap_b_valid_stable" ;;
+                  5) AE_EXPECT="ap_r_valid_stable" ;;
+              esac
+              if echo "$out" | grep -qE "Assertion failed.*[.]${AE_EXPECT}:"; then
+                  printf "  AXICASE=%-2s 断言 %-28s 正确触发 PASS\n" "$c" "$AE_EXPECT"
+              elif echo "$out" | grep -q "Assertion failed"; then
+                  got=$(echo "$out" | grep -oE "ap_[a-z_]+" | head -1)
+                  printf "  AXICASE=%-2s 触发的是 %s，不是 %s FAIL\n" "$c" "$got" "$AE_EXPECT"
+                  AE_FAIL=$((AE_FAIL+1))
               else
-                  printf "  AXICASE=%-2s 断言未报错 FAIL\n" "$c"
+                  printf "  AXICASE=%-2s 断言 %-28s 未报错 FAIL\n" "$c" "$AE_EXPECT"
                   AE_FAIL=$((AE_FAIL+1))
               fi
           done
