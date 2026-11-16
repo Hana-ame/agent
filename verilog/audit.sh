@@ -258,6 +258,19 @@ VEOF
 
     local vlt="${VERILATOR:-/tmp/verilator/bin/verilator_bin}"
     export VERILATOR_ROOT=${VERILATOR_ROOT:-/tmp/verilator}
+    # 版本检查：低版本（如 apt 5.020）会静默挂死，导致 A7 误判为 FAIL
+    local vstr vver vok
+    vstr=$("$vlt" --version 2>&1 | head -1 || true)
+    vver=$(echo "$vstr" | awk '{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+\.[0-9]+$/) {print $i; exit}}')
+    vok=$(awk -v v="${vver:-0.0}" 'BEGIN{split(v,a,".");
+          if (a[1] > 5) print 1;
+          else if (a[1] == 5 && a[2] >= 40) print 1;
+          else print 0}')
+    if [ "${vok:-0}" -ne 1 ]; then
+        echo -e "  ${YEL}- SKIP${R} Verilator 版本 ${vver:-未知} < 5.040（A7 需要 5.040+）"
+        record "A7 挂死输出保留" SKIP "verilator=$vver"
+        return 0
+    fi
     if ! "$vlt" --binary --timing --top-module t_hang \
          --Mdir "$work/obj" -Wno-fatal "$work/t_hang.sv" \
          -o "$work/tb" >/dev/null 2>&1; then

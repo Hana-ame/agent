@@ -2,6 +2,13 @@
 
 **统一工具链：Verilator（仿真 + 覆盖率）+ slang（编译检查）**。不再依赖 iverilog。
 
+> **⚠ 环境要求（重要）**
+> - **Verilator ≥ 5.040**：apt 的 5.020 有跨文件虚接口缺陷，会让仿真**静默挂死**
+>   （无输出、无报错、进程不动）——比直接报错更难排查。
+>   `sim.sh` 会检查版本并在过低时**明确拒绝运行**。
+> - 自编译方式：`git clone https://github.com/verilator/verilator && autoconf && ./configure --prefix=/tmp/verilator && make -j && make install`
+> - 或设置 `VERILATOR=/path/to/verilator_bin` / `VERILATOR_ROOT=/path/to/install`
+
 当前规模：**25 个测试套件 · 约 1400 项检查 · RTL 有效覆盖率 100% · 变异得分 100%（29/29）**
 
 ## 目录

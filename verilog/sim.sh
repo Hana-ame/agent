@@ -39,7 +39,31 @@ else
     exit 1
 fi
 echo "== verilator: $VLT =="
-"$VLT" --version 2>/dev/null | head -1
+# 取版本号（注意：命令替换里任一段失败都会因 pipefail 让整个赋值变空，
+# 因此末尾加 || true，并把版本串先存下来再解析）
+VLT_VERSION_STR=$("$VLT" --version 2>&1 | head -1 || true)
+VLT_VER=$(echo "$VLT_VERSION_STR" | awk '{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+\.[0-9]+$/) {print $i; exit}}')
+echo "   Verilator ${VLT_VER:-未知}  ${VLT_VERSION_STR}"
+
+# 版本门槛：apt 的 5.020 有跨文件虚接口缺陷，会让仿真静默挂死
+# （表现为「无输出、无报错、一直不动」），比直接报错更难排查。
+# 用 awk 做版本比较，避免依赖 sort -V。
+if [ -n "$VLT_VER" ]; then
+    VLT_OK=$(awk -v v="$VLT_VER" 'BEGIN{split(v,a,".");
+        if (a[1] > 5) print 1;
+        else if (a[1] == 5 && a[2] >= 40) print 1;
+        else print 0}')
+    if [ "$VLT_OK" -ne 1 ]; then
+        echo "" >&2
+        echo "ERROR: Verilator $VLT_VER 版本过低（需要 >= 5.040）。" >&2
+        echo "  已知问题：5.020 有跨文件虚接口缺陷，仿真会静默挂死。" >&2
+        echo "  解决方式（任选其一）：" >&2
+        echo "    a) 自编译 5.055+ 到 \$VERILATOR_ROOT（推荐，参考 README）" >&2
+        echo "    b) 设置 VERILATOR=/path/to/verilator_bin" >&2
+        echo "    c) 设置 VERILATOR_ROOT=/path/to/verilator-install" >&2
+        exit 1
+    fi
+fi
 
 # verilator_coverage 通常在 verilator 同目录
 VLT_DIR="$(dirname "$VLT")"
