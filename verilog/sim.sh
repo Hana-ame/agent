@@ -413,10 +413,34 @@ case "${1:-all}" in
             sv/apb_slave_regs_sv.sv sv/tb_dw64_sv.sv )
         ;;
     fairness)
-        ( cd axi && build_run fairness tb_fairness_sv "-I./sv -I." \
-            axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
-            sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
-            sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_fairness_sv.sv )
+        ( cd axi
+          build_run fairness tb_fairness_sv "-I./sv -I." \
+              axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+              sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+              sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_fairness_sv.sv
+
+          # 串行桥基线：并发桥的吞吐提升需要实测对比，不能写死数字。
+          # 用串行桥跑同样的事务，取「单事务延迟 × 2」作为一对读写的串行耗时。
+          echo ""
+          echo "== 串行桥基线（实测，用于对比并发吞吐）=="
+          _sd="run/fair_serial"; rm -rf "$_sd"; mkdir -p "$_sd"
+          if "$VLT" --binary --assert --timing --top-module tb_latency_sv \
+               --Mdir "$_sd/obj" $NOWARN -I./sv -I. -GWAITC=2 -DTXN_DW=32 \
+               axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+               sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+               sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_latency_sv.sv \
+               -o "$(pwd)/$_sd/tb" >/dev/null 2>&1; then
+              _sout=$( cd "$_sd" && ./tb 2>&1 || true )
+              _one=$(echo "$_sout" | grep -oE "基线: 写 [0-9]+ 周期" | grep -oE "[0-9]+" | head -1)
+              if [ -n "$_one" ]; then
+                  echo "  串行桥单事务 ${_one} 周期，一对读写 $((_one*2)) 周期"
+              else
+                  echo "  （未能解析串行基线）"
+              fi
+          else
+              echo "  （串行基线构建失败）"
+          fi
+        )
         ;;
     latency)
         # 延迟公式 7+WAIT_CYCLES 必须在多个 WAIT 值下都成立，

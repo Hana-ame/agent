@@ -217,8 +217,11 @@ module tb_fairness_sv #(
 
     task automatic t_throughput();
         int t0;
+        realtime t_start, t_end;
+        real cyc_per_pair;
         $display("== FAIR-2: 并发吞吐（%0d 对读写）==", ITERS);
         do_reset();
+        t_start = $realtime;
         begin : tp
             int cyc = 0;
             // 用局部计数：每拍递增
@@ -261,11 +264,25 @@ module tb_fairness_sv #(
             errors++;
         end
 
-        // 吞吐参考值：每对读写消耗周期（供与串行桥对比）
-        tp_cycles = ITERS;
-        $display("  吞吐参考: %0d 对读写，并发桥每对约 %0.2f 周期",
-                 ITERS, 16.0);
-        $display("  （串行桥基线约 18.0 周期/对，并发桥理论提升 ~11%%）");
+        // 吞吐：用仿真时间精确计算每对读写的平均周期数。
+        // 此前这里硬编码 16.0，而 tp_cycles 只被赋值为 ITERS 从未使用 ——
+        // 等于「打印了一个从未测量的数字」。
+        t_end = $realtime;
+        cyc_per_pair = (t_end - t_start) / (10.0 * ITERS);  // 10ns = 1 周期
+        tp_cycles = int'(cyc_per_pair * 100.0);             // 存百分之一，避免浮点
+
+        checks++;
+        if (cyc_per_pair > 0.0 && cyc_per_pair < 100.0) begin
+            $display("  ✓ 实测吞吐: %0d 对读写，每对 %0.2f 周期",
+                     ITERS, cyc_per_pair);
+            // 注：不再比较「串行桥基线 18 周期」——那是个从未实测的硬编码值。
+            // 串行桥的真实吞吐由 tb_latency_sv 的「延迟 = 7+WAIT」间接体现：
+            // 每对读写串行执行需 2*(7+WAIT)，WAIT=2 时为 18 周期。
+            // 如需正式对比，应另建串行桥吞吐测试，而不是写死一个数字。
+        end else begin
+            $display("  ✗ 吞吐测量异常: %0.2f 周期/对", cyc_per_pair);
+            errors++;
+        end
     endtask
 
     // ==================================================================
