@@ -90,20 +90,26 @@ module tb_axi_apb_sv;
         return t;
     endfunction
 
+    // ★ 随机种子：必须可复现。
+    //   原来直接写 $urandom（无参）——每次运行种子不同，
+    //   实测同一份代码两次运行的输出 md5 不一致，
+    //   一旦失败无法复现。改为可配置 seed（-GSEED=），默认固定。
+    parameter int SEED = 1;
+
     int vec_cnt = 0;
     initial begin
         // ①a 回环基本集：写满 → 读回（每笔写后 pause 1 拍）
         for (int i = 0; i < NREG; i++)
-            stim_vecs.push_back(txn(1'b1, i[AW-1:0]*4, $urandom, 8'd1, 1'b0, 1'b0));
+            stim_vecs.push_back(txn(1'b1, i[AW-1:0]*4, $urandom(SEED + i), 8'd1, 1'b0, 1'b0));
         for (int i = 0; i < NREG; i++)
             stim_vecs.push_back(txn(1'b0, i[AW-1:0]*4, '0, 8'd0, 1'b0, 1'b0));
         // ①b 随机向量：写/读混合，随机 pause(0~3) 与 same
         for (int k = 0; k < NTXN; k++) begin
-            automatic bit wr   = $urandom & 1;
-            automatic bit same = wr ? ($urandom & 1) : 1'b0;
-            automatic bit [7:0] pz = $urandom % 4;
-            automatic bit [AW-1:0] a = $urandom % (NREG*4);
-            stim_vecs.push_back(txn(wr, a, $urandom, pz, same, 1'b0));
+            automatic bit wr   = $urandom(SEED + k*5 + 0) & 1;
+            automatic bit same = wr ? ($urandom(SEED + k*5 + 1) & 1) : 1'b0;
+            automatic bit [7:0] pz = $urandom(SEED + k*5 + 2) % 4;
+            automatic bit [AW-1:0] a = $urandom(SEED + k*5 + 3) % (NREG*4);
+            stim_vecs.push_back(txn(wr, a, $urandom(SEED + k*5 + 4), pz, same, 1'b0));
         end
         // ①c 边界向量：越界读写（exp_err=1，期望 SLVERR）
         stim_vecs.push_back(txn(1'b1, NREG*4, 32'hDEAD_BEEF, 8'd2, 1'b0, 1'b1));
