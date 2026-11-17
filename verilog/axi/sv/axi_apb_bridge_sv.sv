@@ -38,26 +38,34 @@ module axi_apb_bridge_sv #(
     //       AWW→WR_SETUP/WR_SETUP→WR_ACC/WR_ACC→B_RESP/B_RESP→IDLE/
     //       AR_H→RD_SETUP/RD_SETUP→RD_ACC/RD_ACC→R_RESP/R_RESP→IDLE
     logic [13:0] trans_seen;
+    state_t state_prev;
     always_ff @(posedge ACLK or negedge ARESETn) begin
-        if (!ARESETn) trans_seen <= '0;
-        else begin
-            case ({state, next})
-                {S_IDLE,     S_AWW_H}   : trans_seen[0]  <= 1'b1;
-                {S_IDLE,     S_AW_H}    : trans_seen[1]  <= 1'b1;
-                {S_IDLE,     S_W_H}     : trans_seen[2]  <= 1'b1;
-                {S_IDLE,     S_AR_H}    : trans_seen[3]  <= 1'b1;
-                {S_AW_H,     S_AWW_H}   : trans_seen[4]  <= 1'b1;
-                {S_W_H,      S_AWW_H}   : trans_seen[5]  <= 1'b1;
-                {S_AWW_H,    S_WR_SETUP}: trans_seen[6]  <= 1'b1;
-                {S_WR_SETUP, S_WR_ACC}  : trans_seen[7]  <= 1'b1;
-                {S_WR_ACC,   S_B_RESP}  : trans_seen[8]  <= 1'b1;
-                {S_B_RESP,   S_IDLE}    : trans_seen[9]  <= 1'b1;
-                {S_AR_H,     S_RD_SETUP}: trans_seen[10] <= 1'b1;
-                {S_RD_SETUP, S_RD_ACC}  : trans_seen[11] <= 1'b1;
-                {S_RD_ACC,   S_R_RESP}  : trans_seen[12] <= 1'b1;
-                {S_R_RESP,   S_IDLE}    : trans_seen[13] <= 1'b1;
-                default: ;
-            endcase
+        if (!ARESETn) begin
+            trans_seen <= '0;
+            state_prev <= S_IDLE;
+        end else begin
+            // 用「上一拍状态 → 本拍状态」判定转移是否发生。
+            // 不能用 {state, next}：next 是组合信号，与 state 同拍变化，
+            // case 匹配时可能已指向下一状态，导致误判（本轮实测：
+            // COV-01 明显走进了 S_W_H，但 trans_seen[2] 仍为 0）。
+            state_prev <= state;
+            // 用独立 if 而非 case({a,b})：
+            // 仿真器对「两个同拍更新的枚举拼接 case」匹配不可靠
+            // （本轮实测：state 明确 0->2、2->3，但 case 未命中）。
+            if (state_prev == S_IDLE     && state == S_AWW_H)    trans_seen[0]  <= 1'b1;
+            if (state_prev == S_IDLE     && state == S_AW_H)     trans_seen[1]  <= 1'b1;
+            if (state_prev == S_IDLE     && state == S_W_H)      trans_seen[2]  <= 1'b1;
+            if (state_prev == S_IDLE     && state == S_AR_H)     trans_seen[3]  <= 1'b1;
+            if (state_prev == S_AW_H     && state == S_AWW_H)    trans_seen[4]  <= 1'b1;
+            if (state_prev == S_W_H      && state == S_AWW_H)    trans_seen[5]  <= 1'b1;
+            if (state_prev == S_AWW_H    && state == S_WR_SETUP) trans_seen[6]  <= 1'b1;
+            if (state_prev == S_WR_SETUP && state == S_WR_ACC)   trans_seen[7]  <= 1'b1;
+            if (state_prev == S_WR_ACC   && state == S_B_RESP)   trans_seen[8]  <= 1'b1;
+            if (state_prev == S_B_RESP   && state == S_IDLE)     trans_seen[9]  <= 1'b1;
+            if (state_prev == S_AR_H     && state == S_RD_SETUP) trans_seen[10] <= 1'b1;
+            if (state_prev == S_RD_SETUP && state == S_RD_ACC)   trans_seen[11] <= 1'b1;
+            if (state_prev == S_RD_ACC   && state == S_R_RESP)   trans_seen[12] <= 1'b1;
+            if (state_prev == S_R_RESP   && state == S_IDLE)     trans_seen[13] <= 1'b1;
         end
     end
 

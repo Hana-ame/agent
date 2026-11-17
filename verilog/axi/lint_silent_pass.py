@@ -40,7 +40,24 @@ RULES = {
     "S8": "DW 可参数化但向量用 32 位常量，且未声明位宽覆盖范围",
     "S9": "并行实现（A/B 两套等价模块）的参数/检查项不一致",
     "S10": "$urandom 无参调用（随机不可复现，失败无法重跑）",
+    "S11": "注释里写了 /*verilator ...*/ —— 会被当成 pragma 导致编译失败",
 }
+
+
+def scan_s11(path: Path):
+    """检测注释中出现 /*verilator ...*/ 形式的文本。
+
+    Verilator 把 `/*verilator ...*/` 当作 pragma 指令解析，
+    即使它出现在普通注释句子里也会报
+    "Unknown verilator comment"。本项目已踩过 2 次。
+    """
+    if path.suffix != ".sv":
+        return []
+    out = []
+    for i, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        if "/*verilator" in line:
+            out.append((i, "注释含 /*verilator ...*/（会被解析为 pragma）"))
+    return out
 
 
 def scan_s10(path: Path):
@@ -361,6 +378,7 @@ def main():
         issues += [(ln, "S8", d) for ln, d in scan_s8(f)]
         issues += [(ln, "S9", d) for ln, d in scan_s9(f)]
         issues += [(ln, "S10", d) for ln, d in scan_s10(f)]
+        issues += [(ln, "S11", d) for ln, d in scan_s11(f)]
 
         if not issues:
             continue

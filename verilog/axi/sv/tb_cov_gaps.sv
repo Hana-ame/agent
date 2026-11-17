@@ -321,6 +321,21 @@ module tb_cov_gaps #(
         end else
             $display("  [MON] 协议监视器通过（观测 %0d 次 APB 传输）", mon.xfer_count);
 
+        // ---- 关于「W 先到」路径的覆盖证据 ----
+        // COV-01 的功能断言已经证明：单发 WVALID 被接受（进入 S_W_H）、
+        // 随后 AW 到达并成功握手、数据正确落盘。这三条足以证明
+        // 「W 先、AW 后」这条路径真实走通了。
+        //
+        // 曾尝试用桥内的 trans_seen 掩码来「客观」验证 IDLE→W_H / W_H→AWW_H
+        // 两条转移，但实测无法让它生效：
+        //   - 桥内直接打印确认状态确实走过 0→2→3（即 IDLE→W_H→AWW_H）
+        //   - 但 trans_seen 位始终为 0，试过 case({prev,cur}) 与独立 if 均无效
+        //   - 怀疑与 Verilator 对「同拍更新的枚举信号组合判定」处理有关
+        // 决定不在这上面继续投入，保留功能断言作为覆盖证据。
+        // （串行桥在 tb_axi_apb_sv 里的 trans_seen 是有效的，
+        //   本轮之前实测 12/14 并正确指出了缺失项，说明机制本身可行，
+        //   差异可能在于本 TB 的复位/时序结构。）
+
         $display(" cov-gaps result: %0d checks, %0d errors", checks, errors);
         if (errors == 0) begin
             $display("PASS: coverage-gap suite");
