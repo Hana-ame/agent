@@ -99,6 +99,11 @@ def is_checker_only(src: str) -> bool:
     s = src.strip()
     if ("violation(" in s or "errors++" in s or "[%s] VIOLATION" in s):
         return True
+    # 检查器的「失败标记」赋值：只有在被测行为异常时才执行。
+    # 例：axi_txn_host 的 r.same_ok = 1'b0（same 不同拍时才置 0）。
+    # 这类行正常测试永远不进，不是覆盖缺口。
+    if re.search(r"\b\w+\.\w*(ok|err|fail|viol|status)\w*\s*=\s*1'b[01]", s, re.I):
+        return True
     if VERBOSE_LOG_RE.search(s):
         return True
     if VERBOSE_CONT_RE.match(src):

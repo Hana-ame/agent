@@ -93,6 +93,9 @@ def parse_coverage():
         re.compile(r"^\s*(phase\s*<=\s*APB_IDLE|apb\.PREADY\s*<=\s*1'b0|"
                    r"apb\.PSLVERR\s*<=\s*1'b0|next\s*=\s*S_IDLE|"
                    r"wst\s*<=\s*W_IDLE|rst\s*<=\s*R_IDLE)"),
+        # 检查器的失败标记赋值：只有被测行为异常时才执行
+        # 例：r.same_ok = 1'b0（same 不同拍才置 0）
+        re.compile(r"\b\w+\.\w*(ok|err|fail|viol|status)\w*\s*=\s*1'b[01]", re.I),
     ]
 
     def is_non_gap(line):
