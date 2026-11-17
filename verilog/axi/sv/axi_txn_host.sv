@@ -37,6 +37,15 @@ module axi_txn_host #(
         r = '0;
         r.data = t.data;
 
+        // ★ 复位保护：若在复位期间被调用，先等复位释放。
+        //   此前 ARESETn 端口声明了却**从未使用**（Verilator -Wall 报
+        //   UNUSEDSIGNAL），意味着复位期间仍可能驱动 VALID，
+        //   违反 AXI 规范「复位时 VALID 必须为低」，也会让
+        //   「事务中途复位」这类测试的时序变得不确定。
+        if (!ARESETn) begin
+            do @(posedge ACLK); while (!ARESETn);
+        end
+
         if (t.write) begin
             // ---------------- 写事务 ----------------
             if (t.same) begin

@@ -41,7 +41,35 @@ RULES = {
     "S9": "并行实现（A/B 两套等价模块）的参数/检查项不一致",
     "S10": "$urandom 无参调用（随机不可复现，失败无法重跑）",
     "S11": "注释里写了 /*verilator ...*/ —— 会被当成 pragma 导致编译失败",
+    "S12": "模块端口声明了但从未使用（如 ARESETn 未参与复位保护）",
 }
+
+
+def scan_s12(path: Path):
+    """检测「端口声明了但函数体从未使用」的模块级信号。
+
+    实例：axi_txn_host 的 ARESETn 声明了却从未使用，
+    导致复位期间主机仍可能驱动 VALID（违反 AXI 复位要求）。
+    这里只针对复位/使能类关键端口做保守检查，避免误报。
+    """
+    if path.suffix != ".sv" or not path.name.startswith("axi_"):
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"^module\s+\w+\s*#?\(?.*?\)\s*;", txt, re.S | re.M)
+    if not m:
+        return []
+    header = m.group(0)
+    body = txt[m.end():]
+    out = []
+    # 关键端口：复位、时钟（时钟通常只用于 always 敏感列表，也会出现在 body 中）
+    for port in ("ARESETn", "PRESETn", "ARESET", "PRESET"):
+        if not re.search(rf"\b{port}\b", header):
+            continue
+        # body 中是否出现（排除注释）
+        code = "\n".join(l.split("//")[0] for l in body.splitlines())
+        if not re.search(rf"\b{port}\b", code):
+            out.append((0, f"端口 {port} 在模块体内从未使用（复位保护缺失？）"))
+    return out
 
 
 def scan_s11(path: Path):
@@ -354,6 +382,8 @@ def main():
     # RTL 模块：S9（并行实现一致性）只在这些文件上检测
     targets += sorted((HERE / "sv").glob("apb_slave_*.sv"))
     targets += sorted((HERE / "sv").glob("axi_apb_bridge*.sv"))
+    targets += sorted((HERE / "sv").glob("axi_*.sv"))
+    targets += sorted((HERE / "sv").glob("apb_*.sv"))
     targets += sorted((HERE / "sv").glob("*_pkg.sv"))
     targets = [t for t in targets if t.name != "lint_silent_pass.py"]
 
@@ -379,6 +409,7 @@ def main():
         issues += [(ln, "S9", d) for ln, d in scan_s9(f)]
         issues += [(ln, "S10", d) for ln, d in scan_s10(f)]
         issues += [(ln, "S11", d) for ln, d in scan_s11(f)]
+        issues += [(ln, "S12", d) for ln, d in scan_s12(f)]
 
         if not issues:
             continue
