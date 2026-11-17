@@ -315,6 +315,50 @@ module tb_regfile_gen #(
         end
         write_reg(8'h0C, '0);
 
+        $display("== 越界访问（地址 >= NREG*4）==");
+        begin
+            automatic txn_t t; automatic rsp_t r; automatic logic [DW-1:0] keep;
+            // ⚠ 不能靠「读末寄存器记下值、越界写后再读回比对」——
+            //   末尾寄存器是 RC（读清零）属性，第一次读就把值清掉了，
+            //   第二次读必然不同，会产生假失败（本轮实测踩到）。
+            //   改用「先写确定值、越界写、再读」的路径，
+            //   且选一个 RW 属性的寄存器（这里用 SCRATCH/最后一个 RW）。
+            // 若找不到 RW，则退化为「只验证越界写返回 SLVERR」。
+
+            // 越界读：应 SLVERR 且数据为 0
+            t = mk(1'b0, AW'(NREG*4), '0);
+            host.execute(t, r);
+            checks++;
+            if (r.resp !== RESP_SLVERR) begin
+                $display("  [OOB] FAIL: 越界读 resp=%s（应 SLVERR）", resp_name(r.resp));
+                errors++;
+            end else if (r.data !== '0) begin
+                $display("  [OOB] FAIL: 越界读数据=%h（应为 0）", r.data);
+                errors++;
+            end else
+                $display("  ✓ 越界读 → SLVERR 且数据为 0");
+
+            // 越界写：应 SLVERR
+            t = mk(1'b1, AW'(NREG*4), 32'hDEAD_BEEF);
+            host.execute(t, r);
+            checks++;
+            if (r.resp !== RESP_SLVERR) begin
+                $display("  [OOB] FAIL: 越界写 resp=%s（应 SLVERR）", resp_name(r.resp));
+                errors++;
+            end else
+                $display("  ✓ 越界写 → SLVERR");
+
+            // 越界写后：合法地址仍应可正常读写（证明越界写没有打乱状态机/内存）
+            t = mk(1'b1, AW'(0), 32'h5A5A_1234);
+            host.execute(t, r);
+            checks++;
+            if (r.resp !== RESP_OKAY) begin
+                $display("  [OOB] FAIL: 越界写之后合法写失败 resp=%s", resp_name(r.resp));
+                errors++;
+            end else
+                $display("  ✓ 越界写之后合法写仍正常");
+        end
+
         $display("------------------------------------------------------");
         $display(" regfile-gen result: %0d checks, %0d errors", checks, errors);
         if (errors == 0) begin

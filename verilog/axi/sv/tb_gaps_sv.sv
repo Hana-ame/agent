@@ -110,6 +110,13 @@ module tb_gaps_sv #(
                      tag, resp_name(r.resp), t.addr);
             errors++;
         end
+        // 越界**读**还应满足「数据为 0」：从机在 in_range=0 时驱动 PRDATA='0。
+        // 此前只比对 resp，从未验证这个数据行为。
+        if (!t.write && r.data !== '0) begin
+            $display("  [%0s] FAIL: 越界读数据应为 0，实际 %h (addr=%0h)",
+                     tag, r.data, t.addr);
+            errors++;
+        end
     endtask
 
     task automatic do_reset();
