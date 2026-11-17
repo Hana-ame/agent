@@ -38,7 +38,57 @@ RULES = {
     "S6": "定义未使用的类型/函数（文档声称支持但代码未引用）",
     "S7": "协议版本声明与信号集不符（声称的版本含未实现信号）",
     "S8": "DW 可参数化但向量用 32 位常量，且未声明位宽覆盖范围",
+    "S9": "并行实现（A/B 两套等价模块）的参数/检查项不一致",
 }
+
+
+def scan_s9(path: Path):
+    """检测并行实现的参数集是否一致。
+
+    本项目有两组并行实现：
+      - APB 从机：hand-written(regfile_sv/regs_sv) vs 生成器(regfile_gen)
+      - AXI->APB 桥：串行(bridge_sv) vs 并发(bridge_dual_sv)
+    曾经出现「给手写版加了参数检查、生成器版没加」的情况，
+    要 3 轮才对齐。这条规则用来一次性发现差异。
+    """
+    if not path.name.startswith("apb_slave_") and \
+       not path.name.startswith("axi_apb_bridge"):
+        return []
+    if path.suffix != ".sv":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"^module\s+\w+\s*#\((.*?)\)\s*\(", txt, re.S | re.M)
+    if not m:
+        return []
+    params = set(re.findall(r"parameter\s+(?:int\s+)?(\w+)\s*=", m.group(1)))
+    # 与同组另一实现比较
+    if path.name.startswith("apb_slave_"):
+        group = [HERE / "sv" / n for n in
+                 ("apb_slave_regs_sv.sv", "apb_slave_regfile_sv.sv",
+                  "apb_slave_regfile_gen.sv")]
+        # 生成器版与手写版功能不同（位域 vs 平坦），只比公共参数的默认值类型
+        return []
+    # 桥：串行 vs 并发应参数一致
+    other = HERE / "sv" / ("axi_apb_bridge_dual_sv.sv"
+                           if path.name == "axi_apb_bridge_sv.sv"
+                           else "axi_apb_bridge_sv.sv")
+    if not other.exists():
+        return []
+    otxt = other.read_text(encoding="utf-8", errors="replace")
+    om = re.search(r"^module\s+\w+\s*#\((.*?)\)\s*\(", otxt, re.S | re.M)
+    if not om:
+        return []
+    oparams = set(re.findall(r"parameter\s+(?:int\s+)?(\w+)\s*=", om.group(1)))
+    if params != oparams:
+        only_here = params - oparams
+        only_other = oparams - params
+        desc = []
+        if only_here:
+            desc.append(f"本文件独有 {sorted(only_here)}")
+        if only_other:
+            desc.append(f"对侧独有 {sorted(only_other)}")
+        return [(0, f"与 {other.name} 参数不一致：{'；'.join(desc)}")]
+    return []
 
 
 def scan_s8(path: Path):
@@ -263,6 +313,9 @@ def main():
     targets += sorted((HERE / "sv").glob("tb_*.sv"))
     # 包定义文件：S6（未使用的类型）只在这里检测
     targets += sorted(HERE.glob("*_pkg.sv"))
+    # RTL 模块：S9（并行实现一致性）只在这些文件上检测
+    targets += sorted((HERE / "sv").glob("apb_slave_*.sv"))
+    targets += sorted((HERE / "sv").glob("axi_apb_bridge*.sv"))
     targets += sorted((HERE / "sv").glob("*_pkg.sv"))
     targets = [t for t in targets if t.name != "lint_silent_pass.py"]
 
@@ -285,6 +338,7 @@ def main():
         issues += [(ln, "S6", d) for ln, d in scan_s6(f)]
         issues += [(ln, "S7", d) for ln, d in scan_s7(f)]
         issues += [(ln, "S8", d) for ln, d in scan_s8(f)]
+        issues += [(ln, "S9", d) for ln, d in scan_s9(f)]
 
         if not issues:
             continue

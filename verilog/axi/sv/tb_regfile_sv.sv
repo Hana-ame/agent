@@ -235,6 +235,23 @@ module tb_regfile_sv #(
             errors++;
         end else
             $display("  ✓ 越界写之后合法写仍正常");
+
+        // 未定义索引（规格里没有的地址）不得成为「幽灵 RW 寄存器」：
+        // 写进去再读，应是 RSVD 行为（读 0），且不能把值存下来。
+        // 原 attr_of 的 default 返回 A_RW，使索引 3..NREG-1 都可读写，
+        // 产生一批规格外的「幽灵寄存器」。
+        if (NREG > 8) begin
+            t = mk(1'b1, AW'(8*4), 32'hFEED_F00D);
+            host.execute(t, r); checks++;
+            t = mk(1'b0, AW'(8*4), '0);
+            host.execute(t, r); checks++;
+            if (r.data !== '0) begin
+                $display("  [REF-06] FAIL: 未定义索引 8 保留了写入值=%h（幽灵寄存器）",
+                         r.data);
+                errors++;
+            end else
+                $display("  ✓ 未定义索引不保留数据（非幽灵 RW）");
+        end
     endtask
 
     initial begin

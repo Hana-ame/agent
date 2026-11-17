@@ -50,7 +50,12 @@ module apb_slave_regfile_sv #(
             0: return A_RO;
             1: return A_W1C;
             2: return A_RSVD;
-            default: return A_RW;
+            3, 4, 5: return A_RW;      // REF-04/REF-05 使用的 RW 寄存器
+            // 未定义索引显式声明为 RSVD（读恒 0、写忽略），
+            // 而不是落到 default 变成「幽灵 RW 寄存器」。
+            // 原实现 default 返回 A_RW，导致 NREG 之内的未定义索引
+            // 可被读写且返回 OKAY，看起来像正常寄存器。
+            default: return A_RSVD;
         endcase
     endfunction
 
