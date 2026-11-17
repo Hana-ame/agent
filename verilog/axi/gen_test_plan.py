@@ -121,23 +121,23 @@ TEST_PLAN = [
     # ============ C. 协议合法性 ============
     dict(id="P-01", dim="协议", name="AXI VALID 保持不撤",
          method="SVA ap_*_valid_stable（5 通道）",
-         auto="assert", covered=True,
+         auto="assert", expect_assert="ap_aw_valid_stable", covered=True,
          expect="VALID 拉高至握手完成前不撤销"),
     dict(id="P-02", dim="协议", name="AXI READY 不提前响应",
          method="SVA + 响应只在完成拍后给出",
-         auto="assert", covered=True,
+         auto="assert", expect_assert="ap_b_valid_stable", covered=True,
          expect="BVALID/RVALID 不出现在 APB 完成前"),
     dict(id="P-03", dim="协议", name="APB PENABLE 依赖 PSEL",
          method="SVA ap_penable_requires_psel",
-         auto="assert", covered=True,
+         auto="assert", expect_assert="ap_penable_requires_psel", covered=True,
          expect="PENABLE=1 时 PSEL 必为 1"),
     dict(id="P-04", dim="协议", name="APB SETUP 不回 PREADY",
          method="SVA ap_no_ready_in_setup",
-         auto="assert", covered=True,
+         auto="assert", expect_assert="ap_no_ready_in_setup", covered=True,
          expect="SETUP 阶段 PREADY=0"),
     dict(id="P-05", dim="协议", name="APB 完成后退出 ACCESS",
          method="SVA ap_xfer_done_exits",
-         auto="assert", covered=True,
+         auto="assert", expect_assert="ap_xfer_done_exits", covered=True,
          expect="完成拍下一拍 PENABLE=0"),
     dict(id="P-06", dim="协议", name="AW 与 AR 同时请求（仲裁）",
          method="构造 txn_t 序列使 AWVALID 与 ARVALID 同拍有效",
@@ -325,7 +325,14 @@ def evaluate(plan, tb, asserts, bridge, slave, gap_tasks=None):
         elif auto == "wait":
             covered = "WAIT_CYCLES" in slave["params"] and slave["has_wait"]
         elif auto == "assert":
-            covered = len(asserts) > 0
+            # 精确匹配「该项对应的那条断言」，而不是「项目里有没有断言」。
+            # 原来用 len(asserts) > 0 —— 只要有任意一条断言就算全部覆盖，
+            # 会让 P-01..P-05 的覆盖状态完全无法反映断言是否真的存在。
+            want = item.get("expect_assert")
+            if want:
+                covered = want in asserts
+            else:
+                covered = len(asserts) > 0
         else:
             covered = item["covered"]
         # gaps 套件已实现 → 视为已覆盖
