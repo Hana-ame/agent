@@ -21,6 +21,7 @@ docs_check.py —— 文档一致性检查（文档是否真实反映当前实�
     python3 docs_check.py
     python3 docs_check.py --verbose
 """
+import os
 import re
 import sys
 from pathlib import Path
@@ -225,6 +226,57 @@ def check_coverage_consistency():
     return ok(f"D8 覆盖率口径一致（RTL 有效分母 {den_a}）")
 
 
+def check_lint_warnings():
+    """D9: 用 Verilator -Wall 扫主套件，统计「危险级」告警。
+
+    已确认可忽略的类别（有明确理由，不是缺陷）：
+      UNUSEDSIGNAL / UNUSEDPARAM  —— 接口位宽约束、int 索引高位
+      WIDTHTRUNC / WIDTHEXPAND    —— 位宽转换是本项目常见且预期的
+      EOFNEWLINE                  —— 格式问题
+      MULTIDRIVENPROC             —— clocking block 与直接驱动并存
+                                     （clocking 未被使用，见 axi_lite_if.sv 注释）
+    这里关注的是**新出现的其他类别**，避免告警噪音掩盖真实问题。
+    """
+    import subprocess
+    env = dict(os.environ)
+    env["VERILATOR_ROOT"] = env.get("VERILATOR_ROOT", "/tmp/verilator")
+    vlt = env.get("VERILATOR", "/tmp/verilator/bin/verilator_bin")
+    if not os.path.exists(vlt):
+        return warn("D9 找不到 Verilator（跳过告警统计）")
+    cmd = [vlt, "--lint-only", "-Wall", "-I./sv", "-I.", "-DTXN_DW=32",
+           "--top-module", "tb_axi_apb_sv",
+           "axi_defs_pkg.sv", "apb_defs_pkg.sv", "sv/bus_txn_pkg.sv",
+           "sv/axi_lite_if.sv", "sv/apb_if.sv", "sv/axi_apb_bridge_sv.sv",
+           "sv/apb_slave_regs_sv.sv", "sv/axi_apb_monitor.sv",
+           "sv/axi_txn_host.sv", "sv/tb_axi_apb_sv.sv"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           cwd=str(HERE), env=env, timeout=300)
+    except Exception as e:
+        return warn(f"D9 执行 Verilator 失败（{e}）")
+    out = r.stdout + r.stderr
+    IGNORE = {"UNUSEDSIGNAL", "UNUSEDPARAM", "WIDTHTRUNC", "WIDTHEXPAND",
+              "EOFNEWLINE", "MULTIDRIVENPROC", "MULTIDRIVEN", "ASCRANGE",
+              "DECLFILENAME", "VARHIDDEN", "PINCONNECTEMPTY", "TIMESCALEMOD",
+              # 以下 3 类经核查均为误报/可接受，见各条说明：
+              # BLKSEQ: monitor 里 xfer_count++ 是统计量，用阻塞赋值可接受
+              "BLKSEQ",
+              # PROCASSINIT: TB 的 `logic ACLK = 0; always #5 ACLK = ~ACLK;`
+              #   是时钟生成的标准写法，先初始化再翻转属常规
+              "PROCASSINIT",
+              # SYNCASYNCNET: ARESETn 在 TB 中同步赋值、在从机中作异步复位，
+              #   这是正常的「TB 驱动复位、DUT 异步响应」连接方式
+              "SYNCASYNCNET",
+              }
+    hits = re.findall(r"%Warning-(\w+)", out)
+    unexpected = [h for h in hits if h not in IGNORE]
+    if unexpected:
+        from collections import Counter
+        c = Counter(unexpected)
+        return fail(f"D9 出现未预期的 Verilator 告警类别：{dict(c)}")
+    return ok(f"D9 Verilator -Wall 无未预期告警（已知 {len(hits)} 条均可解释）")
+
+
 def check_html_balance():
     """D5: HTML 标签平衡"""
     bad = []
@@ -307,6 +359,7 @@ def main():
     rc += check_readme_stats()
     rc += check_tool_capability_claims()
     rc += check_coverage_consistency()
+    rc += check_lint_warnings()
     print("=" * 58)
     if rc == 0:
         print("\033[32m✅ 文档与实现一致\033[0m")

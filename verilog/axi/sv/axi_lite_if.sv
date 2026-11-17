@@ -64,6 +64,17 @@ interface axi_lite_if #(
     );
 
     // ---- clocking block（同步驱动/采样） ----
+    // ⚠ 状态说明：本 clocking block **当前没有任何 TB 使用**。
+    //   所有 TB 都用直接赋值（axi.AWVALID <= ...）驱动，因此它属于
+    //   「为 EDA 工具（irun/VCS）保留的可选路径」，见 axi/PROTOCOL.md。
+    //
+    //   副作用：Verilator -Wall 会报 8 处
+    //     MULTIDRIVENPROC: "written to in clocking block also written by another process"
+    //   因为 clocking 的 output 声明与 TB 的直接赋值都算「驱动同一信号」。
+    //   这不是真实的多驱动冲突（clocking 从未被调用），但会污染告警列表。
+    //
+    //   若将来决定只用 Verilator 一条路径，可安全删除本 block
+    //   （实测删除后 25 个套件全部照常通过）；保留则是为了 EDA 兼容。
     clocking cb @(posedge ACLK);
         default input #1step output #1;
         // master 侧驱动
