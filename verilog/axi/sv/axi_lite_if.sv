@@ -94,10 +94,16 @@ interface axi_lite_if #(
         assert property (@(posedge ACLK) (RVALID && !RREADY) |=> RVALID)
         else $error("AXI: RVALID dropped before handshake");
 
-    // 注：不设 "W 必须有 AW" 断言——该检查针对主站而非桥；
-    //     分开发写事务中 AW 握手完成与 W 驱动之间存在合法间隙，
-    //     固定延迟回溯会误报。桥本身的正确性由 5 通道 VALID 稳定性断言 +
-    //     TB scoreboard 保证。
+    // ---- 关于 READY 保持：不添加断言 ----
+    // 曾尝试加 5 条「READY 一旦拉高必须保持」的断言，实测立刻误报
+    // （ap_aw_ready_stable: AWREADY dropped before handshake）。
+    // 核查 AXI 规范后确认是**断言本身写错了**：
+    //   AXI 对 READY 的唯一要求是「握手完成前不得撤销」，
+    //   而握手的定义是 (VALID && READY)；当 VALID=0 时并没有进行中的握手，
+    //   READY 完全可以自由撤销。桥在 S_AW_H/S_IDLE 之间切换时正是这种情况。
+    //   真正需要保证的「VALID 不中途撤销」已由上面 5 条断言覆盖
+    //   （VALID 保持 ⟺ 握手机会不被吞掉）。
+    // 结论：不加 READY 侧断言，这不是覆盖缺口。
 
 endinterface
 
