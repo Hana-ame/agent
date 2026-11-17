@@ -50,6 +50,7 @@ module axi_apb_monitor #(
 
     // ---- 上一拍状态（用于时序规则检查） ----
     logic prev_apb_access;   // 上拍 PSEL && PENABLE
+    apb_defs_pkg::apb_phase_t cur_phase;  // 当前 APB 阶段（供违规报告用）
     logic prev_apb_ready;    // 上拍 PREADY
     logic prev_awvalid, prev_wvalid, prev_arvalid;
     logic prev_awready, prev_wready, prev_arready;   // 上一拍 READY（判定握手用）
@@ -101,7 +102,12 @@ module axi_apb_monitor #(
         errors++;
         last_rule = rule;
         rule_hits[rule] = rule_hits.exists(rule) ? rule_hits[rule] + 1 : 1;
-        $display("[%s] VIOLATION %s: %s @%0t", NAME, rule, detail, $time);
+        // 附带 APB 阶段名（phase_name 此前定义了但从未被调用）。
+        // 违规发生在 IDLE / SETUP / ACCESS 哪个阶段，直接决定排查方向，
+        // 例如 P1（PENABLE 无 PSEL）多半发生在 SETUP、P3 只在 SETUP 有意义。
+        $display("[%s] VIOLATION %s: %s @%0t (APB 阶段=%s PSEL=%b PENABLE=%b PREADY=%b)",
+                 NAME, rule, detail, $time, apb_defs_pkg::phase_name(cur_phase),
+                 apb.PSEL, apb.PENABLE, apb.PREADY);
     endtask
 
     // 查询某规则是否被触发过。
@@ -171,6 +177,14 @@ module axi_apb_monitor #(
     // ==================================================================
     always @(posedge ACLK) begin
         if (ARESETn) begin
+            // 更新当前 APB 阶段（供 violation() 报告用）：
+            //   PSEL=0            → IDLE
+            //   PSEL=1, PENABLE=0 → SETUP
+            //   PSEL=1, PENABLE=1 → ACCESS
+            cur_phase <= !apb.PSEL ? apb_defs_pkg::APB_IDLE :
+                         !apb.PENABLE ? apb_defs_pkg::APB_SETUP :
+                                        apb_defs_pkg::APB_ACC;
+
             // ---- P1: PENABLE 只能在 PSEL=1 时拉高 ----
             if (!penable_ok(apb.PSEL, apb.PENABLE))
                 violation("P1.PENABLE", "PENABLE asserted while PSEL=0");
