@@ -154,6 +154,6 @@ module tb_dual_err_sv;
     $display("------------------------------------------------------");
     $display(" dual-err result: %0d checks, %0d errors", checks, errors);
     if (errors==0) begin $display("PASS: dual bridge error isolation"); $finish; end
-    else begin $display("FAIL"); $fatal(1); end
+    else begin $display("FAIL: %0d errors / %0d checks", errors, checks); $fatal(1); end
   end
 endmodule

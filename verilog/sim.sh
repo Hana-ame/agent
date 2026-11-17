@@ -105,11 +105,23 @@ build_run() {
     # 若仿真挂死被 kill，缓冲未 flush 会导致「零输出」，
     # 极易被误判为「程序启动即退出」（本项目已踩坑 4 次）。
     # stdbuf 不可用时回退到直接执行。
+    #
+    # ★ 超时保护：仿真是纯计算，正常套件最长几十秒。
+    #   此前**没有任何超时**，一旦桥/从机死锁，整个 CI 会永久卡住
+    #   （看起来像「跑得很慢」，实际是挂死）。这里统一给 300s 上限，
+    #   超时打印明确信息并返回非 0，而不是无限等待。
+    local _timeout="${SIM_TIMEOUT:-300}"
+    local _rc=0
     if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -o0 -e0 "$out_abs"
+        timeout "$_timeout" stdbuf -o0 -e0 "$out_abs" || _rc=$?
     else
-        "$out_abs"
+        timeout "$_timeout" "$out_abs" || _rc=$?
     fi
+    if [ "$_rc" -eq 124 ]; then
+        echo "TIMEOUT: $name 超过 ${_timeout}s 未结束（疑似死锁）" >&2
+        return 124
+    fi
+    return "$_rc"
 }
 
 case "${1:-all}" in
