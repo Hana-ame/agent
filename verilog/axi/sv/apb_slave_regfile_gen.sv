@@ -38,6 +38,18 @@ module apb_slave_regfile_gen #(
     apb_if.slave apb
 );
 
+    // 参数约束：NREG 必须至少覆盖规格里的全部寄存器。
+    // 规格有 12 个寄存器；若 NREG 更小，后面的寄存器整片消失，
+    // 访问它们会返回 SLVERR —— 看起来像「越界保护」，实则是配置错误。
+    // 实测：NREG=4 时偏移 0x10 起全部读不到（本轮踩到并修复）。
+    initial begin
+        if (NREG < 12) begin
+            $display("ERROR: NREG=%0d 小于规格寄存器数 12（部分寄存器将不存在）",
+                     NREG);
+            $fatal(1, "invalid NREG parameter");
+        end
+    end
+
     import apb_defs_pkg::*;
 
     // ---- 寄存器属性编码 ----

@@ -195,6 +195,8 @@ def gen_rtl(spec):
         f"{r['name']:<12} {r['attr']:<5} reset=0x{int(str(r['reset']),0):08X}   {r.get('description','')}"
         for r in sorted_regs
     )
+    # 规格里的寄存器总数：用于在生成的 RTL 里做 NREG 参数合法性检查
+    nreg_total = len(sorted_regs)
 
     return f"""// ============================================================================
 // {mod}：APB 寄存器从机（由 gen_regfile.py 从 regfile_spec.json 生成）
@@ -224,6 +226,18 @@ module {mod} #(
     input  logic PRESETn,
     apb_if.slave apb
 );
+
+    // 参数约束：NREG 必须至少覆盖规格里的全部寄存器。
+    // 规格有 {nreg_total} 个寄存器；若 NREG 更小，后面的寄存器整片消失，
+    // 访问它们会返回 SLVERR —— 看起来像「越界保护」，实则是配置错误。
+    // 实测：NREG=4 时偏移 0x10 起全部读不到（本轮踩到并修复）。
+    initial begin
+        if (NREG < {nreg_total}) begin
+            $display("ERROR: NREG=%0d 小于规格寄存器数 {nreg_total}（部分寄存器将不存在）",
+                     NREG);
+            $fatal(1, "invalid NREG parameter");
+        end
+    end
 
     import apb_defs_pkg::*;
 
