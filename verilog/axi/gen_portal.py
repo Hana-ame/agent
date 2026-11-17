@@ -361,7 +361,7 @@ SEED=123 bash verilog/sim.sh gaps <span class="c"># 多 seed</span></pre>
 <tbody>
 <tr><td class="mono">slang</td><td>编译检查（仿真前）</td><td>完整 SV 语法/语义，含 UVM 库校验</td></tr>
 <tr><td class="mono">Verilator</td><td>仿真 + 覆盖率</td><td>{len(suites)} 个套件全部运行</td></tr>
-<tr><td class="mono">irun / VCS</td><td>覆盖率/UVM 运行时</td><td>最终验收（服务器）</td></tr>
+<tr><td class="mono">irun / VCS</td><td>覆盖率/UVM 运行时（历史路径，未实测）</td><td>未使用</td></tr>
 </tbody></table>
 
 <footer>

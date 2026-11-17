@@ -578,7 +578,7 @@ Top level design units:
       <tr><td>slang 12.1</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td></tr>
       <tr><td>Verilator 5.055（最新，自编译）</td><td class="yes">✅</td><td class="yes">✅</td><td class="part">✅ 子集</td><td class="part">✅ 需 z3</td><td class="no">❌ 宏隔离</td></tr>
       <tr><td>Verilator 5.020（apt 旧版）</td><td class="no">❌ 跨文件虚接口缺陷</td><td class="part">⚠️</td><td class="yes">✅</td><td class="part">⚠️</td><td class="no">❌</td></tr>
-      <tr><td>irun / VCS（本机无，未实测）</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td></tr>
+      <tr><td>irun / VCS（历史路径：本机无、从未实测）</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td></tr>
     </tbody>
   </table>
 
@@ -624,8 +624,8 @@ verilator --binary --assert --timing --top-module tb_axi_apb_sv \
 <span class="c"># =&gt; PASS: axi-&gt;apb-&gt;axi SV vector testbench (234 vectors)</span>
 
 <span class="c"># ④ EDA 工具（服务器，带覆盖率）</span>
-bash run_sv_chain.sh            <span class="c"># 自动探测 xrun/irun/vcs/slang</span>
-TOOL=xrun bash run_sv_chain.sh  <span class="c"># 或强制指定</span></pre>
+bash run_sv_chain.sh            <span class="c"># 遗留脚本（历史 xrun/irun/vcs 路径，未维护）</span>
+TOOL=xrun bash run_sv_chain.sh  <span class="c"># 遗留脚本，见上条说明</span></pre>
 </section>
 
 <!-- ============ 12. 结论 ============ -->

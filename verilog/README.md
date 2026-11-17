@@ -33,7 +33,7 @@
 | **`repro.sh`** | **复现性验证**（干净 clone 后能否跑通） |
 | **`stability.py`** | **稳定性检查**（套件重复运行检测偶发失败） |
 | **`axi/docs_check.py`** | **文档一致性**（模块清单/测试项数/废弃工具残留/HTML 结构） |
-| `run_sv.sh` | EDA 服务器脚本（irun/xrun/vcs，带覆盖率） |
+| `run_sv.sh` | 遗留 EDA 脚本（历史 irun/xrun/vcs 路径，未维护、未实测；当前工具链不使用） |
 | `plot_waveform.py` | VCD → PNG 波形绘图（matplotlib） |
 | `axi/` | AXI→APB→AXI 设计、验证、文档（见下） |
 
@@ -166,7 +166,9 @@ SEED=123 bash sim.sh gaps   # 多 seed
 
 ## 不再使用 iverilog 的理由（实测）
 
-| 能力 | iverilog 12 | Verilator 5.055 |
+> 下表为**历史对照记录**：iverilog 已从工具链移除，这里保留数据说明当初为何换成 Verilator。
+
+| 能力（历史对照） | iverilog 12（已移除） | Verilator 5.055 |
 |---|---|---|
 | Verilog-2001 仿真 | ✅ | ✅ |
 | `interface` 作为模块端口 | ❌ | ✅ |
@@ -186,8 +188,8 @@ SEED=123 bash sim.sh gaps   # 多 seed
 | 工具 | 角色 |
 |---|---|
 | **slang** | 编译检查（仿真前）：完整 SV 语法/语义，含 UVM 库校验 |
-| **Verilator** | 仿真：全部 7 个套件 |
-| irun / VCS | 覆盖率、UVM 运行时、时序仿真（服务器） |
+| **Verilator** | 仿真 + 覆盖率：全部 25 个套件（`bash sim.sh all`） |
+| ~~irun / VCS~~ | **未使用、未实测**。历史文档曾声称支持，实际从未在本项目跑过；UVM 运行时验证目前是已知空白（见 axi/vip/README.md）。`run_sv.sh` / `run_sv_chain.sh` 是这批遗留脚本，保留仅供参考。 |
 
 ## 激励的起始 / 结束形式（TB 生命周期）
 

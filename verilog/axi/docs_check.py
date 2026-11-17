@@ -121,24 +121,33 @@ def check_suite_count():
 
 
 def check_deprecated():
-    """D4: iverilog 只应出现在「历史 / 不再使用」类说明中"""
+    """D4: 废弃工具（iverilog / irun / xrun / vcs）只应出现在历史说明中
+
+    扩展：原来只查 HTML 里的 iverilog。但项目里还有 README.md 的
+    工具表、以及 run_sv.sh / run_sv_chain.sh 这类遗留脚本提到 irun/xrun/vcs，
+    而它们从未在本项目实测过 —— 与「irun/VCS 全 ✅」是同一类失实。
+    """
     bad = []
-    for f in HERE.glob("*.html"):
+    files = list(HERE.glob("*.html")) + [HERE.parent / "README.md"]
+    for f in files:
+        if not f.exists():
+            continue
         txt = read(f)
-        if "iverilog" not in txt:
+        if "iverilog" not in txt and not re.search(r"\b(irun|xrun|vcs)\b", txt, re.I):
             continue
         # 逐行判断：含 iverilog 的行必须同时带「历史/不再/移除/说明/旧」等限定词
-        ALLOW = ("历史", "不再", "移除", "说明", "旧", "对照学习", "已从工具链")
+        ALLOW = ("历史", "不再", "移除", "说明", "旧", "对照学习", "已从工具链",
+                 "未实测", "未使用", "遗留", "未维护")
         for i, line in enumerate(txt.splitlines(), 1):
-            if "iverilog" in line and not any(k in line for k in ALLOW):
-                # 允许代码块里的历史命令（前置注释已声明）
+            hit = ("iverilog" in line) or re.search(r"\b(irun|xrun|vcs)\b", line, re.I)
+            if hit and not any(k in line for k in ALLOW):
                 bad.append(f"{f.name}:{i}")
     if bad:
-        fail(f"D4 {len(bad)} 处 iverilog 引用缺少「历史/不再使用」限定")
+        fail(f"D4 {len(bad)} 处废弃工具引用缺少「历史/不再使用」限定")
         for b in bad[:5]:
             print(f"       {b}")
         return 1
-    return ok("D4 无废弃工具残留（iverilog 仅作为历史说明出现）")
+    return ok("D4 无废弃工具残留（iverilog/irun/xrun/vcs 仅作历史说明）")
 
 
 def check_html_balance():
