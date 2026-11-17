@@ -201,6 +201,46 @@ module tb_axi_apb_sv;
                  checks, pause_checks, same_checks, errors);
         $display("-- SUMMARY: %0d txns, %0d pause cycles injected --",
                  txns, total_pause);
+
+        // ============================================================
+        // 状态转移覆盖检查：11 个状态都访问过 ≠ 14 条转移都发生过
+        // ============================================================
+        begin
+            string tnames[14];
+            int covered_cnt;
+            tnames[0]  = "IDLE->AWW_H(AW+W同拍)";
+            tnames[1]  = "IDLE->AW_H(仅AW)";
+            tnames[2]  = "IDLE->W_H(仅W)";
+            tnames[3]  = "IDLE->AR_H(仅AR)";
+            tnames[4]  = "AW_H->AWW_H";
+            tnames[5]  = "W_H->AWW_H(W先到)";
+            tnames[6]  = "AWW_H->WR_SETUP";
+            tnames[7]  = "WR_SETUP->WR_ACC";
+            tnames[8]  = "WR_ACC->B_RESP";
+            tnames[9]  = "B_RESP->IDLE";
+            tnames[10] = "AR_H->RD_SETUP";
+            tnames[11] = "RD_SETUP->RD_ACC";
+            tnames[12] = "RD_ACC->R_RESP";
+            tnames[13] = "R_RESP->IDLE";
+
+            covered_cnt = 0;
+            for (int i = 0; i < 14; i++)
+                if (bridge.trans_seen[i]) covered_cnt++;
+
+            checks++;
+            $display("  状态转移覆盖: %0d/14 条", covered_cnt);
+            for (int i = 0; i < 14; i++)
+                if (!bridge.trans_seen[i])
+                    $display("  [COV] 未覆盖: %s", tnames[i]);
+            // 本套件只强制「读写主链路」（位 6-13）全覆盖；
+            // W 先到等入口变体由 tb_cov_gaps 负责。
+            if (covered_cnt < 14 && bridge.trans_seen[13:6] !== 8'hFF) begin
+                $display("  [COV] FAIL: 读写主链路转移未全覆盖（0x%02h）",
+                         bridge.trans_seen[13:6]);
+                errors++;
+            end
+        end
+
         if (errors == 0) begin
             if (mon.errors != 0) begin
                 $display("  [MON] FAIL: 协议监视器发现 %0d 处违规", mon.errors);
