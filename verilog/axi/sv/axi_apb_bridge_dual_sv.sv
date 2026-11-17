@@ -70,6 +70,41 @@ module axi_apb_bridge_dual_sv #(
     } rstate_t;
     rstate_t rst;
 
+    // ---- 状态转移记录（供 TB 做转移覆盖统计）----
+    // 与串行桥同理：状态被访问 ≠ 转移发生过。
+    // 本模块无 next 变量（单块 always_ff 直接赋值），
+    // 因此用「前置状态」寄存器记录上一拍状态，与本拍状态比较得出转移。
+    // 写 FSM 5 条转移占 [4:0]，读 FSM 5 条占 [9:5]。
+    logic [9:0] trans_seen;
+    wstate_t wst_prev, wst_prev2;
+    rstate_t rst_prev, rst_prev2;
+    always_ff @(posedge ACLK or negedge ARESETn) begin
+        if (!ARESETn) begin
+            trans_seen <= '0;
+            wst_prev   <= W_IDLE; wst_prev2 <= W_IDLE;
+            rst_prev   <= R_IDLE; rst_prev2 <= R_IDLE;
+        end else begin
+            // 记录「本拍状态」，下一拍用它作为 prev 与新的本拍比较。
+            // 注意：不能在同一拍同时更新 prev 并用它比较 —— 非阻塞赋值下
+            //      prev 仍是旧值，会漏掉最后一次转移（本轮实测漏了
+            //      R: RESP->IDLE，因为测试结束时最后那次转移没被记到）。
+            wst_prev2 <= wst_prev;
+            rst_prev2 <= rst_prev;
+            wst_prev  <= wst;
+            rst_prev  <= rst;
+            if (wst_prev2 == W_IDLE  && wst_prev == W_REQ)   trans_seen[0] <= 1'b1;
+            if (wst_prev2 == W_REQ   && wst_prev == W_SETUP) trans_seen[1] <= 1'b1;
+            if (wst_prev2 == W_SETUP && wst_prev == W_ACC)   trans_seen[2] <= 1'b1;
+            if (wst_prev2 == W_ACC   && wst_prev == W_RESP)  trans_seen[3] <= 1'b1;
+            if (wst_prev2 == W_RESP  && wst_prev == W_IDLE)  trans_seen[4] <= 1'b1;
+            if (rst_prev2 == R_IDLE  && rst_prev == R_REQ)   trans_seen[5] <= 1'b1;
+            if (rst_prev2 == R_REQ   && rst_prev == R_SETUP) trans_seen[6] <= 1'b1;
+            if (rst_prev2 == R_SETUP && rst_prev == R_ACC)   trans_seen[7] <= 1'b1;
+            if (rst_prev2 == R_ACC   && rst_prev == R_RESP)  trans_seen[8] <= 1'b1;
+            if (rst_prev2 == R_RESP  && rst_prev == R_IDLE)  trans_seen[9] <= 1'b1;
+        end
+    end
+
     logic          ar_held;
     logic [AW-1:0] araddr_q;
     logic [DW-1:0] rdata_q;

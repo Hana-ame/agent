@@ -506,12 +506,38 @@ module tb_dual_sv #(
         t_d06_b_backpressure();
         t_d07_r_backpressure();
 
+        // 收尾：让最后一个 R_RESP→R_IDLE 转移有机会发生。
+        // 此前统计漏掉这条转移，原因是测试在释放 RREADY 后只等一拍就结束，
+        // 桥还没来得及从 R_RESP 回到 R_IDLE。
+        repeat (3) @(posedge ACLK);
+
         $display("------------------------------------------------------");
         if (mon.errors != 0) begin
             $display("  [MON] FAIL: 协议监视器发现 %0d 处违规", mon.errors);
             errors += mon.errors;
         end else
             $display("  [MON] 协议监视器通过（%0d 次 APB 传输）", mon.xfer_count);
+
+        // ---- 状态转移覆盖（写 FSM 5 条 + 读 FSM 5 条）----
+        begin
+            string tn[10];
+            int cnt;
+            tn[0] = "W: IDLE->REQ";   tn[1] = "W: REQ->SETUP";
+            tn[2] = "W: SETUP->ACC";  tn[3] = "W: ACC->RESP";
+            tn[4] = "W: RESP->IDLE";
+            tn[5] = "R: IDLE->REQ";   tn[6] = "R: REQ->SETUP";
+            tn[7] = "R: SETUP->ACC";  tn[8] = "R: ACC->RESP";
+            tn[9] = "R: RESP->IDLE";
+            cnt = 0;
+            for (int i = 0; i < 10; i++) if (bridge.trans_seen[i]) cnt++;
+            checks++;
+            $display("  状态转移覆盖: %0d/10 条（写 %0d/5, 读 %0d/5）",
+                     cnt,
+                     bridge.trans_seen[4:0] == 5'h1F ? 5 : 0,
+                     bridge.trans_seen[9:5] == 5'h1F ? 5 : 0);
+            for (int i = 0; i < 10; i++)
+                if (!bridge.trans_seen[i]) $display("  [COV] 未覆盖: %s", tn[i]);
+        end
 
         $display(" dual result: %0d checks, %0d errors", checks, errors);
         if (errors == 0) begin
