@@ -79,9 +79,21 @@ module tb_gaps_sv #(
         return t;
     endfunction
 
+    // 逐笔检查监视器新增违规：
+    // 只在末尾汇总会让「哪一笔违规」无法定位，
+    // 且如果有测试在中间 catch 了错误，可能掩盖协议违规。
+    int mon_seen = 0;
+
     task automatic do_txn(input txn_t t, output rsp_t r);
         host.execute(t, r);
         checks++;
+        // 每笔事务后立即核对：monitor 不应新增违规
+        if (mon.errors != mon_seen) begin
+            $display("  [MON] FAIL: 第 %0d 笔事务后新增 %0d 处协议违规（addr=%0h wr=%b）",
+                     checks, mon.errors - mon_seen, t.addr, t.write);
+            errors += mon.errors - mon_seen;
+            mon_seen = mon.errors;
+        end
     endtask
 
     task automatic expect_ok(input txn_t t, input rsp_t r, input string tag);
