@@ -316,6 +316,34 @@ def check_sv_feature_claims():
     return ok("D10 SV 特性声明与实际使用一致")
 
 
+def check_file_line_counts():
+    """D11: DESIGN.html 里声明的文件行数必须与实际一致。
+
+    实例：文档长期写 axi_apb_bridge_sv.sv=178 行、axi_lite_if.sv=97 行，
+    但代码持续演进后实际是 225 / 120 行 —— 从未同步过。
+    这类数字不影响功能，但会让「代码规模」的陈述失真。
+    """
+    f = HERE / "DESIGN.html"
+    if not f.exists():
+        return ok("D11 文件行数（跳过：无 DESIGN.html）")
+    txt = read(f)
+    bad = []
+    checked = 0
+    # 匹配 <code>路径.sv</code></td><td>N</td>
+    for m in re.finditer(r"<code>((?:sv/)?[a-z_0-9]+\.sv)</code></td><td>(\d+)</td>", txt):
+        rel, claimed = m.group(1), int(m.group(2))
+        target = HERE / rel
+        if not target.exists():
+            continue
+        actual = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
+        checked += 1
+        if actual != claimed:
+            bad.append(f"{rel}: 文档={claimed} 实际={actual}")
+    if bad:
+        return fail(f"D11 {len(bad)} 个文件行数过时")
+    return ok(f"D11 {checked} 个文件行数与实际一致")
+
+
 def check_html_balance():
     """D5: HTML 标签平衡"""
     bad = []
@@ -400,6 +428,7 @@ def main():
     rc += check_coverage_consistency()
     rc += check_lint_warnings()
     rc += check_sv_feature_claims()
+    rc += check_file_line_counts()
     print("=" * 58)
     if rc == 0:
         print("\033[32m✅ 文档与实现一致\033[0m")

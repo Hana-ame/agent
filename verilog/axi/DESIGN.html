@@ -243,23 +243,23 @@ footer{
       <tr><th>文件</th><th>行数</th><th>角色</th><th>关键内容</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>axi_defs_pkg.sv</code></td><td>149</td><td><b>完整 AXI 定义</b></td><td>五通道 struct、RESP/BURST/SIZE/LOCK/CACHE/PROT 常量、<code>resp_name</code>/<code>is_aligned</code>/<code>valid_channels_ok</code></td></tr>
-      <tr><td><code>apb_defs_pkg.sv</code></td><td>117</td><td><b>完整 APB 定义</b></td><td><code>apb_bus_t</code> struct、<code>apb_phase_t</code> 枚举、<code>penable_ok</code>/<code>phase_transition_ok</code>/<code>transfer_done</code></td></tr>
-      <tr><td><code>axi_apb_bridge.sv</code></td><td>186</td><td><b>转换设计</b>（端口式·历史称 iverilog 版）</td><td>单状态机串行化、APB SETUP/ACCESS 时序、SLVERR→BRESP/RRESP</td></tr>
-      <tr><td><code>apb_slave_regs.sv</code></td><td>99</td><td>慢速从机（端口式·历史称 iverilog 版）</td><td>寄存器堆、wait states、越界 SLVERR</td></tr>
-      <tr><td><code>axi_lite_vip_master.sv</code></td><td>106</td><td>AXI 激励模型</td><td>write_split / write_same / read 三种事务</td></tr>
-      <tr><td><code>tb_axi_apb.sv</code></td><td>187</td><td>testbench（端口式·历史称 iverilog 版）</td><td>35 项检查 + 协议合法性 monitor</td></tr>
-      <tr><td><code>sv/axi_lite_if.sv</code></td><td>97</td><td><b>AXI 接口</b>（完整 SV）</td><td>modport + clocking + 5 条 SVA 稳定性断言</td></tr>
-      <tr><td><code>sv/apb_if.sv</code></td><td>80</td><td><b>APB 接口</b>（完整 SV）</td><td>modport + clocking + 4 条阶段时序 SVA + 1 cover property</td></tr>
-      <tr><td><code>sv/axi_apb_bridge_sv.sv</code></td><td>178</td><td><b>转换设计</b>（接口端口版）</td><td>11 状态 FSM、接口端口、握手保持 READY</td></tr>
-      <tr><td><code>sv/apb_slave_regs_sv.sv</code></td><td>83</td><td>慢速从机（接口端口版）</td><td><code>apb_phase_t</code> 状态机、wait states、SLVERR</td></tr>
-      <tr><td><code>sv/tb_axi_apb_sv.sv</code></td><td>289</td><td><b>向量化 testbench</b></td><td>数据向量集 → 激励驱动 → 数据向量比对三段闭环</td></tr>
+      <tr><td><code>axi_defs_pkg.sv</code></td><td>165</td><td><b>完整 AXI 定义</b></td><td>五通道 struct、RESP/BURST/SIZE/LOCK/CACHE/PROT 常量、<code>resp_name</code>/<code>is_aligned</code>/<code>valid_channels_ok</code></td></tr>
+      <tr><td><code>apb_defs_pkg.sv</code></td><td>125</td><td><b>完整 APB 定义</b></td><td><code>apb_bus_t</code> struct、<code>apb_phase_t</code> 枚举、<code>penable_ok</code>/<code>phase_transition_ok</code>/<code>transfer_done</code></td></tr>
+      <tr><td><code>axi_apb_bridge.sv</code></td><td>187</td><td><b>转换设计</b>（端口式·历史称 iverilog 版）</td><td>单状态机串行化、APB SETUP/ACCESS 时序、SLVERR→BRESP/RRESP</td></tr>
+      <tr><td><code>apb_slave_regs.sv</code></td><td>100</td><td>慢速从机（端口式·历史称 iverilog 版）</td><td>寄存器堆、wait states、越界 SLVERR</td></tr>
+      <tr><td><code>axi_lite_vip_master.sv</code></td><td>107</td><td>AXI 激励模型</td><td>write_split / write_same / read 三种事务</td></tr>
+      <tr><td><code>tb_axi_apb.sv</code></td><td>188</td><td>testbench（端口式·历史称 iverilog 版）</td><td>35 项检查 + 协议合法性 monitor</td></tr>
+      <tr><td><code>sv/axi_lite_if.sv</code></td><td>121</td><td><b>AXI 接口</b>（完整 SV）</td><td>modport + clocking + 5 条 SVA 稳定性断言</td></tr>
+      <tr><td><code>sv/apb_if.sv</code></td><td>94</td><td><b>APB 接口</b>（完整 SV）</td><td>modport + clocking + 4 条阶段时序 SVA + 1 cover property</td></tr>
+      <tr><td><code>sv/axi_apb_bridge_sv.sv</code></td><td>226</td><td><b>转换设计</b>（接口端口版）</td><td>11 状态 FSM、接口端口、握手保持 READY</td></tr>
+      <tr><td><code>sv/apb_slave_regs_sv.sv</code></td><td>116</td><td>慢速从机（接口端口版）</td><td><code>apb_phase_t</code> 状态机、wait states、SLVERR</td></tr>
+      <tr><td><code>sv/tb_axi_apb_sv.sv</code></td><td>266</td><td><b>向量化 testbench</b></td><td>数据向量集 → 激励驱动 → 数据向量比对三段闭环</td></tr>
       <tr><td><code>sv/bus_txn_pkg.sv</code></td><td>~70</td><td><b>事务定义包</b>（L3）</td><td><code>txn_t{write,addr,data,pause,same,exp_err}</code> / <code>rsp_t{data,resp,idle}</code>；<code>TXN_DW</code> 宏配置数据宽度，与协议细节解耦</td></tr>
-      <tr><td><code>sv/axi_txn_host.sv</code></td><td>96</td><td><b>事务适配层</b>（L2）</td><td><code>execute(txn_t, rsp_t)</code>：把一笔事务展开成 AXI 握手；AWW 同发/分开发、pause、统一 <code>VALID && READY</code> 判据</td></tr>
-      <tr><td><code>sv/axi_apb_bridge_dual_sv.sv</code></td><td>246</td><td><b>并发桥</b></td><td>写 FSM + 读 FSM 独立并行（13 态）；round-robin 仲裁 <code>w_grant</code>/<code>r_grant</code>；读写错误标志独立（<code>w_slverr</code>/<code>r_slverr</code>）</td></tr>
-      <tr><td><code>sv/apb_slave_regfile_sv.sv</code></td><td>160</td><td>带属性从机（手写）</td><td>4 种属性 <code>A_RSVD</code>/<code>A_RW</code>/<code>A_RO</code>/<code>A_W1C</code>；<code>RO_REG0_VALUE</code>/<code>RSVD_REG2_VALUE</code></td></tr>
-      <tr><td><code>sv/apb_slave_regfile_gen.sv</code></td><td>259</td><td>带属性从机（生成）</td><td>由 <code>regfile_spec.json</code> 生成；<b>位域级属性</b>（同一寄存器内混合 RW/W1S/RSVD/RC/W1C）；读清零/写1置位语义</td></tr>
-      <tr><td><code>sv/axi_apb_monitor.sv</code></td><td>198</td><td><b>被动协议监视器</b></td><td>11 条规则：AXI <code>A1.AWVALID/WVALID/ARVALID</code>、<code>A2.AWADDR/WDATA/ARADDR</code>；APB <code>P1.PENABLE</code>/<code>P2.PHASE</code>/<code>P3.SETUP</code>/<code>P4.PADDR/PWRITE</code>；<code>rule_hits[]</code> 记录供精确校验</td></tr>
+      <tr><td><code>sv/axi_txn_host.sv</code></td><td>131</td><td><b>事务适配层</b>（L2）</td><td><code>execute(txn_t, rsp_t)</code>：把一笔事务展开成 AXI 握手；AWW 同发/分开发、pause、统一 <code>VALID && READY</code> 判据</td></tr>
+      <tr><td><code>sv/axi_apb_bridge_dual_sv.sv</code></td><td>282</td><td><b>并发桥</b></td><td>写 FSM + 读 FSM 独立并行（13 态）；round-robin 仲裁 <code>w_grant</code>/<code>r_grant</code>；读写错误标志独立（<code>w_slverr</code>/<code>r_slverr</code>）</td></tr>
+      <tr><td><code>sv/apb_slave_regfile_sv.sv</code></td><td>165</td><td>带属性从机（手写）</td><td>4 种属性 <code>A_RSVD</code>/<code>A_RW</code>/<code>A_RO</code>/<code>A_W1C</code>；<code>RO_REG0_VALUE</code>/<code>RSVD_REG2_VALUE</code></td></tr>
+      <tr><td><code>sv/apb_slave_regfile_gen.sv</code></td><td>288</td><td>带属性从机（生成）</td><td>由 <code>regfile_spec.json</code> 生成；<b>位域级属性</b>（同一寄存器内混合 RW/W1S/RSVD/RC/W1C）；读清零/写1置位语义</td></tr>
+      <tr><td><code>sv/axi_apb_monitor.sv</code></td><td>227</td><td><b>被动协议监视器</b></td><td>11 条规则：AXI <code>A1.AWVALID/WVALID/ARVALID</code>、<code>A2.AWADDR/WDATA/ARADDR</code>；APB <code>P1.PENABLE</code>/<code>P2.PHASE</code>/<code>P3.SETUP</code>/<code>P4.PADDR/PWRITE</code>；<code>rule_hits[]</code> 记录供精确校验</td></tr>
     </tbody>
   </table>
 </section>
@@ -540,7 +540,7 @@ footer{
 <span class="hl">✓ PASS  G9:稳定性(无偶发失败)</span>          <span class="dim">套件重复运行检测 flaky</span>
 <span class="hl">质量门全部通过</span></div>
 
-  <h3>变异测试（29 个变异 / 6 个模块）</h3>
+  <h3>变异测试（33 个变异 / 7 个模块）</h3>
   <div class="result"><span class="dim">$ python3 mutate.py</span>
 <span class="hl">变异得分: 100.0%  (29/29 杀死)</span>
 <span class="dim">覆盖模块：串行桥 6 · 并发桥 4 · 纯存储从机 7 · 手写属性从机 4
