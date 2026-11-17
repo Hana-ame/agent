@@ -237,6 +237,23 @@ module {mod} #(
                      NREG);
             $fatal(1, "invalid NREG parameter");
         end
+        // WAIT_CYCLES 内部是 8 位计数器（wait_cnt[7:0]），>255 会被静默截断。
+        // 实测 WAIT_CYCLES=256 时延迟只有 7 周期（期望 263），无任何提示。
+        if (WAIT_CYCLES < 0 || WAIT_CYCLES > 255) begin
+            $display("ERROR: WAIT_CYCLES=%0d 越界（有效范围 0..255，内部为 8 位计数器）",
+                     WAIT_CYCLES);
+            $fatal(1, "invalid WAIT_CYCLES parameter");
+        end
+        if (AW < 2 || AW > 32) begin
+            $display("ERROR: AW=%0d 越界（有效范围 2..32）", AW);
+            $fatal(1, "invalid AW parameter");
+        end
+        // 地址空间必须装得下寄存器堆，否则尾部寄存器不可访问。
+        if ((NREG * (DW/8)) > (1 << AW)) begin
+            $display("ERROR: NREG=%0d*DW/8=%0d 字节 > 地址空间 %0d 字节（AW=%0d）",
+                     NREG, NREG*(DW/8), (1 << AW), AW);
+            $fatal(1, "invalid NREG/AW combination");
+        end
     end
 
     import apb_defs_pkg::*;
