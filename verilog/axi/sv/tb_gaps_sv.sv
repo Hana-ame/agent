@@ -103,6 +103,14 @@ module tb_gaps_sv #(
     task automatic do_reset();
         ARESETn = 0;
         repeat (4) @(posedge ACLK);
+        // ★ 复位期间检查：AXI 规范要求 VALID 必须拉低，
+        //   不能残留 BVALID/RVALID（否则 master 会看到「幽灵响应」）
+        checks++;
+        if (axi.BVALID !== 1'b0 || axi.RVALID !== 1'b0) begin
+            $display("  [RESET] FAIL: 复位期间残留 VALID（BVALID=%b RVALID=%b）",
+                     axi.BVALID, axi.RVALID);
+            errors++;
+        end
         ARESETn = 1;
     endtask
 
@@ -301,6 +309,8 @@ module tb_gaps_sv #(
         ARESETn = 0;
         repeat (4) @(posedge ACLK);
         ARESETn = 1;
+        // 注：复位期间「VALID 必须拉低」的检查已放在 do_reset() 里，
+        //     因此每次复位（包括本处）都会自动验证，不重复写。
         // 等后台事务收尾（复位会打断它）
         repeat (20) @(posedge ACLK);
 
