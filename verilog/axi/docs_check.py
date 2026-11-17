@@ -277,6 +277,45 @@ def check_lint_warnings():
     return ok(f"D9 Verilator -Wall 无未预期告警（已知 {len(hits)} 条均可解释）")
 
 
+def check_sv_feature_claims():
+    """D10: SV 特性声明必须与「实际被使用」一致。
+
+    实例：DESIGN.html 声称「clocking block 同步驱动」「rand + constraint」，
+    但实际：
+      - clocking cb 从未被任何 TB 使用（所有 TB 都直接赋值）
+      - constraint 只存在于未运行的 UVM VIP（需 SAT 求解器，已降级）
+    这类「文档写了、代码没在用」的声明会让读者高估项目能力。
+    """
+    f = HERE / "DESIGN.html"
+    if not f.exists():
+        return ok("D10 SV 特性声明（跳过：无 DESIGN.html）")
+    txt = read(f)
+    problems = []
+
+    # 1) 若声称「clocking block」为同步驱动手段，必须真有 TB 使用 cb.
+    if "clocking block" in txt:
+        uses = 0
+        for sv in (HERE / "sv").glob("*.sv"):
+            body = read(sv)
+            # 使用 clocking：形如 xxx.cb. 或 @(cb)
+            if "cb." in body or "@(cb)" in body:
+                uses += 1
+        # 若文档已注明「未被使用/为 EDA 保留」则免报
+        if uses == 0 and "clocking block 已声明但未被使用" not in txt:
+            problems.append("声称 clocking block 驱动，但无任何 TB 使用它"
+                            "（应注明未使用，或改为实际驱动方式）")
+
+    # 2) 若声称 constraint 有实际使用，检查是否已注明降级原因
+    if "constraint" in txt:
+        has_note = ("需 SAT" in txt or "已降级" in txt or "未运行" in txt)
+        if not has_note:
+            problems.append("声称使用 constraint，但未注明需 SAT 求解器/已降级")
+
+    if problems:
+        return fail(f"D10 SV 特性声明与实际不符（{len(problems)} 处）")
+    return ok("D10 SV 特性声明与实际使用一致")
+
+
 def check_html_balance():
     """D5: HTML 标签平衡"""
     bad = []
@@ -360,6 +399,7 @@ def main():
     rc += check_tool_capability_claims()
     rc += check_coverage_consistency()
     rc += check_lint_warnings()
+    rc += check_sv_feature_claims()
     print("=" * 58)
     if rc == 0:
         print("\033[32m✅ 文档与实现一致\033[0m")

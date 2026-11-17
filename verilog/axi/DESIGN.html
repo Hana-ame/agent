@@ -439,9 +439,9 @@ footer{
     </thead>
     <tbody>
       <tr><td>接口</td><td>普通端口</td><td><b>interface + modport</b></td></tr>
-      <tr><td>同步驱动</td><td>手动 <code>@(posedge)</code></td><td><b>clocking block</b></td></tr>
+      <tr><td>同步驱动</td><td>手动 <code>@(posedge)</code></td><td>手动 <code>@(posedge)</code> + 直接赋值<br><span class="dim">（clocking block 已声明但未被使用，为 EDA 工具保留）</span></td></tr>
       <tr><td>协议检查</td><td>传统 task 断言 + monitor</td><td><b>SVA 并发断言</b>（接口内自动）</td></tr>
-      <tr><td>激励</td><td><code>$random</code></td><td><b>class + $urandom / rand + constraint</b></td></tr>
+      <tr><td>激励</td><td><code>$random</code></td><td><b>class + $urandom</b><br><span class="dim">（rand/constraint 仅存在于未运行的 UVM VIP，需 SAT 求解器 z3，已降级为 $urandom）</span></td></tr>
       <tr><td>覆盖率</td><td>Verilator --coverage（RTL 行/翻转/分支）</td><td>Verilator --coverage（同上）</td></tr>
       <tr><td>工具</td><td>Verilator（历史曾用 iverilog，已移除）</td><td>slang / Verilator</td></tr>
       <tr><td>实测结果</td><td class="yes">PASS · 35 检查</td><td class="yes">PASS · 234 向量</td></tr>
