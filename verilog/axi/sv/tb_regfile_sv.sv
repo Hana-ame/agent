@@ -197,6 +197,46 @@ module tb_regfile_sv #(
         $display("  [REF-05] 5 个寄存器属性互不干扰 ✓");
     endtask
 
+    // ==================================================================
+    // REF-06：越界访问（地址 >= NREG*4）
+    // ==================================================================
+    // 此前 hand-written regfile 套件完全没有越界测试，
+    // 只覆盖了各属性的正常语义。
+    task automatic t_oob();
+        txn_t t; rsp_t r;
+        $display("== REF-06: 越界访问（地址 >= NREG*4）==");
+
+        // 越界读：应 SLVERR 且数据为 0
+        t = mk(1'b0, AW'(NREG*4), '0);
+        host.execute(t, r); checks++;
+        if (r.resp !== RESP_SLVERR) begin
+            $display("  [REF-06] FAIL: 越界读 resp=%s（应 SLVERR）", resp_name(r.resp));
+            errors++;
+        end else if (r.data !== '0) begin
+            $display("  [REF-06] FAIL: 越界读数据=%h（应为 0）", r.data);
+            errors++;
+        end else
+            $display("  ✓ 越界读 → SLVERR 且数据为 0");
+
+        // 越界写：应 SLVERR
+        t = mk(1'b1, AW'(NREG*4), 32'hDEAD_BEEF);
+        host.execute(t, r); checks++;
+        if (r.resp !== RESP_SLVERR) begin
+            $display("  [REF-06] FAIL: 越界写 resp=%s（应 SLVERR）", resp_name(r.resp));
+            errors++;
+        end else
+            $display("  ✓ 越界写 → SLVERR");
+
+        // 越界写之后合法写仍正常
+        t = mk(1'b1, AW'(0), 32'h5A5A_1234);
+        host.execute(t, r); checks++;
+        if (r.resp !== RESP_OKAY) begin
+            $display("  [REF-06] FAIL: 越界写后合法写失败 resp=%s", resp_name(r.resp));
+            errors++;
+        end else
+            $display("  ✓ 越界写之后合法写仍正常");
+    endtask
+
     initial begin
         $display("======================================================");
         $display(" register attributes test (RO/RW/W1C/RSVD)");
@@ -208,6 +248,7 @@ module tb_regfile_sv #(
         t_rsvd();
         t_rw();
         t_mixed();
+        t_oob();
 
         $display("------------------------------------------------------");
         if (mon.errors != 0) begin
