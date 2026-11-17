@@ -125,6 +125,19 @@ module tb_assert_effectiveness_sv #(
             end
 
             // ---------------------------------------------------------
+            // CASE 6：违反 R6（PSLVERR 在非完成拍拉高）
+            // 期望：ap_slverr_only_on_complete 报错
+            // ---------------------------------------------------------
+            6: begin
+                $display("== 注入 R6 违规：IDLE 阶段 PSLVERR=1 ==");
+                tick();
+                apb.PSEL = 0; apb.PENABLE = 0; apb.PSLVERR = 1;
+                tick();
+                $display("FAIL: R6 断言未捕获违规（应报 PSLVERR outside completion）");
+                $fatal(1);
+            end
+
+            // ---------------------------------------------------------
             // CASE 5：合法序列（所有断言都不应误报）
             // ---------------------------------------------------------
             default: begin

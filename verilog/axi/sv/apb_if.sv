@@ -75,6 +75,14 @@ interface apb_if #(
     cov_xfer_done: cover property (@(posedge PCLK)
         PSEL && PENABLE && PREADY);
 
+    // R6: PSLVERR 只在「完成拍」有效
+    //    APB 规范：PSLVERR 仅在 PSEL=1 && PENABLE=1 && PREADY=1 那拍有意义，
+    //    其它时刻必须为 0（否则 master 可能误判一个未完成的传输为失败）。
+    ap_slverr_only_on_complete:
+        assert property (@(posedge PCLK)
+            PSLVERR |-> (PSEL && PENABLE && PREADY))
+        else $error("APB R6: PSLVERR asserted outside the completion cycle");
+
     // 完成拍后下一拍必须退出 ACCESS（R5: 完成后回 IDLE/SETUP）
     ap_xfer_done_exits:
         assert property (@(posedge PCLK)

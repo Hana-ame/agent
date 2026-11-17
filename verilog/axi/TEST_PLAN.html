@@ -253,8 +253,8 @@ footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e
 
 <h2><span class="n">04</span>现有 TB 资产</h2>
 <p><b>已实现的向量类别</b>：</p><ul><li>回环基本集：写满 → 读回（每笔写后 pause 1 拍）</li><li>随机向量：写/读混合，随机 pause(0~3) 与 same</li><li>边界向量：越界读写（exp_err=1，期望 SLVERR）</li></ul>
-<p><b>已实现的 SVA 断言</b>（10 条）：</p>
-<div><span class="chip">ap_aw_valid_stable</span><span class="chip">ap_w_valid_stable</span><span class="chip">ap_ar_valid_stable</span><span class="chip">ap_b_valid_stable</span><span class="chip">ap_r_valid_stable</span><span class="chip">ap_penable_requires_psel</span><span class="chip">ap_no_ready_in_setup</span><span class="chip">ap_access_stable_until_ready</span><span class="chip">cov_xfer_done</span><span class="chip">ap_xfer_done_exits</span></div>
+<p><b>已实现的 SVA 断言</b>（11 条）：</p>
+<div><span class="chip">ap_aw_valid_stable</span><span class="chip">ap_w_valid_stable</span><span class="chip">ap_ar_valid_stable</span><span class="chip">ap_b_valid_stable</span><span class="chip">ap_r_valid_stable</span><span class="chip">ap_penable_requires_psel</span><span class="chip">ap_no_ready_in_setup</span><span class="chip">ap_access_stable_until_ready</span><span class="chip">cov_xfer_done</span><span class="chip">ap_slverr_only_on_complete</span><span class="chip">ap_xfer_done_exits</span></div>
 <p style="margin-top:12px"><b>从机参数</b>：AW=8, DW=32, NREG=16, WAIT_CYCLES=2</p>
 <p><b>桥 FSM 状态</b>（11 个）：S_IDLE, S_AW_H, S_W_H, S_AWW_H, S_WR_SETUP, S_WR_ACC, S_B_RESP, S_AR_H, S_RD_SETUP, S_RD_ACC, S_R_RESP</p>
 

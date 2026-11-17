@@ -260,7 +260,7 @@ case "${1:-all}" in
           set +e          # 本任务是逐条检查并汇总，不因单条失败而中断
           AE_FAIL=0
           echo "== asserteff: 断言有效性验证 =="
-          for c in 1 2 3 4; do
+          for c in 1 2 3 4 6; do
               d="run/ae_$c"
               rm -rf "$d"; mkdir -p "$d"
               if ! "$VLT" --binary --assert --timing \
@@ -280,6 +280,7 @@ case "${1:-all}" in
                   2) AE_EXPECT="ap_no_ready_in_setup" ;;
                   3) AE_EXPECT="ap_access_stable_until_ready" ;;
                   4) AE_EXPECT="ap_xfer_done_exits" ;;
+                  6) AE_EXPECT="ap_slverr_only_on_complete" ;;
               esac
               if echo "$out" | grep -qE "Assertion failed.*[.]${AE_EXPECT}:"; then
                   printf "  CASE=%-2s 断言 %-28s 正确触发 PASS\n" "$c" "$AE_EXPECT"
