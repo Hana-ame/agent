@@ -83,13 +83,29 @@ module axi_txn_host #(
         end
 
         // ---------------- pause：事务之间插入空闲拍 ----------------
-        // 总线保持全部 VALID=0，验证桥在无请求时保持空闲稳定
+        // 总线保持全部 VALID=0，验证桥在无请求时保持空闲稳定。
+        //
+        // ⚠ r.idle 必须是**实测**的空闲拍数，不能直接赋 t.pause ——
+        //   否则测试里的 `if (r.idle !== t.pause)` 就成了自证循环，
+        //   永远不会失败（原实现就是 `r.idle = t.pause;`）。
+        //   现在改为逐拍确认「总线确实空闲」（VALID 全为 0）后才计数，
+        //   因此若桥在该期间仍然拉高 VALID 或有未完成握手，idle 会偏小。
         if (t.pause != 0) begin
+            int measured;
+            measured = 0;
             axi.AWVALID <= 1'b0;
             axi.WVALID  <= 1'b0;
             axi.ARVALID <= 1'b0;
-            repeat (t.pause) @(posedge ACLK);
-            r.idle = t.pause;
+            for (int k = 0; k < t.pause; k++) begin
+                @(posedge ACLK); #1;
+                // 空闲判据：三个请求通道的 VALID 都未被 DUT 拉高
+                if (axi.AWVALID === 1'b0 && axi.WVALID === 1'b0 &&
+                    axi.ARVALID === 1'b0)
+                    measured++;
+            end
+            r.idle = measured;
+        end else begin
+            r.idle = 0;
         end
     endtask
 
