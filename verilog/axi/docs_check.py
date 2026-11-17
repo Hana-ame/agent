@@ -150,6 +150,35 @@ def check_deprecated():
     return ok("D4 无废弃工具残留（iverilog/irun/xrun/vcs 仅作历史说明）")
 
 
+def check_tool_capability_claims():
+    """D7: 工具能力声明必须与工具实际能力一致。
+
+    实例：DESIGN.html 曾把 slang 12.1 的行/翻转覆盖率标为 ✅，
+    但 slang 是**静态编译器**（有 --lint-only），不做仿真，
+    不可能产生行覆盖率。这类错误会让读者误判工具分工。
+    """
+    f = HERE / "DESIGN.html"
+    if not f.exists():
+        return ok("D7 工具能力表（跳过：无 DESIGN.html）")
+    txt = read(f)
+    bad = []
+    # slang 行若把「覆盖率」标为 ✅，即为错误
+    for i, line in enumerate(txt.splitlines(), 1):
+        if "slang" in line and "覆盖率" not in line:
+            # 同一 <tr> 行内含 slang 且后面有覆盖率列
+            if 'class="yes">✅' in line:
+                cells = line.count('class="yes">✅')
+                # slang 行应有 4 个能力列可 ✅，第 5 列（覆盖率）必须不是 ✅
+                if cells >= 5:
+                    bad.append(f"DESIGN.html:{i} slang 行把覆盖率标为 ✅（编译器不产生覆盖率）")
+    if bad:
+        fail(f"D7 {len(bad)} 处工具能力声明与实际不符")
+        for b in bad[:3]:
+            print(f"       {b}")
+        return 1
+    return ok("D7 工具能力声明与实现一致")
+
+
 def check_html_balance():
     """D5: HTML 标签平衡"""
     bad = []
@@ -230,6 +259,7 @@ def main():
     rc += check_deprecated()
     rc += check_html_balance()
     rc += check_readme_stats()
+    rc += check_tool_capability_claims()
     print("=" * 58)
     if rc == 0:
         print("\033[32m✅ 文档与实现一致\033[0m")

@@ -521,7 +521,7 @@ footer{
 <span class="hl">PASS: counter8 SV, all checks passed</span>            <span class="dim">counter8</span>
 <span class="hl">PASS: axi-&gt;apb-&gt;axi all 35 checks passed</span>         <span class="dim">axi</span>
 <span class="hl">PASS: ... 234 checks, 0 errors</span>                  <span class="dim">sv（向量化）</span>
-<span class="hl">PASS: gaps suite</span>                                 <span class="dim">gaps（285 检查）</span>
+<span class="hl">PASS: gaps suite</span>                                 <span class="dim">gaps（289 检查）</span>
 <span class="hl">PASS: dual bridge ...</span>                            <span class="dim">dual / dualstress / dualerr / duallegal</span>
 <span class="hl">PASS: all monitor rules verified</span>                <span class="dim">monitorrules（12 项）</span>
 <span class="hl">PASS: latency baseline</span> / <span class="hl">fairness and throughput</span>  <span class="dim">latency / fairness</span>
@@ -575,7 +575,7 @@ Top level design units:
   <table>
     <thead><tr><th>工具</th><th>interface 端口</th><th>clocking</th><th>SVA</th><th>class 随机</th><th>行/翻转覆盖率</th></tr></thead>
     <tbody>
-      <tr><td>slang 12.1</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td></tr>
+      <tr><td>slang 12.1（静态检查）</td><td class="yes">✅</td><td class="yes">✅</td><td class="yes">✅</td><td class="part">✅ 仅语法检查</td><td class="no">❌ 不执行仿真</td></tr>
       <tr><td>Verilator 5.055（最新，自编译）</td><td class="yes">✅</td><td class="yes">✅</td><td class="part">✅ 子集</td><td class="part">✅ 需 z3</td><td class="no">❌ 宏隔离</td></tr>
       <tr><td>Verilator 5.020（apt 旧版）</td><td class="no">❌ 跨文件虚接口缺陷</td><td class="part">⚠️</td><td class="yes">✅</td><td class="part">⚠️</td><td class="no">❌</td></tr>
       <tr><td>irun / VCS（历史路径：本机无、从未实测）</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td><td class="part">理论支持</td></tr>
