@@ -230,7 +230,7 @@ module tb_param_sv #(
 
         n = (NREG < 4) ? NREG : 4;
         for (int i = 0; i < n; i++)
-            wr_chk(AW'(i*4), $urandom, "P04-wr");
+            wr_chk(AW'(i*4), $urandom(`TXN_DW + i), "P04-wr");
 
         for (int i = 0; i < n; i++) begin
             txn_t t; rsp_t r;

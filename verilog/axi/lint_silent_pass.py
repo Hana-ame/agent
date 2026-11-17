@@ -39,7 +39,28 @@ RULES = {
     "S7": "协议版本声明与信号集不符（声称的版本含未实现信号）",
     "S8": "DW 可参数化但向量用 32 位常量，且未声明位宽覆盖范围",
     "S9": "并行实现（A/B 两套等价模块）的参数/检查项不一致",
+    "S10": "$urandom 无参调用（随机不可复现，失败无法重跑）",
 }
+
+
+def scan_s10(path: Path):
+    """检测无参 $urandom。
+
+    $urandom 无参时每次运行种子不同 → 测试向量不同 → 失败不可复现。
+    应写成 $urandom(SEED + ...) 或固定常量。
+    """
+    if path.suffix != ".sv":
+        return []
+    out = []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for i, raw in enumerate(lines, 1):
+        code = raw.split("//")[0]
+        if not code.strip():
+            continue
+        # $urandom 后面不跟 ( 即为无参
+        for m in re.finditer(r"\$urandom\b(?!\s*\()", code):
+            out.append((i, "$urandom 无参调用（不可复现）"))
+    return out
 
 
 def scan_s9(path: Path):
@@ -339,6 +360,7 @@ def main():
         issues += [(ln, "S7", d) for ln, d in scan_s7(f)]
         issues += [(ln, "S8", d) for ln, d in scan_s8(f)]
         issues += [(ln, "S9", d) for ln, d in scan_s9(f)]
+        issues += [(ln, "S10", d) for ln, d in scan_s10(f)]
 
         if not issues:
             continue

@@ -175,8 +175,8 @@ module tb_regfile_gen #(
         end
 
         $display("== RW 寄存器（读写）==");
-        // INT_ENABLE: 写随机值读回一致
-        wv = $urandom;
+        // INT_ENABLE: 写随机值读回一致（seed 由寄存器偏移决定，可复现）
+        wv = $urandom(32'h5EED_0000 + 20);
         write_reg(8'h14, wv);
         read_reg(8'h14, d);
         checks++;
@@ -184,8 +184,8 @@ module tb_regfile_gen #(
             $display("  [RW] FAIL: INT_ENABLE 写=%h 读=%h", wv, d);
             errors++;
         end
-        // DATA_IN: 写随机值读回一致
-        wv = $urandom;
+        // DATA_IN: 写随机值读回一致（seed 由寄存器偏移决定，可复现）
+        wv = $urandom(32'h5EED_0000 + 24);
         write_reg(8'h18, wv);
         read_reg(8'h18, d);
         checks++;
@@ -193,8 +193,8 @@ module tb_regfile_gen #(
             $display("  [RW] FAIL: DATA_IN 写=%h 读=%h", wv, d);
             errors++;
         end
-        // DATA_OUT: 写随机值读回一致
-        wv = $urandom;
+        // DATA_OUT: 写随机值读回一致（seed 由寄存器偏移决定，可复现）
+        wv = $urandom(32'h5EED_0000 + 28);
         write_reg(8'h1C, wv);
         read_reg(8'h1C, d);
         checks++;
@@ -202,8 +202,8 @@ module tb_regfile_gen #(
             $display("  [RW] FAIL: DATA_OUT 写=%h 读=%h", wv, d);
             errors++;
         end
-        // SCRATCH: 写随机值读回一致
-        wv = $urandom;
+        // SCRATCH: 写随机值读回一致（seed 由寄存器偏移决定，可复现）
+        wv = $urandom(32'h5EED_0000 + 32);
         write_reg(8'h20, wv);
         read_reg(8'h20, d);
         checks++;

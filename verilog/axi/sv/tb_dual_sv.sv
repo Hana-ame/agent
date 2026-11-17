@@ -24,7 +24,8 @@
 module tb_dual_sv #(
     parameter int AW = 8,
     parameter int DW = 32,
-    parameter int NREG = 16
+    parameter int NREG = 16,
+    parameter int SEED = 1     // 随机种子（固定以便复现；-GSEED=n 可扫）
 );
 
     import axi_defs_pkg::*;
@@ -268,9 +269,9 @@ module tb_dual_sv #(
         for (int i = 0; i < NREG; i++) mirror[i] = '0;
 
         for (int k = 0; k < 30; k++) begin
-            automatic int idx = $urandom % NREG;
-            automatic bit [DW-1:0] d = $urandom;
-            automatic int ridx = $urandom % NREG;
+            automatic int idx = $urandom(SEED + k*3 + 0) % NREG;
+            automatic bit [DW-1:0] d = $urandom(SEED + k*3 + 1);
+            automatic int ridx = $urandom(SEED + k*3 + 2) % NREG;
             automatic bit [DW-1:0] got;
             automatic bit [1:0] resp;
 

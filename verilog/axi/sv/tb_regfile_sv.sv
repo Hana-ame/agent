@@ -163,7 +163,7 @@ module tb_regfile_sv #(
         logic [DW-1:0] d, val;
         $display("== REF-04: RW 寄存器（读写）==");
         for (int k = 0; k < 5; k++) begin
-            val = $urandom;
+            val = $urandom(32'h5EED_0001);
             write_reg(A_RW, val);
             read_reg(A_RW, d);
             checks++;

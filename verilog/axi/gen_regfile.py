@@ -513,8 +513,8 @@ def gen_tb(spec):
     ) or "        // （规格中无 RSVD 寄存器）"
 
     rw_body = "\n".join(
-        f'        // {r["name"]}: 写随机值读回一致\n'
-        f'        wv = $urandom;\n'
+        f'        // {r["name"]}: 写随机值读回一致（seed 由寄存器偏移决定，可复现）\n'
+        f'        wv = $urandom(32\'h5EED_0000 + {off(r)});\n'
         f'        write_reg({aw}\'h{off(r):02X}, wv);\n'
         f'        read_reg({aw}\'h{off(r):02X}, d);\n'
         f'        checks++;\n'
