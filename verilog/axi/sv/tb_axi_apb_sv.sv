@@ -119,6 +119,7 @@ module tb_axi_apb_sv;
     int errors = 0;
     int checks = 0;
     int pause_checks = 0;
+    int same_checks = 0;
 
     function automatic void check_rsp(input txn_t t, input rsp_t r);
         int idx = t.addr >> 2;
@@ -140,6 +141,17 @@ module tb_axi_apb_sv;
             end else if (r.data !== ref_mem[idx]) begin
                 $display("SB FAIL[%0d]: RD addr=%0d exp=%h got=%h",
                          checks, t.addr, ref_mem[idx], r.data);
+                errors++;
+            end
+        end
+        // same 可观测性：same=1 的写事务，两个 VALID 必须真同拍拉起。
+        // 原实现只把 same 当输入传给 host，从未验证它是否生效 ——
+        // 若 host 内部把它当 0 处理，测试也发现不了。
+        if (t.write && t.same) begin
+            same_checks++;
+            if (r.same_ok !== 1'b1) begin
+                $display("SB FAIL[%0d]: same=1 但 AWVALID/WVALID 未同拍拉起",
+                         checks);
                 errors++;
             end
         end
@@ -179,8 +191,8 @@ module tb_axi_apb_sv;
         end
 
         // ---- 汇总 ----
-        $display("== 3 data compare: %0d checks, %0d pause checks, %0d errors ==",
-                 checks, pause_checks, errors);
+        $display("== 3 data compare: %0d checks, %0d pause checks, %0d same checks, %0d errors ==",
+                 checks, pause_checks, same_checks, errors);
         $display("-- SUMMARY: %0d txns, %0d pause cycles injected --",
                  txns, total_pause);
         if (errors == 0) begin

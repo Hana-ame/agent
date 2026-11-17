@@ -53,7 +53,8 @@ package bus_txn_pkg;
     typedef struct packed {
         bit [`TXN_DW-1:0] data;  // 读回数据（写时回显写入值），位宽由 TXN_DW 配置
         bit [1:0]      resp;    // 实际响应编码
-        bit [7:0]      idle;    // 被 pause 的空闲拍计数（可观测）
+        bit [7:0]      idle;    // 被 pause 的空闲拍计数（可观测，实测）
+        bit            same_ok; // same=1 时两 VALID 是否真同拍拉起（实测）
     } rsp_t;
 
 endpackage

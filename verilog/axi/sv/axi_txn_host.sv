@@ -40,11 +40,20 @@ module axi_txn_host #(
         if (t.write) begin
             // ---------------- 写事务 ----------------
             if (t.same) begin
-                // AW + W 同拍
+                // AW + W 同拍（本拍驱动后，两者应同时为 1）
                 @(posedge ACLK);
                 axi.AWVALID <= 1'b1; axi.AWADDR <= t.addr;
                 axi.WVALID  <= 1'b1; axi.WDATA  <= t.data;
-                do @(posedge ACLK); while (!(axi.AWVALID && axi.AWREADY));
+                r.same_ok = 1'b1;   // 默认成立，若观察到这里不是同拍再置 0
+
+                // 等待 AW 握手。注意：必须用「本拍采样」而非额外插一拍，
+                // 否则会跳过握手窗口导致死等（曾经踩过）。
+                do begin
+                    @(posedge ACLK); #1;
+                    // 同拍性检查：AWVALID 尚在时，WVALID 也应在
+                    if (axi.AWVALID && !axi.WVALID && axi.AWREADY !== 1'bx)
+                        r.same_ok = 1'b0;
+                end while (!(axi.AWVALID && axi.AWREADY));
                 axi.AWVALID <= 1'b0;
                 do @(posedge ACLK); while (!(axi.WVALID && axi.WREADY));
                 axi.WVALID  <= 1'b0;
