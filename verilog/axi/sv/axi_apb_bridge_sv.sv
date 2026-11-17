@@ -37,12 +37,19 @@ module axi_apb_bridge_sv #(
     // 位序：IDLE→AWW/IDLE→AW/IDLE→W/IDLE→AR/AW_H→AWW/W_H→AWW/
     //       AWW→WR_SETUP/WR_SETUP→WR_ACC/WR_ACC→B_RESP/B_RESP→IDLE/
     //       AR_H→RD_SETUP/RD_SETUP→RD_ACC/RD_ACC→R_RESP/R_RESP→IDLE
+    // 注意：trans_seen **不随复位清零**。
+    // 它的语义是「自仿真开始以来是否见过这条转移」，属累计统计。
+    // 若随复位清零，那么「多次复位」的测试会把之前记录的转移抹掉
+    // （本轮实测：tb_cov_gaps 的 COV-01 明明走过 IDLE→W_H→AWW_H，
+    //   但后续 t_reset_paths 里 3 次 do_reset 把记录清空了，
+    //   最后检查读到全 0，误判成「路径未覆盖」）。
+    // 状态机 bean 本身仍随复位归位，只有统计寄存器保持累计。
     logic [13:0] trans_seen;
     state_t state_prev;
     always_ff @(posedge ACLK or negedge ARESETn) begin
         if (!ARESETn) begin
-            trans_seen <= '0;
             state_prev <= S_IDLE;
+            // trans_seen 保持原值（不清零）
         end else begin
             // 用「上一拍状态 → 本拍状态」判定转移是否发生。
             // 不能用 {state, next}：next 是组合信号，与 state 同拍变化，

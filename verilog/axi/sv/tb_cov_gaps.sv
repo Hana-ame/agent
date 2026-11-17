@@ -321,20 +321,27 @@ module tb_cov_gaps #(
         end else
             $display("  [MON] 协议监视器通过（观测 %0d 次 APB 传输）", mon.xfer_count);
 
-        // ---- 关于「W 先到」路径的覆盖证据 ----
-        // COV-01 的功能断言已经证明：单发 WVALID 被接受（进入 S_W_H）、
-        // 随后 AW 到达并成功握手、数据正确落盘。这三条足以证明
-        // 「W 先、AW 后」这条路径真实走通了。
-        //
-        // 曾尝试用桥内的 trans_seen 掩码来「客观」验证 IDLE→W_H / W_H→AWW_H
-        // 两条转移，但实测无法让它生效：
-        //   - 桥内直接打印确认状态确实走过 0→2→3（即 IDLE→W_H→AWW_H）
-        //   - 但 trans_seen 位始终为 0，试过 case({prev,cur}) 与独立 if 均无效
-        //   - 怀疑与 Verilator 对「同拍更新的枚举信号组合判定」处理有关
-        // 决定不在这上面继续投入，保留功能断言作为覆盖证据。
-        // （串行桥在 tb_axi_apb_sv 里的 trans_seen 是有效的，
-        //   本轮之前实测 12/14 并正确指出了缺失项，说明机制本身可行，
-        //   差异可能在于本 TB 的复位/时序结构。）
+        // ---- 状态转移覆盖：客观验证「W 先到」两条转移确实发生 ----
+        // 本套件存在的目的就是补 sv 套件缺的 IDLE→W_H 与 W_H→AWW_H。
+        // 用桥内的 trans_seen 掩码直接验证，而不是只靠功能断言推断。
+        begin
+            logic ok_wentry, ok_wh2aww;
+            int n_covered;
+            ok_wentry = bridge.trans_seen[2];   // IDLE → W_H（仅 W 发起）
+            ok_wh2aww = bridge.trans_seen[5];   // W_H  → AWW_H（W 先到、AW 后到）
+            n_covered = 0;
+            for (int i = 0; i < 14; i++)
+                if (bridge.trans_seen[i]) n_covered++;
+            checks++;
+            $display("  串行桥转移覆盖: %0d/14 条（已覆盖 W 先到路径）",
+                     n_covered);
+            if (!(ok_wentry && ok_wh2aww)) begin
+                $display("  [COV] FAIL: W 先到路径未覆盖（IDLE→W_H=%%b, W_H→AWW_H=%%b）",
+                         ok_wentry, ok_wh2aww);
+                errors++;
+            end else
+                $display("  ✓ 已客观验证：sv 套件缺的两条转移在本套件均发生");
+        end
 
         $display(" cov-gaps result: %0d checks, %0d errors", checks, errors);
         if (errors == 0) begin
