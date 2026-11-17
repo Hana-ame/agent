@@ -179,6 +179,52 @@ def check_tool_capability_claims():
     return ok("D7 工具能力声明与实现一致")
 
 
+def check_coverage_consistency():
+    """D8: gen_coverage_html.py 与 gen_portal.py 的 RTL 口径必须一致。
+
+    背景：两个脚本各自维护一套「非缺口」分类正则
+    （gen_coverage_html 用函数 is_checker_only，gen_portal 用 _NON_GAP_RES）。
+    历史上已出现 2 次「改一处漏一处」：
+      - 补 return 注解缺陷时漏了 portal
+      - 补检查器失败标记时漏了 portal
+    因此这里直接跑两个脚本，比对它们给出的 RTL 数字是否相同。
+    """
+    import subprocess
+    def run(script):
+        try:
+            r = subprocess.run([sys.executable, str(HERE / script)],
+                               capture_output=True, text=True, cwd=str(HERE), timeout=300)
+            return r.stdout + r.stderr
+        except Exception as e:
+            return f"__ERROR__ {e}"
+
+    out1 = run("gen_coverage_html.py")
+    out2 = run("gen_portal.py")
+    if "__ERROR__" in out1 or "__ERROR__" in out2:
+        return warn("D8 覆盖率脚本执行失败（跳过比对）")
+
+    def grab(txt, pat):
+        m = re.search(pat, txt)
+        return m.group(1) if m else None
+
+    # gen_coverage_html: 【RTL】有效覆盖率: 100.0%  (252/252)
+    a = grab(out1, r"【RTL】有效覆盖率:\s*([0-9.]+%)\s*\((\d+)/(\d+)\)")
+    a2 = grab(out1, r"【RTL】有效覆盖率:\s*[0-9.]+%\s*\(\d+/(\d+)\)")
+    b = grab(out2, r"RTL 覆盖率\s*([0-9.]+%)（(\d+)/(\d+)")
+    if not b:
+        b = grab(out2, r"RTL 覆盖率\s*([0-9.]+%)")
+    if a is None or b is None:
+        return warn("D8 无法解析覆盖率输出（跳过比对）")
+
+    # 比对有效分母
+    den_a = grab(out1, r"【RTL】有效覆盖率:\s*[0-9.]+%\s*\(\d+/(\d+)\)")
+    den_b = grab(out2, r"RTL 覆盖率\s*[0-9.]+%（\d+/(\d+)")
+    if den_a != den_b:
+        return fail(f"D8 两个覆盖率脚本口径不一致：gen_coverage_html 分母={den_a}，"
+                    f"gen_portal 分母={den_b}（改分类规则时要成对改）")
+    return ok(f"D8 覆盖率口径一致（RTL 有效分母 {den_a}）")
+
+
 def check_html_balance():
     """D5: HTML 标签平衡"""
     bad = []
@@ -260,6 +306,7 @@ def main():
     rc += check_html_balance()
     rc += check_readme_stats()
     rc += check_tool_capability_claims()
+    rc += check_coverage_consistency()
     print("=" * 58)
     if rc == 0:
         print("\033[32m✅ 文档与实现一致\033[0m")
