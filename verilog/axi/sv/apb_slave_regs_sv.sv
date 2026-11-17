@@ -17,6 +17,33 @@ module apb_slave_regs_sv #(
     apb_if.slave apb
 );
 
+    // 参数合法性检查（启动期）。
+    // WAIT_CYCLES 内部是 8 位计数器（wait_cnt[7:0]），>255 会被**静默截断**：
+    //   WAIT_CYCLES=256 → 截断为 0 → 实际零等待
+    //   WAIT_CYCLES=300 → 截断为 44
+    // 实测 WAIT_CYCLES=256 时延迟只有 7 周期（期望 263），
+    // 且没有任何提示。这里显式拦住。
+    initial begin
+        if (WAIT_CYCLES < 0 || WAIT_CYCLES > 255) begin
+            $display("ERROR: WAIT_CYCLES=%0d 越界（有效范围 0..255，内部为 8 位计数器）",
+                     WAIT_CYCLES);
+            $fatal(1, "invalid WAIT_CYCLES parameter");
+        end
+        // 注：不限制 DW 取值。参数矩阵里实际有 DW=8/16/32/64 的配置，
+        //     本项目在这几种位宽下都能正常工作（见 params 套件 16 组全通过）。
+        //     曾经想限制为「仅 32/64」，实测会让 4 组配置失败 ——
+        //     那是过度约束，不是真实约束，已撤回。
+        if (AW < 2 || AW > 32) begin
+            $display("ERROR: AW=%0d 越界（有效范围 2..32）", AW);
+            $fatal(1, "invalid AW parameter");
+        end
+        if (NREG < 1 || (NREG * (DW/8)) > (1 << AW)) begin
+            $display("ERROR: NREG=%0d 与 AW=%0d/DW=%0d 不匹配（地址空间装不下）",
+                     NREG, AW, DW);
+            $fatal(1, "invalid NREG/AW combination");
+        end
+    end
+
     import apb_defs_pkg::*;
 
     // ---- 寄存器堆 ----
