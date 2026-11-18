@@ -344,6 +344,45 @@ def check_file_line_counts():
     return ok(f"D11 {checked} 个文件行数与实际一致")
 
 
+def check_html_renderable():
+    """D12: HTML 交付物必须包含可渲染的实质内容。
+
+    与 D5（标签平衡）互补：D5 只查结构，这里查「打开后有没有内容」。
+    实例风险：生成器出错时可能产出空 body 或只有标题的页面，
+    标签仍然平衡但页面是空的。
+    """
+    required = {
+        "INDEX.html": ["文档门户", "测试套件"],
+        "DESIGN.html": ["设计"],
+        "TEST_PLAN.html": ["测试"],
+        "COVERAGE.html": ["覆盖率"],
+        "FSM.html": ["FSM"],
+        "INTERFACE_MAP.html": ["接口"],
+        "REGFILE.html": ["寄存器"],
+    }
+    bad = []
+    for name, keywords in required.items():
+        f = HERE / name
+        if not f.exists():
+            bad.append(f"{name}: 文件不存在")
+            continue
+        txt = read(f)
+        # 去掉标签后的可见文本长度（粗估）
+        text = re.sub(r"<script.*?</script>", " ", txt, flags=re.S)
+        text = re.sub(r"<style.*?</style>", " ", text, flags=re.S)
+        text = re.sub(r"<[^>]+>", " ", text)
+        visible = len(re.sub(r"\s+", "", text))
+        if visible < 300:
+            bad.append(f"{name}: 可见文本仅 {visible} 字符（疑似空页面）")
+            continue
+        if not all(k in txt for k in keywords):
+            missing = [k for k in keywords if k not in txt]
+            bad.append(f"{name}: 缺少关键内容 {missing}")
+    if bad:
+        return fail(f"D12 {len(bad)} 个 HTML 交付物不可用")
+    return ok(f"D12 {len(required)} 个 HTML 交付物均可渲染")
+
+
 def check_html_balance():
     """D5: HTML 标签平衡"""
     bad = []
@@ -429,6 +468,7 @@ def main():
     rc += check_lint_warnings()
     rc += check_sv_feature_claims()
     rc += check_file_line_counts()
+    rc += check_html_renderable()
     print("=" * 58)
     if rc == 0:
         print("\033[32m✅ 文档与实现一致\033[0m")
