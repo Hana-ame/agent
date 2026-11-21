@@ -11,8 +11,12 @@
 #   自编译步骤不复杂但容易漏依赖，所以做成脚本。
 #
 # 用法
-#   bash setup_env.sh                   # 默认装到 /tmp/verilator
+#   bash setup_env.sh                   # 默认装到 ~/.local/verilator（持久）
 #   PREFIX=$HOME/tools bash setup_env.sh  # 自定义安装位置
+#
+# 注意：旧版本默认装到 /tmp/verilator。但 /tmp 是易失目录，
+# 系统重启 / tmpfiles 清理会让 7 个脚本同时失效。因此默认位置已改为
+# ~/.local/verilator；/tmp/verilator 仅作为兼容回退被探测。
 #   bash setup_env.sh --check           # 只检查现有环境是否满足
 #
 # 幂等：已满足要求时直接退出，不重复编译。
@@ -25,7 +29,7 @@ else R=''; G=''; Y=''; B=''; D=''; fi
 
 MIN_VER_MAJOR=5
 MIN_VER_MINOR=40
-PREFIX="${PREFIX:-/tmp/verilator}"
+PREFIX="${PREFIX:-$HOME/.local/verilator}"
 CHECK_ONLY=0
 for a in "$@"; do
     case "$a" in
@@ -118,21 +122,28 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 
 # ---- 3. 获取源码 ----
+# 源码目录与安装目录必须分开：旧实现 SRC_DIR="$PREFIX"，
+# 源码和安装树混在同一目录，既污染 prefix，也让 rm -rf 非常危险。
 echo ""
 echo -e "${B}获取 Verilator 源码${R}"
-SRC_DIR="$PREFIX"
+SRC_DIR="${SRC_DIR:-${TMPDIR:-/tmp}/verilator-src}"
+# 固定 tag：旧实现直接 clone master（devel），版本随时漂移且
+# 曾出现按不存在的 tag（v5.055 未发布）clone 直接失败。
+VLT_TAG="${VLT_TAG:-v5.054}"
 if [ -d "$SRC_DIR/.git" ]; then
     echo -e "  ${D}已有源码目录，复用：$SRC_DIR${R}"
-    ( cd "$SRC_DIR" && git fetch --depth 1 origin 2>/dev/null || true )
+    ( cd "$SRC_DIR" && git fetch --depth 1 origin         "+refs/tags/$VLT_TAG:refs/tags/$VLT_TAG" 2>/dev/null || true )
+    ( cd "$SRC_DIR" && git checkout -q "$VLT_TAG" 2>/dev/null || true )
 else
-    echo -e "  ${D}克隆到 $SRC_DIR（浅克隆，约 1-2 分钟）${R}"
+    echo -e "  ${D}克隆 $VLT_TAG 到 $SRC_DIR（浅克隆，约 1-2 分钟）${R}"
     rm -rf "$SRC_DIR"
-    if ! git clone --depth 1 https://github.com/verilator/verilator.git "$SRC_DIR"; then
+    if ! git clone --depth 1 --branch "$VLT_TAG" \
+            https://github.com/verilator/verilator.git "$SRC_DIR"; then
         echo -e "  ${Y}✗ clone 失败（网络问题？）${R}"
         echo "  手动方式："
-        echo "    git clone --depth 1 https://github.com/verilator/verilator.git $SRC_DIR"
-        echo "    cd $SRC_DIR && autoconf && ./configure --prefix=$SRC_DIR"
-        echo '    make -j$(nproc) && make install'
+        echo "    git clone --depth 1 --branch $VLT_TAG https://github.com/verilator/verilator.git $SRC_DIR"
+        echo "    cd $SRC_DIR && autoconf && ./configure --prefix=$PREFIX"
+        echo '    make -j$(nproc)'
         exit 1
     fi
 fi
@@ -148,8 +159,8 @@ if [ ! -f configure ]; then
     autoconf >/dev/null 2>&1 || { echo -e "  ${Y}✗ autoconf 失败${R}"; exit 1; }
 fi
 
-echo -e "  ${D}configure --prefix=$SRC_DIR${R}"
-if ! ./configure --prefix="$SRC_DIR" >/tmp/verilator_configure.log 2>&1; then
+echo -e "  ${D}configure --prefix=$PREFIX${R}"
+if ! ./configure --prefix="$PREFIX" >/tmp/verilator_configure.log 2>&1; then
     echo -e "  ${Y}✗ configure 失败，详见 /tmp/verilator_configure.log${R}"
     tail -8 /tmp/verilator_configure.log | sed 's/^/      /'
     exit 1
@@ -163,15 +174,44 @@ if ! make -j"$JOBS" >/tmp/verilator_make.log 2>&1; then
 fi
 
 echo -e "  ${D}make install${R}"
+# make install 会为 man page 调 help2man；该工具缺失时 install 以 2 退出，
+# 但二进制其实已经构建好了（Error 127 = command not found）。
+# 这里不把「man page 生成失败」当成安装失败，改为手工复制兜底，
+# 否则缺 help2man 的机器永远装不上（本项目实际踩到过）。
 if ! make install >/tmp/verilator_install.log 2>&1; then
-    echo -e "  ${Y}✗ make install 失败${R}"
-    exit 1
+    if [ -x bin/verilator_bin ]; then
+        echo -e "  ${D}make install 失败（多为缺 help2man），改用手工安装${R}"
+        mkdir -p "$PREFIX/bin" "$PREFIX/share/verilator/include" "$PREFIX/share/verilator/bin"
+        cp bin/verilator_bin "$PREFIX/bin/"
+        [ -x bin/verilator_bin_dbg ] && cp bin/verilator_bin_dbg "$PREFIX/bin/"
+        [ -x bin/verilator ] && cp bin/verilator "$PREFIX/bin/"
+        cp -r include/* "$PREFIX/share/verilator/include/" 2>/dev/null || true
+        # verilator_includer 是 __ALL.cpp 生成所必需的 python 脚本，
+        # 漏装会让所有构建在 make 阶段报 can't open file（曾实际踩到）
+        cp bin/verilator_includer "$PREFIX/share/verilator/bin/" 2>/dev/null || true
+        for _x in verilator_coverage verilator_gantt verilator_profcfunc; do
+            [ -f "bin/$_x" ] && cp "bin/$_x" "$PREFIX/bin/" && chmod +x "$PREFIX/bin/$_x"
+        done
+        # 生成可用的 verilator 驱动脚本（verilator_bin 需要 VERILATOR_ROOT）
+        cat > "$PREFIX/bin/verilator" <<'WRAP'
+#!/bin/sh
+: "${VERILATOR_ROOT:=@PREFIX@/share/verilator}"
+export VERILATOR_ROOT
+exec "@PREFIX@/bin/verilator_bin" "$@"
+WRAP
+        sed -i "s|@PREFIX@|$PREFIX|g" "$PREFIX/bin/verilator"
+        chmod +x "$PREFIX/bin/verilator"
+    else
+        echo -e "  ${Y}✗ make install 失败${R}"
+        tail -8 /tmp/verilator_install.log | sed 's/^/      /'
+        exit 1
+    fi
 fi
 
 # ---- 5. 验证 ----
 echo ""
 echo -e "${B}验证安装${R}"
-NEW_V=$(check_one "$SRC_DIR/bin/verilator_bin") || NEW_V=""
+NEW_V=$(check_one "$PREFIX/bin/verilator_bin") || NEW_V=""
 if [ -z "$NEW_V" ] || ! ver_ok "$NEW_V"; then
     echo -e "  ${Y}✗ 安装后仍找不到可用版本${R}"
     exit 1

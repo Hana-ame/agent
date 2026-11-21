@@ -9,9 +9,15 @@
 > **快速准备环境**：
 > ```bash
 > bash setup_env.sh --check     # 先检查现有环境是否满足
-> bash setup_env.sh             # 不满足则自动编译安装到 /tmp/verilator
+> bash setup_env.sh             # 不满足则自动编译安装到 ~/.local/verilator（持久）
 > ```
 > 脚本幂等：已满足要求时立即退出。也可 `PREFIX=$HOME/tools bash setup_env.sh` 指定安装位置。
+>
+> **安装位置为什么是 `~/.local/verilator`**：旧版本默认装到 `/tmp/verilator`，
+> 但 `/tmp` 是易失目录，系统重启 / tmpfiles 清理会让整套脚本同时失效，
+> 报错只是「找不到 verilator」，看不出根因。现在所有脚本用 `vlt_env.sh`
+> 探测：`$VERILATOR` → `$VERILATOR_ROOT` → `~/.local/verilator` →
+> `/tmp/verilator`（兼容旧安装并提示易失）→ PATH。
 >
 > 或手动设置 `VERILATOR=/path/to/verilator_bin` / `VERILATOR_ROOT=/path/to/install`
 

@@ -31,8 +31,11 @@ cd "$(dirname "$0")" || exit 1
 MIN_RTL_COVERAGE=90      # G5 阈值（%）
 MIN_MUTATION_SCORE=95
 SLANG=$(command -v slang 2>/dev/null || echo "")
-VERILATOR="${VERILATOR:-/tmp/verilator/bin/verilator_bin}"
-[ -z "$VERILATOR_ROOT" ] && export VERILATOR_ROOT=/tmp/verilator
+# Verilator 位置统一由 vlt_env.sh 探测（优先 ~/.local/verilator，回退 /tmp）
+if ! . "$(dirname "$0")/vlt_env.sh" || ! vlt_probe; then
+    echo "ERROR: 找不到 verilator（先跑 bash setup_env.sh）" >&2
+    exit 1
+fi
 
 # ---- 输出 ----
 if [ -t 1 ]; then

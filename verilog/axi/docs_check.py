@@ -239,8 +239,15 @@ def check_lint_warnings():
     """
     import subprocess
     env = dict(os.environ)
-    env["VERILATOR_ROOT"] = env.get("VERILATOR_ROOT", "/tmp/verilator")
-    vlt = env.get("VERILATOR", "/tmp/verilator/bin/verilator_bin")
+    # 探测顺序与 vlt_env.sh 保持一致（持久位置优先，/tmp 仅兼容回退）
+    _home_vlt = os.path.expanduser("~/.local/verilator")
+    if os.path.exists(os.path.join(_home_vlt, "bin/verilator_bin")):
+        env.setdefault("VERILATOR_ROOT", os.path.join(_home_vlt, "share/verilator"))
+        _default_vlt = os.path.join(_home_vlt, "bin/verilator_bin")
+    else:
+        env.setdefault("VERILATOR_ROOT", "/tmp/verilator")
+        _default_vlt = "/tmp/verilator/bin/verilator_bin"
+    vlt = env.get("VERILATOR", _default_vlt)
     if not os.path.exists(vlt):
         return warn("D9 找不到 Verilator（跳过告警统计）")
     cmd = [vlt, "--lint-only", "-Wall", "-I./sv", "-I.", "-DTXN_DW=32",

@@ -27,8 +27,17 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent      # verilog/axi
 SV = HERE / "sv"
 
-VERILATOR = "/tmp/verilator/bin/verilator_bin"
-VERILATOR_ROOT = "/tmp/verilator"
+# 探测顺序：$VERILATOR > ~/.local/verilator > /tmp/verilator（兼容旧安装）
+_HOME_VLT = os.path.expanduser("~/.local/verilator")
+if os.environ.get("VERILATOR"):
+    VERILATOR = os.environ["VERILATOR"]
+    VERILATOR_ROOT = os.environ.get("VERILATOR_ROOT", os.path.join(_HOME_VLT, "share/verilator"))
+elif os.path.exists(os.path.join(_HOME_VLT, "bin/verilator_bin")):
+    VERILATOR = os.path.join(_HOME_VLT, "bin/verilator_bin")
+    VERILATOR_ROOT = os.path.join(_HOME_VLT, "share/verilator")
+else:
+    VERILATOR = "/tmp/verilator/bin/verilator_bin"
+    VERILATOR_ROOT = "/tmp/verilator"
 
 # ---------------------------------------------------------------------------
 # 变异定义：(编号, 文件, 描述, 原文, 变异后)

@@ -24,6 +24,11 @@
 set -uo pipefail
 cd "$(dirname "$0")" || exit 1
 
+# Verilator 位置探测（A7 需要真实 verilator；找不到时 A7 会 SKIP 而非 FAIL）
+. ./vlt_env.sh
+VLT=""
+vlt_probe || true
+
 SV=axi/sv
 BACKUP_DIR=$(mktemp -d /tmp/audit_bak.XXXXXX)
 PASS=0
@@ -256,8 +261,8 @@ module t_hang;
 endmodule
 VEOF
 
-    local vlt="${VERILATOR:-/tmp/verilator/bin/verilator_bin}"
-    export VERILATOR_ROOT=${VERILATOR_ROOT:-/tmp/verilator}
+    local vlt="${VERILATOR:-$VLT}"
+    export VERILATOR_ROOT="${VERILATOR_ROOT:-}"
     # 版本检查：低版本（如 apt 5.020）会静默挂死，导致 A7 误判为 FAIL
     local vstr vver vok
     vstr=$("$vlt" --version 2>&1 | head -1 || true)
@@ -267,7 +272,7 @@ VEOF
           else if (a[1] == 5 && a[2] >= 40) print 1;
           else print 0}')
     if [ "${vok:-0}" -ne 1 ]; then
-        echo -e "  ${YEL}- SKIP${R} Verilator 版本 ${vver:-未知} < 5.040（A7 需要 5.040+）"
+        echo -e "  ${DIM}- SKIP${R} Verilator 版本 ${vver:-未知} < 5.040（A7 需要 5.040+）"
         record "A7 挂死输出保留" SKIP "verilator=$vver"
         return 0
     fi

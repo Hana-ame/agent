@@ -27,15 +27,12 @@ mkdir -p "$RUN"
 
 # ---- 定位 Verilator ----
 # 优先级：显式指定 > 项目自编译 5.055+ > 系统 PATH
-if [ -n "${VERILATOR:-}" ]; then
-    VLT="$VERILATOR"
-elif [ -f "${VERILATOR_ROOT:-/tmp/verilator}/bin/verilator_bin" ]; then
-    VLT="${VERILATOR_ROOT:-/tmp/verilator}/bin/verilator_bin"
-    export VERILATOR_ROOT="${VERILATOR_ROOT:-/tmp/verilator}"
-elif command -v verilator >/dev/null 2>&1; then
-    VLT="$(command -v verilator)"
-else
+# Verilator 位置探测统一走 vlt_env.sh（优先持久位置 ~/.local/verilator，
+# 最后才回退到易失的 /tmp/verilator）。历史上这里硬编码 /tmp/verilator，
+# 一旦 /tmp 被清理，所有脚本同时失效且看不出根因。
+if ! . "$(dirname "$0")/vlt_env.sh" || ! vlt_probe; then
     echo "ERROR: 找不到 verilator。请安装，或设置 VERILATOR_ROOT / VERILATOR 环境变量。" >&2
+    echo "       推荐：bash setup_env.sh   （装到 ~/.local/verilator，重启不丢）" >&2
     exit 1
 fi
 echo "== verilator: $VLT =="
@@ -91,6 +88,24 @@ build_run() {
     mkdir -p "$RUN"
     local out_abs
     out_abs="$(pwd)/$RUN/$name"   # 绝对路径（Verilator 在 obj 子目录 make）
+
+    # ★ 版本戳：Verilator 版本变化时必须清掉旧 obj 重新生成。
+    #   踩坑记录：/tmp/verilator(5.055) 被清理后改用 5.054，
+    #   obj 目录里仍是 5.055 生成的 .mk/.a 和 __ALL.cpp，
+    #   Verilator 认为无需重生成 → 链接期报 `undefined reference to main`
+    #   （因为旧 .a 不含新版本期望的 main），错误信息完全指不到根因。
+    local stamp="$RUN/obj_$name/.vlt_version"
+    local cur_ver="${VLT_VER:-unknown}"
+    if [ -d "$RUN/obj_$name" ]; then
+        local old_ver=""
+        [ -f "$stamp" ] && old_ver=$(cat "$stamp" 2>/dev/null || true)
+        if [ "$old_ver" != "$cur_ver" ]; then
+            echo "  [rebuild] verilator 版本变化（${old_ver:-无记录} → $cur_ver），清理 obj"
+            rm -rf "$RUN/obj_$name" "$out_abs"
+        fi
+    fi
+    mkdir -p "$RUN/obj_$name"
+    printf '%s' "$cur_ver" > "$stamp"
     # shellcheck disable=SC2086
     if ! "$VLT" --binary --assert --timing --top-module "$top" \
             --Mdir "$RUN/obj_$name" $NOWARN $extra \
@@ -653,7 +668,37 @@ case "${1:-all}" in
             sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
             sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
             sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv
-          echo "VCD: $(ls axi/*.vcd 2>/dev/null || echo '(检查 axi 目录)')" )
+          # 注意：这里已经在 axi/ 子 shell 内，路径应写 ./*.vcd 而不是 axi/*.vcd
+          # （原写法多了一层目录，导致永远打印「检查 axi 目录」）
+          _vcd=$(ls -1 ./*.vcd 2>/dev/null | head -1)
+          if [ -z "$_vcd" ]; then
+              echo "VCD: 未生成" >&2
+              exit 1
+          fi
+          _sz=$(wc -c < "$_vcd" | tr -d ' ')
+          # VCD 大小下限：238 个信号 x 30us 正常在 200KB 左右；
+          # 小于 4KB 基本可断定是空 dump（--trace 没生效 / dumpfile 写错路径）。
+          if [ "$_sz" -lt 4096 ]; then
+              echo "VCD: $_vcd 仅 ${_sz} 字节，疑似空 dump" >&2
+              exit 1
+          fi
+          echo "VCD: $_vcd（${_sz} 字节）"
+          # 生成波形 PNG（信号名显式指定，避免自动挑选画到无关的 pkg 常量）
+          _png="../axi/${_vcd#./}"
+          _png="${_png%.vcd}_waveform.png"
+          if command -v python3 >/dev/null 2>&1; then
+              if python3 ../plot_waveform.py "$_vcd" \
+                    --from 1000 --to 2500 \
+                    PCLK AWVALID AWREADY WVALID WREADY BVALID PSEL PENABLE PREADY PWRITE \
+                    >/dev/null 2>&1; then
+                  echo "PNG: $_png（$(wc -c < "$_png" | tr -d ' ') 字节）"
+              else
+                  echo "PNG: 绘图失败（python3 ../plot_waveform.py --list $_vcd 可查信号名）" >&2
+                  exit 1
+              fi
+          else
+              echo "PNG: 跳过（无 python3）"
+          fi )
         ;;
     all)
         echo "################ 全量回归 ################"

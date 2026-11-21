@@ -206,6 +206,25 @@ else
     fi
 fi
 
+# plot_waveform.py 自检（防止「画空图但退出码 0」）
+# 历史：该脚本曾把 nets 写死为 clk/rst_n/en/count，传入 AXI 的 VCD 会
+# 静默生成 4 个空子图并 exit 0，调用方无法察觉。自检 P1~P12 覆盖此情况。
+if [ "$FAST" -eq 1 ]; then
+    echo -e "  ${D}- 跳过${R} plot_waveform 自检（--fast 模式）"
+    record "plot_waveform 自检" SKIP "--fast"
+elif ! command -v python3 >/dev/null 2>&1; then
+    record "plot_waveform 自检" SKIP "无 python3"
+else
+    out=$(timeout 300 python3 axi/plot_waveform_self_test.py 2>&1); rc=$?
+    tail1=$(echo "$out" | grep -E "自检:" | tail -1)
+    if [ "$rc" -eq 0 ]; then
+        record "plot_waveform 自检" PASS "${tail1:-exit=0}"
+    else
+        record "plot_waveform 自检" FAIL "${tail1:-exit=$rc}"
+        echo "$out" | grep "^FAIL" | head -4 | sed 's/^/      /'
+    fi
+fi
+
 # ---- 汇总 ----
 echo ""
 echo -e "${B}────────────────────────────────────────${R}"
