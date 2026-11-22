@@ -180,9 +180,12 @@ def tool_audit_harness(strict: bool = True) -> Dict[str, Any]:
     failed = [c for c in checks if not c["passed"]]
     data = {"total": len(checks), "passed": len(checks) - len(failed), "failed": len(failed), "checks": checks}
     if failed and strict:
+        # 自审计失败时仍带 data：调用方需要看到逐项 passed/failed（哪些护栏失效），
+        # 而非只有一句汇总。与 lint_tb / run_mutation 同类修复。
         return err_result(
             "audit_harness",
             f"Self-audit failed on {len(failed)} check(s): {[c['id'] for c in failed]}",
+            data=data,
             diagnostics=[{"severity": "ERROR", "code": "E040", "path": c["id"], "message": c["detail"]} for c in failed],
         )
     return ok_result("audit_harness", data)

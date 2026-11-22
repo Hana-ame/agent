@@ -52,6 +52,8 @@ All notable changes to `fpga_toolbox` and its companion verification workbench a
 - `lint_tb`：**发现 1 个真实漏报**（见下）。
 
 ### Fixed
+- **系统性 data-loss（第 4 处：`audit_harness`）**。排查全部 12 工具的错误路径后，又发现 `audit_harness` 在 `strict` 且有失败时返回 `err_result` 丢 `data`——调用方只看到「自审计 N 项失败」的汇总，看不到**哪几项失效**（而那正是自审计的核心价值：定位哪个护栏坏了）。修复后 E040 返回时显式带 `data`（含逐项 `passed/failed` 的 `checks`）。至此 `lint_tb`(#6)、`run_mutation`(#10)、`audit_harness` 三处同类缺陷全部修完，根因都是 `err_result` 默认丢 `data`。
+
 - **`run_mutation` 分数低于门槛时丢失逐变异结果**（`mutation_runner.py`）。`score < min_score` 返回 `err_result` 且 `data={}`，调用方只看到一句「50% < 100%」，看不到**哪些变异存活**——而那正是变异测试的核心价值（存活变异 = 测试盲区）。与上轮 `lint_tb` 同类修复：E031 返回时显式带 `data`（含 killed/survived/results）。
 
   实测：include 拼接仓库（`leaf.v` + `top.v`）上，M01（加法改减法）被杀、M02（改实例名）存活——修复后能看清 M02 是等价变异，而非只有一句分数不足。
