@@ -42,6 +42,21 @@ All notable changes to `fpga_toolbox` and its companion verification workbench a
 
   自审计覆盖最终从 4 项扩至 **9 项**（A1–A9），新增的三项分别锁死：套件身份核对解析真实日志（A5）、套件齐时不假报警（A6）、Verilator 版本守卫 E020（A7）、emit_testbench 缺 boundary 时 fail-fast（A8）、slang 回退对调用方可见（A9）。后两项专门覆盖本轮修的两个静默退化缺陷，确保它们不会再次悄悄回归。
 
+## [Unreleased] — 真实第三方代码验证
+
+用 GH 上 3 个真实 AXI↔APB 桥仓库（`axi_to_apb`、`AXI4-Lite-to-APB-Bridge`、`AXI4_Lite_APB4_Bridge`，共 11 个 RTL/TB 文件）实测工具箱，验证其在非自带靶场上的表现。
+
+### 结果
+- `index_repo`：3/3 正确解析（模块/端口/参数/例化）。
+- `extract_interfaces`：3/3 正确识别 AXI4-Lite(slave) + APB(master) 协议、时钟/复位、端口映射。
+- `lint_tb`：**发现 1 个真实漏报**（见下）。
+
+### Fixed
+- **`lint_tb` 漏报 `wait()` 形式的握手风险**（`tb_linter.py`）。R1/R3 旧实现只匹配 `while (!BVALID) @(posedge clk);`，不识别语义等价的 `wait (BVALID);`。而真实第三方 testbench 广泛使用 `wait()`——实测 GH 的 `AXI4_Lite_APB4_Bridge`，其 write task 在 `bready=1'b0` 下 `wait(bvalid)`，与 R1 抓的 `while(!bvalid)` 是同一风险模式，却完全漏报。修复后新增 `wait(expr)` 检查（兼容裸信号名 `bvalid` 与带前缀 `axi.BVALID`，大小写不敏感），并在 `wait` 同时检查 READY 时正确判定为干净。实测该真实 TB：旧实现 0 报告 → 修后抓出 3 处 R3（bvalid×2、rvalid×1）。
+
+### Tests
+- 新增 `test_lint_wait_form`（3 项检查）：`wait(bvalid)` 无 READY → R3；`wait(bvalid && bready)` → 干净。
+
 - **参考靶场 `mutate.py` 的路径与靶场布局不一致**。`MUTATIONS` 里 33 条的 `file` 是相对 `mutate.py`（原 `axi/` 平铺布局）的裸文件名，但靶场把这些 RTL 放进了 `axi/sv/` 子目录，导致 `run_mutation` 用 `<workdir>/<file>` 解析时 33 条全部 `Missing file`。这是靶场拷贝时目录布局漂移，属已知限制：使用 `run_mutation` 时需让 spec 的 `file` 路径与实际布局一致（靶场为 `axi/sv/` 前缀）。
 
 ### Verified（实机，第二轮续）

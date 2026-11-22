@@ -108,6 +108,30 @@ def scan_handshake(path: Path) -> List[Dict[str, Any]]:
         ln = raw.split("//")[0]
         if not ln.strip():
             continue
+        # 检测「等 VALID 但未同时检查 READY」的握手风险。两种等价写法都要覆盖：
+        #   while (!BVALID) @(posedge clk);   ← 旧实现只抓这种
+        #   wait (BVALID);                    ← 第三方 TB 广泛使用，旧实现漏报
+        # 两者语义相同：等待 VALID 期间未同时检查对应 READY。
+        # 兼容裸信号名（bvalid）与带前缀（axi.BVALID），大小写不敏感。
+        mwait = re.search(r"\bwait\s*\(([^)]*)\)", ln, re.IGNORECASE)
+        if mwait:
+            cond = mwait.group(1)
+            has_v = re.search(r"([A-Za-z_][A-Za-z0-9_.]*VALID)", cond, re.IGNORECASE)
+            has_r = re.search(r"[A-Za-z_][A-Za-z0-9_.]*READY", cond, re.IGNORECASE)
+            if has_v and not has_r:
+                sig = has_v.group(1)
+                # 去掉可选前缀后查 READY 映射（_READY_OF 键为全大写）
+                ready = _READY_OF.get(sig.split(".")[-1].upper())
+                safe = bool(ready and _ready_raised_before(i, ready))
+                code = "R1" if safe else "R3"
+                sev = "WARNING" if safe else "ERROR"
+                issues.append({
+                    "severity": sev,
+                    "code": code,
+                    "path": f"{path}:{i + 1}",
+                    "message": f"wait() waits only on {sig} without checking {ready or 'READY'}.",
+                    "context": raw.strip(),
+                })
         mwhile = re.search(r"while\s*\((.*)\)", ln)
         if mwhile:
             cond = mwhile.group(1)

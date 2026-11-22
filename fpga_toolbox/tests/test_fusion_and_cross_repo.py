@@ -354,10 +354,52 @@ def test_suite_identity_real_format() -> None:
     check(r["all_verified"] is False, "all_verified False when a suite missing")
 
 
+def test_lint_wait_form() -> None:
+    """锁死 lint_tb 的 wait() 握手检测（第三方 TB 广泛使用 wait 而非 while）。
+
+    历史缺陷：R1/R3 只匹配 `while (!BVALID)`，不识别语义等价的
+    `wait (BVALID)`。真实第三方 testbench（如 GH 的 AXI4_Lite_APB4_Bridge）
+    大量用 wait()，旧实现完全漏报。本检查用最小 fixture 锁死：wait 等 VALID
+    而 READY 未置高 → R3 ERROR；wait 同时检查 READY → 干净。
+    """
+    print("fusion: lint_tb wait()-form handshake detection")
+    with tempfile.TemporaryDirectory() as td:
+        sv = Path(td) / "wait_tb.sv"
+        sv.write_text(
+            "module wait_tb;\n"
+            "  logic clk, bvalid, bready, rvalid, rready;\n"
+            "  initial begin\n"
+            "    bready = 1'b0;\n"
+            "    wait (bvalid);\n"       # BREADY=0 时等 BVALID → R3
+            "  end\n"
+            "endmodule\n",
+            encoding="utf-8",
+        )
+        r = call_tool("lint_tb", {"target_path": str(sv), "rules": ["handshake"]})
+        codes = {f.get("code") for f in (r.get("data") or {}).get("findings", [])}
+        check(r.get("ok") is False, f"wait(bvalid) without BREADY flagged (ok={r.get('ok')})")
+        check("R3" in codes, f"R3 emitted for wait(bvalid) form (got {sorted(codes)})")
+
+        # 对照：wait 同时检查 READY 不应报
+        sv2 = Path(td) / "ok_tb.sv"
+        sv2.write_text(
+            "module ok_tb;\n"
+            "  logic clk, bvalid, bready;\n"
+            "  initial begin\n"
+            "    wait (bvalid && bready);\n"   # 同时检查 READY → 干净
+            "  end\n"
+            "endmodule\n",
+            encoding="utf-8",
+        )
+        r2 = call_tool("lint_tb", {"target_path": str(sv2), "rules": ["handshake"]})
+        check(r2.get("ok") is True, f"wait(bvalid && bready) is clean (ok={r2.get('ok')})")
+
+
 def main() -> int:
     test_cross_repo_extraction()
     test_regfile_spec_v2_and_bitfields()
     test_lint_tb()
+    test_lint_wait_form()
     test_mutation_runner()
     test_verilator_log_normalizer_and_visual()
     test_suite_identity_real_format()
