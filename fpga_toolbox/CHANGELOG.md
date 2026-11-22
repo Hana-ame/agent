@@ -52,6 +52,10 @@ All notable changes to `fpga_toolbox` and its companion verification workbench a
 - `lint_tb`：**发现 1 个真实漏报**（见下）。
 
 ### Fixed
+- **`run_mutation` 分数低于门槛时丢失逐变异结果**（`mutation_runner.py`）。`score < min_score` 返回 `err_result` 且 `data={}`，调用方只看到一句「50% < 100%」，看不到**哪些变异存活**——而那正是变异测试的核心价值（存活变异 = 测试盲区）。与上轮 `lint_tb` 同类修复：E031 返回时显式带 `data`（含 killed/survived/results）。
+
+  实测：include 拼接仓库（`leaf.v` + `top.v`）上，M01（加法改减法）被杀、M02（改实例名）存活——修复后能看清 M02 是等价变异，而非只有一句分数不足。
+
 - **`index_repo` 例化归属在 `include` 拼接仓库上全错**（`repo_indexer.py`）。用 2 个真实 RISC-V 核仓库实测时发现：这些仓库用 `` `include`` 把多个子模块定义拼进一个翻译单元（如 `Single_Cycle_Top.v` include 了 PC/ALU/寄存器堆/存储器全部子模块）。旧实现把**整个文件源**交给例化扫描，导致文件里**每一个**模块都继承该文件的全部例化——12 个模块里有 11 个被误标「例化了 PC/寄存器堆/存储器」，而那些其实是顶层 `Single_Cycle_Top` 的例化。叶子模块 ALU/Register_File 呈现 8 条错误例化。
 
   修复：新增 `_module_body(name, src)`，用 token 行号定位 `module <name>` 到配对 `endmodule`，只把该模块**自身定义体**交给例化扫描。`include` 展开进来的子模块在本文件原始文本里没有自身 `module` 声明时不归属任何例化（返回空串，而非回退到整个文件源）。

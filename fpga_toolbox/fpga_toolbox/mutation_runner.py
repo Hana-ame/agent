@@ -147,9 +147,12 @@ def tool_run_mutation(
         "results": results,
     }
     if score < min_score:
+        # 分数低于门槛时仍带 data：调用方需要看到逐个变异的 killed/survived
+        # 结果（哪些变异存活 = 测试盲区），否则只能看到一句「50% < 100%」。
         return err_result(
             "run_mutation",
             f"Mutation score {score}% is below threshold {min_score}%.",
+            data=data,
             diagnostics=[{"severity": "ERROR", "code": "E031", "path": "mutation_score", "message": f"{killed}/{total} killed ({score}% < {min_score}%)."}],
         )
     return ok_result("run_mutation", data)
