@@ -100,10 +100,26 @@ def tool_index_repo(project_root: str) -> Dict[str, Any]:
 
     known = {m.name for _, m in parsed}
     headers = {p.name: str(p.relative_to(root)) for p in rtl_files if p.suffix.lower() in {".vh", ".svh"}}
+
+    # 归属修正：`include 会把子模块展开进顶层文件，导致同一模块出现在多个文件
+    # 的解析结果里（如 datapath 同时出现在 datapath.v 和 include 它的
+    # top_proc.v）。modules 字典按名去重时「排序靠后的文件覆盖前面的」，会把
+    # datapath 错标成 top_proc.v。正确归属应是**原始文本里真正声明
+    # `module <name>`** 的文件（_module_body 在该文件能定位到自身定义体）。
+    owner: Dict[str, Path] = {}
+    for fpath in rtl_files:
+        if fpath.suffix.lower() not in {".v", ".sv"}:
+            continue
+        for mname in {m.name for _, m in parsed}:
+            if mname in owner:
+                continue
+            if _module_body(mname, sources[fpath]):
+                owner[mname] = fpath
+
     modules = {
         m.name: {
             "name": m.name,
-            "file_path": str(fp.relative_to(root)),
+            "file_path": str(owner.get(m.name, fp).relative_to(root)),
             "port_count": len(m.ports),
             "parameters": m.parameters,
             "instantiated_modules": _find_instantiations(

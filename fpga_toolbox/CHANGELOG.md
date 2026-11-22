@@ -52,7 +52,13 @@ All notable changes to `fpga_toolbox` and its companion verification workbench a
 - `lint_tb`：**发现 1 个真实漏报**（见下）。
 
 ### Fixed
-- **系统性 data-loss（第 4 处：`audit_harness`）**。排查全部 12 工具的错误路径后，又发现 `audit_harness` 在 `strict` 且有失败时返回 `err_result` 丢 `data`——调用方只看到「自审计 N 项失败」的汇总，看不到**哪几项失效**（而那正是自审计的核心价值：定位哪个护栏坏了）。修复后 E040 返回时显式带 `data`（含逐项 `passed/failed` 的 `checks`）。至此 `lint_tb`(#6)、`run_mutation`(#10)、`audit_harness` 三处同类缺陷全部修完，根因都是 `err_result` 默认丢 `data`。
+- **`index_repo` 的 `file_path` 归属在 `include` 拼接仓库上错乱**（`repo_indexer.py`）。做跨工具集成测试（index_repo → resolve_deps → extract_interfaces）时发现：`datapath` 实际定义在 `datapath.v`，但 index_repo 标成 `top_proc.v`——因为 `top_proc.v` include 了 `datapath.v`，解析器展开后 `datapath` 出现在两个文件的解析结果里，modules 字典按名去重时「排序靠后的文件覆盖前面的」，`top_proc.v` 覆盖了正确的 `datapath.v`。下游 `extract_interfaces(file_path)` 因此返回的第一个模块是 `top_proc` 而非 `datapath`（跨工具不一致）。
+
+  修复：新增 owner 归属表——模块应归属到**原始文本里真正声明 `module <name>`** 的文件（`_module_body` 在该文件能定位到自身定义体），而非 include 展开后恰好覆盖的文件。实测 riscv-cpu：`datapath→datapath.v`、`regfile→regfile.v`、`DATA_MEMORY→ram.v` 全部修正。
+
+  这是 #12（例化归属）的姊妹缺陷：#12 修的是「例化归属错」，本条修的是「file_path 归属错」，两者同源于 `include` 展开，但需分别处理。
+
+- **`audit_harness` strict 失败时丢失逐项结果**（`self_auditor.py`）。排查全部 12 工具的错误路径后，又发现 `audit_harness` 在 `strict` 且有失败时返回 `err_result` 丢 `data`——调用方只看到「自审计 N 项失败」的汇总，看不到**哪几项失效**（而那正是自审计的核心价值：定位哪个护栏坏了）。修复后 E040 返回时显式带 `data`（含逐项 `passed/failed` 的 `checks`）。至此 `lint_tb`(#6)、`run_mutation`(#10)、`audit_harness` 三处同类缺陷全部修完，根因都是 `err_result` 默认丢 `data`。
 
 - **`run_mutation` 分数低于门槛时丢失逐变异结果**（`mutation_runner.py`）。`score < min_score` 返回 `err_result` 且 `data={}`，调用方只看到一句「50% < 100%」，看不到**哪些变异存活**——而那正是变异测试的核心价值（存活变异 = 测试盲区）。与上轮 `lint_tb` 同类修复：E031 返回时显式带 `data`（含 killed/survived/results）。
 
