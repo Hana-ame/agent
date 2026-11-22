@@ -395,8 +395,48 @@ def test_lint_wait_form() -> None:
         check(r2.get("ok") is True, f"wait(bvalid && bready) is clean (ok={r2.get('ok')})")
 
 
+def test_index_repo_include_boundary() -> None:
+    """锁死 index_repo 的 include 边界归属（真实 RISC-V 仓库踩坑）。
+
+    缺陷：仓库用 `include 把多个子模块拼进一个翻译单元（如 Single_Cycle_Top.v
+    include 了 PC/ALU/寄存器堆/存储器）。旧实现把整个文件源交给例化扫描，导致
+    文件里**每一个**模块都继承该文件的全部例化——叶子模块 ALU/Register_File
+    被误标成例化了 PC/存储器（那些其实是顶层 Single_Cycle_Top 的例化）。
+
+    修复：例化扫描限定在 module 自身定义体内；include 展开进来的子模块在本文件
+    无自身 module 声明时不归属任何例化。
+    """
+    print("fusion: index_repo include-boundary instantiation attribution")
+    with tempfile.TemporaryDirectory() as td:
+        td_p = Path(td)
+        # top.v 用 `include 拼进 leaf_a/leaf_b/top；三个子模块在各自独立文件里
+        (td_p / "top.v").write_text(
+            "`include \"leaf_a.v\"\n"
+            "`include \"leaf_b.v\"\n"
+            "module top(input logic clk);\n"
+            "  leaf_a ua (.clk(clk));\n"
+            "  leaf_b ub (.clk(clk));\n"
+            "endmodule\n",
+            encoding="utf-8",
+        )
+        (td_p / "leaf_a.v").write_text(
+            "module leaf_a(input logic clk);\nendmodule\n", encoding="utf-8")
+        (td_p / "leaf_b.v").write_text(
+            "module leaf_b(input logic clk);\nendmodule\n", encoding="utf-8")
+        r = call_tool("index_repo", {"project_root": str(td_p)})
+        check(r.get("ok") is True, "index_repo parses include-based project")
+        mods = r.get("data", {}).get("modules", {})
+        check(mods.get("leaf_a", {}).get("instantiated_modules") == [],
+              f"leaf_a not attributed top's instantiations (got {mods.get('leaf_a', {}).get('instantiated_modules')})")
+        check(mods.get("leaf_b", {}).get("instantiated_modules") == [],
+              f"leaf_b not attributed top's instantiations (got {mods.get('leaf_b', {}).get('instantiated_modules')})")
+        check(set(mods.get("top", {}).get("instantiated_modules") or []) == {"leaf_a", "leaf_b"},
+              f"top correctly attributes its own instantiations (got {mods.get('top', {}).get('instantiated_modules')})")
+
+
 def main() -> int:
     test_cross_repo_extraction()
+    test_index_repo_include_boundary()
     test_regfile_spec_v2_and_bitfields()
     test_lint_tb()
     test_lint_wait_form()

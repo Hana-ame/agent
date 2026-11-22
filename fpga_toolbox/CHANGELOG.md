@@ -52,10 +52,17 @@ All notable changes to `fpga_toolbox` and its companion verification workbench a
 - `lint_tb`：**发现 1 个真实漏报**（见下）。
 
 ### Fixed
+- **`index_repo` 例化归属在 `include` 拼接仓库上全错**（`repo_indexer.py`）。用 2 个真实 RISC-V 核仓库实测时发现：这些仓库用 `` `include`` 把多个子模块定义拼进一个翻译单元（如 `Single_Cycle_Top.v` include 了 PC/ALU/寄存器堆/存储器全部子模块）。旧实现把**整个文件源**交给例化扫描，导致文件里**每一个**模块都继承该文件的全部例化——12 个模块里有 11 个被误标「例化了 PC/寄存器堆/存储器」，而那些其实是顶层 `Single_Cycle_Top` 的例化。叶子模块 ALU/Register_File 呈现 8 条错误例化。
+
+  修复：新增 `_module_body(name, src)`，用 token 行号定位 `module <name>` 到配对 `endmodule`，只把该模块**自身定义体**交给例化扫描。`include` 展开进来的子模块在本文件原始文本里没有自身 `module` 声明时不归属任何例化（返回空串，而非回退到整个文件源）。
+
+  实测两个真实 RISC-V 仓库：32-bit Single-Cycle（include 拼接）修复前 11 个模块误带 8–9 条例化 → 修复后仅 `Single_Cycle_Top` 带 9 条、叶子全 0；riscv-cpu 同样修正。新增 `test_index_repo_include_boundary`（3 项检查）锁死该行为。
+
 - **`lint_tb` 漏报 `wait()` 形式的握手风险**（`tb_linter.py`）。R1/R3 旧实现只匹配 `while (!BVALID) @(posedge clk);`，不识别语义等价的 `wait (BVALID);`。而真实第三方 testbench 广泛使用 `wait()`——实测 GH 的 `AXI4_Lite_APB4_Bridge`，其 write task 在 `bready=1'b0` 下 `wait(bvalid)`，与 R1 抓的 `while(!bvalid)` 是同一风险模式，却完全漏报。修复后新增 `wait(expr)` 检查（兼容裸信号名 `bvalid` 与带前缀 `axi.BVALID`，大小写不敏感），并在 `wait` 同时检查 READY 时正确判定为干净。实测该真实 TB：旧实现 0 报告 → 修后抓出 3 处 R3（bvalid×2、rvalid×1）。
 
 ### Tests
 - 新增 `test_lint_wait_form`（3 项检查）：`wait(bvalid)` 无 READY → R3；`wait(bvalid && bready)` → 干净。
+- 新增 `test_index_repo_include_boundary`（3 项检查）：include 拼接项目的例化归属正确。
 
 - **参考靶场 `mutate.py` 的路径与靶场布局不一致**。`MUTATIONS` 里 33 条的 `file` 是相对 `mutate.py`（原 `axi/` 平铺布局）的裸文件名，但靶场把这些 RTL 放进了 `axi/sv/` 子目录，导致 `run_mutation` 用 `<workdir>/<file>` 解析时 33 条全部 `Missing file`。这是靶场拷贝时目录布局漂移，属已知限制：使用 `run_mutation` 时需让 spec 的 `file` 路径与实际布局一致（靶场为 `axi/sv/` 前缀）。
 

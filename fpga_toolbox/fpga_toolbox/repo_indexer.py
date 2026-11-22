@@ -49,6 +49,42 @@ def _find_instantiations(src: str, known: Set[str], self_name: str) -> List[str]
     return found
 
 
+def _module_body(name: str, src: str) -> str:
+    """提取指定 module 自身的定义体源码（从 `module <name>` 到配对的 `endmodule`）。
+
+    背景（真实踩坑）：有些仓库用 `include` 把多个子模块拼进一个翻译单元
+    （如 Single_Cycle_Top.v include 了 PC/ALU/寄存器堆等全部子模块）。此时
+    若把整个文件源交给例化扫描，文件里每一个模块都会继承该文件的全部例化
+    （叶子模块 ALU/Register_File 被误标成例化了 PC/存储器——那些其实是
+    顶层 Single_Cycle_Top 的例化）。
+
+    用 token 的行号定位 module 声明与配对 endmodule，只返回该模块自身
+    定义体的源码。找不到时回退到整个文件源（保持旧行为）。
+    """
+    toks = sv_tokenize(src)
+    start = None
+    depth = 0
+    end_line = None
+    for k, t in enumerate(toks):
+        if start is None:
+            if t.kind == "IDENT" and t.value == "module" and k + 1 < len(toks) \
+                    and toks[k + 1].kind == "IDENT" and toks[k + 1].value == name:
+                start = t.line
+        else:
+            if t.kind == "IDENT" and t.value == "endmodule":
+                end_line = t.line
+                break
+    if start is None:
+        # 该 module 在本文件的原始文本里没有 module 声明 —— 它是通过
+        # `include 从别的文件展开进来的（slang 展开后误归到本文件）。
+        # 返回空串（不归属任何例化），而不是回退到整个文件源。
+        return ""
+    # endmodule 找不到（罕见）时取到文件末尾
+    lines = src.splitlines()
+    end_idx = end_line if end_line is not None else len(lines)
+    return "\n".join(lines[start - 1:end_idx])
+
+
 def tool_index_repo(project_root: str) -> Dict[str, Any]:
     root = Path(project_root)
     if not root.is_dir():
@@ -70,7 +106,8 @@ def tool_index_repo(project_root: str) -> Dict[str, Any]:
             "file_path": str(fp.relative_to(root)),
             "port_count": len(m.ports),
             "parameters": m.parameters,
-            "instantiated_modules": _find_instantiations(sources[fp], known, m.name),
+            "instantiated_modules": _find_instantiations(
+                _module_body(m.name, sources[fp]), known, m.name),
             "includes": list(dict.fromkeys(_INC_RE.findall(sources[fp]))),
         }
         for fp, m in parsed
