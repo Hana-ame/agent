@@ -503,8 +503,24 @@ def _parse_with_slang(
                     dmap = {"In": "input", "Out": "output", "InOut": "inout"}
                     d = dmap.get(str(mem.get("direction", "")), "input")
                     tstr = str(mem.get("type", "logic"))
+                    # slang 对 `parameter type T` 这类参数化类型端口，type 字段会
+                    # 混入内存地址前缀（如 "2209501365464 complex.T" 或
+                    # "2209501365464 complex.T$[0:7]"）。剥掉地址前缀和模块限定符，
+                    # 否则下面的 [n:m] 正则可能匹配到地址里的数字，或对 T（无
+                    # [n:m]）错误回退成 1 位。
+                    tstr = re.sub(r"^\d+\s+", "", tstr)          # 剥地址前缀
+                    tstr = re.sub(r"^\w+\.", "", tstr)            # 剥模块限定符 complex.
+                    # 解包数组端口（如 T din[N]）：slang 把解包维度也写进 type
+                    # 的 [0:N-1]，packed 维度在前、解包在后。宽度应取二者乘积，
+                    # 但这里只取 packed 部分（保守：不重复计解包维度）。
                     m_rng = re.search(r"\[(\d+):(\d+)\]", tstr)
-                    w = abs(int(m_rng.group(1)) - int(m_rng.group(2))) + 1 if m_rng else 1
+                    if m_rng:
+                        w = abs(int(m_rng.group(1)) - int(m_rng.group(2))) + 1
+                    elif re.search(r"\b(logic|bit|reg|wire|byte|int|shortint|longint)\b", tstr):
+                        w = 1  # 明确的 1 位标量类型
+                    else:
+                        # 参数化类型（T）等无法静态确定宽度，标记为 0 而非假装 1 位
+                        w = 0
                     ports.append(SVPortAST(str(mem.get("name", "")), d, tstr, w, 0))
                 elif mk == "InterfacePort":
                     ports.append(
