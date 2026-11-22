@@ -1,0 +1,1713 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自定义硬件协议编辑器与非形式化验证工作台</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', 'Noto Sans SC', sans-serif; }
+  code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
+  .wave-cell { transition: background-color 120ms ease, border-color 120ms ease; }
+  .wave-cell:hover { filter: brightness(1.08); }
+  .toast-enter { animation: slideUp 180ms ease-out; }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+
+<!-- Top Header -->
+<header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-mono font-bold text-sm shrink-0">P</div>
+      <div class="truncate">
+        <h1 class="text-sm sm:text-base font-bold text-slate-900 truncate">自定义协议编辑器 · Protocol Studio</h1>
+      </div>
+    </div>
+
+    <!-- Preset Pills -->
+    <div class="flex items-center gap-2 shrink-0 overflow-x-auto">
+      <div id="presetSelect" class="inline-flex items-center bg-slate-100 p-1 rounded-full border border-slate-200 gap-0.5">
+        <button data-preset="custom_req_ack" type="button" class="preset-pill px-2.5 py-1 rounded-full text-xs font-semibold bg-white text-blue-700 shadow-sm whitespace-nowrap">Req/Ack</button>
+        <button data-preset="apb_v4" type="button" class="preset-pill px-2.5 py-1 rounded-full text-xs font-medium text-slate-600 hover:text-slate-900 whitespace-nowrap">APB3/4</button>
+        <button data-preset="axi4_lite_wr" type="button" class="preset-pill px-2.5 py-1 rounded-full text-xs font-medium text-slate-600 hover:text-slate-900 whitespace-nowrap">AXI4-Lite</button>
+        <button data-preset="credit_flow" type="button" class="preset-pill px-2.5 py-1 rounded-full text-xs font-medium text-slate-600 hover:text-slate-900 whitespace-nowrap">Credit 流控</button>
+      </div>
+      <button id="btnImportOpen" type="button" class="text-xs px-2.5 py-1.5 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-100 font-medium whitespace-nowrap">导入 JSON</button>
+    </div>
+  </div>
+
+  <!-- Navigation Tabs -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-1 overflow-x-auto border-t border-slate-100">
+    <button data-tab="signals" type="button" class="tab-btn px-3.5 py-2.5 text-sm font-semibold border-b-2 border-blue-600 text-blue-700 whitespace-nowrap">1. 信号与通道</button>
+    <button data-tab="rules" type="button" class="tab-btn px-3.5 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-900 whitespace-nowrap">2. 协议规则 (<span id="tabRuleCount">0</span>)</button>
+    <button data-tab="verify" type="button" class="tab-btn px-3.5 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-900 whitespace-nowrap">3. 波形仿真与非形式化验证</button>
+    <button data-tab="export" type="button" class="tab-btn px-3.5 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-900 whitespace-nowrap">4. 导出 YAML / SV 监视器</button>
+  </div>
+</header>
+
+<!-- Main Content -->
+<main class="max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 flex-1">
+
+  <!-- TAB 1: SIGNALS -->
+  <section id="panel-signals" class="tab-panel space-y-6">
+    <!-- Protocol Metadata -->
+    <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <h2 class="text-base font-bold text-slate-900">协议基础属性</h2>
+        <span class="text-xs font-mono text-slate-500">兼容 fpga_toolbox 边界契约 Schema</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div>
+          <label for="metaName" class="block text-xs font-medium text-slate-600 mb-1">协议标识名</label>
+          <input id="metaName" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <span class="block text-xs font-medium text-slate-600 mb-1">默认 DUT 角色</span>
+          <div id="metaRole" class="grid grid-cols-2 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            <button data-meta-role="slave" type="button" class="meta-role-btn py-1.5 rounded-md text-xs font-semibold bg-white text-blue-700 shadow-sm">slave</button>
+            <button data-meta-role="master" type="button" class="meta-role-btn py-1.5 rounded-md text-xs font-medium text-slate-600 hover:text-slate-900">master</button>
+          </div>
+        </div>
+        <div>
+          <label for="metaClk" class="block text-xs font-medium text-slate-600 mb-1">时钟端口</label>
+          <input id="metaClk" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <label for="metaRst" class="block text-xs font-medium text-slate-600 mb-1">复位端口</label>
+          <input id="metaRst" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <span class="block text-xs font-medium text-slate-600 mb-1">复位极性</span>
+          <div id="metaRstPol" class="grid grid-cols-2 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            <button data-rst-pol="low" type="button" class="meta-pol-btn py-1.5 rounded-md text-xs font-semibold bg-white text-blue-700 shadow-sm">低有效</button>
+            <button data-rst-pol="high" type="button" class="meta-pol-btn py-1.5 rounded-md text-xs font-medium text-slate-600 hover:text-slate-900">高有效</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Signal List -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">信号定义表</h2>
+          <p class="text-xs text-slate-500 mt-0.5">定义每个信号的流向（TB ⇄ DUT）、位宽、信号类型（control / state / data）与复位默认态</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btnMirrorTxRx" type="button" class="px-3 py-1.5 rounded-full border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold">⇄ 镜像补齐 TX/RX</button>
+          <button id="btnManageGroups" type="button" class="px-3 py-1.5 rounded-full border border-slate-200 bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold">管理通道组</button>
+          <button id="btnToggleWidth" type="button" class="px-3 py-1.5 rounded-full border border-slate-200 bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold">显示位宽列</button>
+          <button id="btnAddSignal" type="button" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold">+ 添加信号</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600">
+              <th class="py-2.5 px-4">信号名</th>
+              <th class="py-2.5 px-3">信号流向 (TB ⇄ DUT)</th>
+              <th id="thWidthCol" class="py-2.5 px-3 hidden">位宽</th>
+              <th class="py-2.5 px-3">信号类型</th>
+              <th class="py-2.5 px-3">复位值</th>
+              <th class="py-2.5 px-3">通道组</th>
+              <th class="py-2.5 px-3">TX / RX</th>
+              <th class="py-2.5 px-3 text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody id="signalTableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 2: RULES -->
+  <section id="panel-rules" class="tab-panel hidden space-y-6">
+    <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">协议时序规则（自动编译为仿真监视器 + SVA）</h2>
+          <p class="text-xs text-slate-500 mt-0.5">无需手写形式化公式：勾选与配置标准协议约束，实时驱动波形验证与 SV 监视器生成</p>
+        </div>
+        <button id="btnAddRule" type="button" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold">+ 添加规则</button>
+      </div>
+      <div id="ruleListContainer" class="space-y-3"></div>
+    </div>
+
+    <!-- Quick Non-Formal Strategy Reference -->
+    <div class="bg-slate-900 text-slate-100 rounded-xl p-5">
+      <h3 class="text-sm font-bold text-blue-300 mb-2">非形式化验证四层组合（已内置到第 3 页沙箱）</h3>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs leading-relaxed text-slate-300">
+        <div class="bg-slate-800/80 rounded-lg p-3 border border-slate-700">
+          <div class="font-semibold text-white mb-1">1. 协议监视器 + 断言</div>
+          把上方规则编译成被动 SV Monitor，仿真每拍自动检查，无需数学证明即可抓时序违规。
+        </div>
+        <div class="bg-slate-800/80 rounded-lg p-3 border border-slate-700">
+          <div class="font-semibold text-white mb-1">2. 约束随机 + 反压压测</div>
+          随机插入气泡（stall/wait）和背靠背事务，覆盖手写用例漏掉的握手边界。
+        </div>
+        <div class="bg-slate-800/80 rounded-lg p-3 border border-slate-700">
+          <div class="font-semibold text-white mb-1">3. 故障注入（负向测试）</div>
+          故意构造违规波形（撤 VALID、数据抖动、超时），证明你的监视器真的会报错。
+        </div>
+        <div class="bg-slate-800/80 rounded-lg p-3 border border-slate-700">
+          <div class="font-semibold text-white mb-1">4. 黄金参考模型比对</div>
+          事务级输入同时喂给 DUT 和 Python/SV 参考队列，逐笔比对输出与顺序一致性。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 3: VERIFY (Interactive Waveform + Non-Formal Engine) -->
+  <section id="panel-verify" class="tab-panel hidden space-y-5">
+    <!-- Action Toolbar -->
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="btnGenGolden" type="button" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold">生成合法波形 (Golden)</button>
+        <button id="btnGenRandom" type="button" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold">约束随机反压仿真</button>
+        <div class="h-5 w-px bg-slate-200 mx-1 hidden sm:block"></div>
+        <span class="text-xs font-medium text-slate-500">负向故障注入：</span>
+        <button data-fault="valid_drop" type="button" class="fault-btn px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold">VALID 提前撤回</button>
+        <button data-fault="payload_glitch" type="button" class="fault-btn px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold">等待期数据抖动</button>
+        <button data-fault="timeout" type="button" class="fault-btn px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold">响应超时挂死</button>
+        <button data-fault="reset_leak" type="button" class="fault-btn px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold">复位期输出拉高</button>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btnRunAuditSuite" type="button" class="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold">一键规则自审计 (负向矩阵)</button>
+      </div>
+    </div>
+
+    <!-- Verification Verdict Banner -->
+    <div id="verifyBanner" class="rounded-xl border p-4 flex flex-wrap items-center justify-between gap-3"></div>
+
+    <!-- Interactive Cycle Waveform Editor -->
+    <div class="bg-slate-900 rounded-xl border border-slate-800 shadow-sm overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+        <div class="text-xs sm:text-sm font-semibold text-slate-100">交互式逐拍波形编辑器（点击 1-bit 格子翻转 0/1，点击多 bit 格子编辑 Hex 值）</div>
+        <div class="flex items-center gap-3 text-xs text-slate-400">
+          <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>高电平 / 握手成功</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-rose-500"></span>规则违规拍</span>
+        </div>
+      </div>
+      <div class="overflow-x-auto p-3">
+        <table id="waveTable" class="w-full border-collapse text-xs font-mono"></table>
+      </div>
+    </div>
+
+    <!-- Diagnostics + Self-Audit Results -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-900 mb-3">被动协议监视器实时诊断</h3>
+        <div id="diagList" class="space-y-2 text-xs"></div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-900 mb-3">反静默通过自审计矩阵（负向用例能否杀出报错）</h3>
+        <div id="auditMatrix" class="space-y-2 text-xs text-slate-600">
+          点击右上角「一键规则自审计」，系统将自动对每类故障执行注入测试，验证已启用的协议规则是否真正生效、不存在真空规则。
+        </div>
+      </div>
+    </div>
+
+    <!-- Mini-TLC: TLA+ Style Bounded BFS Model Checker -->
+    <div class="bg-white rounded-xl border border-indigo-200 p-5 shadow-sm space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm sm:text-base font-bold text-slate-900">TLA+ / Mini-TLC 小范围 BFS 模型检测（暴力穷举状态空间）</h3>
+          <p class="text-xs text-slate-500 mt-0.5">按小范围假说，用广度优先搜索穷举所有合法与故障交错路径；一旦击穿 Safety 底线，立刻打印最短「案发现场录像」并支持一键载入波形。</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-medium text-slate-600">最大深度</span>
+          <div id="tlcDepth" data-val="7" class="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            <button data-depth="5" type="button" class="tlc-depth-btn px-2.5 py-1 rounded-md text-xs font-mono font-medium text-slate-600 hover:text-slate-900">5 拍</button>
+            <button data-depth="7" type="button" class="tlc-depth-btn px-2.5 py-1 rounded-md text-xs font-mono font-semibold bg-white text-indigo-700 shadow-sm">7 拍</button>
+            <button data-depth="9" type="button" class="tlc-depth-btn px-2.5 py-1 rounded-md text-xs font-mono font-medium text-slate-600 hover:text-slate-900">9 拍</button>
+          </div>
+          <button id="btnRunTlc" type="button" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold">运行 Mini-TLC BFS 穷举</button>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-4 text-xs text-slate-700 bg-slate-50 rounded-lg p-3 border border-slate-200">
+        <span class="font-semibold text-slate-900">Next 允许动作（勾选灾难动作以测试模型检测）：</span>
+        <label class="inline-flex items-center gap-1.5 cursor-pointer"><input id="tlcStall" type="checkbox" checked class="rounded text-indigo-600"> 随机反压 Stall</label>
+        <label class="inline-flex items-center gap-1.5 cursor-pointer"><input id="tlcFaultDrop" type="checkbox" class="rounded text-rose-600"> 允许 Master 撤回 VALID</label>
+        <label class="inline-flex items-center gap-1.5 cursor-pointer"><input id="tlcFaultGlitch" type="checkbox" class="rounded text-rose-600"> 允许等待期数据抖动</label>
+        <label class="inline-flex items-center gap-1.5 cursor-pointer"><input id="tlcFaultHang" type="checkbox" class="rounded text-rose-600"> 允许 Slave 响应卡死</label>
+      </div>
+
+      <div id="tlcResult" class="text-xs text-slate-600 bg-slate-50/70 rounded-lg border border-slate-200 p-3.5">
+        点击「运行 Mini-TLC BFS 穷举」开始状态空间探索。勾选任意灾难动作，观察 BFS 如何在毫秒级抓出最短反例路径；取消灾难动作后重跑，确认纯设计蓝图全绿通过。
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 4: EXPORT -->
+  <section id="panel-export" class="tab-panel hidden space-y-5">
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <button data-exp="yaml" type="button" class="exp-btn px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs sm:text-sm font-semibold">fpga_toolbox 契约 YAML</button>
+        <button data-exp="sv" type="button" class="exp-btn px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs sm:text-sm font-semibold">Verilator/SV 被动监视器 (.sv)</button>
+        <button data-exp="tla" type="button" class="exp-btn px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs sm:text-sm font-semibold">TLA+ 规约模型 (.tla)</button>
+        <button data-exp="json" type="button" class="exp-btn px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs sm:text-sm font-semibold">协议工程 JSON（可重导入）</button>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btnCopyExport" type="button" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-xs sm:text-sm font-semibold text-slate-800">复制代码</button>
+        <button id="btnDownloadExport" type="button" class="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold">下载文件</button>
+      </div>
+    </div>
+    <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 overflow-x-auto">
+      <pre id="exportCode" class="text-xs sm:text-sm text-slate-100 font-mono leading-relaxed whitespace-pre"></pre>
+    </div>
+  </section>
+</main>
+
+<!-- In-page Hex Edit Modal -->
+<div id="hexModal" class="hidden fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl border border-slate-200 max-w-sm w-full p-5 shadow-xl space-y-4">
+    <h3 id="hexModalTitle" class="text-sm font-bold text-slate-900">编辑多比特信号值</h3>
+    <div>
+      <label for="hexInput" class="block text-xs text-slate-600 mb-1">输入十六进制值（例如 0x1A 或 A5）</label>
+      <input id="hexInput" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+    </div>
+    <div class="flex justify-end gap-2">
+      <button id="btnHexCancel" type="button" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50">取消</button>
+      <button id="btnHexSave" type="button" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- In-page Import JSON Modal -->
+<div id="importModal" class="hidden fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl border border-slate-200 max-w-lg w-full p-5 shadow-xl space-y-4">
+    <h3 class="text-sm font-bold text-slate-900">导入协议工程 JSON</h3>
+    <textarea id="importTextarea" rows="8" placeholder='粘贴之前导出的协议 JSON...' class="w-full rounded-lg border border-slate-300 p-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+    <div class="flex justify-end gap-2">
+      <button id="btnImportCancel" type="button" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50">取消</button>
+      <button id="btnImportConfirm" type="button" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">导入并加载</button>
+    </div>
+  </div>
+</div>
+
+<!-- In-page Channel Group Enum Manager Modal -->
+<div id="groupModal" class="hidden fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl border border-slate-200 max-w-md w-full p-5 shadow-xl space-y-4">
+    <div class="flex items-center justify-between">
+      <h3 class="text-sm font-bold text-slate-900">编辑通道组枚举</h3>
+      <button id="btnGroupClose" type="button" class="text-xs font-semibold text-slate-500 hover:text-slate-800 px-2 py-1">完成</button>
+    </div>
+    <div id="groupEnumList" class="space-y-2 max-h-60 overflow-y-auto"></div>
+    <div class="border-t border-slate-200 pt-3 space-y-2.5">
+      <div class="flex items-center gap-2">
+        <input id="newGroupName" type="text" placeholder="新通道组名（如 irq / dma）" class="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <button id="btnGroupAdd" type="button" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold">添加</button>
+      </div>
+      <div id="newGroupColors" class="flex items-center gap-1.5"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="hidden fixed bottom-5 right-5 z-50 bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-lg shadow-lg toast-enter"></div>
+
+<script>
+(() => {
+  const CYCLES = 14;
+  const GROUP_COLORS = {
+    indigo:  { bg: "bg-indigo-100",  text: "text-indigo-800",  border: "border-indigo-300",  dot: "bg-indigo-500",  active: "bg-indigo-600 text-white border-indigo-600" },
+    teal:    { bg: "bg-teal-100",    text: "text-teal-800",    border: "border-teal-300",    dot: "bg-teal-500",    active: "bg-teal-600 text-white border-teal-600" },
+    amber:   { bg: "bg-amber-100",   text: "text-amber-800",   border: "border-amber-300",   dot: "bg-amber-500",   active: "bg-amber-500 text-white border-amber-500" },
+    violet:  { bg: "bg-violet-100",  text: "text-violet-800",  border: "border-violet-300",  dot: "bg-violet-500",  active: "bg-violet-600 text-white border-violet-600" },
+    rose:    { bg: "bg-rose-100",    text: "text-rose-800",    border: "border-rose-300",    dot: "bg-rose-500",    active: "bg-rose-600 text-white border-rose-600" },
+    sky:     { bg: "bg-sky-100",     text: "text-sky-800",     border: "border-sky-300",     dot: "bg-sky-500",     active: "bg-sky-600 text-white border-sky-600" },
+    emerald: { bg: "bg-emerald-100", text: "text-emerald-800", border: "border-emerald-300", dot: "bg-emerald-500", active: "bg-emerald-600 text-white border-emerald-600" },
+    slate:   { bg: "bg-slate-200",   text: "text-slate-800",   border: "border-slate-300",   dot: "bg-slate-500",   active: "bg-slate-700 text-white border-slate-700" },
+  };
+  const COLOR_KEYS = Object.keys(GROUP_COLORS);
+
+  const PRESETS = {
+    custom_req_ack: {
+      name: "custom_req_ack",
+      role: "slave",
+      clock: "clk",
+      reset: "rst_n",
+      active_low: true,
+      signals: [
+        { id: "s1", name: "tx_req_valid", dir: "input",  width: 1,  role: "control", reset_val: "1'b0",  group: "req", side: "TX" },
+        { id: "s2", name: "tx_req_ready", dir: "output", width: 1,  role: "control", reset_val: "1'b0",  group: "req", side: "TX" },
+        { id: "s3", name: "tx_req_data",  dir: "input",  width: 32, role: "data",    reset_val: "32'h0", group: "req", side: "TX" },
+        { id: "s4", name: "rx_req_valid", dir: "output", width: 1,  role: "control", reset_val: "1'b0",  group: "req", side: "RX" },
+        { id: "s5", name: "rx_req_ready", dir: "input",  width: 1,  role: "control", reset_val: "1'b1",  group: "req", side: "RX" },
+        { id: "s6", name: "rx_req_data",  dir: "output", width: 32, role: "data",    reset_val: "32'h0", group: "req", side: "RX" },
+        { id: "s7", name: "tx_rsp_err",   dir: "input",  width: 1,  role: "state",   reset_val: "1'b0",  group: "rsp", side: "TX" },
+        { id: "s8", name: "rx_rsp_err",   dir: "output", width: 1,  role: "state",   reset_val: "1'b0",  group: "rsp", side: "RX" },
+      ],
+      rules: [
+        { id: "R_001", type: "HANDSHAKE_STABLE", enabled: true, valid_sig: "tx_req_valid", ready_sig: "tx_req_ready", payload_sigs: "tx_req_data", desc: "TX 通道等待握手期间 tx_req_valid 与数据必须保持稳定" },
+        { id: "R_002", type: "HANDSHAKE_STABLE", enabled: true, valid_sig: "rx_req_valid", ready_sig: "rx_req_ready", payload_sigs: "rx_req_data", desc: "RX 通道等待握手期间 rx_req_valid 与数据必须保持稳定" },
+        { id: "R_003", type: "RESP_TIMEOUT",     enabled: true, req_valid: "tx_req_valid", req_ready: "tx_req_ready", rsp_valid: "rx_req_valid", rsp_ready: "rx_req_ready", max_cycles: 4, desc: "TX 请求握手后 4 拍内必须完成 RX 对称响应握手" },
+        { id: "R_004", type: "RESET_SAFE",       enabled: true, target_sigs: "rx_req_valid,rx_rsp_err", desc: "复位有效期间 RX 输出必须保持为 0" },
+      ]
+    },
+    apb_v4: {
+      name: "apb_v4",
+      role: "slave",
+      clock: "PCLK",
+      reset: "PRESETn",
+      active_low: true,
+      signals: [
+        { id: "a1", name: "PSEL",    dir: "input",  width: 1,  role: "control",  reset_val: "1'b0", group: "apb" },
+        { id: "a2", name: "PENABLE", dir: "input",  width: 1,  role: "control", reset_val: "1'b0", group: "apb" },
+        { id: "a3", name: "PREADY",  dir: "output", width: 1,  role: "control", reset_val: "1'b0", group: "apb" },
+        { id: "a4", name: "PWRITE",  dir: "input",  width: 1,  role: "control",  reset_val: "1'b0", group: "apb" },
+        { id: "a5", name: "PADDR",   dir: "input",  width: 8,  role: "data",  reset_val: "8'h0", group: "apb" },
+        { id: "a6", name: "PWDATA",  dir: "input",  width: 32, role: "data",  reset_val: "32'h0", group: "apb" },
+        { id: "a7", name: "PSLVERR", dir: "output", width: 1,  role: "state",  reset_val: "1'b0", group: "apb" },
+      ],
+      rules: [
+        { id: "APB_001", type: "IMPLICATION",      enabled: true, ant_sig: "PENABLE", cons_sig: "PSEL", desc: "PENABLE 为高时 PSEL 必须为高" },
+        { id: "APB_002", type: "HANDSHAKE_STABLE", enabled: true, valid_sig: "PENABLE", ready_sig: "PREADY", payload_sigs: "PADDR,PWDATA,PWRITE", desc: "ACCESS 阶段 PREADY=0 时地址与写数据必须保持稳定" },
+        { id: "APB_003", type: "RESP_TIMEOUT",     enabled: true, req_valid: "PENABLE", req_ready: "PREADY", rsp_valid: "PENABLE", rsp_ready: "PREADY", max_cycles: 5, desc: "APB 从机响应等待不超过 5 拍" },
+        { id: "APB_004", type: "RESET_SAFE",       enabled: true, target_sigs: "PSLVERR", desc: "复位期间 PSLVERR 必须为 0" },
+      ]
+    },
+    axi4_lite_wr: {
+      name: "axi4_lite_wr",
+      role: "slave",
+      clock: "ACLK",
+      reset: "ARESETn",
+      active_low: true,
+      signals: [
+        { id: "x1", name: "AWVALID", dir: "input",  width: 1,  role: "control", reset_val: "1'b0", group: "aw" },
+        { id: "x2", name: "AWREADY", dir: "output", width: 1,  role: "control", reset_val: "1'b0", group: "aw" },
+        { id: "x3", name: "AWADDR",  dir: "input",  width: 12, role: "data",  reset_val: "12'h0", group: "aw" },
+        { id: "x4", name: "BVALID",  dir: "output", width: 1,  role: "state",  reset_val: "1'b0", group: "b" },
+        { id: "x5", name: "BREADY",  dir: "input",  width: 1,  role: "control", reset_val: "1'b1", group: "b" },
+        { id: "x6", name: "BRESP",   dir: "output", width: 2,  role: "state",  reset_val: "2'b00", group: "b" },
+      ],
+      rules: [
+        { id: "AX_001", type: "HANDSHAKE_STABLE", enabled: true, valid_sig: "AWVALID", ready_sig: "AWREADY", payload_sigs: "AWADDR", desc: "AWVALID 拉高未握手前 AWADDR 不可变化" },
+        { id: "AX_002", type: "HANDSHAKE_STABLE", enabled: true, valid_sig: "BVALID",  ready_sig: "BREADY",  payload_sigs: "BRESP",  desc: "BVALID 拉高未握手前 BRESP 不可变化" },
+        { id: "AX_003", type: "RESP_TIMEOUT",     enabled: true, req_valid: "AWVALID", req_ready: "AWREADY", rsp_valid: "BVALID", rsp_ready: "BREADY", max_cycles: 4, desc: "写地址握手后 4 拍内必须返回 BVALID" },
+        { id: "AX_004", type: "RESET_SAFE",       enabled: true, target_sigs: "BVALID", desc: "复位期间 BVALID 必须为 0" },
+      ]
+    },
+    credit_flow: {
+      name: "credit_flow",
+      role: "slave",
+      clock: "clk",
+      reset: "rst_n",
+      active_low: true,
+      signals: [
+        { id: "c1", name: "tx_vld",   dir: "input",  width: 1,  role: "control", reset_val: "1'b0", group: "tx" },
+        { id: "c2", name: "tx_rdy",   dir: "output", width: 1,  role: "control", reset_val: "1'b1", group: "tx" },
+        { id: "c3", name: "tx_flit",  dir: "input",  width: 64, role: "data",  reset_val: "64'h0", group: "tx" },
+        { id: "c4", name: "crd_ret",  dir: "output", width: 1,  role: "state",  reset_val: "1'b0", group: "crd" },
+        { id: "c5", name: "crd_ack",  dir: "input",  width: 1,  role: "control", reset_val: "1'b1", group: "crd" },
+      ],
+      rules: [
+        { id: "CR_001", type: "HANDSHAKE_STABLE", enabled: true, valid_sig: "tx_vld", ready_sig: "tx_rdy", payload_sigs: "tx_flit", desc: "反压期间 tx_vld 与 tx_flit 必须稳定" },
+        { id: "CR_002", type: "RESP_TIMEOUT",     enabled: true, req_valid: "tx_vld", req_ready: "tx_rdy", rsp_valid: "crd_ret", rsp_ready: "crd_ack", max_cycles: 5, desc: "接收 flit 后 5 拍内必须返还 credit" },
+        { id: "CR_003", type: "RESET_SAFE",       enabled: true, target_sigs: "crd_ret", desc: "复位期间禁止返还 credit" },
+      ]
+    }
+  };
+
+  let state = {
+    protocol: JSON.parse(JSON.stringify(PRESETS.custom_req_ack)),
+    activeTab: "signals",
+    exportFmt: "yaml",
+    wave: {},        // { sigName: [val0, val1, ... CYCLES] }, plus __rst__
+    lastDiag: [],
+    auditResults: null,
+    editingHex: null,
+    showWidth: false,
+    newGroupColor: "violet",
+  };
+
+  function ensureGroups() {
+    const p = state.protocol;
+    if (!Array.isArray(p.groups)) p.groups = [];
+    const existing = new Set(p.groups.map(g => g.name));
+    p.signals.forEach(sig => {
+      const gname = sig.group || "default";
+      if (!existing.has(gname)) {
+        const color = COLOR_KEYS[p.groups.length % COLOR_KEYS.length];
+        p.groups.push({ name: gname, color });
+        existing.add(gname);
+      }
+    });
+    if (p.groups.length === 0) p.groups.push({ name: "default", color: "indigo" });
+    return p.groups;
+  }
+
+  function groupStyle(name) {
+    const g = ensureGroups().find(x => x.name === name) || { color: "slate" };
+    return GROUP_COLORS[g.color] || GROUP_COLORS.slate;
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.classList.add("hidden"), 2200);
+  }
+
+  function sigMap() {
+    const m = {};
+    state.protocol.signals.forEach(s => { m[s.name] = s; });
+    return m;
+  }
+
+  function initGoldenWave(randStall = false) {
+    const p = state.protocol;
+    const w = {};
+    // Reset active on cycles 0, 1
+    w.__rst__ = Array.from({ length: CYCLES }, (_, c) => (c < 2 ? (p.active_low ? 0 : 1) : (p.active_low ? 1 : 0)));
+    p.signals.forEach(s => {
+      const rstIsOne = /(?:^1$|['b]1$)/i.test(String(s.reset_val || "").trim());
+      w[s.name] = Array.from({ length: CYCLES }, () => (s.width === 1 ? (rstIsOne ? 1 : 0) : "0x00"));
+    });
+
+    const hsRule = p.rules.find(r => r.type === "HANDSHAKE_STABLE");
+    const toRule = p.rules.find(r => r.type === "RESP_TIMEOUT");
+    const impRule = p.rules.find(r => r.type === "IMPLICATION");
+
+    const vSig = hsRule ? hsRule.valid_sig : (p.signals.find(s => s.role === "control" && s.dir === "input") || p.signals[0] || {}).name;
+    const rSig = hsRule ? hsRule.ready_sig : (p.signals.find(s => s.role === "control" && s.dir === "output") || p.signals[1] || {}).name;
+    const payloads = hsRule ? hsRule.payload_sigs.split(",").map(x => x.trim()).filter(Boolean) : [];
+    const rspV = toRule ? toRule.rsp_valid : null;
+    const rspR = toRule ? toRule.rsp_ready : null;
+
+    // Build 2 clean transactions with stall cycles
+    const stall1 = randStall ? (1 + Math.floor(Math.random() * 2)) : 1;
+    const t1Start = 3;
+    const t1Done = Math.min(CYCLES - 4, t1Start + stall1);
+    const t2Start = Math.min(CYCLES - 3, t1Done + 3);
+    const t2Done = Math.min(CYCLES - 2, t2Start + (randStall ? Math.floor(Math.random() * 2) : 0));
+
+    // Set ready on rsp side
+    if (rspR && w[rspR]) {
+      for (let c = 2; c < CYCLES; c++) w[rspR][c] = 1;
+    }
+
+    const applyTxn = (start, done, valHex) => {
+      for (let c = start; c <= done && c < CYCLES; c++) {
+        if (vSig && w[vSig]) w[vSig][c] = 1;
+        if (rSig && w[rSig]) w[rSig][c] = (c === done ? 1 : 0);
+        if (impRule && impRule.ant_sig === vSig && w[impRule.cons_sig]) w[impRule.cons_sig][c] = 1;
+        payloads.forEach(ps => {
+          if (w[ps]) {
+            const sObj = sigMap()[ps];
+            w[ps][c] = (sObj && sObj.width === 1) ? 1 : valHex;
+          }
+        });
+      }
+      if (impRule && impRule.ant_sig === vSig && start > 2 && w[impRule.cons_sig]) {
+        w[impRule.cons_sig][start - 1] = 1; // APB SETUP cycle
+      }
+      if (rspV && rspV !== vSig && w[rspV]) {
+        const rspCycle = Math.min(CYCLES - 1, done + 1 + (randStall ? Math.floor(Math.random() * 2) : 0));
+        w[rspV][rspCycle] = 1;
+      }
+    };
+
+    applyTxn(t1Start, t1Done, "0xA1");
+    if (t2Start < CYCLES - 1) applyTxn(t2Start, t2Done, "0xB2");
+
+    state.wave = w;
+    evaluateWave();
+  }
+
+  function injectFault(faultType, mutateState = true) {
+    const saved = JSON.parse(JSON.stringify(state.wave));
+    initGoldenWave(false);
+    const p = state.protocol;
+    const w = state.wave;
+    const hsRule = p.rules.find(r => r.type === "HANDSHAKE_STABLE");
+    const toRule = p.rules.find(r => r.type === "RESP_TIMEOUT");
+    const rsRule = p.rules.find(r => r.type === "RESET_SAFE");
+
+    if (faultType === "valid_drop" && hsRule && w[hsRule.valid_sig] && w[hsRule.ready_sig]) {
+      w[hsRule.valid_sig][3] = 1;
+      w[hsRule.ready_sig][3] = 0;
+      w[hsRule.valid_sig][4] = 0; // Dropped before handshake!
+    } else if (faultType === "payload_glitch" && hsRule && w[hsRule.valid_sig]) {
+      w[hsRule.valid_sig][3] = 1;
+      w[hsRule.ready_sig][3] = 0;
+      w[hsRule.valid_sig][4] = 1;
+      w[hsRule.ready_sig][4] = 1;
+      const firstP = hsRule.payload_sigs.split(",").map(x => x.trim()).find(x => w[x]);
+      if (firstP) {
+        const sObj = sigMap()[firstP];
+        w[firstP][3] = (sObj && sObj.width === 1) ? 1 : "0xA1";
+        w[firstP][4] = (sObj && sObj.width === 1) ? 0 : "0xFF"; // Glitch during wait!
+      }
+    } else if (faultType === "timeout" && toRule && w[toRule.req_valid]) {
+      // Trigger request handshake at c=3, suppress response forever
+      w[toRule.req_valid][3] = 1;
+      if (w[toRule.req_ready]) w[toRule.req_ready][3] = 1;
+      if (toRule.rsp_valid === toRule.req_valid) {
+        // Same-channel stall timeout (like APB PENABLE with PREADY=0)
+        for (let c = 3; c < CYCLES; c++) {
+          w[toRule.req_valid][c] = 1;
+          if (w[toRule.req_ready]) w[toRule.req_ready][c] = 0;
+        }
+      } else if (w[toRule.rsp_valid]) {
+        for (let c = 3; c < CYCLES; c++) w[toRule.rsp_valid][c] = 0;
+      }
+    } else if (faultType === "reset_leak" && rsRule) {
+      const firstT = rsRule.target_sigs.split(",").map(x => x.trim()).find(x => w[x]);
+      if (firstT) w[firstT][1] = 1; // High during reset!
+    }
+
+    const diags = evaluateWave(false);
+    if (!mutateState) {
+      state.wave = saved;
+      evaluateWave(false);
+    } else {
+      state.lastDiag = diags;
+    }
+    return diags;
+  }
+
+  function isResetActive(c) {
+    const v = state.wave.__rst__ ? state.wave.__rst__[c] : 1;
+    return state.protocol.active_low ? (v === 0) : (v === 1);
+  }
+
+  function evaluateWave(store = true) {
+    const p = state.protocol;
+    const w = state.wave;
+    const diags = [];
+
+    p.rules.forEach(rule => {
+      if (!rule.enabled) return;
+
+      if (rule.type === "RESET_SAFE") {
+        const targets = (rule.target_sigs || "").split(",").map(x => x.trim()).filter(Boolean);
+        for (let c = 0; c < CYCLES; c++) {
+          if (!isResetActive(c)) continue;
+          targets.forEach(sig => {
+            if (w[sig] && w[sig][c] !== 0 && w[sig][c] !== "0x00") {
+              diags.push({ ruleId: rule.id, cycle: c, sig, severity: "ERROR", msg: `复位期间 ${sig} 非零 (${w[sig][c]})` });
+            }
+          });
+        }
+      }
+
+      if (rule.type === "IMPLICATION") {
+        for (let c = 0; c < CYCLES; c++) {
+          if (isResetActive(c)) continue;
+          if (w[rule.ant_sig] && w[rule.cons_sig]) {
+            if (w[rule.ant_sig][c] === 1 && w[rule.cons_sig][c] !== 1) {
+              diags.push({ ruleId: rule.id, cycle: c, sig: rule.ant_sig, severity: "ERROR", msg: `拍 ${c}: ${rule.ant_sig}=1 但 ${rule.cons_sig}!=1` });
+            }
+          }
+        }
+      }
+
+      if (rule.type === "HANDSHAKE_STABLE") {
+        const vArr = w[rule.valid_sig];
+        const rArr = w[rule.ready_sig];
+        const pSigs = (rule.payload_sigs || "").split(",").map(x => x.trim()).filter(Boolean);
+        if (vArr && rArr) {
+          for (let c = 1; c < CYCLES; c++) {
+            if (isResetActive(c) || isResetActive(c - 1)) continue;
+            if (vArr[c - 1] === 1 && rArr[c - 1] === 0) {
+              if (vArr[c] !== 1) {
+                diags.push({ ruleId: rule.id, cycle: c, sig: rule.valid_sig, severity: "ERROR", msg: `拍 ${c}: ${rule.valid_sig} 在未握手 (${rule.ready_sig}=0) 时提前撤回` });
+              }
+              pSigs.forEach(ps => {
+                if (w[ps] && w[ps][c] !== w[ps][c - 1]) {
+                  diags.push({ ruleId: rule.id, cycle: c, sig: ps, severity: "ERROR", msg: `拍 ${c}: 等待握手期间 ${ps} 发生跳变 (${w[ps][c - 1]} -> ${w[ps][c]})` });
+                }
+              });
+            }
+          }
+        }
+      }
+
+      if (rule.type === "RESP_TIMEOUT") {
+        const maxC = Math.max(1, Number(rule.max_cycles) || 4);
+        const rv = w[rule.req_valid], rr = w[rule.req_ready];
+        const pv = w[rule.rsp_valid], pr = w[rule.rsp_ready];
+        if (rv && rr && pv && pr) {
+          if (rule.req_valid === rule.rsp_valid) {
+            // Single-channel stall counter
+            let stall = 0;
+            for (let c = 0; c < CYCLES; c++) {
+              if (isResetActive(c)) { stall = 0; continue; }
+              if (rv[c] === 1 && rr[c] === 0) {
+                stall++;
+                if (stall > maxC) {
+                  diags.push({ ruleId: rule.id, cycle: c, sig: rule.req_ready, severity: "ERROR", msg: `拍 ${c}: ${rule.req_valid} 等待 ${rule.req_ready} 超过 ${maxC} 拍` });
+                }
+              } else {
+                stall = 0;
+              }
+            }
+          } else {
+            let pending = false, waitCnt = 0;
+            for (let c = 0; c < CYCLES; c++) {
+              if (isResetActive(c)) { pending = false; waitCnt = 0; continue; }
+              const reqHs = rv[c] === 1 && rr[c] === 1;
+              const rspHs = pv[c] === 1 && pr[c] === 1;
+              if (pending) {
+                waitCnt++;
+                if (rspHs) { pending = false; waitCnt = 0; }
+                else if (waitCnt > maxC) {
+                  diags.push({ ruleId: rule.id, cycle: c, sig: rule.rsp_valid, severity: "ERROR", msg: `拍 ${c}: 请求握手后超过 ${maxC} 拍未收到 ${rule.rsp_valid} 响应` });
+                  pending = false;
+                }
+              }
+              if (reqHs && !rspHs) { pending = true; waitCnt = 0; }
+            }
+          }
+        }
+      }
+    });
+
+    if (store) state.lastDiag = diags;
+    return diags;
+  }
+
+  function runSelfAuditMatrix() {
+    const cases = [
+      { key: "valid_drop",     label: "A1 · VALID 提前撤回注入",  expect: "HANDSHAKE_STABLE" },
+      { key: "payload_glitch", label: "A2 · 等待期数据抖动注入",  expect: "HANDSHAKE_STABLE" },
+      { key: "timeout",        label: "A3 · 响应超时挂死注入",    expect: "RESP_TIMEOUT" },
+      { key: "reset_leak",     label: "A4 · 复位期输出泄漏注入",  expect: "RESET_SAFE" },
+    ];
+    state.auditResults = cases.map(tc => {
+      const d = injectFault(tc.key, false);
+      return { ...tc, caught: d.length > 0, count: d.length, firstRule: d[0] ? d[0].ruleId : "无" };
+    });
+    renderVerify();
+    const caughtAll = state.auditResults.every(x => x.caught);
+    showToast(caughtAll ? "自审计通过：4/4 故障注入均被规则捕获" : "自审计发现盲区：部分故障未被捕获");
+  }
+
+  // ---------- Exporters ----------
+  function buildYamlExport() {
+    const p = state.protocol;
+    const lines = [
+      `# Custom protocol spec generated by Protocol Studio (compatible with fpga_toolbox)`,
+      `protocol_definition:`,
+      `  name: ${p.name}`,
+      `  default_role: ${p.role}`,
+      `  clock: { port: ${p.clock}, freq_mhz: 100.0 }`,
+      `  reset: { port: ${p.reset}, active_low: ${p.active_low ? "true" : "false"}, sync: true }`,
+      `  signals:`,
+    ];
+    p.signals.forEach(s => {
+      lines.push(`    - { name: ${s.name}, flow: "${s.dir === "input" ? "tb->dut" : "tb<-dut"}", width: ${s.width}, type: ${s.role}, reset: "${s.reset_val}", group: ${s.group}, side: ${(s.side || "TX").toLowerCase()} }`);
+    });
+    lines.push(`  protocol_rules:`);
+    p.rules.forEach(r => {
+      lines.push(`    - id: ${r.id}`);
+      lines.push(`      type: ${r.type}`);
+      lines.push(`      enabled: ${r.enabled ? "true" : "false"}`);
+      lines.push(`      desc: "${r.desc}"`);
+      if (r.type === "HANDSHAKE_STABLE") {
+        lines.push(`      valid: ${r.valid_sig}`);
+        lines.push(`      ready: ${r.ready_sig}`);
+        lines.push(`      payload: [${(r.payload_sigs || "").split(",").map(x => x.trim()).filter(Boolean).join(", ")}]`);
+      } else if (r.type === "RESP_TIMEOUT") {
+        lines.push(`      req: [${r.req_valid}, ${r.req_ready}]`);
+        lines.push(`      rsp: [${r.rsp_valid}, ${r.rsp_ready}]`);
+        lines.push(`      max_cycles: ${r.max_cycles}`);
+      } else if (r.type === "RESET_SAFE") {
+        lines.push(`      targets: [${(r.target_sigs || "").split(",").map(x => x.trim()).filter(Boolean).join(", ")}]`);
+      } else if (r.type === "IMPLICATION") {
+        lines.push(`      antecedent: ${r.ant_sig}`);
+        lines.push(`      consequent: ${r.cons_sig}`);
+      }
+    });
+    return lines.join("\n");
+  }
+
+  function buildSvMonitorExport() {
+    const p = state.protocol;
+    const rstExpr = p.active_low ? `!${p.reset}` : `${p.reset}`;
+    const portDecls = [
+      `  input logic ${p.clock},`,
+      `  input logic ${p.reset},`,
+      ...p.signals.map((s, idx) => {
+        const w = s.width > 1 ? `[${s.width - 1}:0] ` : "";
+        const comma = idx === p.signals.length - 1 ? "" : ",";
+        return `  input logic ${w}${s.name}${comma} // ${s.dir === "input" ? "TB -> DUT" : "TB <- DUT"} (${s.role})`;
+      })
+    ].join("\n");
+
+    const prevDecls = [];
+    const rstChecks = [];
+    const bodyChecks = [];
+
+    p.rules.filter(r => r.enabled).forEach(r => {
+      if (r.type === "RESET_SAFE") {
+        (r.target_sigs || "").split(",").map(x => x.trim()).filter(Boolean).forEach(sig => {
+          rstChecks.push(`      assert (${sig} === '0) else $error("[RULE:${r.id}] ${sig} non-zero during reset");`);
+        });
+      } else if (r.type === "IMPLICATION") {
+        bodyChecks.push(`      if (${r.ant_sig}) assert (${r.cons_sig}) else $error("[RULE:${r.id}] ${r.ant_sig} requires ${r.cons_sig}");`);
+      } else if (r.type === "HANDSHAKE_STABLE") {
+        prevDecls.push(`  logic prev_${r.id}_v, prev_${r.id}_r;`);
+        const ps = (r.payload_sigs || "").split(",").map(x => x.trim()).filter(Boolean);
+        ps.forEach(s => {
+          const obj = sigMap()[s];
+          const w = obj && obj.width > 1 ? `[${obj.width - 1}:0] ` : "";
+          prevDecls.push(`  logic ${w}prev_${r.id}_${s};`);
+        });
+        bodyChecks.push(`      if (prev_${r.id}_v && !prev_${r.id}_r) begin`);
+        bodyChecks.push(`        assert (${r.valid_sig}) else $error("[RULE:${r.id}] ${r.valid_sig} dropped before handshake");`);
+        ps.forEach(s => {
+          bodyChecks.push(`        assert (${s} === prev_${r.id}_${s}) else $error("[RULE:${r.id}] ${s} changed while stalled");`);
+        });
+        bodyChecks.push(`      end`);
+        bodyChecks.push(`      prev_${r.id}_v <= ${r.valid_sig}; prev_${r.id}_r <= ${r.ready_sig};`);
+        ps.forEach(s => bodyChecks.push(`      prev_${r.id}_${s} <= ${s};`));
+      } else if (r.type === "RESP_TIMEOUT") {
+        prevDecls.push(`  logic pend_${r.id}; int unsigned cnt_${r.id};`);
+        bodyChecks.push(`      if (${r.req_valid} && ${r.req_ready}) begin pend_${r.id} <= 1'b1; cnt_${r.id} <= 0; end`);
+        bodyChecks.push(`      else if (${r.rsp_valid} && ${r.rsp_ready}) begin pend_${r.id} <= 1'b0; cnt_${r.id} <= 0; end`);
+        bodyChecks.push(`      else if (pend_${r.id}) begin cnt_${r.id} <= cnt_${r.id} + 1; assert (cnt_${r.id} < ${r.max_cycles}) else $error("[RULE:${r.id}] response timeout > ${r.max_cycles} cycles"); end`);
+      }
+    });
+
+    return `// Auto-generated passive protocol monitor for Verilator >= 5.040 & slang
+// Compatible with fpga_toolbox normalize_sim_result ([RULE:...] format)
+\`timescale 1ns/1ps
+module ${p.name}_monitor (
+${portDecls}
+);
+${prevDecls.join("\n")}
+
+  always_ff @(posedge ${p.clock}) begin
+    if (${rstExpr}) begin
+${rstChecks.length ? rstChecks.join("\n") : "      // no reset-safe output checks configured"}
+    end else begin
+${bodyChecks.length ? bodyChecks.join("\n") : "      // no active-cycle checks configured"}
+    end
+  end
+endmodule
+`;
+  }
+
+  // ---------- Renderers ----------
+  function renderSignals() {
+    const p = state.protocol;
+    document.getElementById("metaName").value = p.name;
+    document.getElementById("metaClk").value = p.clock;
+    document.getElementById("metaRst").value = p.reset;
+    document.getElementById("thWidthCol").classList.toggle("hidden", !state.showWidth);
+    const wBtn = document.getElementById("btnToggleWidth");
+    wBtn.textContent = state.showWidth ? "隐藏位宽列" : "显示位宽列";
+    wBtn.className = state.showWidth
+      ? "px-3 py-1.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-xs font-semibold"
+      : "px-3 py-1.5 rounded-full border border-slate-200 bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold";
+    document.querySelectorAll(".meta-role-btn").forEach(b => {
+      const act = b.dataset.metaRole === p.role;
+      b.className = act
+        ? "meta-role-btn py-1.5 rounded-md text-xs font-semibold bg-white text-blue-700 shadow-sm"
+        : "meta-role-btn py-1.5 rounded-md text-xs font-medium text-slate-600 hover:text-slate-900";
+    });
+    document.querySelectorAll(".meta-pol-btn").forEach(b => {
+      const act = (b.dataset.rstPol === "low") === p.active_low;
+      b.className = act
+        ? "meta-pol-btn py-1.5 rounded-md text-xs font-semibold bg-white text-blue-700 shadow-sm"
+        : "meta-pol-btn py-1.5 rounded-md text-xs font-medium text-slate-600 hover:text-slate-900";
+    });
+
+    const tbody = document.getElementById("signalTableBody");
+    tbody.innerHTML = p.signals.map((s, idx) => `
+      <tr class="hover:bg-slate-50/80">
+        <td class="py-2 px-4"><input data-sig-idx="${idx}" data-field="name" value="${s.name}" class="sig-inp w-28 sm:w-36 font-mono text-xs sm:text-sm border border-slate-200 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:outline-none"></td>
+        <td class="py-2 px-3">
+          <button data-sig-idx="${idx}" data-field="dir" data-val="${s.dir === "input" ? "output" : "input"}" type="button" title="点击切换信号流向" class="sig-pill px-2.5 py-1 rounded-full text-[11px] font-mono font-bold inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm transition-colors ${s.dir === "input" ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}"><span>TB</span><span class="text-xs leading-none">${s.dir === "input" ? "➔" : "⬅"}</span><span>DUT</span></button>
+        </td>
+        <td class="py-2 px-3 ${state.showWidth ? "" : "hidden"}"><input data-sig-idx="${idx}" data-field="width" type="number" min="1" max="512" value="${s.width}" class="sig-inp w-14 font-mono text-xs border border-slate-200 rounded px-2 py-1"></td>
+        <td class="py-2 px-3">
+          <div class="flex flex-wrap gap-1">
+            ${["control", "state", "data"].map(r => `
+              <button data-sig-idx="${idx}" data-field="role" data-val="${r}" type="button" class="sig-pill px-2 py-0.5 rounded-full text-[11px] font-mono border ${s.role === r ? "bg-blue-600 text-white border-blue-600 font-semibold" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}">${r}</button>
+            `).join("")}
+          </div>
+        </td>
+        <td class="py-2 px-3"><input data-sig-idx="${idx}" data-field="reset_val" value="${s.reset_val}" placeholder="1'b0" class="sig-inp w-20 font-mono text-xs border border-slate-200 rounded px-2 py-1"></td>
+        <td class="py-2 px-3">
+          ${(() => {
+            const groups = ensureGroups();
+            const curIdx = Math.max(0, groups.findIndex(g => g.name === s.group));
+            const curG = groups[curIdx];
+            const nextG = groups[(curIdx + 1) % groups.length];
+            const st = GROUP_COLORS[curG.color] || GROUP_COLORS.slate;
+            return `<button data-sig-idx="${idx}" data-field="group" data-val="${nextG.name}" type="button" title="点击切换到下一个通道组 (${nextG.name})" class="sig-pill px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold border inline-flex items-center gap-1.5 shadow-sm whitespace-nowrap ${st.active}"><span class="w-1.5 h-1.5 rounded-full bg-white"></span>${curG.name}</button>`;
+          })()}
+        </td>
+        <td class="py-2 px-3">
+          <button data-sig-idx="${idx}" data-field="side" data-val="${(s.side || "TX") === "TX" ? "RX" : "TX"}" type="button" title="点击切换 TX / RX 对称侧" class="sig-pill px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold border whitespace-nowrap ${(s.side || "TX") === "TX" ? "bg-sky-100 text-sky-800 border-sky-300" : "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300"}">${s.side || "TX"}</button>
+        </td>
+        <td class="py-2 px-3 text-right"><button data-del-sig="${idx}" type="button" class="del-sig-btn text-xs text-rose-600 hover:text-rose-800 font-medium px-2 py-1">删除</button></td>
+      </tr>
+    `).join("");
+
+    tbody.querySelectorAll(".sig-inp").forEach(el => {
+      el.addEventListener("change", () => {
+        const idx = Number(el.dataset.sigIdx);
+        const field = el.dataset.field;
+        const oldName = state.protocol.signals[idx].name;
+        if (field === "width") {
+          const nw = Math.max(1, Number(el.value) || 1);
+          state.protocol.signals[idx].width = nw;
+          const curRst = String(state.protocol.signals[idx].reset_val || "");
+          if (/^\d+'[bhd]/i.test(curRst)) {
+            state.protocol.signals[idx].reset_val = curRst.replace(/^\d+/, String(nw));
+            renderSignals();
+          }
+        } else if (field === "reset_val") {
+          const rv = el.value.trim();
+          state.protocol.signals[idx].reset_val = rv;
+          const mW = rv.match(/^(\d+)(?:'[bhd]|[bhd]')/i);
+          if (mW) {
+            state.protocol.signals[idx].width = Math.max(1, Number(mW[1]) || 1);
+          }
+        } else {
+          state.protocol.signals[idx][field] = el.value.trim();
+        }
+        if (field === "name" && oldName !== el.value.trim()) {
+          state.wave[el.value.trim()] = state.wave[oldName] || Array(CYCLES).fill(0);
+          delete state.wave[oldName];
+        }
+        evaluateWave();
+        renderExport();
+      });
+    });
+    tbody.querySelectorAll(".sig-pill").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.sigIdx);
+        state.protocol.signals[idx][btn.dataset.field] = btn.dataset.val;
+        evaluateWave();
+        renderSignals();
+        renderExport();
+      });
+    });
+    tbody.querySelectorAll(".del-sig-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.delSig);
+        const name = state.protocol.signals[idx].name;
+        state.protocol.signals.splice(idx, 1);
+        delete state.wave[name];
+        renderAll();
+      });
+    });
+  }
+
+  function renderRules() {
+    document.getElementById("tabRuleCount").textContent = String(state.protocol.rules.length);
+    const wrap = document.getElementById("ruleListContainer");
+    const sigNames = state.protocol.signals.map(s => s.name);
+    const sigPills = (idx, field, sel) => `
+      <div class="flex flex-wrap gap-1 mt-1">
+        ${sigNames.map(n => `<button data-r="${idx}" data-f="${field}" data-val="${n}" type="button" class="rule-sig-pill px-2 py-0.5 rounded-full text-[11px] font-mono border ${n === sel ? "bg-blue-600 text-white border-blue-600 font-semibold" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}">${n}</button>`).join("")}
+      </div>`;
+    const ruleTypes = [
+      ["HANDSHAKE_STABLE", "握手稳定"],
+      ["RESP_TIMEOUT", "响应超时"],
+      ["RESET_SAFE", "复位安全"],
+      ["IMPLICATION", "信号蕴含"],
+    ];
+
+    wrap.innerHTML = state.protocol.rules.map((r, idx) => {
+      let paramsHtml = "";
+      if (r.type === "HANDSHAKE_STABLE") {
+        paramsHtml = `
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2.5">
+            <div><span class="text-[11px] font-medium text-slate-500">Valid 信号</span>${sigPills(idx, "valid_sig", r.valid_sig)}</div>
+            <div><span class="text-[11px] font-medium text-slate-500">Ready 信号</span>${sigPills(idx, "ready_sig", r.ready_sig)}</div>
+            <div><span class="text-[11px] font-medium text-slate-500">稳定 Payload（逗号分隔）</span><input data-r="${idx}" data-f="payload_sigs" value="${r.payload_sigs || ""}" class="rule-inp mt-1 w-full text-xs font-mono bg-white border border-slate-200 rounded px-2 py-1"></div>
+          </div>`;
+      } else if (r.type === "RESP_TIMEOUT") {
+        paramsHtml = `
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-2.5">
+            <div><span class="text-[11px] font-medium text-slate-500">Req Valid</span>${sigPills(idx, "req_valid", r.req_valid)}</div>
+            <div><span class="text-[11px] font-medium text-slate-500">Req Ready</span>${sigPills(idx, "req_ready", r.req_ready)}</div>
+            <div><span class="text-[11px] font-medium text-slate-500">Rsp Valid</span>${sigPills(idx, "rsp_valid", r.rsp_valid)}</div>
+            <div><span class="text-[11px] font-medium text-slate-500">Rsp Ready</span>${sigPills(idx, "rsp_ready", r.rsp_ready)}</div>
+            <div><span class="text-[11px] font-medium text-slate-500">最大周期</span><input data-r="${idx}" data-f="max_cycles" type="number" min="1" max="64" value="${r.max_cycles || 4}" class="rule-inp mt-1 w-20 text-xs font-mono bg-white border border-slate-200 rounded px-2 py-1"></div>
+          </div>`;
+      } else if (r.type === "RESET_SAFE") {
+        paramsHtml = `
+          <div class="mt-2.5">
+            <span class="text-[11px] font-medium text-slate-500">复位期必须为 0 的信号（逗号分隔）</span>
+            <input data-r="${idx}" data-f="target_sigs" value="${r.target_sigs || ""}" class="rule-inp mt-1 w-full text-xs font-mono bg-white border border-slate-200 rounded px-2 py-1">
+          </div>`;
+      } else if (r.type === "IMPLICATION") {
+        paramsHtml = `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2.5">
+            <div><span class="text-[11px] font-medium text-slate-500">前件信号 (=1 时触发)</span>${sigPills(idx, "ant_sig", r.ant_sig)}</div>
+            <div><span class="text-[11px] font-medium text-slate-500">后件信号 (必须 =1)</span>${sigPills(idx, "cons_sig", r.cons_sig)}</div>
+          </div>`;
+      }
+      return `
+        <div class="rounded-lg border ${r.enabled ? "border-slate-200 bg-slate-50/60" : "border-slate-200 bg-slate-100/50 opacity-60"} p-3.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <input data-r="${idx}" data-f="enabled" type="checkbox" ${r.enabled ? "checked" : ""} class="rule-chk rounded text-blue-600">
+              <input data-r="${idx}" data-f="id" value="${r.id}" class="rule-inp w-24 font-mono text-xs font-bold bg-white border border-slate-200 rounded px-2 py-1">
+              <div class="inline-flex flex-wrap bg-slate-200/70 p-0.5 rounded-lg gap-0.5">
+                ${ruleTypes.map(([val, lbl]) => `<button data-r="${idx}" data-type="${val}" type="button" class="rule-type-btn px-2.5 py-1 rounded-md text-xs ${r.type === val ? "bg-white text-blue-700 font-semibold shadow-sm" : "text-slate-600 hover:text-slate-900 font-medium"}">${lbl}</button>`).join("")}
+              </div>
+            </div>
+            <button data-del-rule="${idx}" type="button" class="del-rule-btn text-xs text-rose-600 hover:text-rose-800 font-medium">删除</button>
+          </div>
+          <input data-r="${idx}" data-f="desc" value="${r.desc || ""}" class="rule-inp mt-2 w-full text-xs bg-white border border-slate-200 rounded px-2.5 py-1 text-slate-700" placeholder="规则说明">
+          ${paramsHtml}
+        </div>`;
+    }).join("");
+
+    wrap.querySelectorAll(".rule-chk").forEach(el => {
+      el.addEventListener("change", () => {
+        state.protocol.rules[Number(el.dataset.r)].enabled = el.checked;
+        evaluateWave();
+        renderRules();
+        renderVerify();
+        renderExport();
+      });
+    });
+    wrap.querySelectorAll(".rule-type-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.r);
+        const s0 = sigNames[0] || "";
+        const s1 = sigNames[1] || s0;
+        const r = state.protocol.rules[idx];
+        r.type = btn.dataset.type;
+        if (r.type === "HANDSHAKE_STABLE") { r.valid_sig = r.valid_sig || s0; r.ready_sig = r.ready_sig || s1; r.payload_sigs = r.payload_sigs || ""; }
+        if (r.type === "RESP_TIMEOUT") { r.req_valid = r.req_valid || s0; r.req_ready = r.req_ready || s1; r.rsp_valid = r.rsp_valid || s0; r.rsp_ready = r.rsp_ready || s1; r.max_cycles = r.max_cycles || 4; }
+        if (r.type === "RESET_SAFE") { r.target_sigs = r.target_sigs || s0; }
+        if (r.type === "IMPLICATION") { r.ant_sig = r.ant_sig || s0; r.cons_sig = r.cons_sig || s1; }
+        evaluateWave();
+        renderRules();
+        renderVerify();
+        renderExport();
+      });
+    });
+    wrap.querySelectorAll(".rule-sig-pill").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.r);
+        state.protocol.rules[idx][btn.dataset.f] = btn.dataset.val;
+        evaluateWave();
+        renderRules();
+        renderVerify();
+        renderExport();
+      });
+    });
+    wrap.querySelectorAll(".rule-inp").forEach(el => {
+      el.addEventListener("change", () => {
+        const idx = Number(el.dataset.r);
+        const f = el.dataset.f;
+        state.protocol.rules[idx][f] = f === "max_cycles" ? Math.max(1, Number(el.value) || 4) : el.value.trim();
+        evaluateWave();
+        renderVerify();
+        renderExport();
+      });
+    });
+    wrap.querySelectorAll(".del-rule-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.protocol.rules.splice(Number(btn.dataset.delRule), 1);
+        evaluateWave();
+        renderAll();
+      });
+    });
+  }
+
+  function renderVerify() {
+    const p = state.protocol;
+    const diags = state.lastDiag;
+    const errSet = new Set(diags.map(d => `${d.sig}@${d.cycle}`));
+
+    // Verdict banner
+    const banner = document.getElementById("verifyBanner");
+    if (diags.length === 0) {
+      banner.className = "rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex flex-wrap items-center justify-between gap-3";
+      banner.innerHTML = `
+        <div class="flex items-center gap-2.5">
+          <span class="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-xs font-bold font-mono">PASS</span>
+          <span class="text-sm font-semibold text-emerald-900">当前 14 拍波形全部通过 ${p.rules.filter(r => r.enabled).length} 条启用规则</span>
+        </div>
+        <span class="text-xs text-emerald-700">提示：点击上方「负向故障注入」按钮可实时测试违规捕获能力</span>`;
+    } else {
+      banner.className = "rounded-xl border border-rose-200 bg-rose-50 p-4 flex flex-wrap items-center justify-between gap-3";
+      banner.innerHTML = `
+        <div class="flex items-center gap-2.5">
+          <span class="px-2.5 py-0.5 rounded-full bg-rose-600 text-white text-xs font-bold font-mono">FAIL · ${diags.length} 违规</span>
+          <span class="text-sm font-semibold text-rose-900">被动协议监视器已精准捕获时序违规（下方红色格子高亮）</span>
+        </div>
+        <span class="text-xs text-rose-700">在负向测试中，捕获违规即证明规则有效、不会静默通过</span>`;
+    }
+
+    // Waveform grid
+    const tbl = document.getElementById("waveTable");
+    const hdr = `<thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2 px-2 text-left w-36">信号 / 拍号</th>${Array.from({ length: CYCLES }, (_, c) => `<th class="py-2 px-1 text-center w-12">C${c}</th>`).join("")}</tr></thead>`;
+
+    // Reset row
+    const rstCells = Array.from({ length: CYCLES }, (_, c) => {
+      const v = state.wave.__rst__ ? state.wave.__rst__[c] : 1;
+      const act = isResetActive(c);
+      return `<td class="p-0.5"><button data-wsig="__rst__" data-wc="${c}" type="button" class="wave-cell w-full py-1.5 rounded text-center font-bold ${act ? "bg-amber-500/25 text-amber-300 border border-amber-500/50" : "bg-slate-800 text-slate-400 border border-slate-700"}">${v}</button></td>`;
+    }).join("");
+
+    const sigRows = p.signals.map(s => {
+      const arr = state.wave[s.name] || Array(CYCLES).fill(s.width === 1 ? 0 : "0x00");
+      const cells = arr.map((v, c) => {
+        const isErr = errSet.has(`${s.name}@${c}`);
+        if (s.width === 1) {
+          const cls = isErr
+            ? "bg-rose-600 text-white border border-rose-400"
+            : (v === 1 ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/50" : "bg-slate-800 text-slate-500 border border-slate-700/80");
+          return `<td class="p-0.5"><button data-wsig="${s.name}" data-wc="${c}" type="button" class="wave-cell w-full py-1.5 rounded text-center font-bold ${cls}">${v}</button></td>`;
+        }
+        const cls = isErr
+          ? "bg-rose-600 text-white border border-rose-400"
+          : (v !== "0x00" ? "bg-blue-500/25 text-blue-200 border border-blue-500/50" : "bg-slate-800 text-slate-500 border border-slate-700/80");
+        return `<td class="p-0.5"><button data-wsig="${s.name}" data-wc="${c}" data-multi="1" type="button" class="wave-cell w-full py-1.5 rounded text-center text-[11px] ${cls}">${v}</button></td>`;
+      }).join("");
+      const flowBadge = s.dir === "input"
+        ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40 text-[10px] font-bold">TB➔DUT</span>`
+        : `<span class="ml-1 px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold">TB⬅DUT</span>`;
+      return `<tr class="border-b border-slate-800/60"><td class="py-1.5 px-2 text-slate-200 whitespace-nowrap">${s.name} <span class="text-[10px] text-slate-500">[${s.width}]</span>${flowBadge}</td>${cells}</tr>`;
+    }).join("");
+
+    tbl.innerHTML = `${hdr}<tbody><tr class="border-b border-slate-800"><td class="py-1.5 px-2 text-amber-300 font-semibold">${p.reset} <span class="text-[10px] text-slate-500">(${p.active_low ? "low" : "high"})</span></td>${rstCells}</tr>${sigRows}</tbody>`;
+
+    tbl.querySelectorAll(".wave-cell").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const sig = btn.dataset.wsig;
+        const c = Number(btn.dataset.wc);
+        if (btn.dataset.multi === "1") {
+          state.editingHex = { sig, c };
+          document.getElementById("hexModalTitle").textContent = `编辑 ${sig} @ Cycle ${c}`;
+          document.getElementById("hexInput").value = state.wave[sig][c];
+          document.getElementById("hexModal").classList.remove("hidden");
+          document.getElementById("hexInput").focus();
+        } else {
+          state.wave[sig][c] = state.wave[sig][c] === 1 ? 0 : 1;
+          evaluateWave();
+          renderVerify();
+        }
+      });
+    });
+
+    // Diagnostics panel
+    const dEl = document.getElementById("diagList");
+    if (diags.length === 0) {
+      dEl.innerHTML = `<div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800">0 项违规：所有已启用规则在 14 拍仿真窗口内均满足约束。</div>`;
+    } else {
+      dEl.innerHTML = diags.map(d => `
+        <div class="p-2.5 rounded-lg bg-rose-50 border border-rose-200 flex items-start gap-2">
+          <span class="font-mono font-bold text-rose-700 shrink-0">[${d.ruleId}]</span>
+          <span class="text-rose-900">${d.msg}</span>
+        </div>`).join("");
+    }
+
+    // Audit matrix
+    if (state.auditResults) {
+      document.getElementById("auditMatrix").innerHTML = state.auditResults.map(a => `
+        <div class="p-2.5 rounded-lg border ${a.caught ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-amber-50 border-amber-200 text-amber-900"} flex items-center justify-between gap-2">
+          <span class="font-medium">${a.label}</span>
+          <span class="font-mono font-bold shrink-0">${a.caught ? `捕获 (${a.firstRule})` : "未捕获 · 盲区"}</span>
+        </div>`).join("");
+    }
+  }
+
+  function buildTlaExport() {
+    const p = state.protocol;
+    const modName = p.name.replace(/[^A-Za-z0-9_]/g, "_");
+    const hsRule = p.rules.find(r => r.enabled && r.type === "HANDSHAKE_STABLE");
+    const toRule = p.rules.find(r => r.enabled && r.type === "RESP_TIMEOUT");
+    const maxC = toRule ? (Number(toRule.max_cycles) || 4) : 4;
+    const vName = hsRule ? hsRule.valid_sig : "req_valid";
+    const rName = hsRule ? hsRule.ready_sig : "req_ready";
+    const rspV = toRule ? toRule.rsp_valid : "rsp_valid";
+    const rspR = toRule ? toRule.rsp_ready : "rsp_ready";
+
+    return `---- MODULE ${modName} ----
+EXTENDS Integers, TLC
+
+\* Auto-generated from Protocol Studio (${p.name})
+\* Run in VS Code TLA+ Toolbox / TLC with Safety invariant: SafetyInvariant
+CONSTANTS MaxRespCycles   \* Suggested small-scope value: ${maxC}
+
+VARIABLES ${vName}, ${rName}, payload, pending, waitCnt, ${rspV === vName ? "rsp_done" : rspV}, ${rspR === rName ? "rsp_rdy" : rspR}, violation
+
+vars == <<${vName}, ${rName}, payload, pending, waitCnt, ${rspV === vName ? "rsp_done" : rspV}, ${rspR === rName ? "rsp_rdy" : rspR}, violation>>
+
+Init ==
+  /\ ${vName} = 0
+  /\ ${rName} = 0
+  /\ payload = "IDLE"
+  /\ pending = FALSE
+  /\ waitCnt = 0
+  /\ ${rspV === vName ? "rsp_done" : rspV} = 0
+  /\ ${rspR === rName ? "rsp_rdy" : rspR} = 1
+  /\ violation = "NONE"
+
+\* Action 1: Master issues a new request when idle
+IssueReq ==
+  /\ ${vName} = 0 /\ ~pending
+  /\ ${vName}' = 1
+  /\ payload' \in {"A1", "B2"}
+  /\ UNCHANGED <<${rName}, pending, waitCnt, ${rspV === vName ? "rsp_done" : rspV}, ${rspR === rName ? "rsp_rdy" : rspR}, violation>>
+
+\* Action 2: Slave stalls (backpressure) while holding payload stable
+SlaveStall ==
+  /\ ${vName} = 1 /\ ${rName} = 0
+  /\ waitCnt < MaxRespCycles
+  /\ waitCnt' = waitCnt + 1
+  /\ UNCHANGED <<${vName}, ${rName}, payload, pending, ${rspV === vName ? "rsp_done" : rspV}, ${rspR === rName ? "rsp_rdy" : rspR}, violation>>
+
+\* Action 3: Request handshake completes (VALID && READY)
+ReqHandshake ==
+  /\ ${vName} = 1
+  /\ ${rName}' = 1
+  /\ ${vName}' = 0
+  /\ pending' = TRUE
+  /\ waitCnt' = 0
+  /\ UNCHANGED <<payload, ${rspV === vName ? "rsp_done" : rspV}, ${rspR === rName ? "rsp_rdy" : rspR}, violation>>
+
+\* Action 4: Slave returns response within MaxRespCycles
+ReturnResp ==
+  /\ pending = TRUE
+  /\ waitCnt < MaxRespCycles
+  /\ ${rspV === vName ? "rsp_done" : rspV}' = 1
+  /\ pending' = FALSE
+  /\ waitCnt' = 0
+  /\ ${rName}' = 0
+  /\ UNCHANGED <<${vName}, payload, ${rspR === rName ? "rsp_rdy" : rspR}, violation>>
+
+Next == IssueReq \/ SlaveStall \/ ReqHandshake \/ ReturnResp
+
+Spec == Init /\ [][Next]_vars /\ WF_vars(ReqHandshake) /\ WF_vars(ReturnResp)
+
+\* Safety Invariants (must hold in every reachable state)
+NoTimeout == waitCnt <= MaxRespCycles
+NoViolation == violation = "NONE"
+SafetyInvariant == NoTimeout /\ NoViolation
+
+\* Liveness Property (every pending request eventually receives response)
+EventuallyResponds == pending ~> ~pending
+====
+`;
+  }
+
+  let lastTlcCounterexample = null;
+
+  function loadCounterexampleToWave(trace) {
+    if (!trace || !trace.length) return;
+    const p = state.protocol;
+    const hsRule = p.rules.find(r => r.type === "HANDSHAKE_STABLE");
+    const toRule = p.rules.find(r => r.type === "RESP_TIMEOUT");
+    const vSig = hsRule ? hsRule.valid_sig : (p.signals.find(s => s.role === "control" && s.dir === "input") || p.signals[0] || {}).name;
+    const rSig = hsRule ? hsRule.ready_sig : (p.signals.find(s => s.role === "control" && s.dir === "output") || p.signals[1] || {}).name;
+    const pSig = hsRule ? hsRule.payload_sigs.split(",").map(x => x.trim()).find(x => state.wave[x]) : null;
+    const rspV = toRule ? toRule.rsp_valid : null;
+    const rspR = toRule ? toRule.rsp_ready : null;
+
+    // Reset wave to clean baseline
+    state.wave.__rst__ = Array.from({ length: CYCLES }, (_, c) => (c < 1 ? (p.active_low ? 0 : 1) : (p.active_low ? 1 : 0)));
+    p.signals.forEach(s => {
+      state.wave[s.name] = Array.from({ length: CYCLES }, () => (s.width === 1 ? 0 : "0x00"));
+    });
+    if (rspR && state.wave[rspR]) {
+      for (let c = 1; c < CYCLES; c++) state.wave[rspR][c] = 1;
+    }
+    trace.forEach((st, idx) => {
+      const c = idx + 1;
+      if (c >= CYCLES) return;
+      if (vSig && state.wave[vSig]) state.wave[vSig][c] = st.v;
+      if (rSig && state.wave[rSig]) state.wave[rSig][c] = st.r;
+      if (pSig && state.wave[pSig]) {
+        const sObj = sigMap()[pSig];
+        state.wave[pSig][c] = (sObj && sObj.width === 1) ? (st.d === "0x00" ? 0 : 1) : st.d;
+      }
+      if (rspV && rspV !== vSig && state.wave[rspV]) state.wave[rspV][c] = st.rsp;
+    });
+    evaluateWave();
+    renderVerify();
+    showToast("已将 Mini-TLC 最短反例载入上方波形编辑器");
+  }
+
+  function runMiniTlc() {
+    const p = state.protocol;
+    const maxDepth = Number(document.getElementById("tlcDepth").dataset.val) || 7;
+    const allowStall = document.getElementById("tlcStall").checked;
+    const allowDrop = document.getElementById("tlcFaultDrop").checked;
+    const allowGlitch = document.getElementById("tlcFaultGlitch").checked;
+    const allowHang = document.getElementById("tlcFaultHang").checked;
+
+    const toRule = p.rules.find(r => r.enabled && r.type === "RESP_TIMEOUT");
+    const hsRule = p.rules.find(r => r.enabled && r.type === "HANDSHAKE_STABLE");
+    const maxC = toRule ? Math.max(1, Number(toRule.max_cycles) || 4) : 4;
+
+    const t0 = performance.now();
+    // State: { v, r, d, pend, wait, rsp, action }
+    const init = { v: 0, r: 0, d: "0x00", pend: 0, wait: 0, rsp: 0, action: "Init (复位释放)" };
+    const keyOf = (s) => `${s.v}|${s.r}|${s.d}|${s.pend}|${s.wait}|${s.rsp}`;
+
+    const visited = new Set([keyOf(init)]);
+    const queue = [{ s: init, trace: [init], depth: 0 }];
+    let transitions = 0;
+    let counterexample = null;
+    let violatedRule = "";
+
+    while (queue.length > 0 && visited.size < 25000) {
+      const cur = queue.shift();
+      const s = cur.s;
+      if (cur.depth >= maxDepth) continue;
+
+      const nexts = [];
+      // Normal actions
+      if (s.v === 0 && s.pend === 0) {
+        nexts.push({ v: 1, r: 0, d: "0xA1", pend: 0, wait: 0, rsp: 0, action: "IssueReq (发起请求 0xA1)" });
+        nexts.push({ v: 1, r: 1, d: "0xA1", pend: 1, wait: 0, rsp: 0, action: "IssueReq + ImmediateReady (同拍握手)" });
+      }
+      if (s.v === 1 && s.r === 0) {
+        if (allowStall) {
+          nexts.push({ v: 1, r: 0, d: s.d, pend: s.pend, wait: s.wait + 1, rsp: 0, action: "SlaveStall (反压等待, payload 稳定)" });
+        }
+        nexts.push({ v: 1, r: 1, d: s.d, pend: 1, wait: 0, rsp: 0, action: "ReqHandshake (VALID&&READY 握手成功)" });
+        if (allowDrop) {
+          nexts.push({ v: 0, r: 0, d: s.d, pend: s.pend, wait: s.wait, rsp: 0, action: "[故障] EarlyValidDrop (未握手提前撤回 VALID)" });
+        }
+        if (allowGlitch) {
+          nexts.push({ v: 1, r: 0, d: "0xFF", pend: s.pend, wait: s.wait + 1, rsp: 0, action: "[故障] PayloadGlitch (等待期数据跳变 0xA1->0xFF)" });
+        }
+      }
+      if (s.v === 1 && s.r === 1) {
+        nexts.push({ v: 0, r: 0, d: "0x00", pend: 1, wait: 1, rsp: 0, action: "WaitResp (请求完成，等待响应)" });
+        nexts.push({ v: 0, r: 0, d: "0x00", pend: 0, wait: 0, rsp: 1, action: "ReturnResp (次拍立即返回响应)" });
+      }
+      if (s.v === 0 && s.pend === 1) {
+        if (s.wait < maxC) {
+          nexts.push({ v: 0, r: 0, d: "0x00", pend: 0, wait: 0, rsp: 1, action: "ReturnResp (在超时窗口内返回响应)" });
+          if (allowStall) {
+            nexts.push({ v: 0, r: 0, d: "0x00", pend: 1, wait: s.wait + 1, rsp: 0, action: `RespWait (响应等待第 ${s.wait + 1} 拍)` });
+          }
+        }
+        if (allowHang) {
+          nexts.push({ v: 0, r: 0, d: "0x00", pend: 1, wait: s.wait + 1, rsp: 0, action: `[故障] SlaveHang (从机卡死，等待第 ${s.wait + 1} 拍)` });
+        }
+      }
+      if (s.rsp === 1) {
+        nexts.push({ v: 0, r: 0, d: "0x00", pend: 0, wait: 0, rsp: 0, action: "Idle (事务闭环回到空闲)" });
+      }
+
+      for (const ns of nexts) {
+        transitions++;
+        const newTrace = cur.trace.concat([ns]);
+        // Check Safety invariants on transition s -> ns
+        if (hsRule && s.v === 1 && s.r === 0 && ns.v === 0) {
+          violatedRule = `${hsRule.id} (HANDSHAKE_STABLE): VALID 在未握手前撤回`;
+          counterexample = newTrace;
+          break;
+        }
+        if (hsRule && s.v === 1 && s.r === 0 && ns.d !== s.d) {
+          violatedRule = `${hsRule.id} (HANDSHAKE_STABLE): 等待握手期间 payload 发生跳变 (${s.d} -> ${ns.d})`;
+          counterexample = newTrace;
+          break;
+        }
+        if (toRule && ns.wait > maxC) {
+          violatedRule = `${toRule.id} (RESP_TIMEOUT): 等待超过最大允许周期 ${maxC} 拍`;
+          counterexample = newTrace;
+          break;
+        }
+        const k = keyOf(ns);
+        if (!visited.has(k)) {
+          visited.add(k);
+          queue.push({ s: ns, trace: newTrace, depth: cur.depth + 1 });
+        }
+      }
+      if (counterexample) break;
+    }
+
+    const ms = Math.max(1, Math.round(performance.now() - t0));
+    const el = document.getElementById("tlcResult");
+    if (counterexample) {
+      lastTlcCounterexample = counterexample;
+      const stepsHtml = counterexample.map((st, i) => `
+        <div class="flex items-center gap-2 font-mono text-[11px] py-1 border-b border-rose-100 last:border-0">
+          <span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold">Step ${i}</span>
+          <span class="text-rose-950 font-semibold">${st.action}</span>
+          <span class="text-slate-500 ml-auto">v=${st.v} r=${st.r} d=${st.d} wait=${st.wait} rsp=${st.rsp}</span>
+        </div>`).join("");
+      el.className = "text-xs bg-rose-50 rounded-lg border border-rose-200 p-4 space-y-3";
+      el.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="font-bold text-rose-800">BFS 发现反例（耗时 ${ms}ms · 已探索 ${visited.size} 个不同状态 / ${transitions} 次转移）</div>
+          <button id="btnLoadCex" type="button" class="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold">将反例载入上方波形</button>
+        </div>
+        <div class="font-mono text-rose-900 font-semibold">违背不变量：${violatedRule}</div>
+        <div class="bg-white rounded-lg border border-rose-200 px-3 py-1.5">${stepsHtml}</div>`;
+      document.getElementById("btnLoadCex").addEventListener("click", () => loadCounterexampleToWave(lastTlcCounterexample));
+      showToast("Mini-TLC 抓出最短反例路径！");
+    } else {
+      lastTlcCounterexample = null;
+      el.className = "text-xs bg-emerald-50 rounded-lg border border-emerald-200 p-4";
+      el.innerHTML = `
+        <div class="font-bold text-emerald-900">ALL STATES SAFE · 全部可达状态穷举通过（耗时 ${ms}ms）</div>
+        <div class="text-emerald-800 mt-1">在深度 ${maxDepth} 拍内共穷举 <strong>${visited.size}</strong> 个去重状态、<strong>${transitions}</strong> 条状态转移边，0 次违背 Safety 不变量。试着勾选上方任意「允许故障」选项再跑一次，观察 TLC 如何揪出反例。</div>`;
+      showToast(`Mini-TLC 全绿通过（${visited.size} 状态）`);
+    }
+  }
+
+  function renderExport() {
+    const codeEl = document.getElementById("exportCode");
+    if (state.exportFmt === "yaml") codeEl.textContent = buildYamlExport();
+    else if (state.exportFmt === "sv") codeEl.textContent = buildSvMonitorExport();
+    else if (state.exportFmt === "tla") codeEl.textContent = buildTlaExport();
+    else codeEl.textContent = JSON.stringify(state.protocol, null, 2);
+  }
+
+  function renderAll() {
+    renderSignals();
+    renderRules();
+    renderVerify();
+    renderExport();
+  }
+
+  // ---------- Event Wiring ----------
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.activeTab = btn.dataset.tab;
+      document.querySelectorAll(".tab-btn").forEach(b => {
+        const active = b.dataset.tab === state.activeTab;
+        b.className = active
+          ? "tab-btn px-3.5 py-2.5 text-sm font-semibold border-b-2 border-blue-600 text-blue-700 whitespace-nowrap"
+          : "tab-btn px-3.5 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-900 whitespace-nowrap";
+      });
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
+      document.getElementById(`panel-${state.activeTab}`).classList.remove("hidden");
+      if (state.activeTab === "export") renderExport();
+      if (state.activeTab === "verify") { evaluateWave(); renderVerify(); }
+    });
+  });
+
+  document.querySelectorAll(".preset-pill").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.preset;
+      document.querySelectorAll(".preset-pill").forEach(b => {
+        b.className = b.dataset.preset === key
+          ? "preset-pill px-2.5 py-1 rounded-full text-xs font-semibold bg-white text-blue-700 shadow-sm whitespace-nowrap"
+          : "preset-pill px-2.5 py-1 rounded-full text-xs font-medium text-slate-600 hover:text-slate-900 whitespace-nowrap";
+      });
+      state.protocol = JSON.parse(JSON.stringify(PRESETS[key]));
+      state.auditResults = null;
+      initGoldenWave(false);
+      renderAll();
+      showToast(`已加载模板：${state.protocol.name}`);
+    });
+  });
+
+  document.querySelectorAll(".meta-role-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.protocol.role = btn.dataset.metaRole;
+      renderSignals();
+      renderExport();
+    });
+  });
+
+  document.querySelectorAll(".meta-pol-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.protocol.active_low = btn.dataset.rstPol === "low";
+      initGoldenWave(false);
+      renderSignals();
+      renderVerify();
+      renderExport();
+    });
+  });
+
+  document.querySelectorAll(".tlc-depth-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const d = btn.dataset.depth;
+      document.getElementById("tlcDepth").dataset.val = d;
+      document.querySelectorAll(".tlc-depth-btn").forEach(b => {
+        b.className = b.dataset.depth === d
+          ? "tlc-depth-btn px-2.5 py-1 rounded-md text-xs font-mono font-semibold bg-white text-indigo-700 shadow-sm"
+          : "tlc-depth-btn px-2.5 py-1 rounded-md text-xs font-mono font-medium text-slate-600 hover:text-slate-900";
+      });
+    });
+  });
+
+  ["metaName", "metaClk", "metaRst"].forEach(id => {
+    document.getElementById(id).addEventListener("change", () => {
+      state.protocol.name = document.getElementById("metaName").value.trim() || "custom_proto";
+      state.protocol.clock = document.getElementById("metaClk").value.trim() || "clk";
+      state.protocol.reset = document.getElementById("metaRst").value.trim() || "rst_n";
+      initGoldenWave(false);
+      renderVerify();
+      renderExport();
+    });
+  });
+
+  document.getElementById("btnToggleWidth").addEventListener("click", () => {
+    state.showWidth = !state.showWidth;
+    renderSignals();
+  });
+
+  document.getElementById("btnMirrorTxRx").addEventListener("click", () => {
+    const sigs = state.protocol.signals;
+    const existingNames = new Set(sigs.map(x => x.name));
+    const added = [];
+    const mirrorName = (name, toSide) => {
+      const low = toSide.toLowerCase();
+      const opp = low === "rx" ? "tx" : "rx";
+      if (new RegExp(`^${opp}_`, "i").test(name)) return name.replace(new RegExp(`^${opp}_`, "i"), `${low}_`);
+      if (new RegExp(`_${opp}$`, "i").test(name)) return name.replace(new RegExp(`_${opp}$`, "i"), `_${low}`);
+      return `${low}_${name}`;
+    };
+    [...sigs].forEach(sig => {
+      const curSide = sig.side || "TX";
+      const tgtSide = curSide === "TX" ? "RX" : "TX";
+      const mName = mirrorName(sig.name, tgtSide);
+      if (!existingNames.has(mName)) {
+        const clone = {
+          id: `s_${Date.now()}_${added.length}`,
+          name: mName,
+          dir: sig.dir === "input" ? "output" : "input",
+          width: sig.width,
+          role: sig.role,
+          reset_val: sig.reset_val,
+          group: sig.group,
+          side: tgtSide,
+        };
+        sigs.push(clone);
+        state.wave[mName] = Array(CYCLES).fill(clone.width === 1 ? 0 : "0x00");
+        existingNames.add(mName);
+        added.push(mName);
+      }
+    });
+    if (added.length === 0) {
+      showToast("当前所有通道的 TX / RX 信号均已对称齐全");
+    } else {
+      evaluateWave();
+      renderAll();
+      showToast(`已自动补齐 ${added.length} 个对称镜像信号`);
+    }
+  });
+
+  document.getElementById("btnAddSignal").addEventListener("click", () => {
+    const n = state.protocol.signals.length + 1;
+    const name = `sig_${n}`;
+    state.protocol.signals.push({ id: `s_${Date.now()}`, name, dir: "input", width: 1, role: "control", reset_val: "1'b0", group: ensureGroups()[0].name, side: "TX" });
+    state.wave[name] = Array(CYCLES).fill(0);
+    renderAll();
+  });
+
+  document.getElementById("btnAddRule").addEventListener("click", () => {
+    const n = state.protocol.rules.length + 1;
+    const s0 = (state.protocol.signals[0] || {}).name || "";
+    const s1 = (state.protocol.signals[1] || {}).name || s0;
+    state.protocol.rules.push({
+      id: `R_${String(n).padStart(3, "0")}`,
+      type: "HANDSHAKE_STABLE",
+      enabled: true,
+      valid_sig: s0,
+      ready_sig: s1,
+      payload_sigs: "",
+      desc: "自定义握手稳定性规则"
+    });
+    evaluateWave();
+    renderAll();
+  });
+
+  document.getElementById("btnGenGolden").addEventListener("click", () => {
+    initGoldenWave(false);
+    renderVerify();
+    showToast("已生成合法事务参考波形");
+  });
+
+  document.getElementById("btnGenRandom").addEventListener("click", () => {
+    initGoldenWave(true);
+    renderVerify();
+    showToast("已生成带随机反压的合法事务流");
+  });
+
+  document.querySelectorAll(".fault-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      injectFault(btn.dataset.fault, true);
+      renderVerify();
+      showToast(`已注入故障：${btn.textContent}`);
+    });
+  });
+
+  document.getElementById("btnRunAuditSuite").addEventListener("click", runSelfAuditMatrix);
+  document.getElementById("btnRunTlc").addEventListener("click", runMiniTlc);
+
+  document.querySelectorAll(".exp-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.exportFmt = btn.dataset.exp;
+      document.querySelectorAll(".exp-btn").forEach(b => {
+        b.className = b.dataset.exp === state.exportFmt
+          ? "exp-btn px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs sm:text-sm font-semibold"
+          : "exp-btn px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs sm:text-sm font-semibold";
+      });
+      renderExport();
+    });
+  });
+
+  document.getElementById("btnCopyExport").addEventListener("click", () => {
+    const txt = document.getElementById("exportCode").textContent;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(() => showToast("已复制到剪贴板")).catch(() => fallbackCopy(txt));
+    } else {
+      fallbackCopy(txt);
+    }
+  });
+
+  function fallbackCopy(txt) {
+    const ta = document.createElement("textarea");
+    ta.value = txt;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    showToast("已复制到剪贴板");
+  }
+
+  document.getElementById("btnDownloadExport").addEventListener("click", () => {
+    const ext = state.exportFmt === "yaml" ? "yaml" : (state.exportFmt === "sv" ? "sv" : (state.exportFmt === "tla" ? "tla" : "json"));
+    const txt = document.getElementById("exportCode").textContent;
+    const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${state.protocol.name}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast(`已下载 ${state.protocol.name}.${ext}`);
+  });
+
+  // Hex modal
+  document.getElementById("btnHexCancel").addEventListener("click", () => {
+    document.getElementById("hexModal").classList.add("hidden");
+  });
+  document.getElementById("btnHexSave").addEventListener("click", () => {
+    if (state.editingHex) {
+      let raw = document.getElementById("hexInput").value.trim().toUpperCase();
+      if (raw && !raw.startsWith("0X")) raw = "0x" + raw;
+      else raw = raw.replace(/^0X/, "0x");
+      state.wave[state.editingHex.sig][state.editingHex.c] = raw || "0x00";
+      evaluateWave();
+      renderVerify();
+    }
+    document.getElementById("hexModal").classList.add("hidden");
+  });
+
+  // Import modal
+  function renderGroupModal() {
+    const groups = ensureGroups();
+    const listEl = document.getElementById("groupEnumList");
+    listEl.innerHTML = groups.map((g, idx) => {
+      const st = GROUP_COLORS[g.color] || GROUP_COLORS.slate;
+      return `
+        <div class="flex items-center justify-between gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50">
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold border inline-flex items-center gap-1.5 ${st.bg} ${st.text} ${st.border}">
+            <span class="w-2 h-2 rounded-full ${st.dot}"></span>${g.name}
+          </span>
+          <div class="flex items-center gap-1">
+            ${COLOR_KEYS.map(ck => `<button data-gidx="${idx}" data-gcol="${ck}" type="button" title="${ck}" class="grp-col-btn w-4 h-4 rounded-full ${GROUP_COLORS[ck].dot} ${g.color === ck ? "ring-2 ring-offset-1 ring-slate-900" : "opacity-55 hover:opacity-100"}"></button>`).join("")}
+            <button data-gdel="${idx}" type="button" class="grp-del-btn ml-2 text-xs text-rose-600 hover:text-rose-800 font-medium">删除</button>
+          </div>
+        </div>`;
+    }).join("");
+
+    listEl.querySelectorAll(".grp-col-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.protocol.groups[Number(btn.dataset.gidx)].color = btn.dataset.gcol;
+        renderGroupModal();
+        renderSignals();
+      });
+    });
+    listEl.querySelectorAll(".grp-del-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (state.protocol.groups.length <= 1) {
+          showToast("至少保留 1 个通道组");
+          return;
+        }
+        const idx = Number(btn.dataset.gdel);
+        const removed = state.protocol.groups[idx].name;
+        state.protocol.groups.splice(idx, 1);
+        const fallback = state.protocol.groups[0].name;
+        state.protocol.signals.forEach(sig => { if (sig.group === removed) sig.group = fallback; });
+        renderGroupModal();
+        renderSignals();
+        renderExport();
+      });
+    });
+
+    const swEl = document.getElementById("newGroupColors");
+    swEl.innerHTML = `<span class="text-[11px] text-slate-500 mr-1">颜色：</span>` + COLOR_KEYS.map(ck =>
+      `<button data-newcol="${ck}" type="button" class="new-gcol-btn w-5 h-5 rounded-full ${GROUP_COLORS[ck].dot} ${state.newGroupColor === ck ? "ring-2 ring-offset-1 ring-slate-900" : "opacity-55 hover:opacity-100"}"></button>`
+    ).join("");
+    swEl.querySelectorAll(".new-gcol-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.newGroupColor = btn.dataset.newcol;
+        renderGroupModal();
+      });
+    });
+  }
+
+  document.getElementById("btnManageGroups").addEventListener("click", () => {
+    document.getElementById("newGroupName").value = "";
+    renderGroupModal();
+    document.getElementById("groupModal").classList.remove("hidden");
+  });
+  document.getElementById("btnGroupClose").addEventListener("click", () => {
+    document.getElementById("groupModal").classList.add("hidden");
+  });
+  document.getElementById("btnGroupAdd").addEventListener("click", () => {
+    const raw = document.getElementById("newGroupName").value.trim().replace(/\s+/g, "_");
+    if (!raw) return;
+    const groups = ensureGroups();
+    if (groups.some(g => g.name === raw)) {
+      showToast(`通道组 ${raw} 已存在`);
+      return;
+    }
+    groups.push({ name: raw, color: state.newGroupColor });
+    document.getElementById("newGroupName").value = "";
+    renderGroupModal();
+    renderSignals();
+    showToast(`已添加通道组：${raw}`);
+  });
+
+  document.getElementById("btnImportOpen").addEventListener("click", () => {
+    document.getElementById("importTextarea").value = "";
+    document.getElementById("importModal").classList.remove("hidden");
+  });
+  document.getElementById("btnImportCancel").addEventListener("click", () => {
+    document.getElementById("importModal").classList.add("hidden");
+  });
+  document.getElementById("btnImportConfirm").addEventListener("click", () => {
+    try {
+      const parsed = JSON.parse(document.getElementById("importTextarea").value);
+      if (!parsed.name || !Array.isArray(parsed.signals)) throw new Error("缺少 name 或 signals 数组");
+      state.protocol = parsed;
+      state.auditResults = null;
+      initGoldenWave(false);
+      renderAll();
+      document.getElementById("importModal").classList.add("hidden");
+      showToast(`已导入协议：${parsed.name}`);
+    } catch (err) {
+      showToast(`导入失败：${err.message}`);
+    }
+  });
+
+  // Boot
+  initGoldenWave(false);
+  renderAll();
+})();
+</script>
+</body>
+</html>

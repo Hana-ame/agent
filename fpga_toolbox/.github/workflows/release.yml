@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (must already exist and match __version__)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: publish ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify tag matches __version__
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          python - <<'PY'
+          import os, pathlib, re, sys
+
+          src = pathlib.Path("fpga_toolbox/__init__.py").read_text(encoding="utf-8")
+          version = re.search(r'__version__\s*=\s*"([^"]+)"', src).group(1)
+          tag = os.environ["TAG"].lstrip("v")
+          print(f"__version__={version} tag={tag}")
+          if version != tag:
+              sys.exit(f"tag '{tag}' does not match __version__ '{version}'")
+          PY
+
+      - name: Regression suite
+        run: |
+          python -m pip install "pyyaml>=6.0"
+          python tests/test_regression.py
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install build
+          python -m build
+
+      - name: Smoke-test the wheel
+        run: |
+          python -m pip install dist/*.whl
+          fpga-toolbox list
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
+          gh release upload "$TAG" dist/* --clobber
+
+      - name: Publish to PyPI (skipped without PYPI_API_TOKEN)
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -z "$TWINE_PASSWORD" ]; then
+            echo "PYPI_API_TOKEN is not configured - skipping PyPI upload"
+            exit 0
+          fi
+          python -m pip install twine
+          python -m twine upload --skip-existing dist/*

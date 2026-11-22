@@ -1,0 +1,683 @@
+#!/usr/bin/env bash
+# ============================================================================
+# ci.sh —— 质量门：按阶段验证项目质量，任一关失败即停止
+# ============================================================================
+# 设计原则：
+#   1. 每关独立、可单独运行（--stage N）
+#   2. 失败立即停止并打印诊断（不掩盖问题）
+#   3. 输出机器可读摘要（便于 CI 集成）
+#   4. 总耗时可控（默认跳过最慢的变异测试，需显式开启）
+#
+# 关卡设计（从快到慢，快速失败）：
+#   G1 编译检查   slang 检查全部 SV（语法/语义，最快，秒级）
+#   G2 快速回归   4 个基础套件（counter/counter8/axi/sv）
+#   G3 全量回归   11 个套件全部
+#   G4 参数扫掠   18 组种子×wait 组合
+#   G5 覆盖率     RTL 有效覆盖率达标（阈值 90%）
+#   G6 变异测试   变异得分达标（阈值 80%）
+#   G7 文档生成   6 个 HTML 全部生成成功
+#   G8 复现性     干净 clone 后能跑通（防止本地状态依赖）
+#
+# 用法:
+#   bash ci.sh                  # 跑 G1-G3 + G7（默认，约 3 分钟）
+#   bash ci.sh --full           # 跑全部关卡（含 sweep/coverage/mutate，约 25 分钟）
+#   bash ci.sh --stage 5        # 只跑第 5 关
+#   bash ci.sh --list           # 列出所有关卡
+# ============================================================================
+set -o pipefail
+cd "$(dirname "$0")" || exit 1
+
+# ---- 配置 ----
+MIN_RTL_COVERAGE=90      # G5 阈值（%）
+MIN_MUTATION_SCORE=95
+SLANG=$(command -v slang 2>/dev/null || echo "")
+# Verilator 位置统一由 vlt_env.sh 探测（优先 ~/.local/verilator，回退 /tmp）
+if ! . "$(dirname "$0")/vlt_env.sh" || ! vlt_probe; then
+    echo "ERROR: 找不到 verilator（先跑 bash setup_env.sh）" >&2
+    exit 1
+fi
+
+# ---- 输出 ----
+if [ -t 1 ]; then
+    R='\033[0m'; BOLD='\033[1m'; GRN='\033[32m'; RED='\033[31m'
+    YEL='\033[33m'; CYN='\033[36m'; DIM='\033[2m'
+else
+    R=''; BOLD=''; GRN=''; RED=''; YEL=''; CYN=''; DIM=''
+fi
+
+STAGE_RESULTS=()
+STAGE_TIMES=()
+
+banner() {
+    echo ""
+    echo -e "${BOLD}${CYN}════════════════════════════════════════════════════════${R}"
+    echo -e "${BOLD}${CYN}  $*${R}"
+    echo -e "${BOLD}${CYN}════════════════════════════════════════════════════════${R}"
+}
+
+record() {   # record <name> <PASS|FAIL|SKIP> <seconds>
+    STAGE_RESULTS+=("$2|$1")
+    STAGE_TIMES+=("$3")
+}
+
+# 套件清单：唯一权威来源（供 SUITE_N / G3 逐套件核对 / 关卡标签共用）
+SUITE_LIST=$(sed -n '/^    all)/,/^        ;;/p' sim.sh 2>/dev/null \
+             | grep -oE 'bash "\$0" [a-z0-9]+' | awk '{print $3}' \
+             | grep -v '^lint$' | tr '\n' ' ')
+SUITE_N=$(echo $SUITE_LIST | wc -w | tr -d ' ')
+[ "${SUITE_N:-0}" -lt 1 ] && SUITE_N=1
+
+# 关卡定义
+STAGE_NAMES=(
+    "G1:编译检查(slang)"
+    "G2:快速回归(4套件)"
+    "G3:全量回归(${SUITE_N}套件)"
+    "G4:参数扫掠"
+    "G5:RTL覆盖率(>=${MIN_RTL_COVERAGE}%)"
+    "G6:变异得分(>=${MIN_MUTATION_SCORE}%)"
+    "G7:文档生成+一致性"
+    "G8:复现性(干净clone)"
+    "G9:稳定性(无偶发失败)"
+)
+
+# 自检：STAGE_NAMES 项数必须等于 stageN() 函数个数
+# （手工清单容易与实现脱节，与「帮助信息漏列目标」同类）
+_n_stage_fn=$(grep -cE '^stage[0-9]+\(\)' "$0" || true)
+_n_stage_name=${#STAGE_NAMES[@]}
+if [ "${_n_stage_fn:-0}" -ne "${_n_stage_name:-0}" ]; then
+    echo "ERROR: STAGE_NAMES 有 $_n_stage_name 项，但只定义了 $_n_stage_fn 个 stage 函数" >&2
+    echo "       请同步 ci.sh 里的 STAGE_NAMES 数组与 stageN() 实现" >&2
+    exit 2
+fi
+
+list_stages() {
+    echo "可用关卡："
+    local i=1
+    for n in "${STAGE_NAMES[@]}"; do
+        printf "  %d  %s\n" "$i" "$n"
+        i=$((i+1))
+    done
+    echo ""
+    echo "默认执行: G1 G2 G3 G7 G8 G9"
+    echo "--full 执行: 全部 9 关"
+}
+
+# ---------------------------------------------------------------------------
+# G1：slang 编译检查（全部 SV 文件）
+# ---------------------------------------------------------------------------
+stage1() {
+    banner "G1 编译检查（slang）"
+    if [ -z "$SLANG" ]; then
+        # 关键：不能 SKIP（SKIP 会让「质量门全部通过」变成假象——
+        # 19 项编译检查一项都没跑，却报告全部通过）。
+        # 编译检查是质量门的第一环，缺工具必须算失败。
+        echo -e "${RED}✗ 未找到 slang，编译检查无法执行${R}"
+        echo -e "  ${DIM}安装方式（任选其一）：${R}"
+        echo -e "  ${DIM}  a) bash setup_env.sh   # 自动安装 slang + Verilator${R}"
+        echo -e "  ${DIM}  b) 下载预编译包：https://github.com/MikePopoloski/slang/releases${R}"
+        record "$1" FAIL 0
+        return 1
+    fi
+    local t0=$SECONDS
+    local cnt_file=/tmp/ci_g1_count
+    : > "$cnt_file"
+
+    # 检查主回归 + 各专项的编译
+    # 注意：此函数在子 shell 中被调用，用文件记录结果（变量无法跨 shell）
+    check() {
+        local label="$1"; shift
+        if "$SLANG" --timescale=1ns/1ps "$@" >/tmp/ci_slang.log 2>&1; then
+            echo -e "  ${GRN}✓${R} $label"
+            echo "PASS" >> "$cnt_file"
+        else
+            echo -e "  ${RED}✗${R} $label"
+            tail -6 /tmp/ci_slang.log | sed 's/^/      /'
+            echo "FAIL" >> "$cnt_file"
+        fi
+    }
+
+    ( cd axi || exit 1
+      check "主回归 tb_axi_apb_sv" --top tb_axi_apb_sv -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+        sv/axi_txn_host.sv sv/tb_axi_apb_sv.sv
+      check "gaps 套件" --top tb_gaps_sv -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+        sv/axi_txn_host.sv sv/tb_gaps_sv.sv
+      check "并发桥 dual" --top tb_dual_sv -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_dual_sv.sv
+      check "协议监视器自测" --top tb_mon_selftest -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
+        sv/apb_if.sv sv/axi_apb_monitor.sv sv/tb_monitor_selftest.sv
+      check "监视器规则逐条" --top tb_monitor_rules -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
+        sv/apb_if.sv sv/axi_apb_monitor.sv sv/tb_monitor_rules.sv
+      check "延迟基线" --top tb_latency_sv -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_latency_sv.sv
+      check "仲裁公平性" --top tb_fairness_sv -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv sv/tb_fairness_sv.sv
+      check "参数矩阵" --top tb_param_sv -I sv -I . -DTXN_DW=32 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/axi_apb_bridge_dual_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+        sv/axi_txn_host.sv sv/tb_param_sv.sv
+      # 真实 UVM 库编译（此前仅有结论、无自动化验证）
+      printf "  %s " "真实UVM库编译"
+      if bash ../uvm_check.sh >/tmp/ci_uvm.log 2>&1; then
+          # 区分「编译通过」与「因无 UVM 库而跳过」——
+          # 后者不能显示为 ✓，否则把「未验证」当成「通过」
+          if grep -q "SKIP" /tmp/ci_uvm.log; then
+              echo -e "${YEL}SKIP${R} ${DIM}(无 UVM 库)${R}"
+          else
+              echo -e "${GRN}✓${R}"
+          fi
+      else
+          echo -e "${RED}✗${R}"
+          tail -4 /tmp/ci_uvm.log | sed 's/^/      /'
+          echo "FAIL" >> "$cnt_file"
+      fi
+      # 脚本可用性（语法 + 引用）
+      # 关键：必须用 ( cd .. && ... ) 子 shell 隔离。
+      # scripts_check.sh 内部会 cd 到多个目录，若直接运行会改变
+      # 本 shell 的 cwd，导致后续所有 check 找不到源文件
+      # （曾导致 G1 报告 "cd: axi: No such file or directory"）。
+      printf "  %s " "Shell 脚本可用性"
+      if ( cd .. && bash scripts_check.sh --fast >/tmp/ci_scripts.log 2>&1 ); then
+          echo -e "${GRN}✓${R}"
+      else
+          echo -e "${RED}✗${R}"
+          grep -E "✗ FAIL|✗ " /tmp/ci_scripts.log | head -5 | sed 's/^/      /'
+          echo "FAIL" >> "$cnt_file"
+      fi
+      # 静态检查：握手时序 + 时钟竞争（在编译检查里最先执行，最快反馈）
+      printf "  %s " "静态检查(握手/时钟)"
+      if bash lint_all.sh >/tmp/ci_lint.log 2>&1; then
+          echo -e "${GRN}✓${R}"
+      else
+          echo -e "${RED}✗${R}"
+          tail -8 /tmp/ci_lint.log | sed 's/^/      /'
+      fi
+      check "并发桥合法并发" --top tb_dual_legal_sv -I sv -I . -DTXN_DW=32 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_dual_legal_sv.sv
+      check "位域跨域隔离" --top tb_field_iso_sv -I sv -I . -DTXN_DW=32 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regfile_gen.sv sv/axi_txn_host.sv sv/tb_field_iso_sv.sv
+      check "并发桥错误隔离" --top tb_dual_err_sv -I sv -I . -DTXN_DW=32 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_dual_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_dual_err_sv.sv
+      check "复位域独立性" --top tb_reset_domain_sv -I sv -I . -DTXN_DW=32 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_txn_host.sv sv/tb_reset_domain_sv.sv
+      check "握手时序规范" --top tb_handshake_protocol_sv -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/tb_handshake_protocol_sv.sv
+      check "轻量UVM环境" --top tb_uvm_lite_top -I sv -I . -I vip \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/axi_apb_monitor.sv \
+        vip/axi_uvm_lite_pkg.sv vip/tb_uvm_lite_top.sv
+      check "SVA 前件激活" --top tb_sva_antecedent_sv -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
+        sv/apb_if.sv sv/tb_sva_antecedent_sv.sv
+      check "断言有效性(APB)" --top tb_assert_effectiveness_sv -I sv -I . -DCASE=5 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/apb_if.sv \
+        sv/tb_assert_effectiveness_sv.sv
+      check "断言有效性(AXI)" --top tb_axi_assert_eff_sv -I sv -I . -DACASE=0 \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/axi_lite_if.sv \
+        sv/apb_if.sv sv/tb_axi_assert_eff_sv.sv
+      check "DW=64 数据通路" --top tb_dw64_sv -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regs_sv.sv sv/tb_dw64_sv.sv
+      check "寄存器生成物" --top tb_regfile_gen -I sv -I . \
+        axi_defs_pkg.sv apb_defs_pkg.sv sv/bus_txn_pkg.sv \
+        sv/axi_lite_if.sv sv/apb_if.sv sv/axi_apb_bridge_sv.sv \
+        sv/apb_slave_regfile_gen.sv sv/axi_apb_monitor.sv \
+        sv/axi_txn_host.sv sv/tb_regfile_gen.sv
+    )
+
+    local dt=$((SECONDS-t0))
+    local total fails
+    total=$(wc -l < "$cnt_file" 2>/dev/null | tr -d ' ')
+    fails=$(grep -c FAIL "$cnt_file" 2>/dev/null)
+    fails=${fails:-0}
+    fails=$(echo "$fails" | head -1 | tr -d ' \n')
+    if [ "${total:-0}" -eq 0 ]; then
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 没有执行任何编译检查（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+    if [ "$fails" -eq 0 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— $total/$total 项编译通过（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— $fails/$total 项失败（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# G2：快速回归
+# ---------------------------------------------------------------------------
+stage2() {
+    banner "G2 快速回归（4 个基础套件）"
+    local t0=$SECONDS
+    local fails=0
+    for s in counter counter8 axi sv; do
+        printf "  %-10s " "$s"
+        out=$(bash sim.sh "$s" 2>&1)
+        rc=$?
+        # 必须同时满足：退出码 0 + 有明确的 PASS 行（防止空跑/缓存导致的假通过）
+        if [ $rc -eq 0 ] && echo "$out" | grep -qE "^PASS|^VIP PASS"; then
+            # 提取检查数作为证据
+            local ev
+            ev=$(echo "$out" | grep -oE "[0-9]+ (checks|checks passed|txns)" | head -1)
+            echo -e "${GRN}✓${R} ${DIM}${ev}${R}"
+        else
+            echo -e "${RED}✗${R} (exit=$rc)"
+            echo "$out" | tail -5 | sed 's/^/      /'
+            fails=$((fails+1))
+        fi
+    done
+    local dt=$((SECONDS-t0))
+    if [ $fails -eq 0 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— 4/4 套件通过（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— $fails/4 套件失败（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# G3：全量回归
+# ---------------------------------------------------------------------------
+stage3() {
+    banner "G3 全量回归（$SUITE_N 个套件）"
+    local t0=$SECONDS
+    local out
+    # 期望套件数用全局 SUITE_N（见 STAGE_NAMES 上方）
+    local expect_suites=$SUITE_N
+
+    out=$(bash sim.sh all 2>&1)
+    local rc=$?
+    local passes
+    passes=$(echo "$out" | grep -cE "^PASS|^VIP PASS")
+    echo "$out" | grep -E "^== sim|^PASS|^VIP PASS|^FAIL" | sed 's/^/  /'
+    # 汇总检查数作为「确实执行了测试」的证据
+    local total_checks
+    total_checks=$(echo "$out" | grep -oE "[0-9]+ (checks|checks passed)" \
+                   | grep -oE "^[0-9]+" | awk '{s+=$1} END{print s+0}')
+    local dt=$((SECONDS-t0))
+    # ★ 逐套件精确核对：不能只数 PASS 行数。
+    # 若某套件静默跳过、另一套件多打一行 PASS，总数仍可能达标。
+    local missing_suites=""
+    local n_ok=0
+    for st in $SUITE_LIST; do
+        # 在 all 输出里找 "== sim: <suite> ... ==" 之后是否出现 PASS
+        # 头部有两种格式：
+        #   "== sim: <suite> (top=...)"（大多数）
+        #   "== <suite>: ..."（params / asserteff 这类非 build_run 套件）
+        if echo "$out" | awk -v s1="== sim: $st " -v s2="== $st:" '
+             (index($0, s1) == 1) || (index($0, s2) == 1) { found=1; next }
+             found && /^PASS/ { ok=1; exit }
+             found && /^VIP PASS/ { ok=1; exit }
+             END { exit ok ? 0 : 1 }'; then
+            n_ok=$((n_ok+1))
+        else
+            missing_suites="$missing_suites $st"
+        fi
+    done
+
+    if [ -n "$missing_suites" ]; then
+        echo -e "  ${RED}✗${R} 以下套件在 all 输出中未见 PASS：$missing_suites"
+    fi
+
+    if [ $rc -eq 0 ] && [ "$passes" -ge "$expect_suites" ] \
+       && [ "${total_checks:-0}" -ge 1000 ] && [ -z "$missing_suites" ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— $passes/$expect_suites 套件通过（逐个确认 $n_ok 个），累计 ${total_checks} 项检查（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— $passes/$expect_suites 套件通过（逐个确认 $n_ok 个），检查数 ${total_checks:-0}（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# G4：参数扫掠
+# ---------------------------------------------------------------------------
+stage4() {
+    banner "G4 参数扫掠（多种子 × 多 wait × 延迟公式）"
+    local t0=$SECONDS
+    local out
+    out=$(bash sim.sh sweep 2>&1)
+    local rc=$?
+    echo "$out" | grep -E "^  (SEED|WAIT)|^PASS|^FAIL" | sed 's/^/  /'
+    local dt=$((SECONDS-t0))
+    # 组合数从输出中动态提取（避免硬编码与实际脱节）
+    local n_combo
+    n_combo=$(echo "$out" | grep -oE "PASS: sweep [0-9]+/[0-9]+" | grep -oE "[0-9]+/" \
+              | tr -d '/' | tail -1)
+    [ -z "$n_combo" ] && n_combo=$(echo "$out" | grep -cE "^  (SEED|WAIT)" || true)
+    [ -z "$n_combo" ] && n_combo="?"
+    if [ $rc -eq 0 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— $n_combo/$n_combo 组合通过（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 参数扫掠有失败（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# G5：RTL 覆盖率阈值
+# ---------------------------------------------------------------------------
+stage5() {
+    banner "G5 RTL 覆盖率（阈值 ${MIN_RTL_COVERAGE}%）"
+    local t0=$SECONDS
+    local out
+    out=$(bash sim.sh coverage 2>&1)
+    local rc=$?
+    # 提取「RTL 有效覆盖率: NN.N%」或 Python 摘要的同类行
+    local pct
+    pct=$(echo "$out" | grep -oE "RTL.*有效覆盖率[:：][[:space:]]*[0-9.]+" | grep -oE "[0-9.]+$" | tail -1)
+    if [ -z "$pct" ]; then
+        # 回退：从 gen_coverage_html.py 的摘要行提取
+        pct=$(echo "$out" | grep -oE "有效覆盖率:[[:space:]]*[0-9.]+" | grep -oE "[0-9.]+$" | tail -1)
+    fi
+    echo "$out" | grep -E "RTL|真实零覆盖|注解缺陷" | sed 's/^/  /'
+    local dt=$((SECONDS-t0))
+    if [ $rc -ne 0 ] || [ -z "$pct" ]; then
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 覆盖率收集失败或无法解析（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+    local ok
+    ok=$(awk -v p="$pct" -v m="$MIN_RTL_COVERAGE" 'BEGIN{print (p>=m)?1:0}')
+    if [ "$ok" -eq 1 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— RTL 有效覆盖率 ${pct}% ≥ ${MIN_RTL_COVERAGE}%（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— RTL 有效覆盖率 ${pct}% < ${MIN_RTL_COVERAGE}%（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# G6：变异得分阈值
+# ---------------------------------------------------------------------------
+stage6() {
+    banner "G6 变异得分（阈值 ${MIN_MUTATION_SCORE}%）"
+    local t0=$SECONDS
+
+    # 先自测变异定义：old 必须唯一存在、old != new。
+    # 否则某个变异可能「永远被杀死」（old 找不到，替换无效）或
+    # 「永远存活」（等价变异），让 100% 得分变成假象。
+    local st_out
+    if ! st_out=$(cd axi && python3 mutate_self_test.py 2>&1); then
+        echo -e "  ${RED}✗${R} 变异定义自测失败"
+        echo "$st_out" | grep -E "✗|问题" | head -6 | sed 's/^/      /'
+        local dt0=$((SECONDS-t0))
+        record "$1" FAIL "$dt0"
+        return 1
+    fi
+    echo -e "  ${DIM}$(echo "$st_out" | tail -1)${R}"
+
+    local out
+    out=$(cd axi && python3 mutate.py 2>&1)
+    local rc=$?
+    echo "$out" | grep -E "^  [✅❌⚠]|变异得分|存活" | sed 's/^/  /'
+    local pct
+    pct=$(echo "$out" | grep -oE "变异得分:[[:space:]]*[0-9.]+" | grep -oE "[0-9.]+$" | tail -1)
+    local dt=$((SECONDS-t0))
+    if [ -z "$pct" ]; then
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 无法解析变异得分（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+    local ok
+    ok=$(awk -v p="$pct" -v m="$MIN_MUTATION_SCORE" 'BEGIN{print (p>=m)?1:0}')
+    if [ "$ok" -eq 1 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— 变异得分 ${pct}% ≥ ${MIN_MUTATION_SCORE}%（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 变异得分 ${pct}% < ${MIN_MUTATION_SCORE}%（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# G7：文档生成
+# ---------------------------------------------------------------------------
+stage7() {
+    banner "G7 文档生成与一致性（6 份 HTML + 内容校验）"
+    local t0=$SECONDS
+    local fails=0
+    ( cd axi || exit 1
+      for gen in gen_fsm_html.py gen_interface_map.py gen_test_plan.py gen_regfile.py gen_coverage_html.py gen_portal.py; do
+          printf "  %-26s " "$gen"
+          if python3 "$gen" >/tmp/ci_gen.log 2>&1; then
+              echo -e "${GRN}✓${R}"
+          else
+              echo -e "${RED}✗${R}"
+              tail -4 /tmp/ci_gen.log | sed 's/^/      /'
+              fails=$((fails+1))
+          fi
+      done
+    )
+    # 文档一致性检查（内容是否反映当前实现，而非仅文件存在）
+    printf "  %-26s " "文档一致性"
+    if ( cd axi && python3 docs_check.py >/tmp/ci_docs.log 2>&1 ); then
+        echo -e "${GRN}✓${R}"
+    else
+        echo -e "${RED}✗${R}"
+        grep -E "✗|失败" /tmp/ci_docs.log | head -6 | sed 's/^/      /'
+        fails=$((fails+1))
+    fi
+
+    # 校验 6 份文件存在且非空
+    # 期望清单自动从生成器的输出声明提取（避免手工维护漏项，
+    # 此前漏了 REGFILE.html —— 实际 7 份，只检查 6 份）
+    local expect=()
+    for gen in gen_fsm_html.py gen_interface_map.py gen_test_plan.py \
+               gen_regfile.py gen_coverage_html.py gen_portal.py; do
+        [ -f "axi/$gen" ] || continue
+        # 从生成器源码里找它写出的 .html 文件名
+        while IFS= read -r h; do
+            [ -n "$h" ] && expect+=("$h")
+        done < <(grep -oE '[A-Z_]+\.html' "axi/$gen" 2>/dev/null | sort -u)
+    done
+    # 去重
+    if [ ${#expect[@]} -gt 0 ]; then
+        mapfile -t expect < <(printf '%s\n' "${expect[@]}" | sort -u)
+    else
+        # 兜底：扫描 axi/ 下已有的 html
+        mapfile -t expect < <(cd axi && ls *.html 2>/dev/null)
+    fi
+    echo "  期望文档 ${#expect[@]} 份：${expect[*]}"
+    local missing=0
+    for f in "${expect[@]}"; do
+        if [ ! -s "axi/$f" ]; then
+            echo -e "  ${RED}✗${R} 缺少 $f"
+            missing=$((missing+1))
+        fi
+    done
+    local dt=$((SECONDS-t0))
+    if [ $fails -eq 0 ] && [ $missing -eq 0 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— ${#expect[@]}/${#expect[@]} 份文档生成且一致（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 生成失败 $fails，缺失 $missing（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# G8：复现性验证（干净 clone 能否跑通）
+# ---------------------------------------------------------------------------
+stage8() {
+    banner "G8 复现性验证（干净 clone）"
+    local t0=$SECONDS
+    local out rc
+    out=$(bash repro.sh --quick 2>&1); rc=$?
+    echo "$out" | grep -E "^\[|  ✓|  ✗|复现" | sed 's/^/  /'
+    local dt=$((SECONDS-t0))
+    if [ $rc -eq 0 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— 干净 clone 可跑通（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 干净 clone 无法跑通（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# G9：稳定性（套件重复运行，检测偶发失败）
+# ---------------------------------------------------------------------------
+stage9() {
+    banner "G9 稳定性检查（无偶发失败）"
+    local t0=$SECONDS
+    local out rc
+    # --fast 模式：跳过耗时长的套件，2 次重复（约 35s）
+    out=$(timeout 900 python3 stability.py --fast --runs 2 2>&1); rc=$?
+    echo "$out" | grep -E "^  [✓✗]|总计|全部套件|存在偶发" | sed 's/^/  /'
+    local dt=$((SECONDS-t0))
+    if [ $rc -eq 0 ]; then
+        echo -e "  ${GRN}${BOLD}PASS${R} —— 全部套件稳定（${dt}s）"
+        record "$1" PASS $dt
+        return 0
+    else
+        echo -e "  ${RED}${BOLD}FAIL${R} —— 存在偶发失败套件（${dt}s）"
+        record "$1" FAIL $dt
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# 主流程
+# ---------------------------------------------------------------------------
+main() {
+    local run_stages=(1 2 3 7 8 9)
+    local i
+
+    case "${1:-}" in
+        --list) shift; list_stages; exit 0 ;;
+        --full) run_stages=(1 2 3 4 5 6 7 8 9) ;;
+        --stage)
+            local s="${2:-}"
+            if ! [[ "$s" =~ ^[1-9]$ ]]; then
+                echo "错误：--stage 需要 1-9（当前支持：${#STAGE_NAMES[@]} 关）" >&2
+            echo "" >&2
+            echo "可用关卡：" >&2
+            _i=1
+            for _n in "${STAGE_NAMES[@]}"; do
+                echo "  $_i  $_n" >&2
+                _i=$((_i+1))
+            done; exit 2
+            fi
+            run_stages=("$s")
+            ;;
+        --help|-h) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        "") ;;
+        *) echo "未知参数: $1（用 --help）" >&2; exit 2 ;;
+    esac
+
+    echo -e "${BOLD}质量门 CI${R}  $(date '+%Y-%m-%d %H:%M:%S')"
+    echo -e "${DIM}Verilator: $VERILATOR${R}"
+    echo -e "${DIM}slang:     ${SLANG:-未找到}${R}"
+    echo -e "${DIM}关卡:      ${run_stages[*]}${R}"
+
+    local start=$SECONDS
+    local failed_at=""
+    for i in "${run_stages[@]}"; do
+        local name="${STAGE_NAMES[$((i-1))]}"
+        if ! "stage$i" "$name"; then
+            failed_at="$name"
+            break     # 快速失败
+        fi
+    done
+    local total=$((SECONDS-start))
+
+    # ---- 汇总 ----
+    banner "质量门结果"
+    local k=0
+    for r in "${STAGE_RESULTS[@]}"; do
+        local st="${r%%|*}" nm="${r#*|}"
+        local tm="${STAGE_TIMES[$k]}"
+        case "$st" in
+            PASS) printf "  ${GRN}✓ PASS${R}  %-32s %3ss\n" "$nm" "$tm" ;;
+            SKIP) printf "  ${YEL}- SKIP${R}  %-32s %3ss\n" "$nm" "$tm" ;;
+            *)    printf "  ${RED}✗ FAIL${R}  %-32s %3ss\n" "$nm" "$tm" ;;
+        esac
+        k=$((k+1))
+    done
+
+    # 统计 SKIP：全部/SKIP 过多时不能报「全部通过」
+    local n_pass=0 n_skip=0 n_fail=0
+    for r in "${STAGE_RESULTS[@]}"; do
+        case "${r%%|*}" in
+            PASS) n_pass=$((n_pass+1)) ;;
+            SKIP) n_skip=$((n_skip+1)) ;;
+            *)    n_fail=$((n_fail+1)) ;;
+        esac
+    done
+    local n_total=$((n_pass + n_skip + n_fail))
+
+    echo ""
+    if [ -n "$failed_at" ]; then
+        echo -e "  ${RED}${BOLD}质量门未通过${R} —— 卡在 $failed_at（总耗时 ${total}s）"
+        echo ""
+        exit 1
+    fi
+
+    # 防假通过：一项都没真正 PASS 时不能报全部通过。
+    # （与「缺 slang 时 G1 SKIP 却算通过」同类问题）
+    if [ "$n_pass" -eq 0 ]; then
+        echo -e "  ${YEL}${BOLD}⚠ 没有任何关卡真正执行${R}（PASS=0 SKIP=$n_skip）"
+        echo ""
+        exit 1
+    fi
+    if [ "$n_skip" -gt 0 ]; then
+        echo -e "  ${GRN}${BOLD}质量门通过${R}（PASS=$n_pass SKIP=$n_skip / 共 $n_total，总耗时 ${total}s）"
+        echo -e "  ${YEL}注意：有 $n_skip 关被跳过，其覆盖范围未被验证${R}"
+        echo ""
+        exit 0
+    fi
+    echo -e "  ${GRN}${BOLD}质量门全部通过${R}（共 $n_total 关，总耗时 ${total}s）"
+    echo ""
+    exit 0
+}
+
+main "$@"

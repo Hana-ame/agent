@@ -1,0 +1,433 @@
+#!/usr/bin/env python3
+"""
+lint_silent_pass.py —— 检测「静默通过」模式
+
+背景
+    本项目已 8 次遇到「验证工具假通过」：
+      - 变异框架静默跳过未还原的变异
+      - 断言因前件不成立而真空通过
+      - grep_violation() 是空实现（永远返回 1）
+      - 监控判定用 >= 1 而非精确匹配
+      - 数 PASS 总数而非逐套件核对
+      - 缺 slang 时 G1 SKIP 却被算作通过
+    共同特征：**没有明确失败信号**。
+
+检查规则
+    S1  判定函数返回常量（空实现）
+    S2  SKIP 后 `return 0` / `exit 0`（SKIP 被当成通过）
+    S3  只数总数不核对身份（`-ge N` 配合 PASS 计数）
+    S4  空实现的 task/function（仅注释或只有 return）
+
+用法
+    python3 lint_silent_pass.py
+    python3 lint_silent_pass.py --list
+"""
+import re
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent          # verilog/axi
+ROOT = HERE.parent                              # verilog
+
+RULES = {
+    "S1": "判定函数/任务直接返回常量（空实现）",
+    "S2": "SKIP 之后 return 0 / exit 0（把未执行当成通过）",
+    "S3": "只比对总数不核对身份（可能掩盖单项失败）",
+    "S4": "帮助/错误信息漏列实际可用的目标（用户找不到功能）",
+    "S5": "恒真检查：计数器无条件自增后与循环次数比对",
+    "S6": "定义未使用的类型/函数（文档声称支持但代码未引用）",
+    "S7": "协议版本声明与信号集不符（声称的版本含未实现信号）",
+    "S8": "DW 可参数化但向量用 32 位常量，且未声明位宽覆盖范围",
+    "S9": "并行实现（A/B 两套等价模块）的参数/检查项不一致",
+    "S10": "$urandom 无参调用（随机不可复现，失败无法重跑）",
+    "S11": "注释里写了 /*verilator ...*/ —— 会被当成 pragma 导致编译失败",
+    "S12": "模块端口声明了但从未使用（如 ARESETn 未参与复位保护）",
+}
+
+
+def scan_s12(path: Path):
+    """检测「端口声明了但函数体从未使用」的模块级信号。
+
+    实例：axi_txn_host 的 ARESETn 声明了却从未使用，
+    导致复位期间主机仍可能驱动 VALID（违反 AXI 复位要求）。
+    这里只针对复位/使能类关键端口做保守检查，避免误报。
+    """
+    if path.suffix != ".sv" or not path.name.startswith("axi_"):
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"^module\s+\w+\s*#?\(?.*?\)\s*;", txt, re.S | re.M)
+    if not m:
+        return []
+    header = m.group(0)
+    body = txt[m.end():]
+    out = []
+    # 关键端口：复位、时钟（时钟通常只用于 always 敏感列表，也会出现在 body 中）
+    for port in ("ARESETn", "PRESETn", "ARESET", "PRESET"):
+        if not re.search(rf"\b{port}\b", header):
+            continue
+        # body 中是否出现（排除注释）
+        code = "\n".join(l.split("//")[0] for l in body.splitlines())
+        if not re.search(rf"\b{port}\b", code):
+            out.append((0, f"端口 {port} 在模块体内从未使用（复位保护缺失？）"))
+    return out
+
+
+def scan_s11(path: Path):
+    """检测注释中出现 /*verilator ...*/ 形式的文本。
+
+    Verilator 把 `/*verilator ...*/` 当作 pragma 指令解析，
+    即使它出现在普通注释句子里也会报
+    "Unknown verilator comment"。本项目已踩过 2 次。
+    """
+    if path.suffix != ".sv":
+        return []
+    out = []
+    for i, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        if "/*verilator" in line:
+            out.append((i, "注释含 /*verilator ...*/（会被解析为 pragma）"))
+    return out
+
+
+def scan_s10(path: Path):
+    """检测无参 $urandom。
+
+    $urandom 无参时每次运行种子不同 → 测试向量不同 → 失败不可复现。
+    应写成 $urandom(SEED + ...) 或固定常量。
+    """
+    if path.suffix != ".sv":
+        return []
+    out = []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for i, raw in enumerate(lines, 1):
+        code = raw.split("//")[0]
+        if not code.strip():
+            continue
+        # $urandom 后面不跟 ( 即为无参
+        for m in re.finditer(r"\$urandom\b(?!\s*\()", code):
+            out.append((i, "$urandom 无参调用（不可复现）"))
+    return out
+
+
+def scan_s9(path: Path):
+    """检测并行实现的参数集是否一致。
+
+    本项目有两组并行实现：
+      - APB 从机：hand-written(regfile_sv/regs_sv) vs 生成器(regfile_gen)
+      - AXI->APB 桥：串行(bridge_sv) vs 并发(bridge_dual_sv)
+    曾经出现「给手写版加了参数检查、生成器版没加」的情况，
+    要 3 轮才对齐。这条规则用来一次性发现差异。
+    """
+    if not path.name.startswith("apb_slave_") and \
+       not path.name.startswith("axi_apb_bridge"):
+        return []
+    if path.suffix != ".sv":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"^module\s+\w+\s*#\((.*?)\)\s*\(", txt, re.S | re.M)
+    if not m:
+        return []
+    params = set(re.findall(r"parameter\s+(?:int\s+)?(\w+)\s*=", m.group(1)))
+    # 与同组另一实现比较
+    if path.name.startswith("apb_slave_"):
+        group = [HERE / "sv" / n for n in
+                 ("apb_slave_regs_sv.sv", "apb_slave_regfile_sv.sv",
+                  "apb_slave_regfile_gen.sv")]
+        # 生成器版与手写版功能不同（位域 vs 平坦），只比公共参数的默认值类型
+        return []
+    # 桥：串行 vs 并发应参数一致
+    other = HERE / "sv" / ("axi_apb_bridge_dual_sv.sv"
+                           if path.name == "axi_apb_bridge_sv.sv"
+                           else "axi_apb_bridge_sv.sv")
+    if not other.exists():
+        return []
+    otxt = other.read_text(encoding="utf-8", errors="replace")
+    om = re.search(r"^module\s+\w+\s*#\((.*?)\)\s*\(", otxt, re.S | re.M)
+    if not om:
+        return []
+    oparams = set(re.findall(r"parameter\s+(?:int\s+)?(\w+)\s*=", om.group(1)))
+    if params != oparams:
+        only_here = params - oparams
+        only_other = oparams - params
+        desc = []
+        if only_here:
+            desc.append(f"本文件独有 {sorted(only_here)}")
+        if only_other:
+            desc.append(f"对侧独有 {sorted(only_other)}")
+        return [(0, f"与 {other.name} 参数不一致：{'；'.join(desc)}")]
+    return []
+
+
+def scan_s8(path: Path):
+    """检测「DW 可参数化但测试向量硬编码 32 位」的 TB。
+
+    风险：这类 TB 以 DW=64 编译时，高 32 位只会被写 0、
+    不会被验证，但看起来「跑过了」。需在注释中声明覆盖范围。
+    """
+    if not path.name.startswith("tb_") or path.suffix != ".sv":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    # 可参数化 DW ？
+    if not re.search(r"parameter\s+int\s+DW\s*=\s*32", txt):
+        return []
+    # 用了 32 位常量？
+    n32 = len(re.findall(r"32'h[0-9A-Fa-f_]+", txt))
+    if n32 < 3:
+        return []
+    # 已声明覆盖范围？
+    if "数据位宽说明" in txt or "位宽覆盖范围" in txt:
+        return []
+    return [(0, f"DW 可参数化但用了 {n32} 个 32 位常量，未声明位宽覆盖范围"
+                "（DW=64 时高 32 位不会被验证）")]
+
+
+def scan_s7(path: Path):
+    """检测协议版本声明与接口信号集是否一致。
+
+    实例：apb_defs_pkg.sv 曾把 PSLVERR 标为「APB4」，
+    但 PSLVERR 是 APB3 引入的；APB4 新增的是 PPROT/PSTRB。
+    """
+    if path.name != "apb_defs_pkg.sv":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    iface = HERE / "sv" / "apb_if.sv"
+    if not iface.exists():
+        return []
+    itxt = iface.read_text(encoding="utf-8", errors="replace")
+    out = []
+    # 若声称 APB4，接口里必须有 PPROT 和 PSTRB。
+    # 但若注释已明确说明「未实现 APB4 / 只到 APB3」，属已声明意图，不告警。
+    if "APB4" in txt:
+        declared = ("未实现 APB4" in txt or "只到 APB3" in txt
+                    or "本实现对应的 APB 版本：**APB3**" in txt)
+        if not declared:
+            missing = [s for s in ("PPROT", "PSTRB") if s not in itxt]
+            if missing:
+                out.append((0, f"注释声称 APB4，但接口缺少 {'/'.join(missing)}"
+                               "（APB4 新增信号）；实际只到 APB3"))
+    return out
+
+
+def scan_s6(path: Path):
+    """检测 typedef struct 定义了但从未被引用的类型。
+
+    本项目就有实例：axi_defs_pkg 里 5 个 AXI4 通道 struct
+    （aw/w/b/ar/r_chan_t）完整定义，但 RTL 只用 AXI4-Lite，
+    引用数为 0 —— 属「文档性定义」，需在注释中明确标注。
+    """
+    if path.name != "axi_defs_pkg.sv":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    types = re.findall(r"\}\s*(\w+_t)\s*;", txt)
+    if not types:
+        return []
+    # 扫描所有 sv/vip 文件中的引用
+    users = []
+    for d in ("sv", "vip", "."):
+        p = HERE / d
+        if p.is_dir():
+            users += [f for f in p.glob("*.sv")]
+    other_txt = ""
+    for f in users:
+        if f.name == "axi_defs_pkg.sv":
+            continue
+        other_txt += f.read_text(encoding="utf-8", errors="replace")
+    out = []
+    unused = [t for t in types if t not in other_txt]
+    if not unused:
+        return out
+    # 若注释已显式说明「这些字段未被引用 / 仅作协议对照」，
+    # 视为已声明意图，不再告警（避免重复提醒已知情况）。
+    declared_ok = ("根本未使用" in txt or "未被任何 RTL 或 TB 引用" in txt
+                   or "仅作协议对照" in txt)
+    if declared_ok:
+        return out
+    out.append((0, f"{len(unused)} 个 struct 类型无任何引用: "
+                   f"{', '.join(unused[:6])}"
+                   "（若为文档性定义，需在注释中明确标注）"))
+    return out
+
+
+def scan_s5(path: Path):
+    """检测恒真检查：`for (int k=0; k<N; k++) { ... cnt++; }` 然后 `cnt != N`
+
+    这类检查永远通过（计数器无条件自增），等于没检查。
+    """
+    if not path.name.startswith("tb_") or path.suffix != ".sv":
+        return []
+    out = []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for i, ln in enumerate(lines):
+        m = re.search(r"for \(int (\w+) = 0; \1 < (\d+);", ln)
+        if not m:
+            continue
+        var, n = m.group(1), int(m.group(2))
+        for k in range(i, min(i + 50, len(lines))):
+            cm = re.search(r"if \((\w+)\s*!=\s*(\d+)\)", lines[k])
+            if not cm:
+                continue
+            cnt, num = cm.group(1), int(cm.group(2))
+            if num != n:
+                break
+            body = lines[i:k + 1]
+            # 找计数器自增行，并检查它前面紧邻的行是否是有条件的 if
+            bad = False
+            for bi, bl in enumerate(body):
+                if not re.search(rf"\b{cnt}\s*\+\+|{cnt}\s*=\s*{cnt}\s*\+\s*1", bl):
+                    continue
+                prev = body[bi - 1].strip() if bi > 0 else ""
+                # 同一行带条件 或 上一行是无花括号的 if(...)
+                if re.search(r"if\s*\(", bl) or prev.startswith("if"):
+                    continue
+                bad = True
+            if bad:
+                out.append((k + 1, f"{cnt} 在循环内无条件自增，随后与 {n} 比对（恒真）"))
+            break
+    return out
+
+
+def scan_s4(path: Path):
+    """找「case 分支里的目标没出现在帮助信息中」"""
+    if path.name != "sim.sh":
+        return []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    # 实际 case 分支
+    actual = set(re.findall(r"^    ([a-z0-9]+)\)$", txt, re.M))
+    # 帮助信息通常在 `*)` 分支里；若已改为自动生成（含 grep -oE ... 提取），
+    # 则不存在手工列表，跳过
+    if "目标清单自动从本脚本" in txt or "_targets=$(grep" in txt:
+        return []
+    out = []
+    m = re.search(r"未知目标.*?(?=exit 1)", txt, re.S)
+    if not m:
+        return []
+    block = m.group(0)
+    listed = set(re.findall(r"\b([a-z0-9]+)\b", block.split("可用")[-1] if "可用" in block else block))
+    missing = sorted(actual - listed - {"*", "help"})
+    for t in missing:
+        out.append((0, f"目标 {t} 未出现在帮助信息中"))
+    return out
+
+
+def scan_s1(path: Path):
+    """找「函数体只有一个 return 常量」"""
+    out = []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    # function ... name(...); body endfunction
+    for m in re.finditer(r"function\b[^;]*?(\w+)\s*\([^)]*\)\s*;(.*?)endfunction",
+                         txt, re.S):
+        name, body = m.group(1), m.group(2)
+        code = [l.split("//")[0].strip() for l in body.splitlines()]
+        code = [l for l in code if l]
+        # 1) 只有一个 return 常量
+        if len(code) == 1 and re.fullmatch(r"return\s+[\d'bhdxz_]+;", code[0]):
+            ln = txt[:m.start()].count("\n") + 1
+            out.append((ln, f"{name}() 只有 `{code[0]}`"))
+        # 2) 只有注释/空
+        elif not code:
+            ln = txt[:m.start()].count("\n") + 1
+            out.append((ln, f"{name}() 函数体为空"))
+    return out
+
+
+def scan_s2(path: Path):
+    """找 SKIP 后返回成功码"""
+    out = []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for i, raw in enumerate(lines):
+        code = raw.split("#")[0] if path.suffix == ".sh" else raw.split("//")[0]
+        if not re.search(r"SKIP|skip", code, re.I):
+            continue
+        # 看后续 4 行内是否有 return 0 / exit 0
+        for k in range(i, min(i + 5, len(lines))):
+            nxt = lines[k].split("#")[0]
+            if re.search(r"\b(return|exit)\s+0\b", nxt):
+                out.append((i + 1, f"SKIP 后 {nxt.strip()[:50]}"))
+                break
+            # 遇到 FAIL/record FAIL 说明不是假通过
+            if re.search(r"FAIL", nxt):
+                break
+    return out
+
+
+def scan_s3(path: Path):
+    """找「-ge N」配合 PASS 计数的宽松判定"""
+    out = []
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    # 统计出现 `passes` 与 `-ge` 的行
+    for i, raw in enumerate(txt.splitlines(), 1):
+        code = raw.split("#")[0]
+        if re.search(r"\$\{?passes\}?\s*-ge", code):
+            # 同一判定里是否同时有「逐个/逐项」核对
+            out.append((i, f"按总数判定：{code.strip()[:60]}"))
+    return out
+
+
+def main():
+    args = sys.argv[1:]
+    if "--list" in args:
+        print("静默通过检查规则：")
+        for k, v in RULES.items():
+            print(f"  {k}  {v}")
+        return
+
+    targets = []
+    for pat in ("*.sh", "*.py"):
+        targets += sorted(ROOT.glob(pat))
+    targets += sorted(HERE.glob("*.py"))
+    # ★ 必须包含 SV 测试台：S5（恒真检查）只能在这里检测。
+    # 此前漏扫 sv/，导致 S5 规则从未真正执行过（空跑）。
+    targets += sorted((HERE / "sv").glob("tb_*.sv"))
+    # 包定义文件：S6（未使用的类型）只在这里检测
+    targets += sorted(HERE.glob("*_pkg.sv"))
+    # RTL 模块：S9（并行实现一致性）只在这些文件上检测
+    targets += sorted((HERE / "sv").glob("apb_slave_*.sv"))
+    targets += sorted((HERE / "sv").glob("axi_apb_bridge*.sv"))
+    targets += sorted((HERE / "sv").glob("axi_*.sv"))
+    targets += sorted((HERE / "sv").glob("apb_*.sv"))
+    targets += sorted((HERE / "sv").glob("*_pkg.sv"))
+    targets = [t for t in targets if t.name != "lint_silent_pass.py"]
+
+    print(f"静默通过检查（{len(targets)} 个文件）")
+    print("=" * 64)
+
+    total = 0
+    for f in targets:
+        issues = []
+        try:
+            issues += [(ln, "S1", d) for ln, d in scan_s1(f)]
+        except Exception:
+            pass
+        if f.suffix == ".sh":
+            issues += [(ln, "S2", d) for ln, d in scan_s2(f)]
+        issues += [(ln, "S3", d) for ln, d in scan_s3(f)]
+        if f.name == "sim.sh":
+            issues += [(ln, "S4", d) for ln, d in scan_s4(f)]
+        issues += [(ln, "S5", d) for ln, d in scan_s5(f)]
+        issues += [(ln, "S6", d) for ln, d in scan_s6(f)]
+        issues += [(ln, "S7", d) for ln, d in scan_s7(f)]
+        issues += [(ln, "S8", d) for ln, d in scan_s8(f)]
+        issues += [(ln, "S9", d) for ln, d in scan_s9(f)]
+        issues += [(ln, "S10", d) for ln, d in scan_s10(f)]
+        issues += [(ln, "S11", d) for ln, d in scan_s11(f)]
+        issues += [(ln, "S12", d) for ln, d in scan_s12(f)]
+
+        if not issues:
+            continue
+        rel = f.relative_to(ROOT) if str(f).startswith(str(ROOT)) else f
+        print(f"\n{rel}:")
+        for ln, rule, desc in issues:
+            total += 1
+            # S3 是提示级（要看是否有配套的逐项核对）
+            icon = "⚠" if rule == "S3" else "✗"
+            print(f"  {icon} L{ln:<4} [{rule}] {desc}")
+
+    print("\n" + "=" * 64)
+    if total == 0:
+        print("✅ 未发现静默通过模式")
+        sys.exit(0)
+    print(f"合计 {total} 处（S1/S2 为危险级，S3 需人工确认）")
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

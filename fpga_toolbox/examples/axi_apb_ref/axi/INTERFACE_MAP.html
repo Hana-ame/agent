@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>接口逻辑映射 · AXI→APB→AXI</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c2128;--bd:#30363d;--fg:#c9d1d9;
+--dim:#8b949e;--blue:#58a6ff;--green:#3fb950;--amber:#d29922;--purple:#bc8cff;
+--cyan:#39c5cf;--red:#f85149;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.6 -apple-system,"Segoe UI","Noto Sans SC",sans-serif;padding:0 0 60px}
+.wrap{max-width:1200px;margin:0 auto;padding:0 24px}
+header{border-bottom:1px solid var(--bd);padding:32px 0 24px;margin-bottom:28px}
+h1{font-size:24px;font-weight:650}
+h1 small{display:block;font-size:13px;color:var(--dim);font-weight:400;margin-top:8px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:20px 0 0}
+.tab{padding:7px 15px;border:1px solid var(--bd);border-radius:7px;background:var(--panel);
+cursor:pointer;font-size:13px;color:var(--dim);transition:.15s}
+.tab:hover{border-color:var(--blue);color:var(--fg)}
+.tab.on{background:#1f6feb22;border-color:var(--blue);color:var(--blue);font-weight:600}
+.pane{display:none}.pane.on{display:block}
+h2{font-size:17px;margin:26px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
+h2 .n{font-family:var(--mono);font-size:11px;color:var(--blue);margin-right:8px}
+p{margin-bottom:10px;color:#b1bac4}
+code{font-family:var(--mono);font-size:.88em;background:#0d1117;border:1px solid #21262d;
+padding:1px 5px;border-radius:4px;color:#79c0ff}
+
+/* 映射表 */
+table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}
+th,td{padding:10px 12px;border-bottom:1px solid #21262d;text-align:left;vertical-align:top}
+th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.4px;background:#11151b}
+tr:hover td{background:#11151b}
+.mono{font-family:var(--mono);font-size:12px}
+
+/* 信号芯片 */
+.chip{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:2px 8px;
+border-radius:5px;margin:2px 3px 2px 0;border:1px solid;white-space:nowrap}
+.chip.out{background:#12261a;border-color:#238636;color:#56d364}
+.chip.in{background:#1c1a2e;border-color:#6e40c9;color:#bc8cff}
+.chip.apb{background:#2b2110;border-color:#9e6a03;color:#e3b341}
+.chip.dim{background:#161b22;border-color:#30363d;color:#8b949e}
+
+/* 流程链 */
+.chain{display:flex;flex-direction:column;gap:0;margin:16px 0}
+.step{display:grid;grid-template-columns:1fr 26px 1fr 130px;gap:12px;align-items:center;
+padding:11px 14px;background:var(--panel);border:1px solid var(--bd);border-radius:8px;font-size:12.6px}
+.step .arrow{text-align:center;color:#3d5266;font-size:15px}
+.step .lbl{color:var(--dim);font-size:11.5px;text-align:right;font-family:var(--mono)}
+.conn{height:14px;margin-left:calc(50% - 60px);border-left:2px dashed #30363d;width:0}
+
+/* 状态机 */
+.fsm{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.st{font-family:var(--mono);font-size:11.5px;padding:6px 11px;border-radius:6px;
+border:1px solid var(--bd);background:var(--panel);cursor:pointer;transition:.15s}
+.st:hover,.st.on{border-color:var(--blue);background:#1f6feb22;color:var(--blue)}
+.detail{margin-top:14px;background:var(--panel);border:1px solid var(--bd);border-radius:8px;
+padding:16px;min-height:90px}
+.detail .t{font-family:var(--mono);color:var(--blue);font-size:13px;margin-bottom:10px}
+
+/* 图例 */
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin:14px 0 0;
+padding:12px 16px;background:var(--panel);border:1px solid var(--bd);border-radius:8px}
+footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--bd);color:#6e7681;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>接口逻辑映射：字段 → 信号 → 时序
+    <small>由 gen_interface_map.py 解析真实 SV 源码生成 · 字段与信号均经源码校验</small></h1>
+  <div class="tabs">
+    <div class="tab on" data-p="fields">① 字段→信号映射</div>
+    <div class="tab" data-p="signals">② 接口信号全景</div>
+    <div class="tab" data-p="chain">③ 数据流转链</div>
+    <div class="tab" data-p="fsm">④ 状态机驱动</div>
+  </div>
+</header>
+<div class="pane on" id="fields">
+<h2><span class="n">01</span>字段 → 信号映射（txn_t，第 3 层）</h2>
+<p>上层只写结构体字段，适配层把它展开成 AXI 信号。下表每行：
+<b>字段</b> → <b>驱动哪些信号</b> / <b>观测哪些信号</b>。</p>
+<table>
+<thead><tr><th style="width:150px">事务字段</th><th>驱动（master→slave）</th>
+<th>观测（slave→master）</th><th style="width:34%">转换逻辑</th></tr></thead>
+<tbody><tr>
+<td class="mono"><b>write</b><span style="color:#6e7681"></span></td>
+<td><span class="chip out">AWVALID</span><span class="chip out">AWADDR</span><span class="chip out">WVALID</span><span class="chip out">WDATA</span><span class="chip out">ARVALID</span><span class="chip out">ARADDR</span></td><td><span class="chip in">BVALID</span><span class="chip in">BRESP</span><span class="chip in">RVALID</span><span class="chip in">RDATA</span><span class="chip in">RRESP</span></td><td style="color:#8b949e">选择写/读通道：写走 AW/W/B，读走 AR/R</td></tr><tr>
+<td class="mono"><b>addr</b><span style="color:#6e7681"> [7:0]</span></td>
+<td><span class="chip out">AWADDR</span><span class="chip out">ARADDR</span></td><td><span class="chip in">PRDATA</span><span class="chip in">PSLVERR</span></td><td style="color:#8b949e">地址 → AWADDR（写）或 ARADDR（读）→ 桥转 PADDR → 从机译码</td></tr><tr>
+<td class="mono"><b>data</b><span style="color:#6e7681"> [`TXN_DW-1:0]</span></td>
+<td><span class="chip out">WDATA</span></td><td><span class="chip in">RDATA</span><span class="chip in">PRDATA</span></td><td style="color:#8b949e">写数据 → WDATA → PWDATA → 寄存器；读数据反向 RDATA</td></tr><tr>
+<td class="mono"><b>pause</b><span style="color:#6e7681"> [7:0]</span></td>
+<td><span class="chip out">AWVALID</span><span class="chip out">WVALID</span><span class="chip out">ARVALID</span></td><td><span class="chip dim">—</span></td><td style="color:#8b949e">事务后拉低全部 VALID，插 N 拍总线空闲</td></tr><tr>
+<td class="mono"><b>same</b><span style="color:#6e7681"></span></td>
+<td><span class="chip out">AWVALID</span><span class="chip out">WVALID</span></td><td><span class="chip in">AWREADY</span><span class="chip in">WREADY</span></td><td style="color:#8b949e">AW 与 W 是否同拍发起（同发需两个 READY 同时为高）</td></tr><tr>
+<td class="mono"><b>exp_err</b><span style="color:#6e7681"></span></td>
+<td><span class="chip out">AWADDR</span><span class="chip out">ARADDR</span></td><td><span class="chip in">BRESP</span><span class="chip in">RRESP</span><span class="chip in">PSLVERR</span></td><td style="color:#8b949e">越界地址 → 从机 PSLVERR → 桥转 BRESP/RRESP=SLVERR</td></tr></tbody></table>
+
+<h2><span class="n">02</span>结果字段（rsp_t）</h2>
+<table><thead><tr><th style="width:150px">字段</th><th>来源</th></tr></thead>
+<tbody><tr><td class="mono"><b>data</b><span style="color:#6e7681"> [`TXN_DW-1:0]</span></td><td style="color:#8b949e">读回数据（来自 RDATA）</td></tr><tr><td class="mono"><b>resp</b><span style="color:#6e7681"> [1:0]</span></td><td style="color:#8b949e">实际响应编码（来自 BRESP/RRESP）</td></tr><tr><td class="mono"><b>idle</b><span style="color:#6e7681"> [7:0]</span></td><td style="color:#8b949e">实际注入的空闲拍数（pause 可观测）</td></tr></tbody></table>
+<div class="legend">
+<span>🟩 驱动信号（本层输出）</span><span>🟪 观测信号（本层采样）</span>
+<span>⬜ 无</span></div>
+</div><div class="pane" id="signals">
+<h2><span class="n">03</span>AXI_LITE_IF 信号（16 根）</h2>
+<table><thead><tr><th style="width:120px">信号</th><th style="width:90px">位宽</th>
+<th style="width:120px">master 方向</th></tr></thead>
+<tbody><tr><td class="mono">AWVALID</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">AWREADY</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip in">input</span></td></tr><tr><td class="mono">AWADDR</td><td class="mono" style="color:#6e7681">[AW-1:0]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">WVALID</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">WREADY</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip in">input</span></td></tr><tr><td class="mono">WDATA</td><td class="mono" style="color:#6e7681">[DW-1:0]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">BVALID</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip in">input</span></td></tr><tr><td class="mono">BREADY</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">BRESP</td><td class="mono" style="color:#6e7681">[1:0]</td><td><span class="chip in">input</span></td></tr><tr><td class="mono">ARVALID</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">ARREADY</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip in">input</span></td></tr><tr><td class="mono">ARADDR</td><td class="mono" style="color:#6e7681">[AW-1:0]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">RVALID</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip in">input</span></td></tr><tr><td class="mono">RREADY</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">RDATA</td><td class="mono" style="color:#6e7681">[DW-1:0]</td><td><span class="chip in">input</span></td></tr><tr><td class="mono">RRESP</td><td class="mono" style="color:#6e7681">[1:0]</td><td><span class="chip in">input</span></td></tr></tbody></table>
+<p style="margin-top:10px"><b>SVA 断言</b>（5 条）：<span class="chip dim">ap_aw_valid_stable</span><span class="chip dim">ap_w_valid_stable</span><span class="chip dim">ap_ar_valid_stable</span><span class="chip dim">ap_b_valid_stable</span><span class="chip dim">ap_r_valid_stable</span></p>
+<p><b>覆盖点</b>：<span class="chip dim">无</span></p><h2><span class="n">04</span>APB_IF 信号（8 根）</h2>
+<table><thead><tr><th style="width:120px">信号</th><th style="width:90px">位宽</th>
+<th style="width:120px">master 方向</th></tr></thead>
+<tbody><tr><td class="mono">PSEL</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">PENABLE</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">PWRITE</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">PADDR</td><td class="mono" style="color:#6e7681">[AW-1:0]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">PWDATA</td><td class="mono" style="color:#6e7681">[DW-1:0]</td><td><span class="chip out">output</span></td></tr><tr><td class="mono">PRDATA</td><td class="mono" style="color:#6e7681">[DW-1:0]</td><td><span class="chip in">input</span></td></tr><tr><td class="mono">PREADY</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip in">input</span></td></tr><tr><td class="mono">PSLVERR</td><td class="mono" style="color:#6e7681">[1]</td><td><span class="chip in">input</span></td></tr></tbody></table>
+<p style="margin-top:10px"><b>SVA 断言</b>（5 条）：<span class="chip dim">ap_penable_requires_psel</span><span class="chip dim">ap_no_ready_in_setup</span><span class="chip dim">ap_access_stable_until_ready</span><span class="chip dim">ap_slverr_only_on_complete</span><span class="chip dim">ap_xfer_done_exits</span></p>
+<p><b>覆盖点</b>：<span class="chip dim">cov_xfer_done</span></p>
+</div><div class="pane" id="chain">
+<h2><span class="n">05</span>数据流转链（地址/数据从字段到总线的完整路径）</h2>
+<p>每一段都是源码里真实存在的赋值或锁存关系。</p>
+<div class="chain"><div class="step">
+<div class="mono" style="color:#58a6ff">txn_t.addr</div>
+<div class="arrow">→</div>
+<div class="mono" style="color:#3fb950">axi.AWADDR / axi.ARADDR</div>
+<div class="lbl">适配层展开</div></div><div class="conn"></div><div class="step">
+<div class="mono" style="color:#58a6ff">AWADDR/ARADDR</div>
+<div class="arrow">→</div>
+<div class="mono" style="color:#3fb950">bridge paddr_q</div>
+<div class="lbl">桥锁存地址</div></div><div class="conn"></div><div class="step">
+<div class="mono" style="color:#58a6ff">paddr_q</div>
+<div class="arrow">→</div>
+<div class="mono" style="color:#3fb950">apb.PADDR</div>
+<div class="lbl">桥输出到 APB</div></div><div class="conn"></div><div class="step">
+<div class="mono" style="color:#58a6ff">apb.PADDR</div>
+<div class="arrow">→</div>
+<div class="mono" style="color:#3fb950">slave idx = PADDR>>2</div>
+<div class="lbl">从机地址译码</div></div><div class="conn"></div><div class="step">
+<div class="mono" style="color:#58a6ff">slave mem[idx]</div>
+<div class="arrow">→</div>
+<div class="mono" style="color:#3fb950">apb.PRDATA</div>
+<div class="lbl">从机读数据</div></div><div class="conn"></div><div class="step">
+<div class="mono" style="color:#58a6ff">apb.PRDATA</div>
+<div class="arrow">→</div>
+<div class="mono" style="color:#3fb950">bridge rdata_q</div>
+<div class="lbl">桥在完成拍锁存</div></div><div class="conn"></div><div class="step">
+<div class="mono" style="color:#58a6ff">rdata_q</div>
+<div class="arrow">→</div>
+<div class="mono" style="color:#3fb950">axi.RDATA</div>
+<div class="lbl">读响应回 AXI</div></div></div>
+</div><div class="pane" id="fsm">
+<h2><span class="n">06</span>状态机驱动映射（11 个状态）</h2>
+<p>点击任一状态，查看它在该拍强制驱动哪些总线信号。这些内容直接解析自
+<code>case (state)</code> 分支，不是手写的。</p>
+<div class="fsm"><div class="st" data-st="S_IDLE" data-body="<div><b>AXI 输出</b><br><span class=&quot;chip out&quot;>AWREADY=1'b1</span><span class=&quot;chip out&quot;>WREADY=1'b1</span><span class=&quot;chip out&quot;>AWREADY=1'b1</span><span class=&quot;chip out&quot;>WREADY=1'b1</span><span class=&quot;chip out&quot;>ARREADY=1'b1</span></div>">S_IDLE</div><div class="st" data-st="S_AW_H" data-body="<div><b>AXI 输出</b><br><span class=&quot;chip out&quot;>WREADY=1'b1</span><span class=&quot;chip out&quot;>AWREADY=1'b1</span></div>">S_AW_H</div><div class="st" data-st="S_W_H" data-body="<div><b>AXI 输出</b><br><span class=&quot;chip out&quot;>AWREADY=1'b1</span><span class=&quot;chip out&quot;>WREADY=1'b1</span></div>">S_W_H</div><div class="st" data-st="S_AWW_H" data-body="<div><b>AXI 输出</b><br><span class=&quot;chip out&quot;>AWREADY=1'b1</span><span class=&quot;chip out&quot;>WREADY=1'b1</span></div>">S_AWW_H</div><div class="st" data-st="S_WR_SETUP" data-body="<div style=&quot;margin-top:8px&quot;><b>APB 输出</b><br><span class=&quot;chip apb&quot;>PSEL=1'b1</span><span class=&quot;chip apb&quot;>PENABLE=1'b0</span><span class=&quot;chip apb&quot;>PWRITE=1'b1</span></div>">S_WR_SETUP</div><div class="st" data-st="S_WR_ACC" data-body="<div style=&quot;margin-top:8px&quot;><b>APB 输出</b><br><span class=&quot;chip apb&quot;>PSEL=1'b1</span><span class=&quot;chip apb&quot;>PENABLE=1'b1</span><span class=&quot;chip apb&quot;>PWRITE=1'b1</span></div>">S_WR_ACC</div><div class="st" data-st="S_B_RESP" data-body="<div><b>AXI 输出</b><br><span class=&quot;chip out&quot;>BVALID=1'b1</span></div>">S_B_RESP</div><div class="st" data-st="S_AR_H" data-body="<span class=&quot;chip dim&quot;>本状态无总线输出（等待握手）</span>">S_AR_H</div><div class="st" data-st="S_RD_SETUP" data-body="<div style=&quot;margin-top:8px&quot;><b>APB 输出</b><br><span class=&quot;chip apb&quot;>PSEL=1'b1</span><span class=&quot;chip apb&quot;>PENABLE=1'b0</span></div>">S_RD_SETUP</div><div class="st" data-st="S_RD_ACC" data-body="<div style=&quot;margin-top:8px&quot;><b>APB 输出</b><br><span class=&quot;chip apb&quot;>PSEL=1'b1</span><span class=&quot;chip apb&quot;>PENABLE=1'b1</span></div>">S_RD_ACC</div><div class="st" data-st="S_R_RESP" data-body="<div><b>AXI 输出</b><br><span class=&quot;chip out&quot;>RVALID=1'b1</span></div>">S_R_RESP</div></div>
+<div class="detail" id="st-detail">
+  <div class="t">S_IDLE</div>
+  <div class="body"><div><b>AXI 输出</b><br><span class="chip out">AWREADY=1'b1</span><span class="chip out">WREADY=1'b1</span><span class="chip out">AWREADY=1'b1</span><span class="chip out">WREADY=1'b1</span><span class="chip out">ARREADY=1'b1</span></div></div>
+</div>
+<div class="legend"><span>🟩 AXI 输出</span><span>🟨 APB 输出</span></div>
+</div>
+<footer>
+  源码：<code>bus_txn_pkg.sv</code> · <code>axi_lite_if.sv</code> ·
+  <code>apb_if.sv</code> · <code>axi_apb_bridge_sv.sv</code><br>
+  生成命令：<code>python3 gen_interface_map.py</code> · 所有映射在生成时校验，源码改名会立即报错
+</footer>
+</div>
+<script>
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(x => x.classList.remove('on'));
+  t.classList.add('on');
+  document.getElementById(t.dataset.p).classList.add('on');
+});
+document.querySelectorAll('.st').forEach(s => s.onclick = () => {
+  const d = document.getElementById('st-detail');
+  d.querySelector('.t').textContent = s.dataset.st;
+  d.querySelector('.body').innerHTML = s.dataset.body;
+  document.querySelectorAll('.st').forEach(x => x.classList.remove('on'));
+  s.classList.add('on');
+});
+</script>
+</body>
+</html>

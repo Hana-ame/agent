@@ -1,0 +1,950 @@
+#!/usr/bin/env python3
+"""
+gen_regfile.py —— 从 JSON 规格生成 APB 寄存器从机 RTL + 测试 + 文档
+
+设计原则：
+  1. 单一事实来源：regfile_spec.json 是唯一描述，RTL/测试/文档全部由它派生
+  2. 生成前校验：地址对齐、重叠、属性合法性、位宽一致
+  3. 生成物带头部标记，避免与手写文件混淆
+
+生成产物：
+  sv/apb_slave_regfile_gen.sv   寄存器从机 RTL
+  sv/tb_regfile_gen.sv          属性验证 testbench
+  REGFILE.html                  寄存器手册（地址映射表 + 属性说明）
+
+用法:
+  python3 gen_regfile.py
+  python3 gen_regfile.py --spec other.json
+"""
+import json
+import sys
+import html
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import field_gen     # 位域 RTL 生成辅助（列表构建）
+import field_tb_gen  # 位域测试生成辅助
+
+HERE = Path(__file__).resolve().parent      # verilog/axi
+SV = HERE / "sv"
+DEFAULT_SPEC = HERE / "regfile_spec.json"
+
+ATTR_CODES = {"RSVD": 0, "RW": 1, "RO": 2, "W1C": 3, "W1S": 4, "RC": 5}
+VALID_ATTRS = set(ATTR_CODES)
+
+
+def load_spec(path: Path):
+    if not path.exists():
+        print(f"错误：规格文件不存在: {path}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        print(f"错误：JSON 解析失败: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def validate(spec):
+    """校验规格：返回错误列表"""
+    errs = []
+    bus = spec.get("bus", {})
+    aw = bus.get("addr_width", 8)
+    dw = bus.get("data_width", 32)
+
+    regs = spec.get("registers", [])
+    if not regs:
+        errs.append("registers 为空")
+
+    word_bytes = dw // 8
+    seen_offsets = {}
+    seen_names = set()
+
+    for i, r in enumerate(regs):
+        name = r.get("name", f"<#{i}>")
+        # 必填字段
+        for k in ("name", "offset", "attr", "reset"):
+            if k not in r:
+                errs.append(f"{name}: 缺少字段 {k}")
+        if not all(k in r for k in ("name", "offset", "attr", "reset")):
+            continue
+
+        # 属性合法性
+        if r["attr"] not in VALID_ATTRS:
+            errs.append(f"{name}: 非法属性 {r['attr']}（合法: {sorted(VALID_ATTRS)}）")
+
+        # 复位值一致性：若有位域定义，顶层 reset 必须等于「各位域 reset 拼合」
+        # （曾经 CTRL 的顶层 reset=0，但位域拼合=0xA53C0000，
+        #   RTL 按位域实现，导致手册显示 0x0 而实际复位值是 0xA53C0000）
+        fields = r.get("fields", [])
+        if fields:
+            try:
+                top = r["reset"]
+                topv = int(top, 16) if isinstance(top, str) else int(top)
+                computed = 0
+                for f in fields:
+                    bits = str(f.get("bits", ""))
+                    if ":" in bits:
+                        msb, lsb = map(int, bits.split(":"))
+                    elif bits:
+                        msb = lsb = int(bits)
+                    else:
+                        continue
+                    w = msb - lsb + 1
+                    computed |= (int(f.get("reset", 0)) & ((1 << w) - 1)) << lsb
+                if topv != computed:
+                    errs.append(
+                        f"{name}: 顶层 reset=0x{topv:08X} 与位域拼合值 "
+                        f"0x{computed:08X} 不一致（请修正 reset 或 field.reset）")
+            except (ValueError, TypeError) as e:
+                errs.append(f"{name}: 复位值解析失败（{e}）")
+
+        # 名字唯一
+        if r["name"] in seen_names:
+            errs.append(f"{name}: 名字重复")
+        seen_names.add(r["name"])
+
+        # 地址解析与对齐
+        try:
+            off = int(str(r["offset"]), 0)
+        except ValueError:
+            errs.append(f"{name}: offset 无法解析: {r['offset']}")
+            continue
+        if off % word_bytes != 0:
+            errs.append(f"{name}: offset 0x{off:X} 未按 {word_bytes} 字节对齐")
+        if off >= (1 << aw):
+            errs.append(f"{name}: offset 0x{off:X} 超出地址空间 (AW={aw})")
+
+        # 地址重叠
+        if off in seen_offsets:
+            errs.append(f"{name}: 地址 0x{off:X} 与 {seen_offsets[off]} 冲突")
+        seen_offsets[off] = name
+
+        # 复位值范围
+        try:
+            rst = int(str(r["reset"]), 0)
+        except ValueError:
+            errs.append(f"{name}: reset 无法解析: {r['reset']}")
+            continue
+        if rst >= (1 << dw):
+            errs.append(f"{name}: reset 0x{rst:X} 超出 {dw} 位范围")
+
+        # 语义检查：RO 有固定值才有意义；W1C 复位值应可清零
+        if r["attr"] == "RO" and rst == 0:
+            # 允许但提示
+            pass
+
+    return errs
+
+
+def gen_rtl(spec):
+    """生成寄存器从机 RTL"""
+    bus = spec["bus"]
+    aw = bus.get("addr_width", 8)
+    dw = bus.get("data_width", 32)
+    wc = bus.get("wait_cycles", 2)
+    regs = spec["registers"]
+    nreg = len(regs)
+    mod = spec.get("module", "apb_slave_regfile_gen")
+
+    # 按 offset 排序生成 case 项
+    sorted_regs = sorted(regs, key=lambda r: int(str(r["offset"]), 0))
+
+    # ---- 位域寄存器：收集并生成 RTL 片段（列表构建）----
+    def _bfields(r):
+        return r.get("fields") or r.get("bitfields") or []
+
+    field_regs = [r for r in sorted_regs if _bfields(r)]
+    fld_lines = []
+    for r in field_regs:
+        fld_lines.extend(field_gen.build_field_write_func(r["name"], _bfields(r), dw))
+    fld_lines.extend(field_gen.build_field_dispatch(field_regs, dw))
+    # 位域读清零（RC）
+    for r in field_regs:
+        fld_lines.extend(field_gen.build_field_read_clear(r["name"], _bfields(r), dw))
+    fld_lines.extend(field_gen.build_read_clear_dispatch(field_regs, dw))
+    fld_code = "\n".join(fld_lines)
+
+    attr_cases = []
+    for r in sorted_regs:
+        idx = int(str(r["offset"]), 0) // (dw // 8)
+        attr_cases.append(f"            {idx}: return A_{r['attr']};   // {r['name']} "
+                          f"@0x{int(str(r['offset']),0):02X}")
+
+    def _bfields_of(r):
+        return r.get("fields") or r.get("bitfields") or []
+
+    reset_cases = []
+    for r in sorted_regs:
+        idx = int(str(r["offset"]), 0) // (dw // 8)
+        rst = int(str(r["reset"]), 0)
+        # 若有位域，把各字段的 reset 合成到整字复位值
+        for f in _bfields_of(r):
+            bs = str(f["bits"])
+            if ":" in bs:
+                hi, lo = [int(x) for x in bs.split(":")]
+            else:
+                hi = lo = int(bs)
+            width = hi - lo + 1
+            mask = ((1 << width) - 1) << lo
+            freset = int(str(f.get("reset", 0)), 0)
+            rst = (rst & ~mask) | ((freset << lo) & mask)
+        reset_cases.append(f"            {idx}: return {dw}'h{rst:0{dw//4}X};")
+
+    reg_table = "\n".join(
+        f"    //   [{int(str(r['offset']),0)//(dw//8):2d}] 0x{int(str(r['offset']),0):02X}  "
+        f"{r['name']:<12} {r['attr']:<5} reset=0x{int(str(r['reset']),0):08X}   {r.get('description','')}"
+        for r in sorted_regs
+    )
+    # 规格里的寄存器总数：用于在生成的 RTL 里做 NREG 参数合法性检查
+    nreg_total = len(sorted_regs)
+
+    return f"""// ============================================================================
+// {mod}：APB 寄存器从机（由 gen_regfile.py 从 regfile_spec.json 生成）
+// ============================================================================
+// ⚠️ 本文件为自动生成，请勿手工编辑。修改 regfile_spec.json 后重新生成。
+//
+// 寄存器映射：
+{reg_table}
+//
+// 寄存器属性语义：
+//   RO    只读：写被忽略，读返回复位时的固定值
+//   RW    读写：写什么读什么
+//   W1C   写 1 清零：写 1 的位清零，写 0 的位保持
+//   RSVD  保留：读恒 0，写忽略
+// ============================================================================
+`ifndef {mod.upper()}_SV
+`define {mod.upper()}_SV
+`timescale 1ns / 1ps
+
+module {mod} #(
+    parameter int AW          = {aw},
+    parameter int DW          = {dw},
+    parameter int NREG        = {nreg},
+    parameter int WAIT_CYCLES = {wc}
+)(
+    input  logic PCLK,
+    input  logic PRESETn,
+    apb_if.slave apb
+);
+
+    // 参数约束：NREG 必须至少覆盖规格里的全部寄存器。
+    // 规格有 {nreg_total} 个寄存器；若 NREG 更小，后面的寄存器整片消失，
+    // 访问它们会返回 SLVERR —— 看起来像「越界保护」，实则是配置错误。
+    // 实测：NREG=4 时偏移 0x10 起全部读不到（本轮踩到并修复）。
+    initial begin
+        if (NREG < {nreg_total}) begin
+            $display("ERROR: NREG=%0d 小于规格寄存器数 {nreg_total}（部分寄存器将不存在）",
+                     NREG);
+            $fatal(1, "invalid NREG parameter");
+        end
+        // WAIT_CYCLES 内部是 8 位计数器（wait_cnt[7:0]），>255 会被静默截断。
+        // 实测 WAIT_CYCLES=256 时延迟只有 7 周期（期望 263），无任何提示。
+        if (WAIT_CYCLES < 0 || WAIT_CYCLES > 255) begin
+            $display("ERROR: WAIT_CYCLES=%0d 越界（有效范围 0..255，内部为 8 位计数器）",
+                     WAIT_CYCLES);
+            $fatal(1, "invalid WAIT_CYCLES parameter");
+        end
+        if (AW < 2 || AW > 32) begin
+            $display("ERROR: AW=%0d 越界（有效范围 2..32）", AW);
+            $fatal(1, "invalid AW parameter");
+        end
+        // 地址空间必须装得下寄存器堆，否则尾部寄存器不可访问。
+        if ((NREG * (DW/8)) > (1 << AW)) begin
+            $display("ERROR: NREG=%0d*DW/8=%0d 字节 > 地址空间 %0d 字节（AW=%0d）",
+                     NREG, NREG*(DW/8), (1 << AW), AW);
+            $fatal(1, "invalid NREG/AW combination");
+        end
+    end
+
+    import apb_defs_pkg::*;
+
+    // ---- 寄存器属性编码 ----
+    localparam int A_RSVD = 0;
+    localparam int A_RW   = 1;
+    localparam int A_RO   = 2;
+    localparam int A_W1C  = 3;
+    localparam int A_W1S  = 4;   // 写 1 置位
+    localparam int A_RC   = 5;   // 读清零（读完成拍清零）
+
+    // ---- 寄存器名到索引（供 TB / 软件参考）----
+{chr(10).join(f"    localparam int {r['name']:<12} = {int(str(r['offset']),0)//(dw//8)};   // 0x{int(str(r['offset']),0):02X}" for r in sorted_regs)}
+
+    // ---- 属性查询（按索引）----
+    function automatic int attr_of(input int i);
+        case (i)
+{chr(10).join(attr_cases)}
+            default: return A_RSVD;   // 未定义地址视为保留
+        endcase
+    endfunction
+
+    // ---- 复位值查询（按索引）----
+    function automatic logic [DW-1:0] reset_of(input int i);
+        case (i)
+{chr(10).join(reset_cases)}
+            default: return '0;
+        endcase
+    endfunction
+
+    // ---- 寄存器堆 ----
+    logic [DW-1:0] mem [0:NREG-1];
+
+    // ---- 地址译码 ----
+    logic [AW-1:0] idx;
+    logic          in_range;
+    assign idx = apb.PADDR >> 2;
+    assign in_range = (idx < NREG);
+
+{fld_code}
+
+    // ---- 写数据按属性变换（整字寄存器）----
+    function automatic logic [DW-1:0] write_transform_word(
+        input logic [DW-1:0] old_v,
+        input logic [DW-1:0] wr_v,
+        input int            attr
+    );
+        case (attr)
+            A_RW:  return wr_v;
+            A_W1C: return old_v & ~wr_v;
+            A_W1S: return old_v | wr_v;   // 写 1 置位
+            default: return old_v;        // RO / RC / RSVD 忽略写
+        endcase
+    endfunction
+
+    // ---- 读数据按属性变换 ----
+    function automatic logic [DW-1:0] read_transform(
+        input logic [DW-1:0] cur_v,
+        input int            attr
+    );
+        return (attr == A_RSVD) ? '0 : cur_v;
+    endfunction
+
+    // ---- 读清零（RC）：读完成拍清除 ----
+    //   整字 RC：读后整体清 0
+    //   位域 RC：只清 RC 位域，其他位域保持不变
+    function automatic logic [DW-1:0] read_clear_word(
+        input logic [DW-1:0] cur_v,
+        input int            attr
+    );
+        return (attr == A_RC) ? '0 : cur_v;
+    endfunction
+
+    // read_clear_dispatch_fld 由下方位域代码块提供（若有位域寄存器）
+
+    // ---- 阶段状态机 ----
+    apb_phase_t phase;
+    logic [7:0] wait_cnt;
+
+    always_ff @(posedge PCLK or negedge PRESETn) begin
+        if (!PRESETn) begin
+            phase       <= APB_IDLE;
+            wait_cnt    <= '0;
+            apb.PREADY  <= 1'b0;
+            apb.PSLVERR <= 1'b0;
+            apb.PRDATA  <= '0;
+            for (int i = 0; i < NREG; i++)
+                mem[i] <= reset_of(i);
+        end else begin
+            case (phase)
+                APB_IDLE: begin
+                    apb.PREADY  <= 1'b0;
+                    apb.PSLVERR <= 1'b0;
+                    if (apb.PSEL && !apb.PENABLE) begin
+                        wait_cnt <= WAIT_CYCLES[7:0];
+                        phase    <= APB_SETUP;
+                    end
+                end
+                APB_SETUP: begin
+                    apb.PREADY  <= 1'b0;
+                    apb.PSLVERR <= 1'b0;
+                    if (apb.PENABLE)
+                        phase <= APB_ACC;
+                end
+                APB_ACC: begin
+                    if (wait_cnt == 0) begin
+                        apb.PREADY  <= 1'b1;
+                        apb.PSLVERR <= in_range ? 1'b0 : 1'b1;
+                        if (in_range && apb.PWRITE)
+                            mem[idx] <= write_dispatch(idx, mem[idx], apb.PWDATA);
+                        if (!apb.PWRITE) begin
+                            apb.PRDATA <= in_range ? read_transform(mem[idx], attr_of(idx)) : '0;
+                            // RC（读清零）：读完成拍清除（位域级）
+                            if (in_range)
+                                mem[idx] <= read_clear_dispatch_fld(idx, mem[idx]);
+                        end
+                        phase <= APB_IDLE;
+                    end else begin
+                        apb.PREADY  <= 1'b0;
+                        wait_cnt    <= wait_cnt - 1'b1;
+                    end
+                end
+                default: begin
+                    phase       <= APB_IDLE;
+                    apb.PREADY  <= 1'b0;
+                    apb.PSLVERR <= 1'b0;
+                end
+            endcase
+        end
+    end
+
+endmodule
+`endif // {mod.upper()}_SV
+"""
+
+
+def gen_tb(spec):
+    """生成属性验证 testbench"""
+    bus = spec["bus"]
+    aw = bus.get("addr_width", 8)
+    dw = bus.get("data_width", 32)
+    regs = sorted(spec["registers"], key=lambda r: int(str(r["offset"]), 0))
+    nreg = len(regs)
+    mod = spec.get("module", "apb_slave_regfile_gen")
+
+    # 按属性分组生成测试调用
+    def _bf(r):
+        return r.get("fields") or r.get("bitfields") or []
+
+    # 位域寄存器单独测试，排除出整字测试
+    field_regs = [r for r in regs if _bf(r)]
+    ro_regs = [r for r in regs if r["attr"] == "RO" and not _bf(r)]
+    w1c_regs = [r for r in regs if r["attr"] == "W1C" and not _bf(r)]
+    rsvd_regs = [r for r in regs if r["attr"] == "RSVD" and not _bf(r)]
+    rw_regs = [r for r in regs if r["attr"] == "RW" and not _bf(r)]
+    w1s_regs = [r for r in regs if r["attr"] == "W1S" and not _bf(r)]
+    rc_regs = [r for r in regs if r["attr"] == "RC" and not _bf(r)]
+
+    # 位域测试代码（列表构建）
+    fld_tb_lines = []
+    for r in field_regs:
+        fld_tb_lines.extend(field_tb_gen.build_field_test(r, aw, dw))
+    fld_tb_body = "\n".join(fld_tb_lines) if fld_tb_lines else \
+        "        // （规格中无位域寄存器）"
+
+    # ---- W1S / RC 整字测试体（列表构建）----
+    w1s_lines = []
+    for r in w1s_regs:
+        o = int(str(r["offset"]), 0)
+        w1s_lines.append(f'        // {r["name"]}: W1S 写 1 置位')
+        w1s_lines.append(f'        write_reg({aw}\'h{o:02X}, {dw}\'hFFFF_FFFF);')
+        w1s_lines.append(f'        read_reg({aw}\'h{o:02X}, d);')
+        w1s_lines.append(f'        checks++;')
+        w1s_lines.append(f'        if (d !== {dw}\'hFFFF_FFFF) begin')
+        w1s_lines.append(f'            $display("  [W1S] FAIL: {r["name"]} 写 1 未置位 d=%h", d);')
+        w1s_lines.append(f'            errors++;')
+        w1s_lines.append(f'        end')
+    w1s_body = "\n".join(w1s_lines) or "        // （规格中无整字 W1S 寄存器）"
+
+    rc_lines = []
+    for r in rc_regs:
+        o = int(str(r["offset"]), 0)
+        rv = int(str(r["reset"]), 0)
+        rc_lines.append(f'        // {r["name"]}: 复位值 0x{rv:08X}，读后应清零')
+        rc_lines.append(f'        read_reg({aw}\'h{o:02X}, d);   // 首读')
+        if rv != 0:
+            rc_lines.append(f'        checks++;')
+            rc_lines.append(f'        if (d !== {dw}\'h{rv:08X}) begin')
+            rc_lines.append(f'            $display("  [RC] FAIL: {r["name"]} 首读=%h expect {rv:08X}", d);')
+            rc_lines.append(f'            errors++;')
+            rc_lines.append(f'        end')
+        rc_lines.append(f'        read_reg({aw}\'h{o:02X}, d);   // 再读应为 0')
+        rc_lines.append(f'        checks++;')
+        rc_lines.append(f'        if (d !== \'0) begin')
+        rc_lines.append(f'            $display("  [RC] FAIL: {r["name"]} 读后未清零 d=%h", d);')
+        rc_lines.append(f'            errors++;')
+        rc_lines.append(f'        end')
+    rc_body = "\n".join(rc_lines) or "        // （规格中无整字 RC 寄存器）"
+
+    def off(r):
+        return int(str(r["offset"]), 0)
+
+    def rst(r):
+        return int(str(r["reset"]), 0)
+
+    ro_body = "\n".join(
+        f'        // {r["name"]}: 初始 0x{rst(r):08X}\n'
+        f'        read_reg({aw}\'h{off(r):02X}, d);\n'
+        f'        checks++;\n'
+        f'        if (d !== {dw}\'h{rst(r):08X}) begin\n'
+        f'            $display("  [RO] FAIL: {r["name"]} 初值=%h expect {rst(r):08X}", d);\n'
+        f'            errors++;\n'
+        f'        end\n'
+        f'        write_reg({aw}\'h{off(r):02X}, {dw}\'hFFFF_FFFF);   // 应被忽略\n'
+        f'        read_reg({aw}\'h{off(r):02X}, d);\n'
+        f'        checks++;\n'
+        f'        if (d !== {dw}\'h{rst(r):08X}) begin\n'
+        f'            $display("  [RO] FAIL: {r["name"]} 被写改动=%h", d);\n'
+        f'            errors++;\n'
+        f'        end'
+        for r in ro_regs
+    ) or "        // （规格中无 RO 寄存器）"
+
+    w1c_lines = []
+    for r in w1c_regs:
+        o = int(str(r["offset"]), 0)
+        rv = int(str(r["reset"]), 0)
+        w1c_lines.append(f'        // {r["name"]}: 复位值 0x{rv:08X}，写全 1 应清零')
+        if rv != 0:
+            # 关键：验证复位值非零，这样"清零"才可观测
+            w1c_lines.append(f'        read_reg({aw}\'h{o:02X}, d);')
+            w1c_lines.append(f'        checks++;')
+            w1c_lines.append(f'        if (d !== {dw}\'h{rv:08X}) begin')
+            w1c_lines.append(f'            $display("  [W1C] FAIL: {r["name"]} 复位值=%h expect {rv:08X}", d);')
+            w1c_lines.append(f'            errors++;')
+            w1c_lines.append(f'        end')
+        w1c_lines.append(f'        write_reg({aw}\'h{o:02X}, {dw}\'hFFFF_FFFF);')
+        w1c_lines.append(f'        read_reg({aw}\'h{o:02X}, d);')
+        w1c_lines.append(f'        checks++;')
+        w1c_lines.append(f'        if (d !== \'0) begin')
+        w1c_lines.append(f'            $display("  [W1C] FAIL: {r["name"]} 写 1 后应 0，实际=%h", d);')
+        w1c_lines.append(f'            errors++;')
+        w1c_lines.append(f'        end')
+    w1c_body = "\n".join(w1c_lines) or "        // （规格中无 W1C 寄存器）"
+
+    rsvd_body = "\n".join(
+        f'        // {r["name"]}: 读恒 0\n'
+        f'        write_reg({aw}\'h{off(r):02X}, {dw}\'hDEAD_BEEF);\n'
+        f'        read_reg({aw}\'h{off(r):02X}, d);\n'
+        f'        checks++;\n'
+        f'        if (d !== \'0) begin\n'
+        f'            $display("  [RSVD] FAIL: {r["name"]} 读应 0，实际=%h", d);\n'
+        f'            errors++;\n'
+        f'        end'
+        for r in rsvd_regs
+    ) or "        // （规格中无 RSVD 寄存器）"
+
+    rw_body = "\n".join(
+        f'        // {r["name"]}: 写随机值读回一致（seed 由寄存器偏移决定，可复现）\n'
+        f'        wv = $urandom(32\'h5EED_0000 + {off(r)});\n'
+        f'        write_reg({aw}\'h{off(r):02X}, wv);\n'
+        f'        read_reg({aw}\'h{off(r):02X}, d);\n'
+        f'        checks++;\n'
+        f'        if (d !== wv) begin\n'
+        f'            $display("  [RW] FAIL: {r["name"]} 写=%h 读=%h", wv, d);\n'
+        f'            errors++;\n'
+        f'        end'
+        for r in rw_regs
+    ) or "        // （规格中无 RW 寄存器）"
+
+    reg_map = "\n".join(
+        f"    //   0x{off(r):02X}  {r['name']:<12} {r['attr']:<5} reset=0x{rst(r):08X}"
+        for r in regs
+    )
+
+    return f"""// ============================================================================
+// tb_regfile_gen：属性验证（由 gen_regfile.py 从 regfile_spec.json 生成）
+// ============================================================================
+// ⚠️ 自动生成，勿手工编辑。
+//
+// 覆盖寄存器（{len(regs)} 个）：
+{reg_map}
+//
+// 数据位宽说明（避免误解覆盖范围）：
+//   本 TB 可参数化 DW，但位域写读向量使用 32 位常量
+//   （位域定义本身就是 32 位；门控/读清零验证只关心低位域）。
+//   DW=64 的完整数据通路见 tb_dw64_sv。
+// ============================================================================
+`ifndef TB_REGFILE_GEN_SV
+`define TB_REGFILE_GEN_SV
+`timescale 1ns / 1ps
+
+module tb_regfile_gen #(
+    parameter bit DUAL = 1'b0,   // 1=并发桥，0=串行桥（sim.sh 传 -GDUAL）
+    parameter int AW   = {aw},
+    parameter int DW   = {dw},
+    parameter int NREG = {nreg}
+);
+
+    import bus_txn_pkg::*;
+    import axi_defs_pkg::*;
+
+    logic ACLK = 0, ARESETn = 0;
+    always #5 ACLK = ~ACLK;
+
+    axi_lite_if #(.AW(AW), .DW(DW)) axi(ACLK);
+    apb_if      #(.AW(AW), .DW(DW)) apb(ACLK);
+
+    generate if (DUAL) begin : g_br
+        axi_apb_bridge_dual_sv #(.AW(AW), .DW(DW)) bridge (
+            .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb));
+    end else begin : g_br
+        axi_apb_bridge_sv #(.AW(AW), .DW(DW)) bridge (
+            .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi), .apb(apb));
+    end endgenerate
+    {mod} #(.AW(AW), .DW(DW), .NREG(NREG), .WAIT_CYCLES({bus.get('wait_cycles',2)})) dut (
+        .PCLK(ACLK), .PRESETn(ARESETn), .apb(apb)
+    );
+    axi_txn_host #(.AW(AW), .DW(DW)) host (
+        .ACLK(ACLK), .ARESETn(ARESETn), .axi(axi)
+    );
+
+    int errors = 0;
+    int checks = 0;
+
+    task automatic do_reset();
+        ARESETn = 0;
+        repeat (4) @(posedge ACLK);
+        ARESETn = 1;
+        repeat (2) @(posedge ACLK);
+    endtask
+
+    function automatic txn_t mk(input bit wr, input [AW-1:0] a, input [DW-1:0] d);
+        txn_t t;
+        t = '0;
+        t.write = wr; t.addr = a; t.data = d;
+        return t;
+    endfunction
+
+    task automatic write_reg(input [AW-1:0] a, input [DW-1:0] d);
+        txn_t t; rsp_t r;
+        t = mk(1'b1, a, d);
+        host.execute(t, r);
+        checks++;
+        if (r.resp !== RESP_OKAY) begin
+            $display("  [TB] FAIL: 写 addr=%0h resp=%s", a, resp_name(r.resp));
+            errors++;
+        end
+    endtask
+
+    task automatic read_reg(input [AW-1:0] a, output [DW-1:0] d);
+        txn_t t; rsp_t r;
+        t = mk(1'b0, a, '0);
+        host.execute(t, r);
+        checks++;
+        d = r.data;
+        if (r.resp !== RESP_OKAY) begin
+            $display("  [TB] FAIL: 读 addr=%0h resp=%s", a, resp_name(r.resp));
+            errors++;
+        end
+    endtask
+
+    logic [DW-1:0] d, wv, base;
+
+    initial begin
+        $display("======================================================");
+        $display(" generated regfile test ({len(regs)} registers)");
+        $display("======================================================");
+        do_reset();
+
+        $display("== RO 寄存器（只读）==");
+{ro_body}
+
+        $display("== W1C 寄存器（写 1 清零）==");
+{w1c_body}
+
+        $display("== RSVD 寄存器（保留）==");
+{rsvd_body}
+
+        $display("== RW 寄存器（读写）==");
+{rw_body}
+
+        $display("== W1S 寄存器（写 1 置位）==");
+{w1s_body}
+
+        $display("== RC 寄存器（读清零）==");
+{rc_body}
+
+        $display("== 位域寄存器（逐位属性验证）==");
+{fld_tb_body}
+
+        $display("== 越界访问（地址 >= NREG*4）==");
+        begin
+            automatic txn_t t; automatic rsp_t r; automatic logic [DW-1:0] keep;
+            // ⚠ 不能靠「读末寄存器记下值、越界写后再读回比对」——
+            //   末尾寄存器是 RC（读清零）属性，第一次读就把值清掉了，
+            //   第二次读必然不同，会产生假失败（本轮实测踩到）。
+            //   改用「先写确定值、越界写、再读」的路径，
+            //   且选一个 RW 属性的寄存器（这里用 SCRATCH/最后一个 RW）。
+            // 若找不到 RW，则退化为「只验证越界写返回 SLVERR」。
+
+            // 越界读：应 SLVERR 且数据为 0
+            t = mk(1'b0, AW'(NREG*4), '0);
+            host.execute(t, r);
+            checks++;
+            if (r.resp !== RESP_SLVERR) begin
+                $display("  [OOB] FAIL: 越界读 resp=%s（应 SLVERR）", resp_name(r.resp));
+                errors++;
+            end else if (r.data !== '0) begin
+                $display("  [OOB] FAIL: 越界读数据=%h（应为 0）", r.data);
+                errors++;
+            end else
+                $display("  ✓ 越界读 → SLVERR 且数据为 0");
+
+            // 越界写：应 SLVERR
+            t = mk(1'b1, AW'(NREG*4), 32'hDEAD_BEEF);
+            host.execute(t, r);
+            checks++;
+            if (r.resp !== RESP_SLVERR) begin
+                $display("  [OOB] FAIL: 越界写 resp=%s（应 SLVERR）", resp_name(r.resp));
+                errors++;
+            end else
+                $display("  ✓ 越界写 → SLVERR");
+
+            // 越界写后：合法地址仍应可正常读写（证明越界写没有打乱状态机/内存）
+            t = mk(1'b1, AW'(0), 32'h5A5A_1234);
+            host.execute(t, r);
+            checks++;
+            if (r.resp !== RESP_OKAY) begin
+                $display("  [OOB] FAIL: 越界写之后合法写失败 resp=%s", resp_name(r.resp));
+                errors++;
+            end else
+                $display("  ✓ 越界写之后合法写仍正常");
+        end
+
+        $display("------------------------------------------------------");
+        $display(" regfile-gen result: %0d checks, %0d errors", checks, errors);
+        if (errors == 0) begin
+            $display("PASS: generated regfile attributes");
+            $finish;
+        end else begin
+            $display("FAIL: %0d errors", errors);
+            $fatal(1, "generated regfile test failed");
+        end
+    end
+
+    initial begin
+        $dumpfile("tb_regfile_gen.vcd");
+        $dumpvars(0, tb_regfile_gen);
+    end
+
+endmodule
+`endif // TB_REGFILE_GEN_SV
+"""
+
+
+def gen_html(spec):
+    """生成寄存器手册 HTML"""
+    bus = spec["bus"]
+    aw = bus.get("addr_width", 8)
+    dw = bus.get("data_width", 32)
+    regs = sorted(spec["registers"], key=lambda r: int(str(r["offset"]), 0))
+
+    attr_color = {
+        "RO": ("#58a6ff", "只读：写忽略，读固定值"),
+        "RW": ("#3fb950", "读写：写什么读什么"),
+        "W1C": ("#d29922", "写 1 清零：写 1 的位清 0，写 0 保持"),
+        "RSVD": ("#8b949e", "保留：读 0，写忽略"),
+        "W1S": ("#bc8cff", "写 1 置位：写 1 的位变 1，写 0 保持"),
+        "RC": ("#f85149", "读清零：读完成拍清除为 0"),
+    }
+
+    rows = []
+    for r in regs:
+        off = int(str(r["offset"]), 0)
+        rst = int(str(r["reset"]), 0)
+        color, tip = attr_color[r["attr"]]
+        rows.append(f"""<tr>
+<td class="mono">0x{off:02X}</td>
+<td class="mono">[{off//(dw//8)}]</td>
+<td class="name">{html.escape(r['name'])}</td>
+<td><span class="attr" style="color:{color};border-color:{color}44">{r['attr']}</span></td>
+<td class="mono">0x{rst:08X}</td>
+<td class="desc">{html.escape(r.get('description',''))}</td>
+</tr>""")
+
+    # ---- 位域布局（文档特性）----
+    field_sections = []
+    for r in regs:
+        bfs = r.get("bitfields")
+        if not bfs:
+            continue
+        off = int(str(r["offset"]), 0)
+        frows = []
+        for f in sorted(bfs, key=lambda x: -int(str(x["bits"]).split(":")[0])
+                        if ":" in str(x["bits"]) else -int(str(x["bits"]))):
+            bs = str(f["bits"])
+            if ":" in bs:
+                hi, lo = [int(x) for x in bs.split(":")]
+            else:
+                hi = lo = int(bs)
+            color, tip = attr_color[f["attr"]]
+            frows.append(f"""<tr>
+<td class="mono">{hi}:{lo}</td>
+<td class="mono">[{hi}:{lo}]</td>
+<td class="name">{html.escape(f['name'])}</td>
+<td><span class="attr" style="color:{color};border-color:{color}44">{f['attr']}</span></td>
+<td class="desc">{html.escape(f.get('description',''))}</td></tr>""")
+        field_sections.append(f"""
+<h3 class="rf">{html.escape(r['name'])} 位域布局 <span class="rmono">@0x{off:02X}</span></h3>
+<table><thead><tr><th style="width:80px">位范围</th><th style="width:80px">索引</th>
+<th style="width:150px">位域名</th><th style="width:80px">属性</th><th>说明</th></tr></thead>
+<tbody>{''.join(frows)}</tbody></table>""")
+
+    fields_html = ("\n".join(field_sections)) if field_sections else \
+        '<p class="empty">本规格未定义位域布局。</p>'
+
+    # 统计
+    from collections import Counter
+    cnt = Counter(r["attr"] for r in regs)
+    stat_chips = "".join(
+        f'<span class="chip" style="color:{attr_color[a][0]}">{a}: {n}</span>'
+        for a, n in sorted(cnt.items())
+    )
+
+    attr_desc = "\n".join(
+        f'<div class="attrrow"><span class="attr" style="color:{c};border-color:{c}44">{a}</span>'
+        f'<span class="atip">{t}</span></div>'
+        for a, (c, t) in attr_color.items()
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>寄存器手册 · {html.escape(spec.get('module','regfile'))}</title>
+<style>
+:root{{--bg:#0d1117;--panel:#161b22;--bd:#30363d;--fg:#c9d1d9;--dim:#8b949e;
+--blue:#58a6ff;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:var(--bg);color:var(--fg);font:13.5px/1.6 -apple-system,"Segoe UI","Noto Sans SC",sans-serif;padding:0 0 50px}}
+.wrap{{max-width:1000px;margin:0 auto;padding:0 24px}}
+header{{border-bottom:1px solid var(--bd);padding:32px 0 22px;margin-bottom:26px}}
+h1{{font-size:23px;font-weight:650}}
+h1 small{{display:block;font-size:12.5px;color:var(--dim);font-weight:400;margin-top:8px}}
+.meta{{display:flex;gap:20px;margin-top:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--dim)}}
+.meta b{{color:var(--blue);font-weight:600}}
+h2{{font-size:16.5px;margin:28px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--bd)}}
+table{{width:100%;border-collapse:collapse;font-size:12.5px}}
+th,td{{padding:9px 11px;border-bottom:1px solid #21262d;text-align:left}}
+th{{color:var(--dim);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;background:#11151b}}
+tbody tr:hover{{background:#11151b}}
+.mono{{font-family:var(--mono);color:#79c0ff}}
+.name{{font-family:var(--mono);font-weight:600;color:#eaf2fa}}
+.attr{{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:1px 7px;
+border:1px solid;border-radius:4px}}
+.desc{{color:#8b949e;font-size:12px}}
+.chip{{font-family:var(--mono);font-size:11.5px;padding:3px 10px;border:1px solid var(--bd);
+border-radius:5px;margin-right:8px;background:var(--panel)}}
+.attrrow{{display:flex;gap:14px;align-items:baseline;padding:8px 0;border-bottom:1px solid #21262d}}
+.atip{{font-size:12.5px;color:#8b949e}}
+pre{{background:#0b1017;border:1px solid #222c37;border-radius:8px;padding:14px 16px;
+font-family:var(--mono);font-size:12px;color:#b8c8d8;overflow-x:auto}}
+h3.rf{{font-size:14px;margin:22px 0 10px;color:#eaf2fa}}
+.rmono{{font-family:var(--mono);font-size:12px;color:var(--blue);font-weight:400}}
+.note{{font-size:12.5px;color:#8b949e;background:#11151b;border-left:3px solid var(--blue);
+padding:10px 14px;border-radius:5px;margin-bottom:14px}}
+.empty{{color:#6e7681;font-size:12.5px;padding:10px 0}}
+footer{{margin-top:34px;padding-top:16px;border-top:1px solid var(--bd);color:#6e7681;font-size:11.5px}}
+code{{font-family:var(--mono);background:#0d1117;border:1px solid #21262d;padding:1px 5px;
+border-radius:4px;color:#79c0ff}}
+</style></head><body><div class="wrap">
+<header>
+<h1>{html.escape(spec.get('module','regfile'))} · 寄存器手册
+<small>由 gen_regfile.py 从 regfile_spec.json 生成 · 规格是唯一事实来源</small></h1>
+<div class="meta">
+<span>地址位宽 <b>{aw}</b></span>
+<span>数据位宽 <b>{dw}</b></span>
+<span>寄存器数 <b>{len(regs)}</b></span>
+<span>wait states <b>{bus.get('wait_cycles',2)}</b></span>
+</div>
+<div style="margin-top:14px">{stat_chips}</div>
+</header>
+
+<h2>地址映射表</h2>
+<table><thead><tr>
+<th style="width:80px">偏移</th><th style="width:55px">索引</th>
+<th style="width:150px">名称</th><th style="width:80px">属性</th>
+<th style="width:110px">复位值</th><th>说明</th>
+</tr></thead><tbody>{''.join(rows)}</tbody></table>
+
+<h2>寄存器属性语义</h2>
+{attr_desc}
+
+<h2>位域布局</h2>
+<p class="note">注：位域布局为<strong>文档特性</strong>，RTL 按整字属性实现。
+如需按位域独立属性（同一寄存器内 RW/RO/W1C 混合），需扩展生成器的
+RTL 变换逻辑。</p>
+{fields_html}
+
+<h2>验证覆盖</h2>
+<pre><span style="color:#5b7186"># 生成 RTL + TB + 本手册</span>
+python3 verilog/axi/gen_regfile.py
+
+<span style="color:#5b7186"># 运行生成的测试</span>
+bash verilog/sim.sh regfilegen</pre>
+
+<footer>
+生成命令 <code>python3 gen_regfile.py</code> ·
+规格 <code>regfile_spec.json</code> ·
+生成物 <code>sv/apb_slave_regfile_gen.sv</code>、<code>sv/tb_regfile_gen.sv</code>
+</footer>
+</div></body></html>"""
+
+
+def validate_fields_structure(spec):
+    """校验位域结构：不重叠 + 完整覆盖数据位宽
+
+    背景：位域定义错位/重叠会导致掩码写错，而「逐域测试」很难发现
+    （每个域单独测都可能通过，但组合起来互相踩）。
+    """
+    errs = []
+    dw = spec.get("bus", {}).get("data_width", 32)
+    for r in spec.get("registers", []):
+        fields = r.get("fields", [])
+        if not fields:
+            continue
+        name = r.get("name", "?")
+        covered = {}
+        for f in fields:
+            bits = str(f.get("bits", ""))
+            try:
+                if ":" in bits:
+                    msb, lsb = map(int, bits.split(":"))
+                else:
+                    msb = lsb = int(bits)
+            except ValueError:
+                errs.append(f"{name}.{f.get('name','?')}: bits 格式非法（{bits}）")
+                continue
+            if msb >= dw or lsb < 0 or msb < lsb:
+                errs.append(f"{name}.{f.get('name','?')}: 位范围 [{msb}:{lsb}] 越界（DW={dw}）")
+                continue
+            for b in range(lsb, msb + 1):
+                if b in covered:
+                    errs.append(f"{name}: 位 {b} 被 {covered[b]} 与 {f['name']} 重叠覆盖")
+                covered[b] = f["name"]
+        missing = [b for b in range(dw) if b not in covered]
+        if missing:
+            # 未覆盖位按惯例视为保留，但必须显式声明
+            errs.append(f"{name}: 位 {missing} 未被任何域覆盖（请显式加 RSVD 域）")
+    return errs
+
+
+def main():
+    spec_path = DEFAULT_SPEC
+    args = sys.argv[1:]
+    if "--spec" in args:
+        spec_path = Path(args[args.index("--spec") + 1])
+
+    spec = load_spec(spec_path)
+    print(f"读取规格: {spec_path.name}")
+
+    errs = validate(spec)
+    # 位域结构校验：不重叠 + 完整覆盖（防止掩码写错，逐域测试难发现）
+    errs += validate_fields_structure(spec)
+    if errs:
+        print("\n❌ 规格校验失败：", file=sys.stderr)
+        for e in errs:
+            print("   -", e, file=sys.stderr)
+        sys.exit(1)
+    regs = spec["registers"]
+    print(f"✅ 规格校验通过：{len(regs)} 个寄存器")
+    from collections import Counter
+    cnt = Counter(r["attr"] for r in regs)
+    print("   属性分布: " + " · ".join(f"{a}={n}" for a, n in sorted(cnt.items())))
+
+    mod = spec.get("module", "apb_slave_regfile_gen")
+
+    rtl_path = SV / f"{mod}.sv"
+    rtl_path.write_text(gen_rtl(spec), encoding="utf-8")
+    print(f"\n已生成 RTL: {rtl_path.name}  ({rtl_path.stat().st_size} 字节)")
+
+    tb_path = SV / "tb_regfile_gen.sv"
+    tb_path.write_text(gen_tb(spec), encoding="utf-8")
+    print(f"已生成 TB : {tb_path.name}  ({tb_path.stat().st_size} 字节)")
+
+    html_path = HERE / "REGFILE.html"
+    txt = gen_html(spec)
+    html_path.write_text(txt, encoding="utf-8")
+    print(f"已生成手册: {html_path.name}  ({len(txt)} 字节)")
+
+
+if __name__ == "__main__":
+    main()

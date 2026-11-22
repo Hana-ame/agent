@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install ruff
+        run: python -m pip install ruff
+
+      - name: ruff check
+        run: ruff check --output-format=github fpga_toolbox tests
+
+      - name: Syntax gate for Python 3.10
+        run: |
+          python - <<'PY'
+          import ast, pathlib, sys
+
+          bad = []
+          for root in ("fpga_toolbox", "tests"):
+              for path in pathlib.Path(root).rglob("*.py"):
+                  try:
+                      ast.parse(path.read_text(encoding="utf-8"), feature_version=(3, 10))
+                  except SyntaxError as exc:
+                      bad.append(f"{path}:{exc.lineno}: {exc.msg}")
+          if bad:
+              print("\n".join(bad))
+              sys.exit("files above do not parse under Python 3.10")
+          print("all modules parse under Python 3.10")
+          PY
+
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.11"
+          - os: ubuntu-latest
+            python: "3.13"
+          - os: windows-latest
+            python: "3.13"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install runtime deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pyyaml>=6.0"
+
+      - name: Core regression suite
+        run: python tests/test_regression.py
+
+      - name: Fusion & cross-repo AXI/APB benchmark suite
+        run: python tests/test_fusion_and_cross_repo.py
+
+      - name: Self-audit gate (anti-silent-pass)
+        run: python -m fpga_toolbox audit_harness
+
+      - name: CLI & MCP schema contract
+        run: |
+          python -m fpga_toolbox list
+          python -m fpga_toolbox schemas
+
+      - name: Install package
+        run: python -m pip install .
+
+      - name: Console entry point
+        run: fpga-toolbox list
+
+  build:
+    name: build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Verify wheel imports and runs
+        run: |
+          python -m pip install dist/*.whl
+          python -c "import fpga_toolbox; print('version', fpga_toolbox.__version__)"
+          fpga-toolbox list
+          fpga-toolbox audit_harness
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
