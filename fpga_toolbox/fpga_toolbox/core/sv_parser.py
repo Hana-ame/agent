@@ -418,14 +418,21 @@ def _run_slang(
     # 提供默认 timescale 消除这类报错，让 stderr 里只剩真正的问题。
     timescale_args = ["--timescale", "1ns/1ps"]
 
-    attempts: List[List[str]] = []
+    attempts: List[Tuple[List[str], bool]] = []  # (cmd, is_single_file_attempt)
+    # 顺序关键：**先只编译目标文件**，失败才带同目录依赖文件重试。
+    # 旧实现反过来（先带 *_if.sv/*_pkg.sv），会把依赖文件里的模块也解析进
+    # 结果——实测 /tmp/ghsv 下 gen_mux.v + arr_if.sv 同目录时，extract 把
+    # arr_if.sv 的 arr_user/axi_bus 也算成 gen_mux.v 的模块（多出 2 个不
+    # 属于目标文件的模块）。先单文件可保证「只返回目标文件的模块」，只有
+    # 目标文件真有跨文件依赖（import/interface）解析失败时才带上依赖重试。
+    attempts.append(([slang_bin, "--ast-json", "-", *inc_args, *timescale_args, rtl_arg], True))
     if extra_files:
-        attempts.append(
-            [slang_bin, "--ast-json", "-", *inc_args, *timescale_args, *extra_files, rtl_arg]
-        )
-    attempts.append([slang_bin, "--ast-json", "-", *inc_args, *timescale_args, rtl_arg])
+        attempts.append((
+            [slang_bin, "--ast-json", "-", *inc_args, *timescale_args, *extra_files, rtl_arg],
+            False,
+        ))
 
-    for cmd in attempts:
+    for cmd, is_single_file in attempts:
         attempt_diags: List[str] = []
         try:
             proc = subprocess.run(
@@ -457,10 +464,12 @@ def _run_slang(
             attempt_diags.append(f"slang AST JSON parse error: {exc}")
             diags.extend(attempt_diags)
             continue
-        # 该 attempt 拿到合法 JSON：它的 stderr 才是真实诊断。
-        # 注意不要把「后续 attempt 的失败诊断」累加进来（attempt 2 是
-        # 只编译单文件的兜底，对含 SV interface 的文件必然报 unknown
-        # interface，那是预期噪声，不是真实问题）。
+        # 该 attempt 拿到合法 JSON。若是「只编译单文件」的 attempt 1 成功，
+        # 它的 stderr 里会有 unknown interface/package 之类**预期噪声**（单文件
+        # 必然缺跨文件定义），不应作为 W013 报给调用方。只有 attempt 2（带依赖）
+        # 的 stderr 才是真实诊断。
+        if is_single_file:
+            attempt_diags = []
         return tree, attempt_diags
     return None, diags
 
